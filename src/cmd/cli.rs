@@ -13,13 +13,37 @@ pub struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Initialise a Sherpa environment
-    #[command(arg_required_else_help = true)]
-    Init { config: String },
+    Init {
+        #[arg(default_value = "sherpa.toml")]
+        config_file: String,
+    },
+    /// Build environment
+    Up,
+    /// Stop environment
+    Down,
+    /// Destroy environment
+    Destroy,
 }
 
 impl Cli {
     pub fn start() -> Cli {
         let cli = Cli::parse();
+
+        match &cli.commands {
+            Commands::Init { config_file } => {
+                println!("Initializing with config file: {config_file}");
+            }
+            Commands::Up => {
+                println!("Building environment");
+            }
+            Commands::Down => {
+                println!("Stopping environment");
+            }
+            Commands::Destroy => {
+                println!("Destroying environment");
+            }
+        }
+
         cli
     }
 }
@@ -27,7 +51,7 @@ impl Cli {
 impl Default for Commands {
     fn default() -> Self {
         Commands::Init {
-            config: "sherpa.toml".to_owned(),
+            config_file: "sherpa.toml".to_owned(),
         }
     }
 }
