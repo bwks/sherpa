@@ -1,3 +1,7 @@
+mod cmd;
+
+use cmd::Cli;
+
 fn main() {
-    println!("Hello, world!");
+    let _cli = Cli::start();
 }
