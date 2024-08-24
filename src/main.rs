@@ -1,5 +1,6 @@
 mod cmd;
 mod core;
+mod model;
 mod topology;
 
 use std::process::ExitCode;

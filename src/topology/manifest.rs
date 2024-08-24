@@ -4,6 +4,7 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use super::{Connection, Device};
+use crate::model::{DeviceModel, DeviceModels};
 
 use crate::core::konst::MANIFEST_FILENAME;
 
@@ -22,7 +23,15 @@ impl Manifest {
     }
     pub fn load_file(&self) -> Result<()> {
         let file_contents = fs::read_to_string(MANIFEST_FILENAME)?;
-        let manifest: Manifest = toml::from_str(&file_contents)?;
+        let mut manifest: Manifest = toml::from_str(&file_contents)?;
+
+        // for device in &mut manifest.devices {
+        //     match DeviceModels::from_str(&device.device_type) {
+        //         DeviceModels::Cat9kv => device.device_model = Some(DeviceModel::cisco_cat9kv()),
+        //         _ => println!("Device model not supported yet"),
+        //     }
+        // }
+
         println!("{:#?}", manifest);
 
         Ok(())
