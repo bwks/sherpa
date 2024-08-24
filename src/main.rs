@@ -1,7 +1,10 @@
 mod cmd;
+mod core;
+mod topology;
 
 use cmd::Cli;
+use core::Config;
 
 fn main() {
-    let _cli = Cli::start();
+    Cli::start();
 }

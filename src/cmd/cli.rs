@@ -1,6 +1,9 @@
 use clap::{Parser, Subcommand};
 
-#[derive(Default, Parser)]
+use crate::core::konst::CONFIG_FILENAME;
+use crate::core::Config;
+
+#[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
 #[command(bin_name = "sherpa")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
@@ -14,7 +17,7 @@ pub struct Cli {
 enum Commands {
     /// Initialise a Sherpa environment
     Init {
-        #[arg(default_value = "sherpa.toml")]
+        #[arg(default_value = CONFIG_FILENAME)]
         config_file: String,
     },
     /// Build environment
@@ -26,12 +29,14 @@ enum Commands {
 }
 
 impl Cli {
-    pub fn start() -> Cli {
+    pub fn start() -> Config {
         let cli = Cli::parse();
+        let mut config = Config::default();
 
         match &cli.commands {
             Commands::Init { config_file } => {
-                println!("Initializing with config file: {config_file}");
+                config.name = config_file.to_owned();
+                println!("Initializing with config file: {:#?}", config.name);
             }
             Commands::Up => {
                 println!("Building environment");
@@ -44,14 +49,14 @@ impl Cli {
             }
         }
 
-        cli
+        config
     }
 }
 
 impl Default for Commands {
     fn default() -> Self {
         Commands::Init {
-            config_file: "sherpa.toml".to_owned(),
+            config_file: CONFIG_FILENAME.to_owned(),
         }
     }
 }
