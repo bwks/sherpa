@@ -1,10 +1,11 @@
-use crate::topology::Device;
+use serde_derive::{Deserialize, Serialize};
 
-use super::Interface;
+use super::{Device, Interface};
 
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Connection {
-    device_a: Device,
-    interface_a: Interface,
-    device_b: Device,
-    interface_b: Interface,
+    device_a: String,
+    interface_a: u8,
+    device_b: String,
+    interface_b: u8,
 }

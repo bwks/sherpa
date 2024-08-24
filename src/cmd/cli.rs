@@ -1,7 +1,10 @@
+use anyhow::Result;
+
 use clap::{Parser, Subcommand};
 
 use crate::core::konst::CONFIG_FILENAME;
 use crate::core::Config;
+use crate::topology::Manifest;
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -29,17 +32,21 @@ enum Commands {
 }
 
 impl Cli {
-    pub fn start() -> Config {
+    pub fn run() -> Result<()> {
         let cli = Cli::parse();
         let mut config = Config::default();
+        let manifest = Manifest::default();
 
         match &cli.commands {
             Commands::Init { config_file } => {
                 config.name = config_file.to_owned();
                 println!("Initializing with config file: {:#?}", config.name);
+                config.write_file()?;
+                manifest.write_file()?;
             }
             Commands::Up => {
                 println!("Building environment");
+                manifest.load_file()?;
             }
             Commands::Down => {
                 println!("Stopping environment");
@@ -49,7 +56,7 @@ impl Cli {
             }
         }
 
-        config
+        Ok(())
     }
 }
 
