@@ -6,7 +6,6 @@ mod topology;
 use std::process::ExitCode;
 
 use cmd::Cli;
-use core::Config;
 
 fn main() -> ExitCode {
     match Cli::run() {

@@ -4,7 +4,6 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use super::{Connection, Device};
-use crate::model::{DeviceModel, DeviceModels};
 
 use crate::core::konst::MANIFEST_FILENAME;
 

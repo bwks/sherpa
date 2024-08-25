@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::Result;
 use serde_derive::Serialize;
 
-use super::konst::{CONFIG_FILENAME, DEVICE_MODELS_FILENAME};
+use super::konst::CONFIG_FILENAME;
 use crate::model::DeviceModel;
 
 #[derive(Serialize)]
