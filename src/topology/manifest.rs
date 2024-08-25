@@ -25,13 +25,6 @@ impl Manifest {
         let file_contents = fs::read_to_string(MANIFEST_FILENAME)?;
         let mut manifest: Manifest = toml::from_str(&file_contents)?;
 
-        // for device in &mut manifest.devices {
-        //     match DeviceModels::from_str(&device.device_type) {
-        //         DeviceModels::Cat9kv => device.device_model = Some(DeviceModel::cisco_cat9kv()),
-        //         _ => println!("Device model not supported yet"),
-        //     }
-        // }
-
         println!("{:#?}", manifest);
 
         Ok(())

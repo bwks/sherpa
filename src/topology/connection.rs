@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Device, Interface};
+use super::Device;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Connection {

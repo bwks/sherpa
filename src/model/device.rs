@@ -1,25 +1,23 @@
-use std::default;
-
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum DeviceModels {
-    Cat9kv,
-    Iosv,
-    Eos,
+    CiscoCat9kv,
+    CiscoIosv,
+    AristaEos,
     Error(String),
 }
-impl DeviceModels {
-    pub fn from_str(model: &str) -> DeviceModels {
-        match model {
-            "cat9kv" => DeviceModels::Cat9kv,
-            "iosv" => DeviceModels::Iosv,
-            "eos" => DeviceModels::Eos,
-            other => DeviceModels::Error(other.to_string()),
-        }
-    }
-}
+// impl DeviceModels {
+//     pub fn from_str(model: &str) -> DeviceModels {
+//         match model {
+//             "cisco_cat9kv" => DeviceModels::CiscoCat9kv,
+//             "cisco_iosv" => DeviceModels::CiscoIosv,
+//             "arista_eos" => DeviceModels::AristaEos,
+//             other => DeviceModels::Error(other.to_string()),
+//         }
+//     }
+// }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -54,7 +52,7 @@ pub struct DeviceModel {
 impl DeviceModel {
     pub fn cisco_cat9kv() -> DeviceModel {
         DeviceModel {
-            name: DeviceModels::Cat9kv,
+            name: DeviceModels::CiscoCat9kv,
             os_type: OsTypes::Iosxe,
             manufacturer: Manufacturers::Cisco,
             num_interfaces: 8,
