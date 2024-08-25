@@ -4,6 +4,7 @@ use clap::{Parser, Subcommand};
 
 use crate::core::konst::CONFIG_FILENAME;
 use crate::core::Config;
+use crate::model::DeviceModel;
 use crate::topology::Manifest;
 
 #[derive(Default, Debug, Parser)]

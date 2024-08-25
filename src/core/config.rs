@@ -3,17 +3,27 @@ use std::fs;
 use anyhow::Result;
 use serde_derive::Serialize;
 
-use super::konst::CONFIG_FILENAME;
+use super::konst::{CONFIG_FILENAME, DEVICE_MODELS_FILENAME};
+use crate::model::DeviceModel;
 
 #[derive(Serialize)]
 pub struct Config {
     pub name: String,
+    device_models: Vec<DeviceModel>,
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let mut device_models: Vec<DeviceModel> = vec![];
+
+        device_models.push(DeviceModel::cisco_csr1000v());
+        device_models.push(DeviceModel::cisco_cat9000v());
+        device_models.push(DeviceModel::cisco_iosv());
+        device_models.push(DeviceModel::cisco_iosxrv9000());
+
         Config {
             name: CONFIG_FILENAME.to_owned(),
+            device_models,
         }
     }
 }

@@ -23,7 +23,7 @@ impl Manifest {
     }
     pub fn load_file(&self) -> Result<()> {
         let file_contents = fs::read_to_string(MANIFEST_FILENAME)?;
-        let mut manifest: Manifest = toml::from_str(&file_contents)?;
+        let manifest: Manifest = toml::from_str(&file_contents)?;
 
         println!("{:#?}", manifest);
 
