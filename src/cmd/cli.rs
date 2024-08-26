@@ -2,6 +2,8 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
+use virt::connect::Connect;
+
 use crate::core::konst::CONFIG_FILENAME;
 use crate::core::Config;
 use crate::topology::Manifest;
@@ -47,6 +49,9 @@ impl Cli {
             Commands::Up => {
                 println!("Building environment");
                 manifest.load_file()?;
+
+                let conn = Connect::open(Some("qemu:///system")).unwrap();
+                println!("Connected to hypervisor: {:?}", conn);
             }
             Commands::Down => {
                 println!("Stopping environment");
