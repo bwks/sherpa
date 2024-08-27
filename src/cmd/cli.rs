@@ -52,6 +52,12 @@ impl Cli {
 
                 let conn = Connect::open(Some("qemu:///system")).unwrap();
                 println!("Connected to hypervisor: {:?}", conn);
+
+                let domains = conn.list_all_domains(0).unwrap();
+                for domain in domains {
+                    println!("VM Name: {:?}", domain.get_name().unwrap());
+                    // println!("VM XML: {:?}", domain.get_xml_desc(0));
+                }
             }
             Commands::Down => {
                 println!("Stopping environment");

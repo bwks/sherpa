@@ -16,10 +16,16 @@ impl Default for Config {
     fn default() -> Self {
         let mut device_models: Vec<DeviceModel> = vec![];
 
+        device_models.push(DeviceModel::arista_veos());
         device_models.push(DeviceModel::cisco_csr1000v());
         device_models.push(DeviceModel::cisco_cat9000v());
-        device_models.push(DeviceModel::cisco_iosv());
+        device_models.push(DeviceModel::cisco_cat8000v());
         device_models.push(DeviceModel::cisco_iosxrv9000());
+        device_models.push(DeviceModel::cisco_nexus9300v());
+        device_models.push(DeviceModel::cisco_iosv());
+        device_models.push(DeviceModel::cisco_iosvl2());
+        device_models.push(DeviceModel::nokia_sros());
+        device_models.push(DeviceModel::nvidia_cumulus());
 
         Config {
             name: CONFIG_FILENAME.to_owned(),
