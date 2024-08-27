@@ -36,9 +36,8 @@ impl Default for Config {
 
 impl Config {
     pub fn write_file(&self) -> Result<()> {
-        let toml_string = toml::to_string(&self)?;
+        let toml_string = toml::to_string_pretty(&self)?;
         fs::write(CONFIG_FILENAME, toml_string)?;
-
         Ok(())
     }
 }
