@@ -2,10 +2,9 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
-use virt::connect::Connect;
-
 use crate::core::konst::CONFIG_FILENAME;
 use crate::core::Config;
+use crate::libvirt::Qemu;
 use crate::topology::Manifest;
 
 #[derive(Default, Debug, Parser)]
@@ -59,10 +58,10 @@ impl Cli {
                 println!("Destroying environment");
             }
             Commands::Inspect => {
-                let conn = Connect::open(Some("qemu:///system")).unwrap();
-                println!("Connected to hypervisor: {:?}", conn);
+                let qemu = Qemu::default();
+                let qemu_conn = qemu.connect()?;
 
-                let domains = conn.list_all_domains(0).unwrap();
+                let domains = qemu_conn.list_all_domains(0).unwrap();
                 for domain in domains {
                     println!("VM Name: {:?}", domain.get_name().unwrap());
                     // println!("VM XML: {:?}", domain.get_xml_desc(0));

@@ -1,5 +1,6 @@
 mod cmd;
 mod core;
+mod libvirt;
 mod model;
 mod topology;
 
