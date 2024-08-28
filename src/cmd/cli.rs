@@ -31,6 +31,8 @@ enum Commands {
     Down,
     /// Destroy environment
     Destroy,
+    /// Inspect environment
+    Inspect,
 }
 
 impl Cli {
@@ -49,7 +51,14 @@ impl Cli {
             Commands::Up => {
                 println!("Building environment");
                 manifest.load_file()?;
-
+            }
+            Commands::Down => {
+                println!("Stopping environment");
+            }
+            Commands::Destroy => {
+                println!("Destroying environment");
+            }
+            Commands::Inspect => {
                 let conn = Connect::open(Some("qemu:///system")).unwrap();
                 println!("Connected to hypervisor: {:?}", conn);
 
@@ -58,12 +67,6 @@ impl Cli {
                     println!("VM Name: {:?}", domain.get_name().unwrap());
                     // println!("VM XML: {:?}", domain.get_xml_desc(0));
                 }
-            }
-            Commands::Down => {
-                println!("Stopping environment");
-            }
-            Commands::Destroy => {
-                println!("Destroying environment");
             }
         }
 
