@@ -5,10 +5,11 @@ use serde_derive::Serialize;
 
 use super::konst::CONFIG_FILENAME;
 use crate::model::DeviceModel;
-
+use crate::model::VmProviders;
 #[derive(Serialize)]
 pub struct Config {
     pub name: String,
+    vm_provider: VmProviders,
     device_models: Vec<DeviceModel>,
 }
 
@@ -29,6 +30,7 @@ impl Default for Config {
 
         Config {
             name: CONFIG_FILENAME.to_owned(),
+            vm_provider: VmProviders::default(),
             device_models,
         }
     }
