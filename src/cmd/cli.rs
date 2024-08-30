@@ -1,14 +1,14 @@
 use std::fs;
 
 use anyhow::Result;
-
+use askama::Template;
 use clap::{Parser, Subcommand};
 
 use crate::core::konst::CONFIG_FILENAME;
 use crate::core::Config;
+use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::topology::Manifest;
-
 use virt::domain::Domain;
 
 #[derive(Default, Debug, Parser)]
@@ -55,23 +55,33 @@ impl Cli {
                 println!("Building environment");
                 manifest.load_file()?;
 
-                let qemu = Qemu::default();
-                let qemu_conn = qemu.connect()?;
+                let template = DomainTemplate {
+                    name: "iosv",
+                    cpus: 1,
+                    memory: 1024,
+                };
 
-                // Load the XML configuration from a file
-                let xml_path = "iosv_test.xml"; // Replace with the actual path to your XML file
-                let xml_data = fs::read_to_string(xml_path)
-                    .expect("Failed to read the XML configuration file");
+                // Render the XML document
+                let rendered_xml = template.render().unwrap();
+                println!("{}", rendered_xml);
+                /*
+                    let qemu = Qemu::default();
+                    let qemu_conn = qemu.connect()?;
+                    // Load the XML configuration from a file
+                    let xml_path = "iosv_test.xml"; // Replace with the actual path to your XML file
+                    let xml_data = fs::read_to_string(xml_path)
+                        .expect("Failed to read the XML configuration file");
 
-                // Define the domain (VM) using the XML data
-                let domain =
-                    Domain::define_xml(&qemu_conn, &xml_data).expect("Failed to define the domain");
+                    // Define the domain (VM) using the XML data
+                    let domain =
+                        Domain::define_xml(&qemu_conn, &xml_data).expect("Failed to define the domain");
 
-                println!("Domain defined: {:?}", domain.get_name().unwrap());
+                    println!("Domain defined: {:?}", domain.get_name().unwrap());
 
-                // Optionally start the VM
-                domain.create().expect("Failed to start the domain");
-                println!("Domain started: {:?}", domain.get_name().unwrap());
+                    // Optionally start the VM
+                    domain.create().expect("Failed to start the domain");
+                    println!("Domain started: {:?}", domain.get_name().unwrap());
+                */
             }
             Commands::Down => {
                 println!("Stopping environment");
