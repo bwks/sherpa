@@ -9,3 +9,7 @@ Vagrant re-imagined.
 
 ## Hypervisor Support
 - Initially only KVM/QEMU will be supported
+
+
+## Goals 
+- HTTP/TFTP/PXE boot server options
