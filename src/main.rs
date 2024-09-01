@@ -3,6 +3,7 @@ mod core;
 mod libvirt;
 mod model;
 mod topology;
+mod util;
 
 use std::process::ExitCode;
 

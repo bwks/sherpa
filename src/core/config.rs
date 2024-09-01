@@ -3,13 +3,14 @@ use std::fs;
 use anyhow::Result;
 use serde_derive::Serialize;
 
-use super::konst::CONFIG_FILENAME;
+use super::konst::{CONFIG_FILENAME, QEMU_BIN};
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
 #[derive(Serialize)]
 pub struct Config {
     pub name: String,
     vm_provider: VmProviders,
+    qemu_bin: String,
     device_models: Vec<DeviceModel>,
 }
 
@@ -31,6 +32,7 @@ impl Default for Config {
         Config {
             name: CONFIG_FILENAME.to_owned(),
             vm_provider: VmProviders::default(),
+            qemu_bin: QEMU_BIN.to_owned(),
             device_models,
         }
     }

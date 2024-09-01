@@ -4,11 +4,17 @@ use anyhow::Result;
 use askama::Template;
 use clap::{Parser, Subcommand};
 
-use crate::core::konst::CONFIG_FILENAME;
+use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, QEMU_BIN};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
+use crate::model::{
+    CpuArchitecture, DeviceModel, DeviceModels, InterfaceTypes, MachineTypes, Manufacturers,
+    OsVariants,
+};
 use crate::topology::Manifest;
+use crate::util::random_mac_suffix;
+
 use virt::domain::Domain;
 
 #[derive(Default, Debug, Parser)]
@@ -55,33 +61,46 @@ impl Cli {
                 println!("Building environment");
                 manifest.load_file()?;
 
-                let template = DomainTemplate {
-                    name: "iosv",
-                    cpus: 1,
+                let device: DeviceModel = DeviceModel {
+                    name: DeviceModels::CiscoIosv,
+                    os_variant: OsVariants::Ios,
+                    manufacturer: Manufacturers::Cisco,
+                    interface_count: 8,
+                    interface_prefix: "Gig0/".to_owned(),
+                    interface_type: InterfaceTypes::E1000,
+                    cpu_count: 1,
+                    cpu_architecture: CpuArchitecture::X86_64,
+                    machine_type: MachineTypes::Pc_Q35_6_2,
                     memory: 1024,
+                };
+
+                let template = DomainTemplate {
+                    name: "iosv".to_owned(),
+                    cpu_count: device.cpu_count,
+                    cpu_architecture: device.cpu_architecture,
+                    machine_type: device.machine_type,
+                    memory: device.memory,
+                    qemu_bin: QEMU_BIN.to_owned(),
+                    boot_disk: "/home/bradmin/Documents/code/rust/sherpa/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2".to_owned(),
+                    mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
                 };
 
                 // Render the XML document
                 let rendered_xml = template.render().unwrap();
                 println!("{}", rendered_xml);
-                /*
-                    let qemu = Qemu::default();
-                    let qemu_conn = qemu.connect()?;
-                    // Load the XML configuration from a file
-                    let xml_path = "iosv_test.xml"; // Replace with the actual path to your XML file
-                    let xml_data = fs::read_to_string(xml_path)
-                        .expect("Failed to read the XML configuration file");
 
-                    // Define the domain (VM) using the XML data
-                    let domain =
-                        Domain::define_xml(&qemu_conn, &xml_data).expect("Failed to define the domain");
+                let qemu = Qemu::default();
+                let qemu_conn = qemu.connect()?;
 
-                    println!("Domain defined: {:?}", domain.get_name().unwrap());
+                // Define the domain (VM) using the XML data
+                let domain = Domain::define_xml(&qemu_conn, &rendered_xml)
+                    .expect("Failed to define the domain");
 
-                    // Optionally start the VM
-                    domain.create().expect("Failed to start the domain");
-                    println!("Domain started: {:?}", domain.get_name().unwrap());
-                */
+                println!("Domain defined: {:?}", domain.get_name().unwrap());
+
+                // Optionally start the VM
+                domain.create().expect("Failed to start the domain");
+                println!("Domain started: {:?}", domain.get_name().unwrap());
             }
             Commands::Down => {
                 println!("Stopping environment");

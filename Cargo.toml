@@ -20,3 +20,9 @@ virt = { version = "0.4.0", features = ["qemu"] }
 
 # Templates
 askama = "0.12.1"
+
+# Random number generator
+rand = "0.8.5"
+
+# Docker Integration
+# bollard = "0.17.1"
