@@ -77,6 +77,15 @@ pub enum InterfaceTypes {
     Virtio,
     Vmxnet3,
 }
+impl fmt::Display for InterfaceTypes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            InterfaceTypes::E1000 => write!(f, "e1000"),
+            InterfaceTypes::Virtio => write!(f, "virtio"),
+            InterfaceTypes::Vmxnet3 => write!(f, "vmxnet3"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DeviceModel {

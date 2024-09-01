@@ -9,8 +9,8 @@ use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{
-    CpuArchitecture, DeviceModel, DeviceModels, InterfaceTypes, MachineTypes, Manufacturers,
-    OsVariants,
+    CpuArchitecture, DeviceModel, DeviceModels, Interface, InterfaceTypes, MachineTypes,
+    Manufacturers, OsVariants,
 };
 use crate::topology::Manifest;
 use crate::util::random_mac_suffix;
@@ -73,6 +73,14 @@ impl Cli {
                     machine_type: MachineTypes::Pc_Q35_6_2,
                     memory: 1024,
                 };
+                let mut interfaces: Vec<Interface> = vec![];
+                for i in 0..device.interface_count {
+                    interfaces.push(Interface {
+                        name: format!("{}/{}", device.interface_prefix, i),
+                        num: i,
+                        mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
+                    })
+                }
 
                 let template = DomainTemplate {
                     name: "iosv".to_owned(),
@@ -83,6 +91,8 @@ impl Cli {
                     qemu_bin: QEMU_BIN.to_owned(),
                     boot_disk: "/home/bradmin/Documents/code/rust/sherpa/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2".to_owned(),
                     mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
+                    interfaces: interfaces,
+                    interface_type: device.interface_type,
                 };
 
                 // Render the XML document

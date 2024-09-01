@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::model::{CpuArchitecture, MachineTypes};
+use crate::model::{CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
 
 #[derive(Template)]
 #[template(
@@ -84,14 +84,16 @@ use crate::model::{CpuArchitecture, MachineTypes};
 
 
 
+    {% for interface in interfaces %}
     <interface type="network">
-      <mac address="{{ mac_address }}"/>
+      <mac address="{{ interface.mac_address }}"/>
       <source network="default"/>
-      <target dev="vnet0"/>
-      <model type="e1000"/>
-      <alias name="net0"/>
-      <address type="pci" domain="0x0000" bus="0x10" slot="0x01" function="0x0"/>
+      <target dev="vnet{{ interface.num + 1 }}"/>
+      <model type="{{ interface_type }}"/>
+      <alias name="net{{ interface.num + 1 }}"/>
+      <address type="pci" domain="0x0000" bus="0x10" slot="0x0{{ interface.num + 1 }}" function="0x0"/>
     </interface>
+    {% endfor %}
 
     <serial type="pty">
       <source path="/dev/pts/4"/>
@@ -152,4 +154,6 @@ pub struct DomainTemplate {
     pub qemu_bin: String,
     pub boot_disk: String,
     pub mac_address: String,
+    pub interfaces: Vec<Interface>,
+    pub interface_type: InterfaceTypes,
 }
