@@ -89,7 +89,7 @@ impl Cli {
                     machine_type: device.machine_type,
                     memory: device.memory,
                     qemu_bin: QEMU_BIN.to_owned(),
-                    boot_disk: "/home/bradmin/Documents/code/rust/sherpa/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2".to_owned(),
+                    boot_disk: "/tmp/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2".to_owned(),
                     interfaces: interfaces,
                     interface_type: device.interface_type,
                 };

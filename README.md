@@ -12,7 +12,7 @@ Vagrant re-imagined.
 
 
 ## Goals 
-- HTTP/TFTP/PXE boot server options
+- HTTP/TFTP/PXE/cloud-init boot server options
 
 ```
 virt-install \
