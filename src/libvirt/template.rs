@@ -88,10 +88,9 @@ use crate::model::{CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
     <interface type="network">
       <mac address="{{ interface.mac_address }}"/>
       <source network="default"/>
-      <target dev="vnet{{ interface.num + 1 }}"/>
+      <target dev="vnet{{ interface.num }}"/>
       <model type="{{ interface_type }}"/>
-      <alias name="net{{ interface.num + 1 }}"/>
-      <address type="pci" domain="0x0000" bus="0x10" slot="0x0{{ interface.num + 1 }}" function="0x0"/>
+      <alias name="net{{ interface.num }}"/>
     </interface>
     {% endfor %}
 
