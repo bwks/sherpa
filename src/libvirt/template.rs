@@ -152,7 +152,6 @@ pub struct DomainTemplate {
     pub cpu_count: u8,
     pub qemu_bin: String,
     pub boot_disk: String,
-    pub mac_address: String,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
 }
