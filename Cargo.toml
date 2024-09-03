@@ -26,3 +26,7 @@ rand = "0.8.5"
 
 # Docker Integration
 # bollard = "0.17.1"
+
+# Async
+tokio = { version = "1.40.0", features = ["full"] }
+futures = "0.3.30"

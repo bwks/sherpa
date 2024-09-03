@@ -9,8 +9,9 @@ use std::process::ExitCode;
 
 use cmd::Cli;
 
-fn main() -> ExitCode {
-    match Cli::run() {
+#[tokio::main]
+async fn main() -> ExitCode {
+    match Cli::run().await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
             match e.source() {
