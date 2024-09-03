@@ -48,7 +48,7 @@ enum Commands {
 }
 
 impl Cli {
-    pub async fn run() -> Result<()> {
+    pub fn run() -> Result<()> {
         let cli = Cli::parse();
         let mut config = Config::default();
         let manifest = Manifest::default();
@@ -182,17 +182,8 @@ impl Cli {
                 println!("Domain started: {:?}", domain.get_name().unwrap());
                 */
 
-                // Create futures for VM creation
-                let create_futures: Vec<_> = xml_configs
-                    .iter()
-                    .map(|xml| create_vm(&qemu_conn, xml))
-                    .collect();
-
-                // Await the creation of all VMs concurrently
-                let results = join_all(create_futures).await;
-
-                // Handle results
-                for result in results {
+                for xml in xml_configs {
+                    let result = create_vm(&qemu_conn, &xml);
                     match result {
                         Ok(domain) => println!("Created VM: {}", domain.get_name()?),
                         Err(e) => eprintln!("Failed to create VM: {}", e),
@@ -268,7 +259,7 @@ impl Default for Commands {
     }
 }
 
-async fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
+fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
     let domain = Domain::create_xml(conn, xml, 0)?;
     println!("Domain started: {:?}", domain.get_name().unwrap());
     Ok(domain)
