@@ -48,11 +48,16 @@ enum Commands {
 impl Cli {
     pub fn run() -> Result<()> {
         let cli = Cli::parse();
-        let mut config = Config::default();
-        let manifest = Manifest::default();
+        let config = Config::load_file();
+        let manifest = Manifest::load_file();
+
+        println!("Config: {:#?}", config);
+        println!("Manifest: {:#?}", manifest);
 
         match &cli.commands {
             Commands::Init { config_file } => {
+                let mut config = Config::default();
+                let manifest = Manifest::default();
                 config.name = config_file.to_owned();
                 println!("Initializing with config file: {:#?}", config.name);
                 config.write_file()?;
@@ -60,7 +65,6 @@ impl Cli {
             }
             Commands::Up => {
                 println!("Building environment");
-                manifest.load_file()?;
 
                 let device: DeviceModel = DeviceModel {
                     name: DeviceModels::CiscoIosv,

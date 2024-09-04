@@ -20,12 +20,9 @@ impl Manifest {
 
         Ok(())
     }
-    pub fn load_file(&self) -> Result<()> {
+    pub fn load_file() -> Result<Manifest> {
         let file_contents = fs::read_to_string(MANIFEST_FILENAME)?;
         let manifest: Manifest = toml::from_str(&file_contents)?;
-
-        println!("{:#?}", manifest);
-
-        Ok(())
+        Ok(manifest)
     }
 }
