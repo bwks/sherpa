@@ -75,7 +75,7 @@ impl Cli {
                     interface_type: InterfaceTypes::E1000,
                     cpu_count: 1,
                     cpu_architecture: CpuArchitecture::X86_64,
-                    machine_type: MachineTypes::Pc_Q35_6_2,
+                    machine_type: MachineTypes::PcQ35_6_2,
                     memory: 1024,
                 };
                 let mut interfaces: Vec<Interface> = vec![];

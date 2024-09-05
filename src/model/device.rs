@@ -55,16 +55,16 @@ impl fmt::Display for CpuArchitecture {
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
-#[serde(rename_all = "snake_case")]
 pub enum MachineTypes {
     #[default]
-    #[serde(rename(serialize = "pc-q35-6.2"))] // kvm value: pc-q35-6.2
-    Pc_Q35_6_2,
+    #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
+    // kvm value: pc-q35-6.2
+    PcQ35_6_2,
 }
 impl fmt::Display for MachineTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MachineTypes::Pc_Q35_6_2 => write!(f, "pc-q35-6.2"),
+            MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
         }
     }
 }
@@ -111,7 +111,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
         }
     }
@@ -125,7 +125,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 4096,
         }
     }
@@ -139,7 +139,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
         }
     }
@@ -153,7 +153,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
         }
     }
@@ -167,7 +167,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
         }
     }
@@ -181,7 +181,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 8096,
         }
     }
@@ -195,7 +195,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::E1000,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
         }
     }
@@ -209,7 +209,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
         }
     }
@@ -223,7 +223,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
         }
     }
@@ -237,7 +237,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Pc_Q35_6_2,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
         }
     }
