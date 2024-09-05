@@ -1,4 +1,4 @@
-use std::fs;
+use std::path::Path;
 
 use anyhow::Result;
 use askama::Template;
@@ -7,7 +7,7 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, QEMU_BIN};
+use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME, QEMU_BIN};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
@@ -32,8 +32,17 @@ pub struct Cli {
 enum Commands {
     /// Initialise a Sherpa environment
     Init {
+        /// Name of the config file
         #[arg(default_value = CONFIG_FILENAME)]
         config_file: String,
+
+        /// Name of the manifest file
+        #[arg(default_value = MANIFEST_FILENAME)]
+        manifest_file: String,
+
+        /// Overwrite config file if one exists
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        force: bool,
     },
     /// Build environment
     Up,
@@ -48,23 +57,40 @@ enum Commands {
 impl Cli {
     pub fn run() -> Result<()> {
         let cli = Cli::parse();
-        let config = Config::load_file();
-        let manifest = Manifest::load_file();
-
-        println!("Config: {:#?}", config);
-        println!("Manifest: {:#?}", manifest);
 
         match &cli.commands {
-            Commands::Init { config_file } => {
-                let mut config = Config::default();
-                let manifest = Manifest::default();
-                config.name = config_file.to_owned();
-                println!("Initializing with config file: {:#?}", config.name);
-                config.write_file()?;
-                manifest.write_file()?;
+            Commands::Init {
+                config_file,
+                manifest_file,
+                force,
+            } => {
+                let mut init_config = true;
+                let mut init_manifest = true;
+
+                if Path::new(config_file).exists() && !*force {
+                    println!("Config file: '{config_file}' already exists.");
+                    init_config = false;
+                }
+                if Path::new(manifest_file).exists() && !*force {
+                    println!("Manifest file: '{manifest_file}' already exists.");
+                    init_manifest = false;
+                }
+                if init_config {
+                    println!("Initializing config file: '{config_file}'");
+                    let mut config = Config::default();
+                    config.name = config_file.to_owned();
+                    config.write_file()?;
+                }
+                if init_manifest {
+                    println!("Initializing manifest file: '{manifest_file}'");
+                    let manifest = Manifest::default();
+                    manifest.write_file()?;
+                }
             }
             Commands::Up => {
                 println!("Building environment");
+                let _config = Config::load_file();
+                let _manifest = Manifest::load_file();
 
                 let device: DeviceModel = DeviceModel {
                     name: DeviceModels::CiscoIosv,
@@ -181,6 +207,8 @@ impl Default for Commands {
     fn default() -> Self {
         Commands::Init {
             config_file: CONFIG_FILENAME.to_owned(),
+            manifest_file: MANIFEST_FILENAME.to_owned(),
+            force: false,
         }
     }
 }
