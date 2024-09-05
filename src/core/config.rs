@@ -10,9 +10,9 @@ use crate::model::VmProviders;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub name: String,
-    vm_provider: VmProviders,
-    qemu_bin: String,
-    device_models: Vec<DeviceModel>,
+    pub vm_provider: VmProviders,
+    pub qemu_bin: String,
+    pub device_models: Vec<DeviceModel>,
 }
 
 impl Default for Config {

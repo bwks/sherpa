@@ -7,14 +7,11 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME, QEMU_BIN};
+use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
-use crate::model::{
-    CpuArchitecture, DeviceModel, DeviceModels, Interface, InterfaceTypes, MachineTypes,
-    Manufacturers, OsVariants,
-};
+use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
 use crate::util::random_mac_suffix;
 
@@ -89,56 +86,55 @@ impl Cli {
             }
             Commands::Up => {
                 println!("Building environment");
-                let _config = Config::load_file();
-                let _manifest = Manifest::load_file();
+                let config = Config::load_file()?;
+                let manifest = Manifest::load_file()?;
 
-                let device: DeviceModel = DeviceModel {
-                    name: DeviceModels::CiscoIosv,
-                    os_variant: OsVariants::Ios,
-                    manufacturer: Manufacturers::Cisco,
-                    interface_count: 8,
-                    interface_prefix: "Gig0/".to_owned(),
-                    interface_type: InterfaceTypes::E1000,
-                    cpu_count: 1,
-                    cpu_architecture: CpuArchitecture::X86_64,
-                    machine_type: MachineTypes::PcQ35_6_2,
-                    memory: 1024,
-                };
-                let mut interfaces: Vec<Interface> = vec![];
-                for i in 0..device.interface_count {
-                    interfaces.push(Interface {
-                        name: format!("{}/{}", device.interface_prefix, i),
-                        num: i,
-                        mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
-                    })
+                let mut domains: Vec<DomainTemplate> = vec![];
+                for device in manifest.devices {
+                    let device_model = DeviceModel::get_model(device.device_model);
+
+                    let mut interfaces: Vec<Interface> = vec![];
+                    for i in 0..device_model.interface_count {
+                        interfaces.push(Interface {
+                            name: format!("{}/{}", device_model.interface_prefix, i),
+                            num: i,
+                            mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
+                        })
+                    }
+
+                    let domain = DomainTemplate {
+                        name: device.name,
+                        memory: device_model.memory,
+                        cpu_architecture: device_model.cpu_architecture,
+                        machine_type: device_model.machine_type,
+                        cpu_count: device_model.cpu_count,
+                        qemu_bin: config.qemu_bin.clone(),
+                        boot_disk: "/tmp/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2"
+                            .to_owned(),
+                        interfaces,
+                        interface_type: device_model.interface_type,
+                    };
+
+                    domains.push(domain);
                 }
 
-                let template1 = DomainTemplate {
-                    name: "iosv1".to_owned(),
-                    cpu_count: device.cpu_count,
-                    cpu_architecture: device.cpu_architecture,
-                    machine_type: device.machine_type,
-                    memory: device.memory,
-                    qemu_bin: QEMU_BIN.to_owned(),
-                    boot_disk: "/tmp/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2".to_owned(),
-                    interfaces: interfaces,
-                    interface_type: device.interface_type,
-                };
+                // Build domains
+                for domain in domains {
+                    // Render the XML document
+                    let rendered_xml = domain.render().unwrap();
 
-                // Render the XML document
-                let rendered_xml = template1.render().unwrap();
+                    let xml_configs = vec![rendered_xml];
+                    // println!("{}", rendered_xml);
 
-                let xml_configs = vec![rendered_xml];
-                // println!("{}", rendered_xml);
+                    let qemu = Qemu::default();
+                    let qemu_conn = qemu.connect()?;
 
-                let qemu = Qemu::default();
-                let qemu_conn = qemu.connect()?;
-
-                for xml in xml_configs {
-                    let result = create_vm(&qemu_conn, &xml);
-                    match result {
-                        Ok(domain) => println!("Created VM: {}", domain.get_name()?),
-                        Err(e) => eprintln!("Failed to create VM: {}", e),
+                    for xml in xml_configs {
+                        let result = create_vm(&qemu_conn, &xml);
+                        match result {
+                            Ok(domain) => println!("Created VM: {}", domain.get_name()?),
+                            Err(e) => eprintln!("Failed to create VM: {}", e),
+                        }
                     }
                 }
             }

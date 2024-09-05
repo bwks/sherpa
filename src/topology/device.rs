@@ -5,5 +5,5 @@ use crate::model::DeviceModels;
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Device {
     pub name: String,
-    pub device_type: DeviceModels,
+    pub device_model: DeviceModels,
 }

@@ -101,6 +101,20 @@ pub struct DeviceModel {
     pub memory: u16,
 }
 impl DeviceModel {
+    pub fn get_model(device_model: DeviceModels) -> DeviceModel {
+        match device_model {
+            DeviceModels::AristaVeos => DeviceModel::arista_veos(),
+            DeviceModels::CiscoCsr1000v => DeviceModel::cisco_csr1000v(),
+            DeviceModels::CiscoCat8000v => DeviceModel::cisco_cat8000v(),
+            DeviceModels::CiscoCat9000v => DeviceModel::cisco_cat9000v(),
+            DeviceModels::CiscoIosxrv9000 => DeviceModel::cisco_iosxrv9000(),
+            DeviceModels::CiscoNexus9300v => DeviceModel::cisco_nexus9300v(),
+            DeviceModels::CiscoIosv => DeviceModel::cisco_iosv(),
+            DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
+            DeviceModels::NokiaSros => DeviceModel::nokia_sros(),
+            DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
+        }
+    }
     pub fn arista_veos() -> DeviceModel {
         DeviceModel {
             name: DeviceModels::AristaVeos,
