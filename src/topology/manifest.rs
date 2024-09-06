@@ -7,10 +7,37 @@ use super::{Connection, Device};
 
 use crate::core::konst::MANIFEST_FILENAME;
 
-#[derive(Default, Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
     pub devices: Vec<Device>,
     pub connections: Vec<Connection>,
+}
+
+impl Default for Manifest {
+    fn default() -> Self {
+        let dev1 = Device {
+            name: format!("dev1"),
+            device_model: crate::model::DeviceModels::NvidiaCumulus,
+        };
+        let dev2 = Device {
+            name: format!("dev2"),
+            device_model: crate::model::DeviceModels::NvidiaCumulus,
+        };
+
+        let connections = vec![Connection {
+            device_a: dev1.name.clone(),
+            interface_a: 0,
+            device_b: dev2.name.clone(),
+            interface_b: 0,
+        }];
+
+        let devices: Vec<Device> = vec![dev1, dev2];
+
+        Self {
+            devices,
+            connections,
+        }
+    }
 }
 
 impl Manifest {

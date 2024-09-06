@@ -2,8 +2,8 @@ use serde_derive::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Connection {
-    device_a: String,
-    interface_a: u8,
-    device_b: String,
-    interface_b: u8,
+    pub device_a: String,
+    pub interface_a: u8,
+    pub device_b: String,
+    pub interface_b: u8,
 }
