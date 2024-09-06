@@ -7,14 +7,13 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_DIR, CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
+use crate::core::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
-use crate::util::create_dir;
-use crate::util::random_mac_suffix;
+use crate::util::{create_dir, dir_exists, file_exists, random_mac_suffix};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -62,16 +61,21 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
-                create_dir(CONFIG_DIR)?;
+                // Create the default config directories
+                let config_dir = format!("{CONFIG_DIR}/{BOXES_DIR}");
+                if dir_exists(config_dir.as_str()) && !*force {
+                    create_dir(config_dir.as_str())?
+                }
 
+                // Initialize default files
+                let config_path = format!("{CONFIG_DIR}/{config_file}");
                 let mut init_config = true;
                 let mut init_manifest = true;
-
-                if Path::new(config_file).exists() && !*force {
-                    println!("Config file already exists: {config_file}");
+                if file_exists(config_path.as_str()) && !*force {
+                    println!("Config file already exists: {config_path}");
                     init_config = false;
                 }
-                if Path::new(manifest_file).exists() && !*force {
+                if file_exists(manifest_file.as_str()) && !*force {
                     println!("Manifest file already exists: {manifest_file}");
                     init_manifest = false;
                 }
@@ -79,7 +83,7 @@ impl Cli {
                     println!("Initializing config file: {config_file}");
                     let mut config = Config::default();
                     config.name = config_file.to_owned();
-                    config.write_file()?;
+                    config.create(config_path.as_str())?;
                 }
                 if init_manifest {
                     println!("Initializing manifest file: {manifest_file}");
@@ -89,7 +93,7 @@ impl Cli {
             }
             Commands::Up => {
                 println!("Building environment");
-                let config = Config::load_file()?;
+                let config = Config::load(&format!("{CONFIG_DIR}/{CONFIG_FILENAME}"))?;
                 let manifest = Manifest::load_file()?;
 
                 let mut domains: Vec<DomainTemplate> = vec![];

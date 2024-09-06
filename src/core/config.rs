@@ -1,12 +1,14 @@
 use std::fs;
+use std::path::Path;
 
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
-use toml;
 
 use super::konst::{CONFIG_FILENAME, QEMU_BIN};
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
+use crate::util::create_file;
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub name: String,
@@ -40,13 +42,16 @@ impl Default for Config {
 }
 
 impl Config {
-    pub fn write_file(&self) -> Result<()> {
+    pub fn create(&self, path: &str) -> Result<()> {
         let toml_string = toml::to_string_pretty(&self)?;
-        fs::write(CONFIG_FILENAME, toml_string)?;
+        create_file(path, toml_string)?;
         Ok(())
     }
-    pub fn load_file() -> Result<Config> {
-        let contents = fs::read_to_string(CONFIG_FILENAME)?;
+    pub fn load(file_path: &str) -> Result<Config> {
+        let expanded_path = shellexpand::tilde(file_path);
+        let config_path = Path::new(expanded_path.as_ref());
+
+        let contents = fs::read_to_string(config_path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
     }
