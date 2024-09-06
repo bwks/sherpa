@@ -20,3 +20,11 @@ impl Qemu {
         Ok(conn)
     }
 }
+
+pub struct QemuImage {
+    pub name: String,
+}
+
+impl QemuImage {
+    pub fn clone(self) {}
+}
