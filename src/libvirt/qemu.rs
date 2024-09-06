@@ -1,6 +1,8 @@
 use anyhow::Result;
 use virt::connect::Connect;
 
+use crate::model::DeviceModels;
+
 pub struct Qemu {
     pub uri: String,
 }
@@ -23,6 +25,7 @@ impl Qemu {
 
 pub struct QemuImage {
     pub name: String,
+    pub device_model: DeviceModels,
 }
 
 impl QemuImage {

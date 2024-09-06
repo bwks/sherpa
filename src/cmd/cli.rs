@@ -7,12 +7,13 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
+use crate::core::konst::{CONFIG_DIR, CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
+use crate::util::create_dir;
 use crate::util::random_mac_suffix;
 
 #[derive(Default, Debug, Parser)]
@@ -61,25 +62,27 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
+                create_dir(CONFIG_DIR)?;
+
                 let mut init_config = true;
                 let mut init_manifest = true;
 
                 if Path::new(config_file).exists() && !*force {
-                    println!("Config file: '{config_file}' already exists.");
+                    println!("Config file already exists: {config_file}");
                     init_config = false;
                 }
                 if Path::new(manifest_file).exists() && !*force {
-                    println!("Manifest file: '{manifest_file}' already exists.");
+                    println!("Manifest file already exists: {manifest_file}");
                     init_manifest = false;
                 }
                 if init_config {
-                    println!("Initializing config file: '{config_file}'");
+                    println!("Initializing config file: {config_file}");
                     let mut config = Config::default();
                     config.name = config_file.to_owned();
                     config.write_file()?;
                 }
                 if init_manifest {
-                    println!("Initializing manifest file: '{manifest_file}'");
+                    println!("Initializing manifest file: {manifest_file}");
                     let manifest = Manifest::default();
                     manifest.write_file()?;
                 }

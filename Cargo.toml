@@ -30,3 +30,6 @@ rand = "0.8.5"
 # Async
 tokio = { version = "1.40.0", features = ["full"] }
 futures = "0.3.30"
+
+# file system
+shellexpand = "3.1.0"
