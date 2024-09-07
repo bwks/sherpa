@@ -5,9 +5,11 @@ use serde_derive::{Deserialize, Serialize};
 
 use super::{Connection, Device};
 use crate::core::konst::MANIFEST_FILE;
+use crate::util::generate_id;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
+    pub id: String,
     pub devices: Vec<Device>,
     pub connections: Vec<Connection>,
 }
@@ -33,6 +35,7 @@ impl Default for Manifest {
         let devices: Vec<Device> = vec![dev1, dev2];
 
         Self {
+            id: generate_id(),
             devices,
             connections,
         }

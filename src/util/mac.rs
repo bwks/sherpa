@@ -1,5 +1,7 @@
 use rand::Rng;
 
+/// Creates a random 24-bit hexadecimal string for use as a
+/// MAC address suffix
 pub fn random_mac_suffix() -> String {
     // Generate a 24-bit random number (between 0 and 0xFFFFFF)
     let random_number: u32 = rand::thread_rng().gen_range(0..=0xFFFFFF);
