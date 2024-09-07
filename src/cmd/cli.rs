@@ -112,7 +112,8 @@ impl Cli {
 
                     let vm_name = format!("{}-{}", device.name, manifest.id);
                     let src_file = "/home/bradmin/.sherpa/boxes/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2";
-                    let dst_file = format!("/tmp/{}-{}.qcow2", vm_name, manifest.id);
+                    let dst_file =
+                        format!("/var/lib/libvirt/images/{}-{}.qcow2", vm_name, manifest.id);
 
                     copy_file(src_file, dst_file.as_str())?;
 
