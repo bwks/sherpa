@@ -42,7 +42,11 @@ enum Commands {
         force: bool,
     },
     /// Build environment
-    Up,
+    Up {
+        /// Name of the config file
+        #[arg(default_value = CONFIG_FILE)]
+        config_file: String,
+    },
     /// Stop environment
     Down,
     /// Destroy environment
@@ -91,10 +95,11 @@ impl Cli {
                     manifest.write_file()?;
                 }
             }
-            Commands::Up => {
+            Commands::Up { config_file } => {
                 term_msg("Building environment");
 
-                let config = Config::load(&format!("{CONFIG_DIR}/{CONFIG_FILE}"))?;
+                let config_path = expand_path(format!("{CONFIG_DIR}/{config_file}").as_str());
+                let config = Config::load(&config_path)?;
                 let manifest = Manifest::load_file()?;
 
                 let mut domains: Vec<DomainTemplate> = vec![];
@@ -152,7 +157,7 @@ impl Cli {
                 }
             }
             Commands::Down => {
-                println!("Stopping environment");
+                term_msg("Stopping environment");
 
                 let qemu = Qemu::default();
                 let qemu_conn = qemu.connect()?;
@@ -182,7 +187,6 @@ impl Cli {
                 for domain in domains {
                     println!("VM Name: {:?}", domain.get_name().unwrap());
                     if domain.get_name()? == vm_name {
-                        println!("VM XML: {:?}", domain.get_xml_desc(0));
                         // Destroy the VM if it is running
                         if !domain.is_active().unwrap_or(false) {
                             // Undefine the VM, removing it from libvirt
