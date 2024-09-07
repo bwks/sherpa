@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Result;
 use askama::Template;
 use clap::{Parser, Subcommand};
@@ -7,13 +5,13 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILENAME, KVM_OUI, MANIFEST_FILENAME};
+use crate::core::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILE, KVM_OUI, MANIFEST_FILE};
 use crate::core::Config;
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
-use crate::util::{create_dir, dir_exists, file_exists, random_mac_suffix};
+use crate::util::{create_dir, dir_exists, expand_path, file_exists, random_mac_suffix, term_msg};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -30,11 +28,11 @@ enum Commands {
     /// Initialise a Sherpa environment
     Init {
         /// Name of the config file
-        #[arg(default_value = CONFIG_FILENAME)]
+        #[arg(default_value = CONFIG_FILE)]
         config_file: String,
 
         /// Name of the manifest file
-        #[arg(default_value = MANIFEST_FILENAME)]
+        #[arg(default_value = MANIFEST_FILE)]
         manifest_file: String,
 
         /// Overwrite config file if one exists
@@ -61,39 +59,39 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
+                term_msg("Sherpa Initializing");
+
                 // Create the default config directories
-                let config_dir = format!("{CONFIG_DIR}/{BOXES_DIR}");
+                let config_dir = expand_path(format!("{CONFIG_DIR}").as_str());
+                let boxes_dir = format!("{config_dir}/{BOXES_DIR}");
+                let config_path = expand_path(format!("{CONFIG_DIR}/{config_file}").as_str());
+
                 if dir_exists(config_dir.as_str()) && !*force {
-                    create_dir(config_dir.as_str())?
+                    println!("Directory path already exists: {config_dir}");
+                } else {
+                    create_dir(&config_dir)?;
+                    create_dir(&boxes_dir)?
                 }
 
                 // Initialize default files
-                let config_path = format!("{CONFIG_DIR}/{config_file}");
-                let mut init_config = true;
-                let mut init_manifest = true;
-                if file_exists(config_path.as_str()) && !*force {
+                if file_exists(&config_path) && !*force {
                     println!("Config file already exists: {config_path}");
-                    init_config = false;
-                }
-                if file_exists(manifest_file.as_str()) && !*force {
-                    println!("Manifest file already exists: {manifest_file}");
-                    init_manifest = false;
-                }
-                if init_config {
-                    println!("Initializing config file: {config_file}");
+                } else {
                     let mut config = Config::default();
                     config.name = config_file.to_owned();
-                    config.create(config_path.as_str())?;
+                    config.create(&config_path)?;
                 }
-                if init_manifest {
-                    println!("Initializing manifest file: {manifest_file}");
+
+                if file_exists(&manifest_file) && !*force {
+                    println!("Manifest file already exists: {manifest_file}");
+                } else {
                     let manifest = Manifest::default();
                     manifest.write_file()?;
                 }
             }
             Commands::Up => {
                 println!("Building environment");
-                let config = Config::load(&format!("{CONFIG_DIR}/{CONFIG_FILENAME}"))?;
+                let config = Config::load(&format!("{CONFIG_DIR}/{CONFIG_FILE}"))?;
                 let manifest = Manifest::load_file()?;
 
                 let mut domains: Vec<DomainTemplate> = vec![];
@@ -209,8 +207,8 @@ impl Cli {
 impl Default for Commands {
     fn default() -> Self {
         Commands::Init {
-            config_file: CONFIG_FILENAME.to_owned(),
-            manifest_file: MANIFEST_FILENAME.to_owned(),
+            config_file: CONFIG_FILE.to_owned(),
+            manifest_file: MANIFEST_FILE.to_owned(),
             force: false,
         }
     }

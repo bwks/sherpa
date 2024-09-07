@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use super::konst::{CONFIG_FILENAME, QEMU_BIN};
+use super::konst::{CONFIG_FILE, QEMU_BIN};
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
 use crate::util::create_file;
@@ -33,7 +33,7 @@ impl Default for Config {
         device_models.push(DeviceModel::nvidia_cumulus());
 
         Config {
-            name: CONFIG_FILENAME.to_owned(),
+            name: CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
