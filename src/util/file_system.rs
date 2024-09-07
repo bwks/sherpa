@@ -37,3 +37,10 @@ pub fn expand_path(path: &str) -> String {
     let full_path = Path::new(expanded_path.as_ref());
     full_path.display().to_string()
 }
+
+/// Copy a file
+pub fn copy_file(source: &str, destination: &str) -> Result<()> {
+    fs::copy(source, destination)?;
+    println!("File copied successfully: {destination}");
+    Ok(())
+}

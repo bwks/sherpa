@@ -11,7 +11,9 @@ use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
-use crate::util::{create_dir, dir_exists, expand_path, file_exists, random_mac_suffix, term_msg};
+use crate::util::{
+    copy_file, create_dir, dir_exists, expand_path, file_exists, random_mac_suffix, term_msg,
+};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -90,7 +92,8 @@ impl Cli {
                 }
             }
             Commands::Up => {
-                println!("Building environment");
+                term_msg("Building environment");
+
                 let config = Config::load(&format!("{CONFIG_DIR}/{CONFIG_FILE}"))?;
                 let manifest = Manifest::load_file()?;
 
@@ -107,15 +110,20 @@ impl Cli {
                         })
                     }
 
+                    let vm_name = format!("{}-{}", device.name, manifest.id);
+                    let src_file = "/home/bradmin/.sherpa/boxes/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2";
+                    let dst_file = format!("/tmp/{}-{}.qcow2", vm_name, manifest.id);
+
+                    copy_file(src_file, dst_file.as_str())?;
+
                     let domain = DomainTemplate {
-                        name: device.name,
+                        name: vm_name,
                         memory: device_model.memory,
                         cpu_architecture: device_model.cpu_architecture,
                         machine_type: device_model.machine_type,
                         cpu_count: device_model.cpu_count,
                         qemu_bin: config.qemu_bin.clone(),
-                        boot_disk: "/tmp/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2"
-                            .to_owned(),
+                        boot_disk: dst_file,
                         interfaces,
                         interface_type: device_model.interface_type,
                     };
