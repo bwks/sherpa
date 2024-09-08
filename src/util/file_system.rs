@@ -41,6 +41,13 @@ pub fn expand_path(path: &str) -> String {
 /// Copy a file
 pub fn copy_file(source: &str, destination: &str) -> Result<()> {
     fs::copy(source, destination)?;
-    println!("File copied successfully: {destination}");
+    println!("Copied: {destination}");
+    Ok(())
+}
+
+/// Delete a file
+pub fn delete_file(file_path: &str) -> Result<()> {
+    fs::remove_file(file_path)?;
+    println!("Deleted: {file_path}");
     Ok(())
 }

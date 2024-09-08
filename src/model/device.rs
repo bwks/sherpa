@@ -99,6 +99,8 @@ pub struct DeviceModel {
     pub cpu_architecture: CpuArchitecture,
     pub machine_type: MachineTypes,
     pub memory: u16,
+    pub disk_count: u8,
+    pub version: String,
 }
 impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
@@ -127,6 +129,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {
@@ -141,6 +145,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 4096,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_cat8000v() -> DeviceModel {
@@ -155,6 +161,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_cat9000v() -> DeviceModel {
@@ -169,6 +177,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_iosxrv9000() -> DeviceModel {
@@ -183,6 +193,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_nexus9300v() -> DeviceModel {
@@ -197,6 +209,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 8096,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn cisco_iosv() -> DeviceModel {
@@ -211,6 +225,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
+            disk_count: 1,
+            version: "vios-adventerprisek9-m.SPA.159-3.M6".to_owned(),
         }
     }
     pub fn cisco_iosvl2() -> DeviceModel {
@@ -225,6 +241,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn nvidia_cumulus() -> DeviceModel {
@@ -239,6 +257,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
     pub fn nokia_sros() -> DeviceModel {
@@ -253,6 +273,8 @@ impl DeviceModel {
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
+            disk_count: 1,
+            version: "latest".to_owned(),
         }
     }
 }

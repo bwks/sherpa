@@ -4,10 +4,10 @@ use std::path::Path;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use super::konst::{CONFIG_FILE, QEMU_BIN};
+use super::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN};
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
-use crate::util::create_file;
+use crate::util::{create_file, expand_path};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -54,5 +54,24 @@ impl Config {
         let contents = fs::read_to_string(config_path)?;
         let config: Config = toml::from_str(&contents)?;
         Ok(config)
+    }
+}
+
+pub struct Sherpa {
+    pub config_dir: String,
+    pub config_path: String,
+    pub boxes_dir: String,
+}
+
+impl Default for Sherpa {
+    fn default() -> Self {
+        let config_dir = expand_path(format!("{CONFIG_DIR}").as_str());
+        let boxes_dir = format!("{config_dir}/{BOXES_DIR}");
+        let config_path = expand_path(format!("{CONFIG_DIR}/{CONFIG_FILE}").as_str());
+        Self {
+            config_dir,
+            config_path,
+            boxes_dir,
+        }
     }
 }

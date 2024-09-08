@@ -1,8 +1,6 @@
 use anyhow::Result;
 use virt::connect::Connect;
 
-use crate::model::DeviceModels;
-
 pub struct Qemu {
     pub uri: String,
 }
@@ -18,16 +16,7 @@ impl Default for Qemu {
 impl Qemu {
     pub fn connect(&self) -> Result<Connect> {
         let conn = Connect::open(Some(self.uri.as_str()))?;
-        println!("Connected to hypervisor: {:?}", conn);
+        println!("Connected to hypervisor: {}", self.uri);
         Ok(conn)
     }
-}
-
-pub struct QemuImage {
-    pub name: String,
-    pub device_model: DeviceModels,
-}
-
-impl QemuImage {
-    pub fn clone(self) {}
 }

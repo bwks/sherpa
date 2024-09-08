@@ -5,14 +5,14 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILE, KVM_OUI, MANIFEST_FILE};
-use crate::core::Config;
+use crate::core::konst::{CONFIG_FILE, KVM_OUI, MANIFEST_FILE};
+use crate::core::{Config, Sherpa};
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{DeviceModel, Interface};
 use crate::topology::Manifest;
 use crate::util::{
-    copy_file, create_dir, dir_exists, expand_path, file_exists, random_mac_suffix, term_msg,
+    copy_file, create_dir, delete_file, dir_exists, file_exists, random_mac_suffix, term_msg,
 };
 
 #[derive(Default, Debug, Parser)]
@@ -58,6 +58,8 @@ enum Commands {
 impl Cli {
     pub fn run() -> Result<()> {
         let cli = Cli::parse();
+        let qemu = Qemu::default();
+        let mut sherpa = Sherpa::default();
 
         match &cli.commands {
             Commands::Init {
@@ -67,25 +69,23 @@ impl Cli {
             } => {
                 term_msg("Sherpa Initializing");
 
-                // Create the default config directories
-                let config_dir = expand_path(format!("{CONFIG_DIR}").as_str());
-                let boxes_dir = format!("{config_dir}/{BOXES_DIR}");
-                let config_path = expand_path(format!("{CONFIG_DIR}/{config_file}").as_str());
+                sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
-                if dir_exists(config_dir.as_str()) && !*force {
-                    println!("Directory path already exists: {config_dir}");
+                // Create the default config directories
+                if dir_exists(sherpa.config_dir.as_str()) && !*force {
+                    println!("Directory path already exists: {}", sherpa.config_dir);
                 } else {
-                    create_dir(&config_dir)?;
-                    create_dir(&boxes_dir)?
+                    create_dir(&sherpa.config_dir)?;
+                    create_dir(&sherpa.boxes_dir)?
                 }
 
                 // Initialize default files
-                if file_exists(&config_path) && !*force {
-                    println!("Config file already exists: {config_path}");
+                if file_exists(&sherpa.config_path) && !*force {
+                    println!("Config file already exists: {}", sherpa.config_path);
                 } else {
                     let mut config = Config::default();
                     config.name = config_file.to_owned();
-                    config.create(&config_path)?;
+                    config.create(&sherpa.config_path)?;
                 }
 
                 if file_exists(&manifest_file) && !*force {
@@ -98,8 +98,11 @@ impl Cli {
             Commands::Up { config_file } => {
                 term_msg("Building environment");
 
-                let config_path = expand_path(format!("{CONFIG_DIR}/{config_file}").as_str());
-                let config = Config::load(&config_path)?;
+                let qemu_conn = qemu.connect()?;
+
+                sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
+
+                let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
 
                 let mut domains: Vec<DomainTemplate> = vec![];
@@ -116,10 +119,13 @@ impl Cli {
                     }
 
                     let vm_name = format!("{}-{}", device.name, manifest.id);
-                    let src_file = "/home/bradmin/.sherpa/boxes/vios-adventerprisek9-m.SPA.159-3.M6/virtioa.qcow2";
-                    let dst_file = format!("/tmp/{}-{}.qcow2", vm_name, manifest.id);
+                    let src_file = format!(
+                        "{}/{}/virtioa.qcow2",
+                        sherpa.boxes_dir, device_model.version
+                    );
+                    let dst_file = format!("/tmp/{}.qcow2", vm_name);
 
-                    copy_file(src_file, dst_file.as_str())?;
+                    copy_file(src_file.as_str(), dst_file.as_str())?;
 
                     let domain = DomainTemplate {
                         name: vm_name,
@@ -142,71 +148,76 @@ impl Cli {
                     let rendered_xml = domain.render().unwrap();
 
                     let xml_configs = vec![rendered_xml];
-                    // println!("{}", rendered_xml);
-
-                    let qemu = Qemu::default();
-                    let qemu_conn = qemu.connect()?;
 
                     for xml in xml_configs {
                         let result = create_vm(&qemu_conn, &xml);
                         match result {
-                            Ok(domain) => println!("Created VM: {}", domain.get_name()?),
-                            Err(e) => eprintln!("Failed to create VM: {}", e),
+                            Ok(_) => println!("Created: {}", domain.name),
+                            Err(_) => eprintln!("Create failed: {}", domain.name),
                         }
                     }
                 }
             }
             Commands::Down => {
+                // TODO: Update this to stop the vm.
                 term_msg("Stopping environment");
 
-                let qemu = Qemu::default();
+                let manifest = Manifest::load_file()?;
+
                 let qemu_conn = qemu.connect()?;
-                let vm_name = "iosv";
+
                 let domains = qemu_conn.list_all_domains(0).unwrap();
+
                 for domain in domains {
-                    println!("VM Name: {:?}", domain.get_name().unwrap());
-                    if domain.get_name()? == vm_name {
-                        println!("VM XML: {:?}", domain.get_xml_desc(0));
-                        // Destroy the VM if it is running
+                    let vm_name = domain.get_name()?;
+                    if vm_name.contains(&manifest.id) {
                         if domain.is_active().unwrap_or(false) {
-                            domain.destroy().expect("Failed to destroy the VM");
-                            println!("VM '{}' has been destroyed", vm_name);
+                            match domain.suspend() {
+                                Ok(_) => println!("Shutdown: {vm_name}"),
+                                Err(_) => eprintln!("Shutdown failed: {vm_name}"), // TODO: Raise
+                            }
                         } else {
-                            println!("VM '{}' is not running", vm_name);
+                            println!("Virtual machine not running: {vm_name}");
                         }
                     }
                 }
             }
             Commands::Destroy => {
-                println!("Destroying environment");
+                term_msg("Destroying environment");
 
-                let qemu = Qemu::default();
+                let manifest = Manifest::load_file()?;
+
                 let qemu_conn = qemu.connect()?;
-                let vm_name = "iosv";
+
                 let domains = qemu_conn.list_all_domains(0).unwrap();
+
                 for domain in domains {
-                    println!("VM Name: {:?}", domain.get_name().unwrap());
-                    if domain.get_name()? == vm_name {
-                        // Destroy the VM if it is running
-                        if !domain.is_active().unwrap_or(false) {
-                            // Undefine the VM, removing it from libvirt
-                            domain.undefine().expect("Failed to undefine the VM");
-                            println!("VM '{}' has been undefined", vm_name);
-                        } else {
-                            println!("VM '{}' is running", vm_name);
+                    let vm_name = domain.get_name()?;
+                    if vm_name.contains(&manifest.id) {
+                        if domain.is_active().unwrap_or(false) {
+                            match domain.destroy() {
+                                Ok(_) => println!("Destroyed: {vm_name}"),
+                                Err(_) => eprintln!("Destroy failed: {vm_name}"), // TODO: Raise
+                            }
+
+                            let file_path = format!("/tmp/{}.qcow2", vm_name);
+                            delete_file(&file_path)?;
                         }
                     }
                 }
             }
             Commands::Inspect => {
-                let qemu = Qemu::default();
+                term_msg("Sherpa Environemnt");
+
+                let manifest = Manifest::load_file()?;
+
                 let qemu_conn = qemu.connect()?;
 
                 let domains = qemu_conn.list_all_domains(0).unwrap();
                 for domain in domains {
-                    println!("VM Name: {:?}", domain.get_name().unwrap());
-                    if domain.get_name()? == "iosv" {
-                        println!("VM XML: {:?}", domain.get_xml_desc(0));
+                    let vm_name = domain.get_name()?;
+                    if vm_name.contains(&manifest.id) {
+                        println!("VM: {vm_name}");
                     }
                 }
             }
@@ -226,8 +237,8 @@ impl Default for Commands {
     }
 }
 
+// Create a virtual machine
 fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
     let domain = Domain::create_xml(conn, xml, 0)?;
-    println!("Domain started: {:?}", domain.get_name().unwrap());
     Ok(domain)
 }
