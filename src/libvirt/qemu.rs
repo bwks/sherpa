@@ -1,6 +1,8 @@
 use anyhow::Result;
 use virt::connect::Connect;
 
+use crate::core::konst::QEMU_URI;
+
 pub struct Qemu {
     pub uri: String,
 }
@@ -8,7 +10,7 @@ pub struct Qemu {
 impl Default for Qemu {
     fn default() -> Self {
         Self {
-            uri: "qemu:///system".to_owned(),
+            uri: QEMU_URI.to_owned(),
         }
     }
 }
