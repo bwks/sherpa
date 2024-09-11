@@ -53,6 +53,9 @@ enum Commands {
     Destroy,
     /// Inspect environment
     Inspect,
+
+    /// Connect to a device
+    Connect { name: String },
 }
 
 impl Cli {
@@ -128,6 +131,7 @@ impl Cli {
                     copy_file(src_file.as_str(), dst_file.as_str())?;
 
                     let domain = DomainTemplate {
+                        id: device.id,
                         name: vm_name,
                         memory: device_model.memory,
                         cpu_architecture: device_model.cpu_architecture,
@@ -219,6 +223,23 @@ impl Cli {
                     if vm_name.contains(&manifest.id) {
                         println!("VM: {vm_name}");
                     }
+                }
+            }
+            Commands::Connect { name } => {
+                term_msg(format!("Connecting to: {name}").as_str());
+
+                let manifest = Manifest::load_file()?;
+
+                let qemu_conn = qemu.connect()?;
+
+                let vm_name = format!("{}-{}", name, manifest.id);
+
+                // Get the domain (VM) by name
+                let domain = Domain::lookup_by_name(&qemu_conn, &vm_name)?;
+                if domain.is_active()? {
+                    println!("Connecting to: {name}")
+                } else {
+                    println!("Device not found: {name}")
                 }
             }
         }

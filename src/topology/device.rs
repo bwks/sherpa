@@ -6,4 +6,5 @@ use crate::model::DeviceModels;
 pub struct Device {
     pub name: String,
     pub device_model: DeviceModels,
+    pub id: u8,
 }

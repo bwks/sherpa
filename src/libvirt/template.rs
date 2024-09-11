@@ -82,17 +82,23 @@ use crate::model::{CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
       <address type="pci" domain="0x0000" bus="0x00" slot="0x01" function="0x5"/>
     </controller>
 
-
-
-    {% for interface in interfaces %}
-    <interface type="network">
-      <mac address="{{ interface.mac_address }}"/>
-      <source network="default"/>
-      <target dev="vnet{{ interface.num }}"/>
+    {% if name == "dev1-dad4b64bfe06" %}
+    <interface type='udp'>
+      <mac address='52:54:00:00:01:01'/>
+      <source address='127.1.1.12' port='10012'>
+        <local address='127.1.1.11' port='10011'/>
+      </source>
       <model type="{{ interface_type }}"/>
-      <alias name="net{{ interface.num }}"/>
     </interface>
-    {% endfor %}
+    {% else %}
+    <interface type='udp'>
+      <mac address='52:54:00:00:02:02'/>
+      <source address='127.1.1.11' port='10011'>
+        <local address='127.1.1.12' port='10012'/>
+      </source>
+      <model type="{{ interface_type }}"/>
+    </interface>
+    {% endif %}
 
     <serial type="pty">
       <source path="/dev/pts/4"/>
@@ -114,7 +120,7 @@ use crate::model::{CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
       <alias name="channel0"/>
       <address type="virtio-serial" controller="0" bus="0" port="1"/>
     </channel>
-    
+
     <input type="mouse" bus="ps2">
       <alias name="input0"/>
     </input>
@@ -145,6 +151,7 @@ use crate::model::{CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
     ext = "xml"
 )]
 pub struct DomainTemplate {
+    pub id: u8,
     pub name: String,
     pub memory: u16,
     pub cpu_architecture: CpuArchitecture,
@@ -155,3 +162,23 @@ pub struct DomainTemplate {
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
 }
+
+/*
+    {% for interface in interfaces %}
+    <interface type="network">
+      <mac address="{{ interface.mac_address }}"/>
+      <source network="default"/>
+      <target dev="vnet{{ interface.num }}"/>
+      <model type="{{ interface_type }}"/>
+      <alias name="net{{ interface.num }}"/>
+    </interface>
+    {% endfor %}
+
+    <serial type='tcp'>
+      <source mode='bind' host='127.0.0.1' service='64435'/>
+      <protocol type='telnet'/>
+      <target port='0'/>
+      <alias name='serial0'/>
+    </serial>
+
+*/

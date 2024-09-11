@@ -19,10 +19,12 @@ impl Default for Manifest {
         let dev1 = Device {
             name: format!("dev1"),
             device_model: crate::model::DeviceModels::NvidiaCumulus,
+            id: 1,
         };
         let dev2 = Device {
             name: format!("dev2"),
             device_model: crate::model::DeviceModels::NvidiaCumulus,
+            id: 2,
         };
 
         let connections = vec![Connection {
