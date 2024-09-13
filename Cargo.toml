@@ -33,3 +33,7 @@ futures = "0.3.30"
 
 # file system
 shellexpand = "3.1.0"
+
+
+[dev-dependencies]
+regex = "1.10.6"

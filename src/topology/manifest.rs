@@ -17,12 +17,12 @@ pub struct Manifest {
 impl Default for Manifest {
     fn default() -> Self {
         let dev1 = Device {
-            name: format!("dev1"),
+            name: "dev1".to_owned(),
             device_model: crate::model::DeviceModels::NvidiaCumulus,
             id: 1,
         };
         let dev2 = Device {
-            name: format!("dev2"),
+            name: "dev2".to_owned(),
             device_model: crate::model::DeviceModels::NvidiaCumulus,
             id: 2,
         };

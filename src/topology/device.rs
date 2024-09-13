@@ -4,7 +4,7 @@ use crate::model::DeviceModels;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Device {
+    pub id: u8,
     pub name: String,
     pub device_model: DeviceModels,
-    pub id: u8,
 }

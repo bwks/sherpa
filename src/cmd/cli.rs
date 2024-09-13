@@ -5,14 +5,14 @@ use clap::{Parser, Subcommand};
 use virt::connect::Connect;
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_FILE, KVM_OUI, MANIFEST_FILE};
+use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE};
 use crate::core::{Config, Sherpa};
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
-use crate::model::{DeviceModel, Interface};
+use crate::model::{ConnectionTypes, DeviceModel, Interface};
 use crate::topology::Manifest;
 use crate::util::{
-    copy_file, create_dir, delete_file, dir_exists, file_exists, random_mac_suffix, term_msg,
+    copy_file, create_dir, delete_file, dir_exists, file_exists, random_mac, term_msg,
 };
 
 #[derive(Default, Debug, Parser)]
@@ -117,7 +117,8 @@ impl Cli {
                         interfaces.push(Interface {
                             name: format!("{}/{}", device_model.interface_prefix, i),
                             num: i,
-                            mac_address: format!("{}:{}", KVM_OUI, random_mac_suffix()).to_owned(),
+                            mac_address: format!("{}", random_mac()).to_owned(),
+                            connection_type: ConnectionTypes::default(),
                         })
                     }
 
