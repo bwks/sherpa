@@ -84,23 +84,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
     {% for interface in interfaces %}
     {%   match interface.connection_type %}
-    {%     when ConnectionTypes::Disabled %}
-    <interface type='network'>
-      <mac address='{{ interface.mac_address }}'/>
-      <source network='default'/>
-      <target dev='vnet{{ interface.num }}'/>
-      <model type='{{ interface_type }}'/>
-      <alias name='net{{ interface.num }}'/>
-      <link state='down'/>
-    </interface>
-    {%     when ConnectionTypes::Peer %}
-    <interface type='udp'>
-      <mac address='52:54:00:00:02:02'/>
-      <source address='127.1.1.11' port='10011'>
-        <local address='127.1.1.12' port='10012'/>
-      </source>
-      <model type="{{ interface_type }}"/>
-    </interface>
+
     {%     when ConnectionTypes::Management %}
     <interface type='network'>
       <mac address='{{ interface.mac_address }}'/>
@@ -110,6 +94,31 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
       <alias name='net{{ interface.num }}'/>
       <link state='down'/>
     </interface>
+
+    {%     when ConnectionTypes::Disabled %}
+    <interface type='network'>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='default'/>
+      <target dev='vnet{{ interface.num }}'/>
+      <model type='{{ interface_type }}'/>
+      <alias name='net{{ interface.num }}'/>
+      <link state='down'/>
+    </interface>
+
+    {%     when ConnectionTypes::Peer %}
+    {%       match interface.connection_map %}
+    {%         when Some with (connection_map) %}
+    <interface type='udp'>
+      <mac address='{{ interface.mac_address }}'/>
+      <source address='{{ connection_map.source_loopback }}' port='{{ connection_map.source_port }}'>
+        <local address='{{ connection_map.local_loopback }}' port='{{ connection_map.local_port }}'/>
+      </source>
+      <model type="{{ interface_type }}"/>
+      <alias name='net{{ interface.num }}'/>
+      <target dev='vnet{{ interface.num }}'/>
+    </interface>
+    {%         when None %}
+    {%       endmatch %}
     {%   endmatch %}
     {% endfor %}
 

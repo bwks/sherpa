@@ -221,7 +221,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig0/".to_owned(),
             interface_type: InterfaceTypes::E1000,
-            cpu_count: 1,
+            cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,

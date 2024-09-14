@@ -13,11 +13,13 @@ pub struct Connection {
 // Each device has a loopback assigned from the 127.127.127.0/24 range
 // Connections will be created between devices with UDP tunnels in the 10k range.
 // Interfaces with no defined connection will be set to 'down' status
+// In the XML, source is the remote peer
+#[derive(Debug, Deserialize, Serialize)]
 pub struct ConnectionMap {
-    pub device_a_id: u8,
-    pub interface_a_id: u8,
-    pub device_a_loopback: String,
-    pub device_b_id: u8,
-    pub interface_b_id: u8,
-    pub device_b_loopback: String,
+    pub local_id: u8,
+    pub local_port: u16,
+    pub local_loopback: String,
+    pub source_id: u8,
+    pub source_port: u16,
+    pub source_loopback: String,
 }

@@ -1,5 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 
+use crate::topology::ConnectionMap;
+
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionTypes {
@@ -15,4 +17,5 @@ pub struct Interface {
     pub num: u8,
     pub mac_address: String,
     pub connection_type: ConnectionTypes,
+    pub connection_map: Option<ConnectionMap>,
 }

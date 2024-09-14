@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::hash::Hash;
+
 use anyhow::Result;
 use askama::Template;
 use clap::{Parser, Subcommand};
@@ -10,9 +13,10 @@ use crate::core::{Config, Sherpa};
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
-use crate::topology::Manifest;
+use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_dir, delete_file, dir_exists, file_exists, random_mac, term_msg,
+    copy_file, create_dir, delete_file, dir_exists, file_exists, get_ip, id_to_port, random_mac,
+    term_msg,
 };
 
 #[derive(Default, Debug, Parser)]
@@ -108,18 +112,71 @@ impl Cli {
                 let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
 
+                let dev_id_map: HashMap<String, u8> = manifest
+                    .devices
+                    .iter()
+                    .map(|d| (d.name.clone(), d.id))
+                    .collect();
+
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in manifest.devices {
                     let device_model = DeviceModel::get_model(device.device_model);
 
                     let mut interfaces: Vec<Interface> = vec![];
+
                     for i in 0..device_model.interface_count {
-                        interfaces.push(Interface {
-                            name: format!("{}/{}", device_model.interface_prefix, i),
-                            num: i,
-                            mac_address: format!("{}", random_mac()).to_owned(),
-                            connection_type: ConnectionTypes::default(),
-                        })
+                        for c in &manifest.connections {
+                            if c.device_a == device.name && i == c.interface_a {
+                                // Device is source in manifest
+                                let connection_map = ConnectionMap {
+                                    local_id: device.id,
+                                    local_port: id_to_port(i),
+                                    local_loopback: get_ip(device.id).to_string(),
+                                    source_id: dev_id_map.get(&c.device_b).unwrap().to_owned(),
+                                    source_port: id_to_port(c.interface_b),
+                                    source_loopback: get_ip(
+                                        dev_id_map.get(&c.device_b).unwrap().to_owned(),
+                                    )
+                                    .to_string(),
+                                };
+                                interfaces.push(Interface {
+                                    name: format!("{}{}", device_model.interface_prefix, i),
+                                    num: i,
+                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    connection_type: ConnectionTypes::Peer,
+                                    connection_map: Some(connection_map),
+                                })
+                            } else if c.device_b == device.name && i == c.interface_b {
+                                // Device is destination in manifest
+                                let connection_map = ConnectionMap {
+                                    local_id: device.id,
+                                    local_port: id_to_port(i),
+                                    local_loopback: get_ip(device.id).to_string(),
+                                    source_id: dev_id_map.get(&c.device_a).unwrap().to_owned(),
+                                    source_port: id_to_port(c.interface_a),
+                                    source_loopback: get_ip(
+                                        dev_id_map.get(&c.device_a).unwrap().to_owned(),
+                                    )
+                                    .to_string(),
+                                };
+                                interfaces.push(Interface {
+                                    name: format!("{}{}", device_model.interface_prefix, i),
+                                    num: i,
+                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    connection_type: ConnectionTypes::Peer,
+                                    connection_map: Some(connection_map),
+                                })
+                            } else {
+                                // Interface not defined in manifest so disable.
+                                interfaces.push(Interface {
+                                    name: format!("{}{}", device_model.interface_prefix, i),
+                                    num: i,
+                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    connection_type: ConnectionTypes::Disabled,
+                                    connection_map: None,
+                                })
+                            }
+                        }
                     }
 
                     let vm_name = format!("{}-{}", device.name, manifest.id);
@@ -130,6 +187,8 @@ impl Cli {
                     let dst_file = format!("/tmp/{}.qcow2", vm_name);
 
                     copy_file(src_file.as_str(), dst_file.as_str())?;
+
+                    println!("{:#?}", interfaces);
 
                     let domain = DomainTemplate {
                         id: device.id,
