@@ -89,9 +89,9 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <interface type='network'>
       <mac address='{{ interface.mac_address }}'/>
       <source network='default'/>
-      <target dev='vnet{{ interface.num }}'/>
       <model type='{{ interface_type }}'/>
-      <alias name='net{{ interface.num }}'/>
+      <target dev='vnet-{{ name }}-{{ interface.num }}'/>
+      <alias name='net-{{ name }}-{{ interface.num }}'/>
       <link state='down'/>
     </interface>
 
@@ -99,9 +99,9 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <interface type='network'>
       <mac address='{{ interface.mac_address }}'/>
       <source network='default'/>
-      <target dev='vnet{{ interface.num }}'/>
       <model type='{{ interface_type }}'/>
-      <alias name='net{{ interface.num }}'/>
+      <target dev='vnet-{{ name }}-{{ interface.num }}'/>
+      <alias name='net-{{ name }}-{{ interface.num }}'/>
       <link state='down'/>
     </interface>
 
@@ -114,8 +114,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
         <local address='{{ connection_map.local_loopback }}' port='{{ connection_map.local_port }}'/>
       </source>
       <model type="{{ interface_type }}"/>
-      <alias name='net{{ interface.num }}'/>
-      <target dev='vnet{{ interface.num }}'/>
+      <alias name='net-{{ name }}-{{ interface.num }}'/>
     </interface>
     {%         when None %}
     {%       endmatch %}
