@@ -124,13 +124,13 @@ impl DeviceModel {
             manufacturer: Manufacturers::Arista,
             interface_count: 8,
             interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceTypes::Virtio,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
             disk_count: 1,
-            version: "latest".to_owned(),
+            version: "veos-4.29.2F".to_owned(),
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {
@@ -139,14 +139,14 @@ impl DeviceModel {
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
             interface_count: 8,
-            interface_prefix: "Gig0/".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_prefix: "Gig".to_owned(),
+            interface_type: InterfaceTypes::Vmxnet3,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 4096,
             disk_count: 1,
-            version: "latest".to_owned(),
+            version: "csr1000v-universalk9.17.03.08a-serial".to_owned(),
         }
     }
     pub fn cisco_cat8000v() -> DeviceModel {
@@ -226,7 +226,7 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
             disk_count: 1,
-            version: "vios-adventerprisek9-m.SPA.159-3.M6".to_owned(),
+            version: "vios-adventerprisek9-m.spa.159-3.m8".to_owned(),
         }
     }
     pub fn cisco_iosvl2() -> DeviceModel {
@@ -251,14 +251,14 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Nvidia,
             interface_count: 8,
-            interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
-            cpu_count: 2,
+            interface_prefix: "swp".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
-            memory: 2048,
+            memory: 1024,
             disk_count: 1,
-            version: "latest".to_owned(),
+            version: "cumulus-vx-5.4.0".to_owned(),
         }
     }
     pub fn nokia_sros() -> DeviceModel {
