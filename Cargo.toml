@@ -16,7 +16,7 @@ serde_derive = "1.0.208"
 toml = "0.8.19"
 
 # Libvirt
-virt = { version = "0.4.0", features = ["qemu"] }
+virt = { version = "0.4.1", features = ["qemu"] }
 
 # Templates
 askama = "0.12.1"
