@@ -186,7 +186,6 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     ext = "xml"
 )]
 pub struct DomainTemplate {
-    pub id: u8,
     pub name: String,
     pub memory: u16,
     pub cpu_architecture: CpuArchitecture,

@@ -211,7 +211,6 @@ impl Cli {
                     println!("{:#?}", interfaces);
 
                     let domain = DomainTemplate {
-                        id: device.id,
                         name: vm_name,
                         memory: device_model.memory,
                         cpu_architecture: device_model.cpu_architecture,
