@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::path::Path;
 
 use anyhow::Result;
 use askama::Template;
@@ -83,7 +83,14 @@ impl Cli {
                     println!("Directory path already exists: {}", sherpa.config_dir);
                 } else {
                     create_dir(&sherpa.config_dir)?;
-                    create_dir(&sherpa.boxes_dir)?
+                    create_dir(&sherpa.boxes_dir)?;
+                    // box directories
+                    let config = Config::default();
+                    for device_model in config.device_models {
+                        create_dir(
+                            format!("{}/{}/latest", sherpa.boxes_dir, device_model.name).as_str(),
+                        )?;
+                    }
                 }
 
                 // Initialize default files
@@ -180,13 +187,28 @@ impl Cli {
                     }
 
                     let vm_name = format!("{}-{}", device.name, manifest.id);
-                    let src_file = format!(
-                        "{}/{}/virtioa.qcow2",
-                        sherpa.boxes_dir, device_model.version
+                    let src_boot_disk = format!(
+                        "{}/{}/{}/virtioa.qcow2",
+                        sherpa.boxes_dir, device_model.name, device_model.version
                     );
-                    let dst_file = format!("/tmp/{}.qcow2", vm_name);
+                    let dst_boot_disk = format!("/tmp/{}.qcow2", vm_name);
 
-                    copy_file(src_file.as_str(), dst_file.as_str())?;
+                    copy_file(&src_boot_disk, &dst_boot_disk)?;
+
+                    // CDROM ISO
+                    let dst_cdrom_iso = match device_model.cdrom_iso {
+                        Some(src_iso) => {
+                            let src = format!(
+                                "{}/{}/{}/{}",
+                                sherpa.boxes_dir, device_model.name, device_model.version, src_iso
+                            );
+                            println!("{src}");
+                            let dst = format!("/tmp/{}.iso", vm_name);
+                            copy_file(&src, &dst)?;
+                            Some(dst)
+                        }
+                        None => None,
+                    };
 
                     println!("{:#?}", interfaces);
 
@@ -198,7 +220,8 @@ impl Cli {
                         machine_type: device_model.machine_type,
                         cpu_count: device_model.cpu_count,
                         qemu_bin: config.qemu_bin.clone(),
-                        boot_disk: dst_file,
+                        boot_disk: dst_boot_disk,
+                        cdrom_iso: dst_cdrom_iso,
                         interfaces,
                         interface_type: device_model.interface_type,
                     };
@@ -264,8 +287,16 @@ impl Cli {
                                 Err(_) => eprintln!("Destroy failed: {vm_name}"), // TODO: Raise
                             }
 
+                            // HDD
                             let file_path = format!("/tmp/{}.qcow2", vm_name);
                             delete_file(&file_path)?;
+
+                            // ISO
+                            let iso_path = format!("/tmp/{}.iso", vm_name);
+                            let iso_path_stat = Path::new(&iso_path);
+                            if iso_path_stat.exists() {
+                                delete_file(&iso_path)?;
+                            }
                         }
                     }
                 }

@@ -15,6 +15,22 @@ pub enum DeviceModels {
     NokiaSros,
     NvidiaCumulus,
 }
+impl fmt::Display for DeviceModels {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DeviceModels::AristaVeos => write!(f, "arista_veos"),
+            DeviceModels::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
+            DeviceModels::CiscoCat8000v => write!(f, "cisco_cat8000v"),
+            DeviceModels::CiscoCat9000v => write!(f, "cisco_cat9000v"),
+            DeviceModels::CiscoIosxrv9000 => write!(f, "cisco_iosxrv9000"),
+            DeviceModels::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
+            DeviceModels::CiscoIosv => write!(f, "cisco_iosv"),
+            DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            DeviceModels::NokiaSros => write!(f, "nokia_sros"),
+            DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -60,11 +76,14 @@ pub enum MachineTypes {
     #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
     // kvm value: pc-q35-6.2
     PcQ35_6_2,
+    #[serde(rename(serialize = "pc-i440fx", deserialize = "pc-i440fx"))]
+    PcI440Fx,
 }
 impl fmt::Display for MachineTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
+            MachineTypes::PcI440Fx => write!(f, "pc-i440fx"),
         }
     }
 }
@@ -89,6 +108,7 @@ impl fmt::Display for InterfaceTypes {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DeviceModel {
+    pub version: String,
     pub name: DeviceModels,
     pub os_variant: OsVariants,
     pub manufacturer: Manufacturers,
@@ -100,7 +120,7 @@ pub struct DeviceModel {
     pub machine_type: MachineTypes,
     pub memory: u16,
     pub disk_count: u8,
-    pub version: String,
+    pub cdrom_iso: Option<String>,
 }
 impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
@@ -119,6 +139,7 @@ impl DeviceModel {
     }
     pub fn arista_veos() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::AristaVeos,
             os_variant: OsVariants::Eos,
             manufacturer: Manufacturers::Arista,
@@ -128,13 +149,14 @@ impl DeviceModel {
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
-            memory: 2048,
+            memory: 4096,
             disk_count: 1,
-            version: "veos-4.29.2F".to_owned(),
+            cdrom_iso: Some("aboot.iso".to_owned()),
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoCsr1000v,
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
@@ -146,11 +168,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 4096,
             disk_count: 1,
-            version: "csr1000v-universalk9.17.03.08a-serial".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_cat8000v() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoCat8000v,
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
@@ -162,11 +185,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_cat9000v() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoCat9000v,
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
@@ -178,11 +202,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_iosxrv9000() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosxrv9000,
             os_variant: OsVariants::Iosxr,
             manufacturer: Manufacturers::Cisco,
@@ -194,11 +219,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 16384,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_nexus9300v() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoNexus9300v,
             os_variant: OsVariants::Nxos,
             manufacturer: Manufacturers::Cisco,
@@ -210,11 +236,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 8096,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_iosv() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosv,
             os_variant: OsVariants::Ios,
             manufacturer: Manufacturers::Cisco,
@@ -226,11 +253,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
             disk_count: 1,
-            version: "vios-adventerprisek9-m.spa.159-3.m8".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn cisco_iosvl2() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosvl2,
             os_variant: OsVariants::Ios,
             manufacturer: Manufacturers::Cisco,
@@ -242,11 +270,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn nvidia_cumulus() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::NvidiaCumulus,
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Nvidia,
@@ -258,11 +287,12 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
             disk_count: 1,
-            version: "cumulus-vx-5.4.0".to_owned(),
+            cdrom_iso: None,
         }
     }
     pub fn nokia_sros() -> DeviceModel {
         DeviceModel {
+            version: "latest".to_owned(),
             name: DeviceModels::NokiaSros,
             os_variant: OsVariants::Sros,
             manufacturer: Manufacturers::Nokia,
@@ -274,7 +304,7 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             memory: 2048,
             disk_count: 1,
-            version: "latest".to_owned(),
+            cdrom_iso: None,
         }
     }
 }

@@ -6,41 +6,60 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 #[template(
     source = r#"<domain type='kvm'>
   <name>{{ name }}</name>
+
   <vcpu placement='static'>{{ cpu_count }}</vcpu>
-  <memory unit='MB'>{{ memory }}</memory>
+
+  <memory unit='MiB'>{{ memory }}</memory>
+
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    <boot dev='cdrom'/>
     <boot dev='hd'/>
   </os>
+
   <features>
+    <acpi/>
     <apic/>
+    <pae/>
   </features>
+
   <cpu mode='host-passthrough'>
     <model fallback='allow'/>
   </cpu>
+
   <clock offset='utc'>
     <timer name='rtc' tickpolicy='catchup'/>
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='no'/>
   </clock>
+
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
+   
   <pm>
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
   </pm>
+  
   <devices>
-    <emulator>{{ qemu_bin }}</emulator>
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2' cache='writethrough'/>
-      <source file='{{ boot_disk }}' index='1'/>
-      <backingStore/>
-      <target dev='vda' bus='virtio'/>
-      <alias name='virtio-disk0'/>
-      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
-    </disk>
 
+    <emulator>{{ qemu_bin }}</emulator>
+
+    {% if let Some(cdrom_iso) = cdrom_iso %}
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ cdrom_iso }}'/>
+      <target dev='sda' bus='sata'/>
+      <readonly/>
+    </disk>
+    {% endif %}
+
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{{ boot_disk }}'/>
+      <target dev='sdb' bus='sata'/>
+    </disk>
 
     <controller type='pci' index='0' model='pcie-root'>
       <alias name='pcie.0'/>
@@ -175,28 +194,20 @@ pub struct DomainTemplate {
     pub cpu_count: u8,
     pub qemu_bin: String,
     pub boot_disk: String,
+    pub cdrom_iso: Option<String>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
 }
 
 /*
-   {% if name == "dev1-dad4b64bfe06" %}
-    <interface type='udp'>
-      <mac address='52:54:00:00:01:01'/>
-      <source address='127.1.1.12' port='10012'>
-        <local address='127.1.1.11' port='10011'/>
-      </source>
-      <model type="{{ interface_type }}"/>
-    </interface>
-    {% else %}
-    <interface type='udp'>
-      <mac address='52:54:00:00:02:02'/>
-      <source address='127.1.1.11' port='10011'>
-        <local address='127.1.1.12' port='10012'/>
-      </source>
-      <model type="{{ interface_type }}"/>
-    </interface>
-    {% endif %}
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2' cache='writethrough'/>
+      <source file='{{ boot_disk }}' index='1'/>
+      <backingStore/>
+      <target dev='vda' bus='virtio'/>
+      <alias name='virtio-disk0'/>
+      <address type='pci' domain='0x0000' bus='0x04' slot='0x00' function='0x0'/>
+    </disk>
 
     <devices>
       <interface type='network'>
