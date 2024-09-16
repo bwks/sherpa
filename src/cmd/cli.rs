@@ -1,7 +1,4 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
 
 use anyhow::Result;
 use askama::Template;
@@ -9,18 +6,15 @@ use clap::{Parser, Subcommand};
 
 use virt::connect::Connect;
 use virt::domain::Domain;
-use virt::storage_pool::StoragePool;
-use virt::storage_vol::StorageVol;
-use virt::stream::Stream;
 
-use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE};
+use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH};
 use crate::core::{Config, Sherpa};
 use crate::libvirt::DomainTemplate;
 use crate::libvirt::Qemu;
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_dir, delete_file, dir_exists, file_exists, get_ip, id_to_port, random_mac,
+    clone_disk, create_dir, delete_disk, dir_exists, file_exists, get_ip, id_to_port, random_mac,
     term_msg,
 };
 
@@ -196,9 +190,9 @@ impl Cli {
                         "{}/{}/{}/virtioa.qcow2",
                         sherpa.boxes_dir, device_model.name, device_model.version
                     );
-                    let dst_boot_disk = format!("/var/lib/libvirt/images/{}.qcow2", vm_name);
+                    let dst_boot_disk = format!("{STORAGE_POOL_PATH}/{vm_name}.qcow2");
 
-                    clone_disk_image(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
+                    clone_disk(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
 
                     // CDROM ISO
                     let dst_cdrom_iso = match device_model.cdrom_iso {
@@ -207,9 +201,8 @@ impl Cli {
                                 "{}/{}/{}/{}",
                                 sherpa.boxes_dir, device_model.name, device_model.version, src_iso
                             );
-                            println!("{src}");
-                            let dst = format!("/tmp/{}.iso", vm_name);
-                            copy_file(&src, &dst)?;
+                            let dst = format!("{STORAGE_POOL_PATH}/{vm_name}.iso");
+                            clone_disk(&qemu_conn, &src, &dst)?;
                             Some(dst)
                         }
                         None => None,
@@ -293,16 +286,12 @@ impl Cli {
                             }
 
                             // HDD
-                            // delete this file using libvirt
-                            let file_path = format!("/tmp/{}.qcow2", vm_name);
-                            delete_file(&file_path)?;
+                            let hdd_name = format!("{vm_name}.qcow2");
+                            delete_disk(&qemu_conn, &hdd_name)?;
 
                             // ISO
-                            let iso_path = format!("/tmp/{}.iso", vm_name);
-                            let iso_path_stat = Path::new(&iso_path);
-                            if iso_path_stat.exists() {
-                                delete_file(&iso_path)?;
-                            }
+                            let iso_name = format!("{vm_name}.iso");
+                            delete_disk(&qemu_conn, &iso_name)?;
                         }
                     }
                 }
@@ -359,57 +348,4 @@ impl Default for Commands {
 fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
     let domain = Domain::create_xml(conn, xml, 0)?;
     Ok(domain)
-}
-
-/// Clone a disk image using libvirt
-fn clone_disk_image(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {
-    let pool = StoragePool::lookup_by_name(conn, "default")?;
-
-    let vol_xml = format!(
-        r#"<volume>
-            <name>{}</name>
-            <allocation>0</allocation>
-            <capacity>0</capacity>
-            <target>
-                <path>{}</path>
-                <format type='qcow2'/>
-            </target>
-        </volume>"#,
-        Path::new(dst_path).file_name().unwrap().to_str().unwrap(),
-        dst_path
-    );
-
-    // Create the new volume using the Connect struct
-    let new_vol = StorageVol::create_xml(&pool, &vol_xml, 0)?;
-
-    // Open the source file
-    let mut src_file = File::open(&src_path)?;
-
-    // Get the file size
-    let file_size = src_file.seek(SeekFrom::End(0))?;
-    src_file.seek(SeekFrom::Start(0))?;
-
-    // Create a new stream
-    let stream = Stream::new(conn, 0)?;
-
-    // Start the upload
-    new_vol.upload(&stream, 0, file_size, 0)?;
-
-    // Define chunk size (e.g., 10 MB)
-    const CHUNK_SIZE: usize = 10 * 1024 * 1024;
-    let mut buffer = vec![0; CHUNK_SIZE];
-
-    // Read and send data in chunks
-    loop {
-        let bytes_read = src_file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        stream.send(&buffer[..bytes_read])?;
-    }
-
-    // Finish the stream
-    stream.finish()?;
-
-    Ok(())
 }
