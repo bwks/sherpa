@@ -84,7 +84,7 @@ impl Cli {
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
                 // Create the default config directories
-                if dir_exists(sherpa.config_dir.as_str()) && !*force {
+                if dir_exists(&sherpa.config_dir) && !*force {
                     println!("Directory path already exists: {}", sherpa.config_dir);
                 } else {
                     create_dir(&sherpa.config_dir)?;
@@ -92,9 +92,10 @@ impl Cli {
                     // box directories
                     let config = Config::default();
                     for device_model in config.device_models {
-                        create_dir(
-                            format!("{}/{}/latest", sherpa.boxes_dir, device_model.name).as_str(),
-                        )?;
+                        create_dir(&format!(
+                            "{}/{}/latest",
+                            sherpa.boxes_dir, device_model.name
+                        ))?;
                     }
                 }
 
@@ -331,7 +332,7 @@ impl Cli {
                 }
             }
             Commands::Connect { name } => {
-                term_msg(format!("Connecting to: {name}").as_str());
+                term_msg(&format!("Connecting to: {name}"));
 
                 let manifest = Manifest::load_file()?;
 
