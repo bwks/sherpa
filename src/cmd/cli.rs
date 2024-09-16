@@ -4,19 +4,14 @@ use anyhow::Result;
 use askama::Template;
 use clap::{Parser, Subcommand};
 
-use virt::connect::Connect;
 use virt::domain::Domain;
 
 use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH};
 use crate::core::{Config, Sherpa};
-use crate::libvirt::DomainTemplate;
-use crate::libvirt::Qemu;
+use crate::libvirt::{clone_disk, create_vm, delete_disk, DomainTemplate, Qemu};
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
 use crate::topology::{ConnectionMap, Manifest};
-use crate::util::{
-    clone_disk, create_dir, delete_disk, dir_exists, file_exists, get_ip, id_to_port, random_mac,
-    term_msg,
-};
+use crate::util::{create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac, term_msg};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -60,6 +55,15 @@ enum Commands {
     /// Connect to a device
     Connect { name: String },
 }
+impl Default for Commands {
+    fn default() -> Self {
+        Commands::Init {
+            config_file: CONFIG_FILE.to_owned(),
+            manifest_file: MANIFEST_FILE.to_owned(),
+            force: false,
+        }
+    }
+}
 
 impl Cli {
     pub fn run() -> Result<()> {
@@ -96,12 +100,14 @@ impl Cli {
                 if file_exists(&sherpa.config_path) && !*force {
                     println!("Config file already exists: {}", sherpa.config_path);
                 } else {
-                    let mut config = Config::default();
-                    config.name = config_file.to_owned();
+                    let config = Config {
+                        name: config_file.to_owned(),
+                        ..Default::default()
+                    };
                     config.create(&sherpa.config_path)?;
                 }
 
-                if file_exists(&manifest_file) && !*force {
+                if file_exists(manifest_file) && !*force {
                     println!("Manifest file already exists: {manifest_file}");
                 } else {
                     let manifest = Manifest::default();
@@ -118,6 +124,7 @@ impl Cli {
                 let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
 
+                // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
                     .devices
                     .iter()
@@ -130,45 +137,46 @@ impl Cli {
 
                     let mut interfaces: Vec<Interface> = vec![];
 
+                    // Build interface vector.
                     for i in 0..device_model.interface_count {
                         for c in &manifest.connections {
+                            // Device is source in manifest
                             if c.device_a == device.name && i == c.interface_a {
-                                // Device is source in manifest
+                                let source_id = dev_id_map.get(&c.device_b).ok_or_else(|| {
+                                    anyhow::anyhow!("Connection device_b not found: {}", c.device_b)
+                                })?;
                                 let connection_map = ConnectionMap {
                                     local_id: device.id,
                                     local_port: id_to_port(i),
                                     local_loopback: get_ip(device.id).to_string(),
-                                    source_id: dev_id_map.get(&c.device_b).unwrap().to_owned(),
+                                    source_id: source_id.to_owned(),
                                     source_port: id_to_port(c.interface_b),
-                                    source_loopback: get_ip(
-                                        dev_id_map.get(&c.device_b).unwrap().to_owned(),
-                                    )
-                                    .to_string(),
+                                    source_loopback: get_ip(source_id.to_owned()).to_string(),
                                 };
                                 interfaces.push(Interface {
                                     name: format!("{}{}", device_model.interface_prefix, i),
                                     num: i,
-                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    mac_address: random_mac(),
                                     connection_type: ConnectionTypes::Peer,
                                     connection_map: Some(connection_map),
                                 })
+                            // Device is destination in manifest
                             } else if c.device_b == device.name && i == c.interface_b {
-                                // Device is destination in manifest
+                                let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
+                                    anyhow::anyhow!("Connection device_a not found: {}", c.device_a)
+                                })?;
                                 let connection_map = ConnectionMap {
                                     local_id: device.id,
                                     local_port: id_to_port(i),
                                     local_loopback: get_ip(device.id).to_string(),
-                                    source_id: dev_id_map.get(&c.device_a).unwrap().to_owned(),
+                                    source_id: source_id.to_owned(),
                                     source_port: id_to_port(c.interface_a),
-                                    source_loopback: get_ip(
-                                        dev_id_map.get(&c.device_a).unwrap().to_owned(),
-                                    )
-                                    .to_string(),
+                                    source_loopback: get_ip(source_id.to_owned()).to_string(),
                                 };
                                 interfaces.push(Interface {
                                     name: format!("{}{}", device_model.interface_prefix, i),
                                     num: i,
-                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    mac_address: random_mac(),
                                     connection_type: ConnectionTypes::Peer,
                                     connection_map: Some(connection_map),
                                 })
@@ -177,7 +185,7 @@ impl Cli {
                                 interfaces.push(Interface {
                                     name: format!("{}{}", device_model.interface_prefix, i),
                                     num: i,
-                                    mac_address: format!("{}", random_mac()).to_owned(),
+                                    mac_address: random_mac(),
                                     connection_type: ConnectionTypes::Disabled,
                                     connection_map: None,
                                 })
@@ -277,21 +285,19 @@ impl Cli {
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) {
-                        if domain.is_active().unwrap_or(false) {
-                            match domain.destroy() {
-                                Ok(_) => println!("Destroyed: {vm_name}"),
-                                Err(_) => eprintln!("Destroy failed: {vm_name}"), // TODO: Raise
-                            }
-
-                            // HDD
-                            let hdd_name = format!("{vm_name}.qcow2");
-                            delete_disk(&qemu_conn, &hdd_name)?;
-
-                            // ISO
-                            let iso_name = format!("{vm_name}.iso");
-                            delete_disk(&qemu_conn, &iso_name)?;
+                    if vm_name.contains(&manifest.id) && domain.is_active().unwrap_or(false) {
+                        match domain.destroy() {
+                            Ok(_) => println!("Destroyed: {vm_name}"),
+                            Err(_) => eprintln!("Destroy failed: {vm_name}"), // TODO: Raise
                         }
+
+                        // HDD
+                        let hdd_name = format!("{vm_name}.qcow2");
+                        delete_disk(&qemu_conn, &hdd_name)?;
+
+                        // ISO
+                        let iso_name = format!("{vm_name}.iso");
+                        delete_disk(&qemu_conn, &iso_name)?;
                     }
                 }
             }
@@ -331,20 +337,4 @@ impl Cli {
 
         Ok(())
     }
-}
-
-impl Default for Commands {
-    fn default() -> Self {
-        Commands::Init {
-            config_file: CONFIG_FILE.to_owned(),
-            manifest_file: MANIFEST_FILE.to_owned(),
-            force: false,
-        }
-    }
-}
-
-// Create a virtual machine
-fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
-    let domain = Domain::create_xml(conn, xml, 0)?;
-    Ok(domain)
 }

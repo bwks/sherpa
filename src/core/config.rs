@@ -19,19 +19,18 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let mut device_models: Vec<DeviceModel> = vec![];
-
-        device_models.push(DeviceModel::arista_veos());
-        device_models.push(DeviceModel::cisco_csr1000v());
-        device_models.push(DeviceModel::cisco_cat9000v());
-        device_models.push(DeviceModel::cisco_cat8000v());
-        device_models.push(DeviceModel::cisco_iosxrv9000());
-        device_models.push(DeviceModel::cisco_nexus9300v());
-        device_models.push(DeviceModel::cisco_iosv());
-        device_models.push(DeviceModel::cisco_iosvl2());
-        device_models.push(DeviceModel::nokia_sros());
-        device_models.push(DeviceModel::nvidia_cumulus());
-
+        let device_models: Vec<DeviceModel> = vec![
+            DeviceModel::arista_veos(),
+            DeviceModel::cisco_csr1000v(),
+            DeviceModel::cisco_cat9000v(),
+            DeviceModel::cisco_cat8000v(),
+            DeviceModel::cisco_iosxrv9000(),
+            DeviceModel::cisco_nexus9300v(),
+            DeviceModel::cisco_iosv(),
+            DeviceModel::cisco_iosvl2(),
+            DeviceModel::nokia_sros(),
+            DeviceModel::nvidia_cumulus(),
+        ];
         Config {
             name: CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
@@ -65,7 +64,7 @@ pub struct Sherpa {
 
 impl Default for Sherpa {
     fn default() -> Self {
-        let config_dir = expand_path(format!("{CONFIG_DIR}").as_str());
+        let config_dir = expand_path(CONFIG_DIR);
         let boxes_dir = format!("{config_dir}/{BOXES_DIR}");
         let config_path = expand_path(format!("{CONFIG_DIR}/{CONFIG_FILE}").as_str());
         Self {

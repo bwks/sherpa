@@ -2,8 +2,7 @@ use std::net::Ipv4Addr;
 
 /// Get an IPv4 address from a host address.
 pub fn get_ip(host_addr: u8) -> Ipv4Addr {
-    let addr = Ipv4Addr::new(127, 127, 127, host_addr);
-    addr
+    Ipv4Addr::new(127, 127, 127, host_addr)
 }
 
 #[cfg(test)]

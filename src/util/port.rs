@@ -2,7 +2,7 @@ use crate::core::konst::BASE_PORT;
 
 /// Returns a high port number based from id
 pub fn id_to_port(id: u8) -> u16 {
-    return BASE_PORT + id as u16;
+    BASE_PORT + id as u16
 }
 
 #[cfg(test)]
