@@ -320,10 +320,15 @@ impl Cli {
                         // HDD
                         let hdd_name = format!("{vm_name}.qcow2");
                         delete_disk(&qemu_conn, &hdd_name)?;
+                        println!("Deleted HDD: {hdd_name}");
 
                         // ISO
+
                         let iso_name = format!("{vm_name}.iso");
-                        delete_disk(&qemu_conn, &iso_name)?;
+                        if file_exists(&format!("{STORAGE_POOL_PATH}/{iso_name}")) {
+                            delete_disk(&qemu_conn, &iso_name)?;
+                            println!("Deleted ISO: {iso_name}");
+                        }
                     }
                 }
             }
