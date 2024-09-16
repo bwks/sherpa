@@ -47,6 +47,8 @@ enum Commands {
     },
     /// Stop environment
     Down,
+    /// Resume environment
+    Resume,
     /// Destroy environment
     Destroy,
     /// Inspect environment
@@ -235,7 +237,7 @@ impl Cli {
                 // Build domains
                 for domain in domains {
                     // Render the XML document
-                    let rendered_xml = domain.render().unwrap();
+                    let rendered_xml = domain.render()?;
 
                     let xml_configs = vec![rendered_xml];
 
@@ -249,26 +251,42 @@ impl Cli {
                 }
             }
             Commands::Down => {
-                // TODO: Update this to stop the vm.
-                term_msg("Stopping environment");
+                term_msg("Suspending environment");
 
                 let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
 
-                let domains = qemu_conn.list_all_domains(0).unwrap();
+                let domains = qemu_conn.list_all_domains(0)?;
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
                     if vm_name.contains(&manifest.id) {
-                        if domain.is_active().unwrap_or(false) {
-                            match domain.suspend() {
-                                Ok(_) => println!("Shutdown: {vm_name}"),
-                                Err(_) => eprintln!("Shutdown failed: {vm_name}"), // TODO: Raise
-                            }
+                        if domain.is_active()? {
+                            domain.suspend()?;
+                            println!("Suspended: {vm_name}");
                         } else {
                             println!("Virtual machine not running: {vm_name}");
                         }
+                    }
+                }
+            }
+            Commands::Resume => {
+                term_msg("Resuming environment");
+
+                let manifest = Manifest::load_file()?;
+
+                let qemu_conn = qemu.connect()?;
+
+                let domains = qemu_conn.list_all_domains(0)?;
+
+                for domain in domains {
+                    let vm_name = domain.get_name()?;
+                    if vm_name.contains(&manifest.id) && !domain.is_active()? {
+                        domain.resume()?;
+                        println!("Resumed: {vm_name}");
+                    } else {
+                        println!("Virtual machine already running: {vm_name}");
                     }
                 }
             }
@@ -279,15 +297,13 @@ impl Cli {
 
                 let qemu_conn = qemu.connect()?;
 
-                let domains = qemu_conn.list_all_domains(0).unwrap();
+                let domains = qemu_conn.list_all_domains(0)?;
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) && domain.is_active().unwrap_or(false) {
-                        match domain.destroy() {
-                            Ok(_) => println!("Destroyed: {vm_name}"),
-                            Err(_) => eprintln!("Destroy failed: {vm_name}"), // TODO: Raise
-                        }
+                    if vm_name.contains(&manifest.id) && domain.is_active()? {
+                        domain.destroy()?;
+                        println!("Destroyed: {vm_name}");
 
                         // HDD
                         let hdd_name = format!("{vm_name}.qcow2");
@@ -306,7 +322,7 @@ impl Cli {
 
                 let qemu_conn = qemu.connect()?;
 
-                let domains = qemu_conn.list_all_domains(0).unwrap();
+                let domains = qemu_conn.list_all_domains(0)?;
                 for domain in domains {
                     let vm_name = domain.get_name()?;
                     if vm_name.contains(&manifest.id) {
