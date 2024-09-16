@@ -237,7 +237,6 @@ impl Cli {
 
                 // Build domains
                 for domain in domains {
-                    // Render the XML document
                     let rendered_xml = domain.render()?;
 
                     let xml_configs = vec![rendered_xml];
@@ -283,11 +282,23 @@ impl Cli {
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) && !domain.is_active()? {
-                        domain.resume()?;
-                        println!("Resumed: {vm_name}");
-                    } else {
-                        println!("Virtual machine already running: {vm_name}");
+                    if vm_name.contains(&manifest.id) {
+                        match domain.get_state() {
+                            Ok((state, _reason)) => {
+                                if state == virt::sys::VIR_DOMAIN_PAUSED {
+                                    domain.resume()?;
+                                    println!("Resumed: {vm_name}");
+                                } else if state == virt::sys::VIR_DOMAIN_RUNNING {
+                                    println!("Virtual machine already running: {vm_name}");
+                                } else {
+                                    println!(
+                                        "Virtual machine not paused (state: {}): {}",
+                                        state, vm_name
+                                    );
+                                }
+                            }
+                            Err(e) => anyhow::bail!("Failed to get state for {vm_name}: {e}"),
+                        }
                     }
                 }
             }
