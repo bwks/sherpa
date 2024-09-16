@@ -216,8 +216,6 @@ impl Cli {
                         None => None,
                     };
 
-                    println!("{:#?}", interfaces);
-
                     let domain = DomainTemplate {
                         name: vm_name,
                         memory: device_model.memory,
