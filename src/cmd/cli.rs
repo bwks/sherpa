@@ -1,11 +1,11 @@
 use std::collections::HashMap;
+use std::process::Command;
 
 use anyhow::Result;
+
 use askama::Template;
 
 use clap::{Parser, Subcommand};
-
-use virt::domain::Domain;
 
 use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH, TELNET_PORT};
 use crate::core::{Config, Sherpa};
@@ -354,18 +354,26 @@ impl Cli {
 
                 let manifest = Manifest::load_file()?;
 
-                let qemu_conn = qemu.connect()?;
+                // Find the device in the manifest
+                let device = manifest
+                    .devices
+                    .iter()
+                    .find(|d| d.name == name.to_owned())
+                    .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
 
-                let vm_name = format!("{}-{}", name, manifest.id);
+                let status = Command::new("telnet")
+                    .arg(get_ip(device.id).to_string())
+                    .arg(TELNET_PORT.to_string())
+                    .status()?;
 
-                // Get the domain (VM) by name
-                let domain = Domain::lookup_by_name(&qemu_conn, &vm_name)?;
-                if domain.is_active()? {
-                    println!("Connecting to console of: {name}");
+                if !status.success() {
+                    eprintln!("Telnet connection failed");
+                    if let Some(code) = status.code() {
+                        eprintln!("Exit code: {}", code);
+                    }
                 }
             }
         }
-
         Ok(())
     }
 }
