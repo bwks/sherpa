@@ -135,18 +135,18 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     {%   endmatch %}
     {% endfor %}
 
-    <serial type='pty'>
-      <source path='/dev/pts/4'/>
+    <serial type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
       <target type='isa-serial' port='0'>
         <model name='isa-serial'/>
       </target>
-      <alias name='serial0'/>
     </serial>
 
-    <console type='pty' tty='/dev/pts/4'>
-      <source path='/dev/pts/4'/>
+    <console type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
       <target type='serial' port='0'/>
-      <alias name='serial0'/>
     </console>
 
     <channel type='unix'>
@@ -196,9 +196,25 @@ pub struct DomainTemplate {
     pub cdrom_iso: Option<String>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
+    pub loopback_ipv4: String,
+    pub telnet_port: u16,
 }
 
 /*
+    <serial type='pty'>
+      <source path='/dev/pts/4'/>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+      <alias name='serial0'/>
+    </serial>
+
+    <console type='pty' tty='/dev/pts/4'>
+      <source path='/dev/pts/4'/>
+      <target type='serial' port='0'/>
+      <alias name='serial0'/>
+    </console>
+
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2' cache='writethrough'/>
       <source file='{{ boot_disk }}' index='1'/>

@@ -2,11 +2,12 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use askama::Template;
+
 use clap::{Parser, Subcommand};
 
 use virt::domain::Domain;
 
-use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH};
+use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH, TELNET_PORT};
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{clone_disk, create_vm, delete_disk, DomainTemplate, Qemu};
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
@@ -230,6 +231,8 @@ impl Cli {
                         cdrom_iso: dst_cdrom_iso,
                         interfaces,
                         interface_type: device_model.interface_type,
+                        loopback_ipv4: get_ip(device.id).to_string(),
+                        telnet_port: TELNET_PORT,
                     };
 
                     domains.push(domain);
@@ -323,7 +326,6 @@ impl Cli {
                         println!("Deleted HDD: {hdd_name}");
 
                         // ISO
-
                         let iso_name = format!("{vm_name}.iso");
                         if file_exists(&format!("{STORAGE_POOL_PATH}/{iso_name}")) {
                             delete_disk(&qemu_conn, &iso_name)?;
@@ -359,9 +361,7 @@ impl Cli {
                 // Get the domain (VM) by name
                 let domain = Domain::lookup_by_name(&qemu_conn, &vm_name)?;
                 if domain.is_active()? {
-                    println!("Connecting to: {name}")
-                } else {
-                    println!("Device not found: {name}")
+                    println!("Connecting to console of: {name}");
                 }
             }
         }

@@ -6,5 +6,6 @@ pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const KVM_OUI: &str = "52:54:00";
 pub const BASE_PORT: u16 = 10000;
+pub const TELNET_PORT: u16 = 13337;
 pub const STORAGE_POOL: &str = "default";
 pub const STORAGE_POOL_PATH: &str = "/var/lib/libvirt/images";
