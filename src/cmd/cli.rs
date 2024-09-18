@@ -91,6 +91,7 @@ impl Cli {
                 force,
             } => {
                 term_msg("Sherpa Initializing");
+                let qemu_conn = qemu.connect()?;
 
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
@@ -129,7 +130,6 @@ impl Cli {
                 }
 
                 // Initialize the network
-                let qemu_conn = qemu.connect()?;
                 if qemu_conn
                     .list_networks()?
                     .iter()
