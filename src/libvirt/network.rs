@@ -4,20 +4,21 @@ use virt::connect::Connect;
 use virt::network::Network;
 
 /// Create an isolated bridge.
-pub fn create_isolated_network(conn: &Connect, name: &str) -> Result<()> {
+pub fn create_isolated_network(conn: &Connect, name: &str, bridge_name: &str) -> Result<()> {
     let network_xml = format!(
         r#"
         <network>
           <name>{name}</name>
-          <bridge name='{name}' stp='on' delay='0'/>
+          <bridge name='{bridge_name}' stp='on' delay='0'/>
         </network>
         "#,
     );
 
     let network = Network::define_xml(conn, &network_xml)?;
     network.create()?;
+    network.set_autostart(true)?;
 
-    println!("Network bridge '{}' created and started", name);
+    println!("Network created and started: {name}");
 
     Ok(())
 }

@@ -9,8 +9,8 @@ use clap::{Parser, Subcommand};
 
 use crate::core::konst::{
     BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
-    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH,
-    TELNET_PORT,
+    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE,
+    ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL_PATH, TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -64,9 +64,6 @@ enum Commands {
 
     /// Connect to a device
     Connect { name: String },
-
-    /// Create an isolated bridge
-    CreateBridge { name: String },
 }
 impl Default for Commands {
     fn default() -> Self {
@@ -129,15 +126,15 @@ impl Cli {
                     manifest.write_file()?;
                 }
 
-                // Initialize the network
+                // Initialize the sherpa boot network
                 if qemu_conn
                     .list_networks()?
                     .iter()
-                    .any(|net| net == "sherpanet")
+                    .any(|net| net == BOOT_NETWORK_NAME)
                 {
-                    println!("Network already exists: sherpanet");
+                    println!("Network already exists: {BOOT_NETWORK_NAME}");
                 } else {
-                    println!("Creating network: sherpanet");
+                    println!("Creating network: {BOOT_NETWORK_NAME}");
                     create_network(
                         &qemu_conn,
                         BOOT_NETWORK_NAME,
@@ -146,6 +143,22 @@ impl Cli {
                         BOOT_NETWORK_NETMASK,
                         BOOT_NETWORK_DHCP_START,
                         BOOT_NETWORK_DHCP_END,
+                    )?;
+                }
+
+                // Create the isolated network
+                if qemu_conn
+                    .list_networks()?
+                    .iter()
+                    .any(|net| net == ISOLATED_NETWORK_NAME)
+                {
+                    println!("Network already exists: {ISOLATED_NETWORK_NAME}");
+                } else {
+                    println!("Creating network: {ISOLATED_NETWORK_NAME}");
+                    create_isolated_network(
+                        &qemu_conn,
+                        ISOLATED_NETWORK_NAME,
+                        ISOLATED_NETWORK_BRIDGE,
                     )?;
                 }
             }
@@ -172,6 +185,15 @@ impl Cli {
 
                     let mut interfaces: Vec<Interface> = vec![];
 
+                    if device_model.management_interface {
+                        interfaces.push(Interface {
+                            name: "mgmt".to_owned(),
+                            num: 0,
+                            mac_address: random_mac(),
+                            connection_type: ConnectionTypes::Management,
+                            connection_map: None,
+                        });
+                    }
                     // Build interface vector.
                     for i in 0..device_model.interface_count {
                         for c in &manifest.connections {
@@ -403,12 +425,6 @@ impl Cli {
                         eprintln!("Exit code: {}", code);
                     }
                 }
-            }
-            Commands::CreateBridge { name } => {
-                term_msg(&format!("Creating bridge: {name}"));
-                let qemu_conn = qemu.connect()?;
-                create_isolated_network(&qemu_conn, name)
-                    .map_err(|e| anyhow::anyhow!("Failed to create bridge: {}", e))?;
             }
         }
         Ok(())

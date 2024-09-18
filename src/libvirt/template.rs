@@ -75,7 +75,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <interface type='network'>
       <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='default'/>
+      <source network='{{ crate::core::konst::BOOT_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
     </interface>
 
@@ -83,7 +83,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <interface type='network'>
       <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='default'/>
+      <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
       <link state='down'/>
     </interface>
