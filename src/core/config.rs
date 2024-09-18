@@ -56,6 +56,7 @@ impl Config {
     }
 }
 
+#[derive(Clone)]
 pub struct Sherpa {
     pub config_dir: String,
     pub config_path: String,

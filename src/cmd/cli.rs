@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::Arc;
+use std::thread;
 
 use anyhow::Result;
 
@@ -165,7 +167,7 @@ impl Cli {
             Commands::Up { config_file } => {
                 term_msg("Building environment");
 
-                let qemu_conn = qemu.connect()?;
+                let qemu_conn = Arc::new(qemu.connect()?);
 
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
@@ -181,6 +183,8 @@ impl Cli {
 
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in manifest.devices {
+                    let vm_name = format!("{}-{}", device.name, manifest.id);
+
                     let device_model = DeviceModel::get_model(device.device_model);
 
                     let mut interfaces: Vec<Interface> = vec![];
@@ -250,13 +254,11 @@ impl Cli {
                         }
                     }
 
-                    let vm_name = format!("{}-{}", device.name, manifest.id);
                     let src_boot_disk = format!(
                         "{}/{}/{}/virtioa.qcow2",
                         sherpa.boxes_dir, device_model.name, device_model.version
                     );
                     let dst_boot_disk = format!("{STORAGE_POOL_PATH}/{vm_name}.qcow2");
-
                     clone_disk(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
 
                     // CDROM ISO
@@ -291,19 +293,26 @@ impl Cli {
                     domains.push(domain);
                 }
 
-                // Build domains
-                for domain in domains {
-                    let rendered_xml = domain.render()?;
+                // Build domains in parallel
+                let handles: Vec<_> = domains
+                    .into_iter()
+                    .map(|domain| {
+                        let qemu_conn = Arc::clone(&qemu_conn);
+                        thread::spawn(move || -> Result<()> {
+                            let rendered_xml = domain.render()?;
+                            let result = create_vm(&qemu_conn, &rendered_xml);
+                            match result {
+                                Ok(_) => println!("Created: {}", domain.name),
+                                Err(e) => eprintln!("Create failed: {}: {}", domain.name, e),
+                            }
+                            Ok(())
+                        })
+                    })
+                    .collect();
 
-                    let xml_configs = vec![rendered_xml];
-
-                    for xml in xml_configs {
-                        let result = create_vm(&qemu_conn, &xml);
-                        match result {
-                            Ok(_) => println!("Created: {}", domain.name),
-                            Err(_) => eprintln!("Create failed: {}", domain.name),
-                        }
-                    }
+                // Wait for all threads to complete
+                for handle in handles {
+                    handle.join().unwrap()?;
                 }
             }
             Commands::Down => {
