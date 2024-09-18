@@ -50,6 +50,147 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{{ cdrom_iso }}'/>
+      <target dev='hda' bus='ide'/>
+      <readonly/>
+    </disk>
+    {% endif %}
+
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{{ boot_disk }}'/>
+      <target dev='hdb' bus='ide'/>
+    </disk>
+
+    <controller type='usb' index='0' model='piix3-uhci'>
+      <alias name='usb'/>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x2'/>
+    </controller>
+
+    <controller type='pci' index='0' model='pci-root'/>
+
+    {% for interface in interfaces %}
+    {%   match interface.connection_type %}
+
+    {%     when ConnectionTypes::Management %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='default'/>
+      <model type='{{ interface_type }}'/>
+    </interface>
+
+    {%     when ConnectionTypes::Disabled %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='default'/>
+      <model type='{{ interface_type }}'/>
+      <link state='down'/>
+    </interface>
+
+    {%     when ConnectionTypes::Peer %}
+    {%       match interface.connection_map %}
+    {%         when Some with (connection_map) %}
+    <interface type='udp'>
+      <mac address='{{ interface.mac_address }}'/>
+      <source address='{{ connection_map.source_loopback }}' port='{{ connection_map.source_port }}'>
+        <local address='{{ connection_map.local_loopback }}' port='{{ connection_map.local_port }}'/>
+      </source>
+      <model type='{{ interface_type }}'/>
+    </interface>
+    {%         when None %}
+    {%       endmatch %}
+    {%   endmatch %}
+    {% endfor %}
+
+    <serial type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+    </serial>
+
+    <console type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
+      <target type='serial' port='0'/>
+    </console>
+
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+  
+    <memballoon model='virtio'>
+      <address type='pci' domain='0x0000' bus='0x00' slot='0x08' function='0x0'/>
+    </memballoon>
+
+  </devices>
+</domain>"#,
+    ext = "xml"
+)]
+pub struct DomainTemplate {
+    pub name: String,
+    pub memory: u16,
+    pub cpu_architecture: CpuArchitecture,
+    pub machine_type: MachineTypes,
+    pub cpu_count: u8,
+    pub qemu_bin: String,
+    pub boot_disk: String,
+    pub cdrom_iso: Option<String>,
+    pub interfaces: Vec<Interface>,
+    pub interface_type: InterfaceTypes,
+    pub loopback_ipv4: String,
+    pub telnet_port: u16,
+}
+
+/*
+
+<domain type='kvm'>
+  <name>{{ name }}</name>
+
+  <vcpu placement='static'>{{ cpu_count }}</vcpu>
+
+  <memory unit='MiB'>{{ memory }}</memory>
+
+  <os>
+    <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    <boot dev='cdrom'/>
+    <boot dev='hd'/>
+  </os>
+
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+  </features>
+
+  <cpu mode='host-passthrough'>
+    <model fallback='allow'/>
+  </cpu>
+
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+
+  <devices>
+
+    <emulator>{{ qemu_bin }}</emulator>
+
+    {% if let Some(cdrom_iso) = cdrom_iso %}
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ cdrom_iso }}'/>
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>
@@ -101,6 +242,10 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
       <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x5'/>
     </controller>
 
+    <controller type='usb' index='0'>
+      <alias name='usb0'/>
+    </controller>
+
     {% for interface in interfaces %}
     {%   match interface.connection_type %}
 
@@ -114,6 +259,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
+      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='default'/>
       <model type='{{ interface_type }}'/>
@@ -159,17 +305,17 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <input type='mouse' bus='ps2'>
       <alias name='input0'/>
     </input>
-    
+
     <input type='keyboard' bus='ps2'>
       <alias name='input1'/>
     </input>
     <audio id='1' type='none'/>
-    
+
     <watchdog model='i6300esb' action='reset'>
       <alias name='watchdog0'/>
       <address type='pci' domain='0x0000' bus='0x10' slot='0x02' function='0x0'/>
     </watchdog>
-    
+
     <memballoon model='virtio'>
       <alias name='balloon0'/>
       <address type='pci' domain='0x0000' bus='0x05' slot='0x00' function='0x0'/>
@@ -182,25 +328,23 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     </rng>
 
   </devices>
-</domain>"#,
-    ext = "xml"
-)]
-pub struct DomainTemplate {
-    pub name: String,
-    pub memory: u16,
-    pub cpu_architecture: CpuArchitecture,
-    pub machine_type: MachineTypes,
-    pub cpu_count: u8,
-    pub qemu_bin: String,
-    pub boot_disk: String,
-    pub cdrom_iso: Option<String>,
-    pub interfaces: Vec<Interface>,
-    pub interface_type: InterfaceTypes,
-    pub loopback_ipv4: String,
-    pub telnet_port: u16,
-}
+</domain>
 
+*/
 /*
+    <interface type='bridge'>
+      <source bridge='sherpablackhole'/>
+      <model type='virtio'/>
+    </interface>
+
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='default'/>
+      <model type='{{ interface_type }}'/>
+      <link state='down'/>
+    </interface>
+
     <serial type='pty'>
       <source path='/dev/pts/4'/>
       <target type='isa-serial' port='0'>

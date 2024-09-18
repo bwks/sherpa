@@ -76,14 +76,14 @@ pub enum MachineTypes {
     #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
     // kvm value: pc-q35-6.2
     PcQ35_6_2,
-    #[serde(rename(serialize = "pc-i440fx", deserialize = "pc-i440fx"))]
-    PcI440Fx,
+    #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
+    PcI440Fx_4_2,
 }
 impl fmt::Display for MachineTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
-            MachineTypes::PcI440Fx => write!(f, "pc-i440fx"),
+            MachineTypes::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
         }
     }
 }
@@ -148,7 +148,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 4096,
             disk_count: 1,
             cdrom_iso: Some("aboot.iso".to_owned()),
@@ -165,7 +165,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::Vmxnet3,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 4096,
             disk_count: 1,
             cdrom_iso: None,
@@ -182,7 +182,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 16384,
             disk_count: 1,
             cdrom_iso: None,
@@ -199,7 +199,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 16384,
             disk_count: 1,
             cdrom_iso: None,
@@ -216,7 +216,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 16384,
             disk_count: 1,
             cdrom_iso: None,
@@ -233,7 +233,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 8096,
             disk_count: 1,
             cdrom_iso: None,
@@ -250,7 +250,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::E1000,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
@@ -267,7 +267,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
@@ -284,7 +284,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
@@ -301,7 +301,7 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             memory: 2048,
             disk_count: 1,
             cdrom_iso: None,

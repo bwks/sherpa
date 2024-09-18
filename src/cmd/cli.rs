@@ -7,9 +7,16 @@ use askama::Template;
 
 use clap::{Parser, Subcommand};
 
-use crate::core::konst::{CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH, TELNET_PORT};
+use crate::core::konst::{
+    BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
+    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CONFIG_FILE, MANIFEST_FILE, STORAGE_POOL_PATH,
+    TELNET_PORT,
+};
 use crate::core::{Config, Sherpa};
-use crate::libvirt::{clone_disk, create_vm, delete_disk, DomainTemplate, Qemu};
+use crate::libvirt::{
+    clone_disk, create_isolated_network, create_network, create_vm, delete_disk, DomainTemplate,
+    Qemu,
+};
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac, term_msg};
@@ -57,6 +64,9 @@ enum Commands {
 
     /// Connect to a device
     Connect { name: String },
+
+    /// Create an isolated bridge
+    CreateBridge { name: String },
 }
 impl Default for Commands {
     fn default() -> Self {
@@ -116,6 +126,27 @@ impl Cli {
                 } else {
                     let manifest = Manifest::default();
                     manifest.write_file()?;
+                }
+
+                // Initialize the network
+                let qemu_conn = qemu.connect()?;
+                if qemu_conn
+                    .list_networks()?
+                    .iter()
+                    .any(|net| net == "sherpanet")
+                {
+                    println!("Network already exists: sherpanet");
+                } else {
+                    println!("Creating network: sherpanet");
+                    create_network(
+                        &qemu_conn,
+                        BOOT_NETWORK_NAME,
+                        BOOT_NETWORK_BRIDGE,
+                        BOOT_NETWORK_IP,
+                        BOOT_NETWORK_NETMASK,
+                        BOOT_NETWORK_DHCP_START,
+                        BOOT_NETWORK_DHCP_END,
+                    )?;
                 }
             }
             Commands::Up { config_file } => {
@@ -358,7 +389,7 @@ impl Cli {
                 let device = manifest
                     .devices
                     .iter()
-                    .find(|d| d.name == name.to_owned())
+                    .find(|d| d.name == *name)
                     .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
 
                 let status = Command::new("telnet")
@@ -372,6 +403,12 @@ impl Cli {
                         eprintln!("Exit code: {}", code);
                     }
                 }
+            }
+            Commands::CreateBridge { name } => {
+                term_msg(&format!("Creating bridge: {name}"));
+                let qemu_conn = qemu.connect()?;
+                create_isolated_network(&qemu_conn, name)
+                    .map_err(|e| anyhow::anyhow!("Failed to create bridge: {}", e))?;
             }
         }
         Ok(())
