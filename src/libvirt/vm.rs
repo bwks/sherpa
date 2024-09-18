@@ -67,8 +67,9 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
     // Start the upload
     new_vol.upload(&stream, 0, file_size, 0)?;
 
-    // Define chunk size (e.g., 10 MB)
-    const CHUNK_SIZE: usize = 10 * 1024 * 1024;
+    // Define chunk size (e.g., 25 MB)
+
+    const CHUNK_SIZE: usize = 25 * 1024 * 1024;
     let mut buffer = vec![0; CHUNK_SIZE];
 
     // Read and send data in chunks
