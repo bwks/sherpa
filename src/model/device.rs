@@ -14,6 +14,7 @@ pub enum DeviceModels {
     CiscoIosvl2,
     NokiaSros,
     NvidiaCumulus,
+    LinuxUbuntu,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -28,6 +29,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
             DeviceModels::NokiaSros => write!(f, "nokia_sros"),
             DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
+            DeviceModels::LinuxUbuntu => write!(f, "linux_ubuntu"),
         }
     }
 }
@@ -40,6 +42,7 @@ pub enum Manufacturers {
     Juniper,
     Nvidia,
     Nokia,
+    Canonical,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -136,6 +139,7 @@ impl DeviceModel {
             DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
             DeviceModels::NokiaSros => DeviceModel::nokia_sros(),
             DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
+            DeviceModels::LinuxUbuntu => DeviceModel::linux_ubuntu(),
         }
     }
     pub fn arista_veos() -> DeviceModel {
@@ -316,6 +320,24 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+        }
+    }
+    pub fn linux_ubuntu() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::LinuxUbuntu,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Canonical,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::default(),
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcI440Fx_4_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
         }
     }
 }

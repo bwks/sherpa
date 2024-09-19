@@ -13,7 +13,9 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    {% if let Some(cdrom_iso) = cdrom_iso %}
     <boot dev='cdrom'/>
+    {% endif %}
     <boot dev='hd'/>
   </os>
 
@@ -23,7 +25,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <pae/>
   </features>
 
-  <cpu mode='host-passthrough'>
+  <cpu mode='host-model'>
     <model fallback='allow'/>
   </cpu>
 
@@ -50,7 +52,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{{ cdrom_iso }}'/>
-      <target dev='hda' bus='ide'/>
+      <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>
     {% endif %}
@@ -58,15 +60,12 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{{ boot_disk }}'/>
-      <target dev='hdb' bus='ide'/>
+      <target dev='vda' bus='virtio'/>
     </disk>
 
     <controller type='usb' index='0' model='piix3-uhci'>
       <alias name='usb'/>
-      <address type='pci' domain='0x0000' bus='0x00' slot='0x01' function='0x2'/>
     </controller>
-
-    <controller type='pci' index='0' model='pci-root'/>
 
     {% for interface in interfaces %}
     {%   match interface.connection_type %}
@@ -121,8 +120,11 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <input type='keyboard' bus='ps2'/>
   
     <memballoon model='virtio'>
-      <address type='pci' domain='0x0000' bus='0x00' slot='0x08' function='0x0'/>
     </memballoon>
+
+    <watchdog model='i6300esb' action='reset'>
+      <alias name='watchdog0'/>
+    </watchdog>
 
   </devices>
 </domain>"#,

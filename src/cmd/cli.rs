@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use askama::Template;
 
@@ -319,24 +319,13 @@ impl Cli {
                     .into_iter()
                     .map(|disk| {
                         let qemu_conn = Arc::clone(&qemu_conn);
-                        thread::spawn(move || -> Result<(), anyhow::Error> {
+                        thread::spawn(move || -> Result<()> {
                             println!("Cloning disk \n  from: {} \n    to: {}", disk.src, disk.dst);
-                            match clone_disk(&qemu_conn, &disk.src, &disk.dst) {
-                                Ok(_) => {
-                                    println!(
-                                        "Cloned disk \n  from: {} \n    to: {}",
-                                        disk.src, disk.dst
-                                    );
-                                    Ok(())
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "Failed to clone disk from: {} to: {} | error: {}",
-                                        disk.src, disk.dst, e
-                                    );
-                                    Err(e.into())
-                                }
-                            }
+                            clone_disk(&qemu_conn, &disk.src, &disk.dst).with_context(|| {
+                                format!("Failed to clone disk from: {} to: {}", disk.src, disk.dst)
+                            })?;
+                            println!("Cloned disk \n  from: {} \n    to: {}", disk.src, disk.dst);
+                            Ok(())
                         })
                     })
                     .collect();
@@ -354,20 +343,15 @@ impl Cli {
                     .into_iter()
                     .map(|domain| {
                         let qemu_conn = Arc::clone(&qemu_conn);
-                        thread::spawn(move || -> Result<(), anyhow::Error> {
-                            let rendered_xml = domain.render()?;
+                        thread::spawn(move || -> Result<()> {
+                            let rendered_xml = domain.render().with_context(|| {
+                                format!("Failed to render XML for VM: {}", domain.name)
+                            })?;
                             println!("Creating VM: {}", domain.name);
-                            let result = create_vm(&qemu_conn, &rendered_xml);
-                            match result {
-                                Ok(_) => {
-                                    println!("Created VM: {}", domain.name);
-                                    Ok(())
-                                }
-                                Err(e) => {
-                                    eprintln!("Create VM failed: {}: | error: {}", domain.name, e);
-                                    Err(e.into())
-                                }
-                            }
+                            create_vm(&qemu_conn, &rendered_xml)
+                                .with_context(|| format!("Failed to create VM: {}", domain.name))?;
+                            println!("Created VM: {}", domain.name);
+                            Ok(())
                         })
                     })
                     .collect();
