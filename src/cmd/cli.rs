@@ -21,7 +21,16 @@ use crate::libvirt::{
 };
 use crate::model::{ConnectionTypes, DeviceModel, Interface};
 use crate::topology::{ConnectionMap, Manifest};
-use crate::util::{create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac, term_msg};
+use crate::util::{
+    create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac, term_msg_surround,
+    term_msg_underline,
+};
+
+// Used to clone disk for VM creation
+struct CloneDisk {
+    src: String,
+    dst: String,
+}
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -89,7 +98,7 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
-                term_msg("Sherpa Initializing");
+                term_msg_surround("Sherpa Initializing");
                 let qemu_conn = qemu.connect()?;
 
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
@@ -165,7 +174,7 @@ impl Cli {
                 }
             }
             Commands::Up { config_file } => {
-                term_msg("Building environment");
+                term_msg_surround("Building environment");
 
                 let qemu_conn = Arc::new(qemu.connect()?);
 
@@ -181,6 +190,7 @@ impl Cli {
                     .map(|d| (d.name.clone(), d.id))
                     .collect();
 
+                let mut copy_disks: Vec<CloneDisk> = vec![];
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
@@ -259,21 +269,31 @@ impl Cli {
                         sherpa.boxes_dir, device_model.name, device_model.version
                     );
                     let dst_boot_disk = format!("{STORAGE_POOL_PATH}/{vm_name}.qcow2");
-                    clone_disk(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
+                    // clone_disk(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
+                    copy_disks.push(CloneDisk {
+                        src: src_boot_disk,
+                        dst: dst_boot_disk.clone(),
+                    });
 
                     // CDROM ISO
-                    let dst_cdrom_iso = match device_model.cdrom_iso {
+                    let (src_cdrom_iso, dst_cdrom_iso) = match device_model.cdrom_iso {
                         Some(src_iso) => {
                             let src = format!(
                                 "{}/{}/{}/{}",
                                 sherpa.boxes_dir, device_model.name, device_model.version, src_iso
                             );
                             let dst = format!("{STORAGE_POOL_PATH}/{vm_name}.iso");
-                            clone_disk(&qemu_conn, &src, &dst)?;
-                            Some(dst)
+                            // clone_disk(&qemu_conn, &src, &dst)?;
+                            (Some(src), Some(dst))
                         }
-                        None => None,
+                        None => (None, None),
                     };
+                    if dst_cdrom_iso.is_some() {
+                        copy_disks.push(CloneDisk {
+                            src: src_cdrom_iso.unwrap(),
+                            dst: dst_cdrom_iso.clone().unwrap(),
+                        })
+                    }
 
                     let domain = DomainTemplate {
                         name: vm_name,
@@ -293,30 +313,74 @@ impl Cli {
                     domains.push(domain);
                 }
 
-                // Build domains in parallel
-                let handles: Vec<_> = domains
+                // Clone disks in parallel
+                term_msg_underline("Cloning Disks");
+                let disk_handles: Vec<_> = copy_disks
                     .into_iter()
-                    .map(|domain| {
+                    .map(|disk| {
                         let qemu_conn = Arc::clone(&qemu_conn);
-                        thread::spawn(move || -> Result<()> {
-                            let rendered_xml = domain.render()?;
-                            let result = create_vm(&qemu_conn, &rendered_xml);
-                            match result {
-                                Ok(_) => println!("Created: {}", domain.name),
-                                Err(e) => eprintln!("Create failed: {}: {}", domain.name, e),
+                        thread::spawn(move || -> Result<(), anyhow::Error> {
+                            println!("Cloning disk \n  from: {} \n    to: {}", disk.src, disk.dst);
+                            match clone_disk(&qemu_conn, &disk.src, &disk.dst) {
+                                Ok(_) => {
+                                    println!(
+                                        "Cloned disk \n  from: {} \n    to: {}",
+                                        disk.src, disk.dst
+                                    );
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "Failed to clone disk from: {} to: {} | error: {}",
+                                        disk.src, disk.dst, e
+                                    );
+                                    Err(e.into())
+                                }
                             }
-                            Ok(())
                         })
                     })
                     .collect();
 
                 // Wait for all threads to complete
-                for handle in handles {
-                    handle.join().unwrap()?;
+                for handle in disk_handles {
+                    handle
+                        .join()
+                        .map_err(|e| anyhow::anyhow!("Error cloning disk: {:?}", e))??;
+                }
+
+                // Build domains in parallel
+                term_msg_underline("Creating VMs");
+                let vm_handles: Vec<_> = domains
+                    .into_iter()
+                    .map(|domain| {
+                        let qemu_conn = Arc::clone(&qemu_conn);
+                        thread::spawn(move || -> Result<(), anyhow::Error> {
+                            let rendered_xml = domain.render()?;
+                            println!("Creating VM: {}", domain.name);
+                            let result = create_vm(&qemu_conn, &rendered_xml);
+                            match result {
+                                Ok(_) => {
+                                    println!("Created VM: {}", domain.name);
+                                    Ok(())
+                                }
+                                Err(e) => {
+                                    eprintln!("Create VM failed: {}: | error: {}", domain.name, e);
+                                    Err(e.into())
+                                }
+                            }
+                        })
+                    })
+                    .collect();
+
+                // Wait for all threads to complete
+                for handle in vm_handles {
+                    handle
+                        .join()
+                        .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
                 }
             }
             Commands::Down => {
-                term_msg("Suspending environment");
+                term_msg_surround("Suspending environment");
 
                 let manifest = Manifest::load_file()?;
 
@@ -337,7 +401,7 @@ impl Cli {
                 }
             }
             Commands::Resume => {
-                term_msg("Resuming environment");
+                term_msg_surround("Resuming environment");
 
                 let manifest = Manifest::load_file()?;
 
@@ -368,7 +432,7 @@ impl Cli {
                 }
             }
             Commands::Destroy => {
-                term_msg("Destroying environment");
+                term_msg_surround("Destroying environment");
 
                 let manifest = Manifest::load_file()?;
 
@@ -380,7 +444,7 @@ impl Cli {
                     let vm_name = domain.get_name()?;
                     if vm_name.contains(&manifest.id) && domain.is_active()? {
                         domain.destroy()?;
-                        println!("Destroyed: {vm_name}");
+                        println!("Destroyed VM: {vm_name}");
 
                         // HDD
                         let hdd_name = format!("{vm_name}.qcow2");
@@ -397,7 +461,7 @@ impl Cli {
                 }
             }
             Commands::Inspect => {
-                term_msg("Sherpa Environemnt");
+                term_msg_surround("Sherpa Environment");
 
                 let manifest = Manifest::load_file()?;
 
@@ -412,7 +476,7 @@ impl Cli {
                 }
             }
             Commands::Connect { name } => {
-                term_msg(&format!("Connecting to: {name}"));
+                term_msg_surround(&format!("Connecting to: {name}"));
 
                 let manifest = Manifest::load_file()?;
 

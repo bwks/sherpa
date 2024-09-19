@@ -18,7 +18,7 @@ impl Default for Qemu {
 impl Qemu {
     pub fn connect(&self) -> Result<Connect> {
         let conn = Connect::open(Some(self.uri.as_str()))?;
-        println!("Connected to hypervisor: {}", self.uri);
+        // println!("Connected to hypervisor: {}", self.uri);
         Ok(conn)
     }
 }
