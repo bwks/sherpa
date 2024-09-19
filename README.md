@@ -36,9 +36,89 @@ Ensure that you have the required packages installed. There is the list of packa
   - virt-manager
 ```
 
+## Obtain Boxes
+Boxes are provided by vendors. Links TBU.
+
+### Box location
+Base boxes are stored in the `$HOME/.sherpa/boxes` directory. Base boxes are cloned when building an environment.
+
+#### Example Boxes
+```
+$HOME/.sherpa/boxes
+├── arista_veos
+│   ├── 4.29.2f
+│   │   ├── cdrom.iso
+│   │   └── virtioa.qcow2
+│   ├── 4.32.2f
+│   │   ├── aboot-veos-serial-8.0.2.iso
+│   │   └── virtioa.qcow2
+│   └── latest
+│       ├── aboot.iso
+│       ├── virtioa-combined.qcow2
+│       └── virtioa.qcow2
+├── cisco_cat8000v
+│   └── latest
+├── cisco_cat9000v
+│   ├── 17.12.01
+│   │   └── virtioa.qcow2
+│   └── latest
+│       └── virtioa.qcow2
+├── cisco_csr1000v
+│   ├── 17.03.08a
+│   │   └── virtioa.qcow2
+│   └── latest
+│       └── virtioa.qcow2
+├── cisco_iosv
+│   ├── 159-3.m6
+│   │   └── virtioa.qcow2
+│   ├── 159-3.m8
+│   │   └── virtioa.qcow2
+│   └── latest
+│       └── virtioa.qcow2
+├── cisco_iosvl2
+│   └── latest
+├── cisco_iosxrv9000
+│   └── latest
+├── cisco_nexus9300v
+│   └── latest
+├── linux_ubuntu
+│   ├── 24.04
+│   │   └── virtioa.qcow2
+│   └── latest
+│       └── virtioa.qcow2
+├── nokia_sros
+│   └── latest
+└── nvidia_cumulus
+    ├── 5.4.0
+    │   └── virtioa.qcow2
+    ├── 5.9.2
+    │   └── virtioa.qcow2
+    └── latest
+        └── virtioa.qcow2
+```
+
+### Arista
+
+### Cisco
+
+### Juniper
+
+### Nokia
+
+### Nvidia
+
+### Ubuntu
+
+### Fedora
+
+### RedHat
+
+### Suse
+
+
 ## Usage
 ### Initialise Sherpa
-Setup Sherpa configurations and required Libvirt parameters
+Setup Sherpa configurations, boxes directory structure and required Libvirt parameters.
 ```
 Sherpa init
 ```
