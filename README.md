@@ -108,6 +108,10 @@ $HOME/.sherpa/boxes
 ### Nvidia
 
 ### Ubuntu
+Ubuntu provides cloud images, which are setup to work with cloud-init.
+
+[Ubuntu Cloud Images](https://cloud-images.ubuntu.com/)
+
 
 ### Fedora
 

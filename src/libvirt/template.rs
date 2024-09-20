@@ -14,7 +14,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
     <osinfo name='generic'/>
-    <bootmenu enable='yes'/>
+    <bootmenu enable='no'/>
     <smbios mode='host'/>
     {% if let Some(cdrom_iso) = cdrom_iso %}
     <boot dev='cdrom'/>
@@ -111,13 +111,19 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
       <target type='isa-serial' port='0'>
         <model name='isa-serial'/>
       </target>
+      <alias name='serial0'/>
     </serial>
 
     <console type='tcp'>
       <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
       <protocol type='telnet'/>
       <target type='serial' port='0'/>
+      <alias name='serial0'/>
     </console>
+
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
 
     <input type='mouse' bus='ps2'/>
     <input type='keyboard' bus='ps2'/>
