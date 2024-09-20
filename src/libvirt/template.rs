@@ -13,6 +13,9 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    <osinfo name='generic'/>
+    <bootmenu enable='yes'/>
+    <smbios mode='host'/>
     {% if let Some(cdrom_iso) = cdrom_iso %}
     <boot dev='cdrom'/>
     {% endif %}
