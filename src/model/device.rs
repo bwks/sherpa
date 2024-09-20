@@ -15,6 +15,7 @@ pub enum DeviceModels {
     NokiaSros,
     NvidiaCumulus,
     LinuxUbuntu,
+    LinuxFedora,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -30,6 +31,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::NokiaSros => write!(f, "nokia_sros"),
             DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
             DeviceModels::LinuxUbuntu => write!(f, "linux_ubuntu"),
+            DeviceModels::LinuxFedora => write!(f, "linux_fedora"),
         }
     }
 }
@@ -43,6 +45,7 @@ pub enum Manufacturers {
     Nvidia,
     Nokia,
     Canonical,
+    Redhat,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -140,6 +143,7 @@ impl DeviceModel {
             DeviceModels::NokiaSros => DeviceModel::nokia_sros(),
             DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
             DeviceModels::LinuxUbuntu => DeviceModel::linux_ubuntu(),
+            DeviceModels::LinuxFedora => DeviceModel::linux_fedora(),
         }
     }
     pub fn arista_veos() -> DeviceModel {
@@ -333,7 +337,25 @@ impl DeviceModel {
             interface_type: InterfaceTypes::default(),
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcI440Fx_4_2,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
+        }
+    }
+    pub fn linux_fedora() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::LinuxFedora,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Redhat,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::default(),
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,

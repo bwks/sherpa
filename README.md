@@ -108,12 +108,15 @@ $HOME/.sherpa/boxes
 ### Nvidia
 
 ### Ubuntu
-Ubuntu provides cloud images, which are setup to work with cloud-init.
+Ubuntu provides ready built cloud images setup to work with cloud-init.
 
 [Ubuntu Cloud Images](https://cloud-images.ubuntu.com/)
 
-
 ### Fedora
+Fedora provides ready built cloud images setup to work with cloud-init.
+
+[Fedora Cloud Images](https://fedoraproject.org/cloud/download)
+
 
 ### RedHat
 
@@ -135,8 +138,8 @@ A manifest defines the device parameters and connection between them.
 id = "1e18b3bfe149"
 
 devices = [
-  { id = 1, name = "dev1", device_model = "nvidia_cumulus" },
-  { id = 2, name = "dev2", device_model = "nvidia_cumulus" },
+  { id = 1, name = "dev1", device_model = "linux_fedora" },
+  { id = 2, name = "dev2", device_model = "linux_fedora" },
 ]
 
 connections = [

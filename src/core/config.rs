@@ -30,6 +30,8 @@ impl Default for Config {
             DeviceModel::cisco_iosvl2(),
             DeviceModel::nokia_sros(),
             DeviceModel::nvidia_cumulus(),
+            DeviceModel::linux_ubuntu(),
+            DeviceModel::linux_fedora(),
         ];
         Config {
             name: CONFIG_FILE.to_owned(),
