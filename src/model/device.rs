@@ -27,7 +27,7 @@ pub enum DeviceModels {
     CentosLinux,
     FedoraLinux,
     RedhatLinux,
-    OpenSuseLinux,
+    OpensuseLinux,
     SuseLinux,
     UbuntuLinux,
 }
@@ -49,7 +49,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::CentosLinux => write!(f, "centos_linux"),
             DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
             DeviceModels::RedhatLinux => write!(f, "rhel_linux"),
-            DeviceModels::OpenSuseLinux => write!(f, "opensuse_linux"),
+            DeviceModels::OpensuseLinux => write!(f, "opensuse_linux"),
             DeviceModels::SuseLinux => write!(f, "suse_linux"),
             DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
         }
@@ -168,7 +168,7 @@ impl DeviceModel {
             DeviceModels::CentosLinux => DeviceModel::centos_linux(),
             DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
             DeviceModels::RedhatLinux => DeviceModel::redhat_linux(),
-            DeviceModels::OpenSuseLinux => DeviceModel::opensuse_linux(),
+            DeviceModels::OpensuseLinux => DeviceModel::opensuse_linux(),
             DeviceModels::SuseLinux => DeviceModel::suse_linux(),
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
         }
@@ -464,7 +464,7 @@ impl DeviceModel {
     pub fn opensuse_linux() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::OpenSuseLinux,
+            name: DeviceModels::OpensuseLinux,
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Suse,
             interface_count: 8,
