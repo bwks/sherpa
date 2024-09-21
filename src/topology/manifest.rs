@@ -18,12 +18,12 @@ impl Default for Manifest {
     fn default() -> Self {
         let dev1 = Device {
             name: "dev1".to_owned(),
-            device_model: crate::model::DeviceModels::LinuxFedora,
+            device_model: crate::model::DeviceModels::FedoraLinux,
             id: 1,
         };
         let dev2 = Device {
             name: "dev2".to_owned(),
-            device_model: crate::model::DeviceModels::LinuxFedora,
+            device_model: crate::model::DeviceModels::FedoraLinux,
             id: 2,
         };
 

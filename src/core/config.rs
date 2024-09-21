@@ -32,8 +32,12 @@ impl Default for Config {
             DeviceModel::juniper_vjunos_switch(),
             DeviceModel::nokia_sros(),
             DeviceModel::nvidia_cumulus(),
-            DeviceModel::linux_ubuntu(),
-            DeviceModel::linux_fedora(),
+            DeviceModel::centos_linux(),
+            DeviceModel::fedora_linux(),
+            DeviceModel::redhat_linux(),
+            DeviceModel::ubuntu_linux(),
+            DeviceModel::opensuse_linux(),
+            DeviceModel::suse_linux(),
         ];
         Config {
             name: CONFIG_FILE.to_owned(),

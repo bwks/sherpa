@@ -133,10 +133,22 @@ Fedora provides ready built cloud images setup to work with cloud-init.
 
 [Fedora Cloud Images](https://fedoraproject.org/cloud/download)
 
+### CentOS
+[CentOS Cloud Images](https://cloud.centos.org/)
+
 ### RedHat
+RedHat requires a subscription. A trial subscription can is available.
 
-### Suse
+[RHEL](https://access.redhat.com/)
 
+[RHEL 9](https://access.redhat.com/downloads/content/479/ver=/rhel---9/9.4/x86_64/product-software)
+
+### SUSE
+[OpenSUSE](https://get.opensuse.org/)
+
+[OpenSUSE Leap Micro](https://get.opensuse.org/leapmicro/6.0/)
+
+[SUSE Enterprise](https://www.suse.com/download/sles/)
 
 ## Usage
 ### Initialise Sherpa

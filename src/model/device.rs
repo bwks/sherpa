@@ -24,8 +24,12 @@ pub enum DeviceModels {
     JuniperVjunosSwitch,
     NokiaSros,
     NvidiaCumulus,
-    LinuxUbuntu,
-    LinuxFedora,
+    CentosLinux,
+    FedoraLinux,
+    RedhatLinux,
+    OpenSuseLinux,
+    SuseLinux,
+    UbuntuLinux,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -42,8 +46,12 @@ impl fmt::Display for DeviceModels {
             DeviceModels::JuniperVjunosSwitch => write!(f, "juniper_vjunos_switch"),
             DeviceModels::NokiaSros => write!(f, "nokia_sros"),
             DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
-            DeviceModels::LinuxUbuntu => write!(f, "linux_ubuntu"),
-            DeviceModels::LinuxFedora => write!(f, "linux_fedora"),
+            DeviceModels::CentosLinux => write!(f, "centos_linux"),
+            DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
+            DeviceModels::RedhatLinux => write!(f, "rhel_linux"),
+            DeviceModels::OpenSuseLinux => write!(f, "opensuse_linux"),
+            DeviceModels::SuseLinux => write!(f, "suse_linux"),
+            DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
         }
     }
 }
@@ -58,6 +66,7 @@ pub enum Manufacturers {
     Nokia,
     Canonical,
     Redhat,
+    Suse,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -156,8 +165,12 @@ impl DeviceModel {
             DeviceModels::JuniperVjunosSwitch => DeviceModel::juniper_vjunos_switch(),
             DeviceModels::NokiaSros => DeviceModel::nokia_sros(),
             DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
-            DeviceModels::LinuxUbuntu => DeviceModel::linux_ubuntu(),
-            DeviceModels::LinuxFedora => DeviceModel::linux_fedora(),
+            DeviceModels::CentosLinux => DeviceModel::centos_linux(),
+            DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
+            DeviceModels::RedhatLinux => DeviceModel::redhat_linux(),
+            DeviceModels::OpenSuseLinux => DeviceModel::opensuse_linux(),
+            DeviceModels::SuseLinux => DeviceModel::suse_linux(),
+            DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
         }
     }
     pub fn arista_veos() -> DeviceModel {
@@ -376,15 +389,15 @@ impl DeviceModel {
             management_interface: true,
         }
     }
-    pub fn linux_ubuntu() -> DeviceModel {
+    pub fn centos_linux() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::LinuxUbuntu,
+            name: DeviceModels::CentosLinux,
             os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Canonical,
+            manufacturer: Manufacturers::Redhat,
             interface_count: 8,
             interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -394,15 +407,87 @@ impl DeviceModel {
             management_interface: false,
         }
     }
-    pub fn linux_fedora() -> DeviceModel {
+    pub fn fedora_linux() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::LinuxFedora,
+            name: DeviceModels::FedoraLinux,
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
             interface_count: 8,
             interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
+        }
+    }
+    pub fn redhat_linux() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::RedhatLinux,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Redhat,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
+        }
+    }
+    pub fn suse_linux() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::SuseLinux,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Suse,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
+        }
+    }
+    pub fn opensuse_linux() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::OpenSuseLinux,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Suse,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 1024,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
+        }
+    }
+    pub fn ubuntu_linux() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::UbuntuLinux,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Canonical,
+            interface_count: 8,
+            interface_prefix: "Eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
