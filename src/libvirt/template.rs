@@ -11,17 +11,6 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
   <memory unit='MiB'>{{ memory }}</memory>
 
-  <os>
-    <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
-    <osinfo name='generic'/>
-    <bootmenu enable='no'/>
-    <smbios mode='host'/>
-    {% if let Some(cdrom_iso) = cdrom_iso %}
-    <boot dev='cdrom'/>
-    {% endif %}
-    <boot dev='hd'/>
-  </os>
-
   <features>
     <acpi/>
     <apic/>
@@ -30,6 +19,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
   <cpu mode='host-model'>
     <model fallback='allow'/>
+    <feature name="vmx" policy="require"/>
   </cpu>
 
   <clock offset='utc'>
@@ -41,7 +31,18 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>
   <on_crash>destroy</on_crash>
-   
+
+  <os>
+    <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    <osinfo name='generic'/>
+    <bootmenu enable='no'/>
+    <smbios mode='host'/>
+    {% if let Some(cdrom_iso) = cdrom_iso %}
+    <boot dev='cdrom'/>
+    {% endif %}
+    <boot dev='hd'/>
+  </os>
+
   <pm>
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
@@ -76,6 +77,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     {%     when ConnectionTypes::Management %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <mtu size='9600'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::BOOT_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
@@ -84,6 +86,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <mtu size='9600'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>

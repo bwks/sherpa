@@ -3,13 +3,17 @@ use anyhow::Result;
 use virt::connect::Connect;
 use virt::network::Network;
 
-/// Create an isolated bridge.
+/// Create an isolated bridge for forwarding disabled and ports
+/// isolated from one another.
 pub fn create_isolated_network(conn: &Connect, name: &str, bridge_name: &str) -> Result<()> {
     let network_xml = format!(
         r#"
         <network>
           <name>{name}</name>
+          <mtu size="9600"/>
           <bridge name='{bridge_name}' stp='on' delay='0'/>
+          <forward mode='none'/>
+          <port isolated='yes'/>
         </network>
         "#,
     );
@@ -37,6 +41,7 @@ pub fn create_network(
         r#"
         <network connections='1'>
           <name>{name}</name>
+          <mtu size="9600"/>
           <forward mode='nat'>
             <nat>
               <port start='1024' end='65535'/>

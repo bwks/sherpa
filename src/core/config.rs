@@ -28,6 +28,8 @@ impl Default for Config {
             DeviceModel::cisco_nexus9300v(),
             DeviceModel::cisco_iosv(),
             DeviceModel::cisco_iosvl2(),
+            DeviceModel::juniper_vjunos_router(),
+            DeviceModel::juniper_vjunos_switch(),
             DeviceModel::nokia_sros(),
             DeviceModel::nvidia_cumulus(),
             DeviceModel::linux_ubuntu(),

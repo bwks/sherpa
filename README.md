@@ -98,14 +98,30 @@ $HOME/.sherpa/boxes
 ```
 
 ### Arista
+Arista allows you to download images, you just need to sign up for an account.
+[Arista vEOS](https://www.arista.com/en/support/software-download)
+
+[Arista cEOS](https://www.arista.com/en/support/software-download)
 
 ### Cisco
+These images are extracted from Cisco Modeling Labs ISO.
+
+- vIOS
+- CSR1000v
+- ETC... UPDATE
 
 ### Juniper
+Juniper allows you to download images, you just need to sign up for an account.no
+[vJunos Router](https://support.juniper.net/support/downloads/?p=vjunos-router)
+
+[vJunos Switch](https://support.juniper.net/support/downloads/?p=vjunos)
 
 ### Nokia
 
 ### Nvidia
+Nvidia allows you to download images, you just need to sign up for an account.
+
+[Cumulus VX](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-vx/download/)
 
 ### Ubuntu
 Ubuntu provides ready built cloud images setup to work with cloud-init.
@@ -116,7 +132,6 @@ Ubuntu provides ready built cloud images setup to work with cloud-init.
 Fedora provides ready built cloud images setup to work with cloud-init.
 
 [Fedora Cloud Images](https://fedoraproject.org/cloud/download)
-
 
 ### RedHat
 

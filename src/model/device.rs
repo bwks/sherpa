@@ -12,6 +12,16 @@ pub enum DeviceModels {
     CiscoNexus9300v,
     CiscoIosv,
     CiscoIosvl2,
+    #[serde(rename(
+        serialize = "juniper_vjunos_router",
+        deserialize = "juniper_vjunos_router"
+    ))]
+    JuniperVjunosRouter,
+    #[serde(rename(
+        serialize = "juniper_vjunos_switch",
+        deserialize = "juniper_vjunos_switch"
+    ))]
+    JuniperVjunosSwitch,
     NokiaSros,
     NvidiaCumulus,
     LinuxUbuntu,
@@ -28,6 +38,8 @@ impl fmt::Display for DeviceModels {
             DeviceModels::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
             DeviceModels::CiscoIosv => write!(f, "cisco_iosv"),
             DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            DeviceModels::JuniperVjunosRouter => write!(f, "juniper_vjunos_router"),
+            DeviceModels::JuniperVjunosSwitch => write!(f, "juniper_vjunos_switch"),
             DeviceModels::NokiaSros => write!(f, "nokia_sros"),
             DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
             DeviceModels::LinuxUbuntu => write!(f, "linux_ubuntu"),
@@ -140,6 +152,8 @@ impl DeviceModel {
             DeviceModels::CiscoNexus9300v => DeviceModel::cisco_nexus9300v(),
             DeviceModels::CiscoIosv => DeviceModel::cisco_iosv(),
             DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
+            DeviceModels::JuniperVjunosRouter => DeviceModel::juniper_vjunos_router(),
+            DeviceModels::JuniperVjunosSwitch => DeviceModel::juniper_vjunos_switch(),
             DeviceModels::NokiaSros => DeviceModel::nokia_sros(),
             DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
             DeviceModels::LinuxUbuntu => DeviceModel::linux_ubuntu(),
@@ -280,7 +294,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Cisco,
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceTypes::E1000,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcI440Fx_4_2,
@@ -288,6 +302,42 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+        }
+    }
+    pub fn juniper_vjunos_router() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::JuniperVjunosRouter,
+            os_variant: OsVariants::Junos,
+            manufacturer: Manufacturers::Juniper,
+            interface_count: 8,
+            interface_prefix: "ge-0/0/".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 4,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 5120,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: true,
+        }
+    }
+    pub fn juniper_vjunos_switch() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::JuniperVjunosSwitch,
+            os_variant: OsVariants::Junos,
+            manufacturer: Manufacturers::Juniper,
+            interface_count: 8,
+            interface_prefix: "ge-0/0/".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 4,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 5120,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: true,
         }
     }
     pub fn nvidia_cumulus() -> DeviceModel {
@@ -301,9 +351,9 @@ impl DeviceModel {
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcI440Fx_4_2,
-            memory: 1024,
-            disk_count: 1,
+            machine_type: MachineTypes::PcQ35_6_2,
+            memory: 2048,
+            disk_count: 2,
             cdrom_iso: None,
             management_interface: false,
         }
