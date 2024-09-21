@@ -8,11 +8,13 @@ use anyhow::{Context, Result};
 use askama::Template;
 
 use clap::{Parser, Subcommand};
+use virt::storage_pool::StoragePool;
+use virt::storage_vol::StorageVol;
 
 use crate::core::konst::{
     BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
     BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE,
-    ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL_PATH, TELNET_PORT,
+    ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -72,7 +74,18 @@ enum Commands {
     Destroy,
     /// Inspect environment
     Inspect,
-
+    /// Clean up environment
+    Clean {
+        /// Remove all devices, disks and networks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        all: bool,
+        /// Remove all disks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        disks: bool,
+        /// Remove all networks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        networks: bool,
+    },
     /// Connect to a device
     Connect { name: String },
 }
@@ -457,6 +470,40 @@ impl Cli {
                     if vm_name.contains(&manifest.id) {
                         println!("VM: {vm_name}");
                     }
+                }
+                let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
+                for volume in pool.list_volumes()? {
+                    if volume.contains(&manifest.id) {
+                        println!("Disk: {volume}");
+                    }
+                }
+            }
+            Commands::Clean {
+                all,
+                disks,
+                networks,
+            } => {
+                if *all {
+                    // term_msg_surround("Cleaning environment");
+                    term_msg_surround("Not implemented");
+                } else if *disks {
+                    term_msg_surround("Cleaning disks");
+                    let manifest = Manifest::load_file()?;
+
+                    let qemu_conn = qemu.connect()?;
+
+                    let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
+                    for volume in pool.list_volumes()? {
+                        if volume.contains(&manifest.id) {
+                            println!("Deleting disk: {}", volume);
+                            let vol = StorageVol::lookup_by_name(&pool, &volume)?;
+                            vol.delete(0)?;
+                            println!("Deleted disk: {}", volume);
+                        }
+                    }
+                } else if *networks {
+                    // term_msg_surround("Cleaning networks");
+                    term_msg_surround("Not implemented");
                 }
             }
             Commands::Connect { name } => {
