@@ -21,11 +21,11 @@ use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, DomainTemplate,
     Qemu,
 };
-use crate::model::{ConnectionTypes, DeviceModel, Interface};
+use crate::model::{ConnectionTypes, DeviceModel, DeviceModels, Interface};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac, term_msg_surround,
-    term_msg_underline,
+    copy_file, create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac,
+    term_msg_surround, term_msg_underline,
 };
 
 // Used to clone disk for VM creation
@@ -72,6 +72,21 @@ enum Commands {
     Resume,
     /// Destroy environment
     Destroy,
+    /// Import a disk image
+    Import {
+        /// Source path of the disk image
+        #[arg(short, long)]
+        src: String,
+        /// Version of the device model
+        #[arg(short, long)]
+        version: String,
+        /// Model of Device
+        #[arg(short, long, value_enum)]
+        model: DeviceModels,
+        /// Import the disk image as the latest version
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        latest: bool,
+    },
     /// Inspect environment
     Inspect,
     /// Clean up environment
@@ -296,7 +311,6 @@ impl Cli {
                                 sherpa.boxes_dir, device_model.name, device_model.version, src_iso
                             );
                             let dst = format!("{STORAGE_POOL_PATH}/{vm_name}.iso");
-                            // clone_disk(&qemu_conn, &src, &dst)?;
                             (Some(src), Some(dst))
                         }
                         None => (None, None),
@@ -476,6 +490,42 @@ impl Cli {
                     if volume.contains(&manifest.id) {
                         println!("Disk: {volume}");
                     }
+                }
+            }
+            Commands::Import {
+                src,
+                version,
+                model,
+                latest,
+            } => {
+                term_msg_surround("Importing disk image");
+
+                if !file_exists(src) {
+                    anyhow::bail!("File does not exist: {}", src);
+                }
+
+                let dst_path = format!("{}/{}", sherpa.boxes_dir, model);
+                let dst_version_dir = format!("{dst_path}/{version}");
+                let dst_latest_dir = format!("{dst_path}/latest");
+
+                create_dir(&dst_version_dir)?;
+                create_dir(&dst_latest_dir)?;
+
+                let dst_version_disk = format!("{dst_version_dir}/virtioa.qcow2");
+
+                if !file_exists(&dst_version_disk) {
+                    println!("Copying file from: {} to: {}", src, dst_version_disk);
+                    copy_file(src, &dst_version_disk)?;
+                    println!("Copied file from: {} to: {}", src, dst_version_disk);
+                } else {
+                    println!("File already exists: {}", dst_version_disk);
+                }
+
+                if *latest {
+                    let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
+                    println!("Copying file from: {} to: {}", src, dst_latest_disk);
+                    copy_file(src, &dst_latest_disk)?;
+                    println!("Copied file from: {} to: {}", src, dst_latest_disk);
                 }
             }
             Commands::Clean {

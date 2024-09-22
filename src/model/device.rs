@@ -1,10 +1,15 @@
-use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+use clap::ValueEnum;
+
+use serde_derive::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
+#[clap(rename_all = "snake_case")]
 pub enum DeviceModels {
     AristaVeos,
+    CiscoAsav,
     CiscoCsr1000v,
     CiscoCat8000v,
     CiscoCat9000v,
@@ -35,6 +40,7 @@ impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceModels::AristaVeos => write!(f, "arista_veos"),
+            DeviceModels::CiscoAsav => write!(f, "cisco_asav"),
             DeviceModels::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
             DeviceModels::CiscoCat8000v => write!(f, "cisco_cat8000v"),
             DeviceModels::CiscoCat9000v => write!(f, "cisco_cat9000v"),
@@ -72,6 +78,7 @@ pub enum Manufacturers {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OsVariants {
+    Asa,
     Ios,
     Iosxe,
     Iosxr,
@@ -154,6 +161,7 @@ impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
         match device_model {
             DeviceModels::AristaVeos => DeviceModel::arista_veos(),
+            DeviceModels::CiscoAsav => DeviceModel::cisco_asav(),
             DeviceModels::CiscoCsr1000v => DeviceModel::cisco_csr1000v(),
             DeviceModels::CiscoCat8000v => DeviceModel::cisco_cat8000v(),
             DeviceModels::CiscoCat9000v => DeviceModel::cisco_cat9000v(),
@@ -189,6 +197,24 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: Some("aboot.iso".to_owned()),
             management_interface: true,
+        }
+    }
+    pub fn cisco_asav() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::CiscoAsav,
+            os_variant: OsVariants::Asa,
+            manufacturer: Manufacturers::Cisco,
+            interface_count: 8,
+            interface_prefix: "Gig".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcI440Fx_4_2,
+            memory: 4096,
+            disk_count: 1,
+            cdrom_iso: None,
+            management_interface: false,
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {

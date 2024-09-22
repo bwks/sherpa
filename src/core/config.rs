@@ -21,6 +21,7 @@ impl Default for Config {
     fn default() -> Self {
         let device_models: Vec<DeviceModel> = vec![
             DeviceModel::arista_veos(),
+            DeviceModel::cisco_asav(),
             DeviceModel::cisco_csr1000v(),
             DeviceModel::cisco_cat9000v(),
             DeviceModel::cisco_cat8000v(),
@@ -74,8 +75,8 @@ pub struct Sherpa {
 impl Default for Sherpa {
     fn default() -> Self {
         let config_dir = expand_path(CONFIG_DIR);
-        let boxes_dir = format!("{config_dir}/{BOXES_DIR}");
-        let config_path = expand_path(format!("{CONFIG_DIR}/{CONFIG_FILE}").as_str());
+        let boxes_dir = expand_path(&format!("{config_dir}/{BOXES_DIR}"));
+        let config_path = expand_path(&format!("{CONFIG_DIR}/{CONFIG_FILE}"));
         Self {
             config_dir,
             config_path,

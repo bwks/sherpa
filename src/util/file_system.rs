@@ -1,4 +1,6 @@
 use std::fs;
+use std::fs::File;
+use std::io::{self, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
@@ -36,4 +38,21 @@ pub fn expand_path(path: &str) -> String {
     let expanded_path = shellexpand::tilde(path);
     let full_path = Path::new(expanded_path.as_ref());
     full_path.display().to_string()
+}
+
+/// Copy a file from a source to a destination.
+/// This will overwrite the destination file if it exists.
+pub fn copy_file(src: &str, dst: &str) -> Result<()> {
+    let source = File::open(src)?;
+    let destination = File::create(dst)?;
+
+    let mut reader = BufReader::new(source);
+    let mut writer = BufWriter::new(destination);
+
+    io::copy(&mut reader, &mut writer)?;
+
+    // Ensure all buffered contents are written to the file
+    writer.flush()?;
+
+    Ok(())
 }
