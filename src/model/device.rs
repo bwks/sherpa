@@ -208,13 +208,13 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
             interface_type: InterfaceTypes::Virtio,
-            cpu_count: 2,
+            cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcI440Fx_4_2,
-            memory: 4096,
+            memory: 2048,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            management_interface: true,
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {
