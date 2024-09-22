@@ -11,7 +11,7 @@ use crate::util::generate_id;
 pub struct Manifest {
     pub id: String,
     pub devices: Vec<Device>,
-    pub connections: Vec<Connection>,
+    pub connections: Option<Vec<Connection>>,
 }
 
 impl Default for Manifest {
@@ -39,7 +39,7 @@ impl Default for Manifest {
         Self {
             id: generate_id(),
             devices,
-            connections,
+            connections: Some(connections),
         }
     }
 }

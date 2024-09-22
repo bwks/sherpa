@@ -76,7 +76,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
     {%     when ConnectionTypes::Management %}
     <interface type='network'>
-      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-mgmt{{ interface.num }}'/>
       <mtu size='9600'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::BOOT_NETWORK_NAME }}'/>
@@ -85,7 +85,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
 
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
-      <alias name='ua-net-{{ name }}-{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
       <mtu size='9600'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
@@ -97,6 +97,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     {%       match interface.connection_map %}
     {%         when Some with (connection_map) %}
     <interface type='udp'>
+      <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source address='{{ connection_map.source_loopback }}' port='{{ connection_map.source_port }}'>
         <local address='{{ connection_map.local_loopback }}' port='{{ connection_map.local_port }}'/>

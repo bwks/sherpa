@@ -279,7 +279,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Cisco,
             interface_count: 8,
             interface_prefix: "Gig0/0/0/".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceTypes::E1000,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcI440Fx_4_2,

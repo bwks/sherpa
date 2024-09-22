@@ -238,57 +238,78 @@ impl Cli {
                     }
                     // Build interface vector.
                     for i in 0..device_model.interface_count {
-                        for c in &manifest.connections {
-                            // Device is source in manifest
-                            if c.device_a == device.name && i == c.interface_a {
-                                let source_id = dev_id_map.get(&c.device_b).ok_or_else(|| {
-                                    anyhow::anyhow!("Connection device_b not found: {}", c.device_b)
-                                })?;
-                                let connection_map = ConnectionMap {
-                                    local_id: device.id,
-                                    local_port: id_to_port(i),
-                                    local_loopback: get_ip(device.id).to_string(),
-                                    source_id: source_id.to_owned(),
-                                    source_port: id_to_port(c.interface_b),
-                                    source_loopback: get_ip(source_id.to_owned()).to_string(),
-                                };
-                                interfaces.push(Interface {
-                                    name: format!("{}{}", device_model.interface_prefix, i),
-                                    num: i,
-                                    mac_address: random_mac(),
-                                    connection_type: ConnectionTypes::Peer,
-                                    connection_map: Some(connection_map),
-                                })
-                            // Device is destination in manifest
-                            } else if c.device_b == device.name && i == c.interface_b {
-                                let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
-                                    anyhow::anyhow!("Connection device_a not found: {}", c.device_a)
-                                })?;
-                                let connection_map = ConnectionMap {
-                                    local_id: device.id,
-                                    local_port: id_to_port(i),
-                                    local_loopback: get_ip(device.id).to_string(),
-                                    source_id: source_id.to_owned(),
-                                    source_port: id_to_port(c.interface_a),
-                                    source_loopback: get_ip(source_id.to_owned()).to_string(),
-                                };
-                                interfaces.push(Interface {
-                                    name: format!("{}{}", device_model.interface_prefix, i),
-                                    num: i,
-                                    mac_address: random_mac(),
-                                    connection_type: ConnectionTypes::Peer,
-                                    connection_map: Some(connection_map),
-                                })
-                            } else {
-                                // Interface not defined in manifest so disable.
-                                interfaces.push(Interface {
-                                    name: format!("{}{}", device_model.interface_prefix, i),
-                                    num: i,
-                                    mac_address: random_mac(),
-                                    connection_type: ConnectionTypes::Disabled,
-                                    connection_map: None,
-                                })
+                        match &manifest.connections {
+                            Some(connections) => {
+                                for c in connections {
+                                    // Device is source in manifest
+                                    if c.device_a == device.name && i == c.interface_a {
+                                        let source_id =
+                                            dev_id_map.get(&c.device_b).ok_or_else(|| {
+                                                anyhow::anyhow!(
+                                                    "Connection device_b not found: {}",
+                                                    c.device_b
+                                                )
+                                            })?;
+                                        let connection_map = ConnectionMap {
+                                            local_id: device.id,
+                                            local_port: id_to_port(i),
+                                            local_loopback: get_ip(device.id).to_string(),
+                                            source_id: source_id.to_owned(),
+                                            source_port: id_to_port(c.interface_b),
+                                            source_loopback: get_ip(source_id.to_owned())
+                                                .to_string(),
+                                        };
+                                        interfaces.push(Interface {
+                                            name: format!("{}{}", device_model.interface_prefix, i),
+                                            num: i,
+                                            mac_address: random_mac(),
+                                            connection_type: ConnectionTypes::Peer,
+                                            connection_map: Some(connection_map),
+                                        })
+                                    // Device is destination in manifest
+                                    } else if c.device_b == device.name && i == c.interface_b {
+                                        let source_id =
+                                            dev_id_map.get(&c.device_a).ok_or_else(|| {
+                                                anyhow::anyhow!(
+                                                    "Connection device_a not found: {}",
+                                                    c.device_a
+                                                )
+                                            })?;
+                                        let connection_map = ConnectionMap {
+                                            local_id: device.id,
+                                            local_port: id_to_port(i),
+                                            local_loopback: get_ip(device.id).to_string(),
+                                            source_id: source_id.to_owned(),
+                                            source_port: id_to_port(c.interface_a),
+                                            source_loopback: get_ip(source_id.to_owned())
+                                                .to_string(),
+                                        };
+                                        interfaces.push(Interface {
+                                            name: format!("{}{}", device_model.interface_prefix, i),
+                                            num: i,
+                                            mac_address: random_mac(),
+                                            connection_type: ConnectionTypes::Peer,
+                                            connection_map: Some(connection_map),
+                                        })
+                                    } else {
+                                        // Interface not defined in manifest so disable.
+                                        interfaces.push(Interface {
+                                            name: format!("{}{}", device_model.interface_prefix, i),
+                                            num: i,
+                                            mac_address: random_mac(),
+                                            connection_type: ConnectionTypes::Disabled,
+                                            connection_map: None,
+                                        })
+                                    }
+                                }
                             }
+                            None => interfaces.push(Interface {
+                                name: format!("{}{}", device_model.interface_prefix, i),
+                                num: i,
+                                mac_address: random_mac(),
+                                connection_type: ConnectionTypes::Disabled,
+                                connection_map: None,
+                            }),
                         }
                     }
 
