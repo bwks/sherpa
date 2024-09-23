@@ -94,8 +94,9 @@ pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     Ok(())
 }
 
-// Create a virtual machine
+/// Create a virtual machine. This will define a persistent virtual machine.
 pub fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
-    let domain = Domain::create_xml(conn, xml, 0)?;
+    let domain = Domain::define_xml(conn, xml)?;
+    domain.create()?;
     Ok(domain)
 }

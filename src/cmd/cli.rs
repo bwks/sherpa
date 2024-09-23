@@ -10,6 +10,7 @@ use askama::Template;
 use clap::{Parser, Subcommand};
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
+use virt::sys;
 
 use crate::core::konst::{
     BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
@@ -21,7 +22,7 @@ use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, DomainTemplate,
     Qemu,
 };
-use crate::model::{ConnectionTypes, DeviceModel, DeviceModels, Interface};
+use crate::model::{ConnectionTypes, DeviceModels, Interface};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
     copy_file, create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac,
@@ -204,9 +205,10 @@ impl Cli {
             Commands::Up { config_file } => {
                 term_msg_surround("Building environment");
 
-                let qemu_conn = Arc::new(qemu.connect()?);
+                // TODO: allow config file to be specified.
+                let _config_file = config_file;
 
-                sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
+                let qemu_conn = Arc::new(qemu.connect()?);
 
                 let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
@@ -223,7 +225,13 @@ impl Cli {
                 for device in manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
 
-                    let device_model = DeviceModel::get_model(device.device_model);
+                    let device_model = config
+                        .device_models
+                        .iter()
+                        .find(|d| d.name == device.device_model)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Device model not found: {}", device.device_model)
+                        })?;
 
                     let mut interfaces: Vec<Interface> = vec![];
 
@@ -335,7 +343,7 @@ impl Cli {
                     });
 
                     // CDROM ISO
-                    let (src_cdrom_iso, dst_cdrom_iso) = match device_model.cdrom_iso {
+                    let (src_cdrom_iso, dst_cdrom_iso) = match &device_model.cdrom_iso {
                         Some(src_iso) => {
                             let src = format!(
                                 "{}/{}/{}/{}",
@@ -354,16 +362,17 @@ impl Cli {
                     }
 
                     let domain = DomainTemplate {
+                        qemu_bin: config.qemu_bin.clone(),
                         name: vm_name,
                         memory: device_model.memory,
-                        cpu_architecture: device_model.cpu_architecture,
-                        machine_type: device_model.machine_type,
+                        cpu_architecture: device_model.cpu_architecture.clone(),
+                        machine_type: device_model.machine_type.clone(),
                         cpu_count: device_model.cpu_count,
-                        qemu_bin: config.qemu_bin.clone(),
+                        bios_type: device_model.bios_type.clone(),
                         boot_disk: dst_boot_disk,
                         cdrom_iso: dst_cdrom_iso,
                         interfaces,
-                        interface_type: device_model.interface_type,
+                        interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),
                         telnet_port: TELNET_PORT,
                     };
@@ -485,6 +494,9 @@ impl Cli {
                 for domain in domains {
                     let vm_name = domain.get_name()?;
                     if vm_name.contains(&manifest.id) && domain.is_active()? {
+                        // EUFI domains will have an NVRAM file that must be deleted.
+                        let nvram_flag = sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+                        domain.undefine_flags(nvram_flag)?;
                         domain.destroy()?;
                         println!("Destroyed VM: {vm_name}");
 

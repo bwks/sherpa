@@ -1,6 +1,8 @@
 use askama::Template;
 
-use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes};
+use crate::model::{
+    BiosTypes, ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes,
+};
 
 #[derive(Template)]
 #[template(
@@ -41,6 +43,13 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <boot dev='cdrom'/>
     {% endif %}
     <boot dev='hd'/>
+    {% match bios_type %}
+    {%   when BiosTypes::Uefi %}
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
+    {%   when BiosTypes::SeaBios %}
+    <!-- SeaBios - No stanza required -->
+    {% endmatch %}
   </os>
 
   <pm>
@@ -64,7 +73,7 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{{ boot_disk }}'/>
-      <target dev='vda' bus='virtio'/>
+      <target dev='sdb' bus='sata'/>
     </disk>
 
     <controller type='usb' index='0' model='piix3-uhci'>
@@ -160,6 +169,7 @@ pub struct DomainTemplate {
     pub machine_type: MachineTypes,
     pub cpu_count: u8,
     pub qemu_bin: String,
+    pub bios_type: BiosTypes,
     pub boot_disk: String,
     pub cdrom_iso: Option<String>,
     pub interfaces: Vec<Interface>,
@@ -224,6 +234,7 @@ pub struct DomainTemplate {
     <disk type='file' device='disk'>
       <driver name='qemu' type='qcow2'/>
       <source file='{{ boot_disk }}'/>
+      {# <target dev='vda' bus='virtio'/> #}
       <target dev='sdb' bus='sata'/>
     </disk>
 

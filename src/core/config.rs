@@ -31,7 +31,7 @@ impl Default for Config {
             DeviceModel::cisco_iosvl2(),
             DeviceModel::juniper_vjunos_router(),
             DeviceModel::juniper_vjunos_switch(),
-            DeviceModel::nokia_sros(),
+            DeviceModel::nokia_vsr(),
             DeviceModel::nvidia_cumulus(),
             DeviceModel::centos_linux(),
             DeviceModel::fedora_linux(),

@@ -33,6 +33,7 @@ Ensure that you have the required packages installed. There is the list of packa
   - libvirt-dev
   - bridge-utils
   - virtinst
+  - ovmf
   - virt-manager
 ```
 
