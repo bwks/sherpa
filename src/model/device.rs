@@ -146,16 +146,17 @@ pub struct DeviceModel {
     pub name: DeviceModels,
     pub os_variant: OsVariants,
     pub manufacturer: Manufacturers,
-    pub interface_count: u8,
-    pub interface_prefix: String,
-    pub interface_type: InterfaceTypes,
     pub cpu_count: u8,
     pub cpu_architecture: CpuArchitecture,
     pub machine_type: MachineTypes,
     pub memory: u16,
     pub disk_count: u8,
     pub cdrom_iso: Option<String>,
+    pub interface_count: u8,
+    pub interface_prefix: String,
+    pub interface_type: InterfaceTypes,
     pub management_interface: bool,
+    pub reserved_interface_count: u8,
 }
 impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
@@ -197,6 +198,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: Some("aboot.iso".to_owned()),
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_asav() -> DeviceModel {
@@ -215,6 +217,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_csr1000v() -> DeviceModel {
@@ -233,6 +236,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_cat8000v() -> DeviceModel {
@@ -251,6 +255,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_cat9000v() -> DeviceModel {
@@ -269,6 +274,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_iosxrv9000() -> DeviceModel {
@@ -287,6 +293,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 2,
         }
     }
     pub fn cisco_nexus9300v() -> DeviceModel {
@@ -305,6 +312,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_iosv() -> DeviceModel {
@@ -323,6 +331,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn cisco_iosvl2() -> DeviceModel {
@@ -341,6 +350,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn juniper_vjunos_router() -> DeviceModel {
@@ -359,6 +369,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn juniper_vjunos_switch() -> DeviceModel {
@@ -377,6 +388,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn nvidia_cumulus() -> DeviceModel {
@@ -395,6 +407,7 @@ impl DeviceModel {
             disk_count: 2,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn nokia_sros() -> DeviceModel {
@@ -413,6 +426,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn centos_linux() -> DeviceModel {
@@ -431,6 +445,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn fedora_linux() -> DeviceModel {
@@ -449,6 +464,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn redhat_linux() -> DeviceModel {
@@ -467,6 +483,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn suse_linux() -> DeviceModel {
@@ -485,6 +502,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn opensuse_linux() -> DeviceModel {
@@ -503,6 +521,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
     pub fn ubuntu_linux() -> DeviceModel {
@@ -521,6 +540,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             management_interface: false,
+            reserved_interface_count: 0,
         }
     }
 }

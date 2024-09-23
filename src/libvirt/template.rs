@@ -83,6 +83,16 @@ use crate::model::{ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, 
       <model type='{{ interface_type }}'/>
     </interface>
 
+    {%     when ConnectionTypes::Reserved %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-reserved{{ interface.num }}'/>
+      <mtu size='9600'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
+      <model type='{{ interface_type }}'/>
+      <link state='up'/>
+    </interface>
+
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>

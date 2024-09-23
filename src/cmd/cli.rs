@@ -236,7 +236,17 @@ impl Cli {
                             connection_map: None,
                         });
                     }
-                    // Build interface vector.
+                    if device_model.reserved_interface_count > 0 {
+                        for i in 0..device_model.reserved_interface_count {
+                            interfaces.push(Interface {
+                                name: "reserved".to_owned(),
+                                num: i,
+                                mac_address: random_mac(),
+                                connection_type: ConnectionTypes::Reserved,
+                                connection_map: None,
+                            });
+                        }
+                    }
                     for i in 0..device_model.interface_count {
                         match &manifest.connections {
                             Some(connections) => {

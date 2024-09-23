@@ -9,6 +9,7 @@ pub enum ConnectionTypes {
     Disabled, // Disable interface
     Management, // Connects to management bridge
     Peer,       // Peered with another device
+    Reserved,   // Reserved interfaces used by the virtual platform
 }
 
 #[derive(Debug, Deserialize, Serialize)]
