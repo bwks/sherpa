@@ -368,6 +368,7 @@ impl Cli {
                         cpu_architecture: device_model.cpu_architecture.clone(),
                         machine_type: device_model.machine_type.clone(),
                         cpu_count: device_model.cpu_count,
+                        vmx_enabled: device_model.vmx_enabled,
                         bios_type: device_model.bios_type.clone(),
                         boot_disk: dst_boot_disk,
                         cdrom_iso: dst_cdrom_iso,

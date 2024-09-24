@@ -37,6 +37,18 @@ Ensure that you have the required packages installed. There is the list of packa
   - virt-manager
 ```
 
+## Device Support Matrix
+
+- Working - :white_check_mark:
+- Planned - :construction:
+- Partially Working - :warning:
+
+| Vendor        | Model         | Status             |
+| ------------- | ------------- | ------------------ |
+| Arista        | vEOS          | :white_check_mark: |
+| Cisco         | ASAv          |                    |
+
+
 ## Obtain Boxes
 Boxes are provided by vendors. Links TBU.
 
@@ -100,8 +112,15 @@ $HOME/.sherpa/boxes
 
 ### Arista
 Arista allows you to download images, you just need to sign up for an account.
+
+#### vEOS
 [Arista vEOS](https://www.arista.com/en/support/software-download)
 
+Notes:
+ - vEOS requires an IOS boot disk (Aboot).
+ - vEOS is tested with `Aboot-veos-serial-8.0.2.iso`
+
+#### cEOS
 [Arista cEOS](https://www.arista.com/en/support/software-download)
 
 ### Cisco

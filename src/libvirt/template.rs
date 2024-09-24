@@ -21,7 +21,9 @@ use crate::model::{
 
   <cpu mode='host-model'>
     <model fallback='allow'/>
+    {% if vmx_enabled %}
     <feature name="vmx" policy="require"/>
+    {% endif %}
   </cpu>
 
   <clock offset='utc'>
@@ -168,6 +170,7 @@ pub struct DomainTemplate {
     pub cpu_architecture: CpuArchitecture,
     pub machine_type: MachineTypes,
     pub cpu_count: u8,
+    pub vmx_enabled: bool,
     pub qemu_bin: String,
     pub bios_type: BiosTypes,
     pub boot_disk: String,
