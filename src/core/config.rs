@@ -22,9 +22,9 @@ impl Default for Config {
         let device_models: Vec<DeviceModel> = vec![
             DeviceModel::arista_veos(),
             DeviceModel::cisco_asav(),
-            DeviceModel::cisco_csr1000v(),
-            DeviceModel::cisco_cat9000v(),
             DeviceModel::cisco_cat8000v(),
+            DeviceModel::cisco_cat9000v(),
+            DeviceModel::cisco_csr1000v(),
             DeviceModel::cisco_iosxrv9000(),
             DeviceModel::cisco_nexus9300v(),
             DeviceModel::cisco_iosv(),

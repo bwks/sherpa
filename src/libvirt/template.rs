@@ -45,7 +45,7 @@ use crate::model::{
     <boot dev='cdrom'/>
     {% endif %}
     <boot dev='hd'/>
-    {% match bios_type %}
+    {% match bios %}
     {%   when BiosTypes::Uefi %}
     <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
     <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
@@ -172,7 +172,7 @@ pub struct DomainTemplate {
     pub cpu_count: u8,
     pub vmx_enabled: bool,
     pub qemu_bin: String,
-    pub bios_type: BiosTypes,
+    pub bios: BiosTypes,
     pub boot_disk: String,
     pub cdrom_iso: Option<String>,
     pub interfaces: Vec<Interface>,

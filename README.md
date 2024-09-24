@@ -43,10 +43,17 @@ Ensure that you have the required packages installed. There is the list of packa
 - Planned - :construction:
 - Partially Working - :warning:
 
-| Vendor        | Model         | Status             |
-| ------------- | ------------- | ------------------ |
-| Arista        | vEOS          | :white_check_mark: |
-| Cisco         | ASAv          |                    |
+| Vendor        | Model             | Minimum Tested Version | Status             |
+| ------------- | ----------------- | ---------------------- | :----------------: |
+| Arista        | vEOS              | 4.32.2f                | :white_check_mark: |
+| Cisco         | ASAv              | 9.20.2                 | :white_check_mark: |
+| Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: |
+| Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: |
+| Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: |
+| Cisco         | Catalyst XRv 9000 | 7.11.1                 | :white_check_mark: |
+| Cisco         | Nexus 9300v       | 10.4.2.f               | :warning:          |
+| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: |
+| Cisco         | IOSv L2           | 20200920               | :white_check_mark: |
 
 
 ## Obtain Boxes
