@@ -1,7 +1,7 @@
 use askama::Template;
 
 use crate::model::{
-    BiosTypes, ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes,
+    BiosTypes, ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes, User,
 };
 
 #[derive(Template)]
@@ -181,6 +181,27 @@ pub struct DomainTemplate {
     pub telnet_port: u16,
 }
 
+#[derive(Template)]
+#[template(
+    source = r#"#cloud-config
+users:
+  {%- for user in users %}
+  - name: {{ user.username }}
+    ssh_authorized_keys:
+      - {{ user.ssh_public_key }}
+    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    {%- if user.sudo %}
+    groups: sudo
+    {%- endif %}
+    shell: /bin/bash
+  {%- endfor %}      
+"#,
+    ext = "yml"
+)]
+pub struct CloudInitTemplate {
+    pub users: Vec<User>,
+}
+
 /*
 
 <domain type='kvm'>
@@ -220,6 +241,12 @@ pub struct DomainTemplate {
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
   </pm>
+
+  <sysinfo type='smbios'>
+    <system>
+      <entry name='family'>lab</entry>
+    </system>
+  </sysinfo>
 
   <devices>
 

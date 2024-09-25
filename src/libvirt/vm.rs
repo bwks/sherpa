@@ -100,3 +100,22 @@ pub fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
     domain.create()?;
     Ok(domain)
 }
+
+/// Get virtual machine's Management IP address
+pub fn get_mgmt_ip(conn: &Connect, vm_name: &str) -> Result<Option<String>> {
+    // Look up the domain by name
+    let domain = Domain::lookup_by_name(&conn, vm_name)?;
+
+    // Get the network interfaces for the domain
+    let interfaces = domain.interface_addresses(0, 0)?;
+
+    // It is assumed that the first IP of the first interface of the VM is the
+    // management IP.
+    match interfaces.first() {
+        Some(interface) => match interface.addrs.first() {
+            Some(ip) => return Ok(Some(ip.addr.to_string())),
+            None => return Ok(None),
+        },
+        None => return Ok(None),
+    }
+}

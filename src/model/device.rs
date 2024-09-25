@@ -170,6 +170,7 @@ pub struct DeviceModel {
     pub memory: u16,
     pub disk_count: u8,
     pub cdrom_iso: Option<String>,
+    pub cloud_init: bool,
     pub interface_count: u8,
     pub interface_prefix: String,
     pub interface_type: InterfaceTypes,
@@ -218,6 +219,7 @@ impl DeviceModel {
             memory: 4096,
             disk_count: 1,
             cdrom_iso: Some("aboot.iso".to_owned()),
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 0,
         }
@@ -239,6 +241,7 @@ impl DeviceModel {
             memory: 2048,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 0,
         }
@@ -260,6 +263,7 @@ impl DeviceModel {
             memory: 4096,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: false,
             reserved_interface_count: 0,
         }
@@ -281,6 +285,7 @@ impl DeviceModel {
             memory: 16384,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: false,
             reserved_interface_count: 0,
         }
@@ -302,6 +307,7 @@ impl DeviceModel {
             memory: 18432,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 0,
         }
@@ -323,6 +329,7 @@ impl DeviceModel {
             memory: 16384,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 2,
         }
@@ -344,6 +351,7 @@ impl DeviceModel {
             memory: 10240,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 0,
         }
@@ -365,6 +373,7 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: false,
             reserved_interface_count: 0,
         }
@@ -386,6 +395,7 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: false,
             reserved_interface_count: 0,
         }
@@ -407,6 +417,7 @@ impl DeviceModel {
             memory: 5120,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 2,
         }
@@ -428,6 +439,7 @@ impl DeviceModel {
             memory: 5120,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 2,
         }
@@ -449,6 +461,7 @@ impl DeviceModel {
             memory: 2048,
             disk_count: 2,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: false,
             reserved_interface_count: 0,
         }
@@ -470,6 +483,7 @@ impl DeviceModel {
             memory: 4096,
             disk_count: 1,
             cdrom_iso: None,
+            cloud_init: false,
             management_interface: true,
             reserved_interface_count: 0,
         }
@@ -481,7 +495,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -491,7 +505,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -502,7 +517,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -512,7 +527,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -523,7 +539,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -533,7 +549,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -544,7 +561,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Suse,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -554,7 +571,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -565,7 +583,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Suse,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -575,7 +593,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -586,7 +605,7 @@ impl DeviceModel {
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Canonical,
             bios: BiosTypes::SeaBios,
-            interface_count: 8,
+            interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             cpu_count: 1,
@@ -596,7 +615,8 @@ impl DeviceModel {
             memory: 1024,
             disk_count: 1,
             cdrom_iso: None,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }

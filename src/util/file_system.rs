@@ -1,6 +1,6 @@
 use std::fs;
 use std::fs::File;
-use std::io::{self, BufReader, BufWriter, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use anyhow::Result;
@@ -55,4 +55,19 @@ pub fn copy_file(src: &str, dst: &str) -> Result<()> {
     writer.flush()?;
 
     Ok(())
+}
+
+/// Read an SSH public key file and return a String.
+pub fn get_ssh_public_key(path: &str) -> Result<String> {
+    let full_path = expand_path(path);
+    let file = File::open(&full_path)?;
+    let reader = BufReader::new(file);
+
+    // Read the first line of the file
+    if let Some(line) = reader.lines().next() {
+        let key = line?;
+        Ok(key)
+    } else {
+        Err(anyhow::anyhow!("Invalid SSH public key file: {full_path}",))
+    }
 }

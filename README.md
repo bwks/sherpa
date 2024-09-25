@@ -33,8 +33,10 @@ Ensure that you have the required packages installed. There is the list of packa
   - libvirt-dev
   - bridge-utils
   - virtinst
-  - ovmf
-  - virt-manager
+  - virt-manager # Optional, gui view of VMs
+  - telnet # Connect to VM serial consoles
+  - ovmf # UEFI Firmware
+  - genisoimage # ISO Creation
 ```
 
 ## Device Support Matrix

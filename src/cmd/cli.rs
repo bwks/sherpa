@@ -14,19 +14,20 @@ use virt::sys;
 
 use crate::core::konst::{
     BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
-    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE,
-    ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
+    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE,
+    ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH,
+    TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
-    clone_disk, create_isolated_network, create_network, create_vm, delete_disk, DomainTemplate,
-    Qemu,
+    clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
+    DomainTemplate, Qemu,
 };
-use crate::model::{ConnectionTypes, DeviceModels, Interface};
+use crate::model::{ConnectionTypes, DeviceModels, Interface, User};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_dir, dir_exists, file_exists, get_ip, id_to_port, random_mac,
-    term_msg_surround, term_msg_underline,
+    copy_file, create_cloud_init_iso, create_dir, dir_exists, expand_path, file_exists, get_ip,
+    id_to_port, random_mac, term_msg_surround, term_msg_underline,
 };
 
 // Used to clone disk for VM creation
@@ -102,8 +103,11 @@ enum Commands {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         networks: bool,
     },
-    /// Connect to a device
-    Connect { name: String },
+    /// Connect to a device via serial console over Telnet
+    Console { name: String },
+
+    /// SSH to a device.
+    Ssh { name: String },
 }
 impl Default for Commands {
     fn default() -> Self {
@@ -132,6 +136,7 @@ impl Cli {
 
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
+                println!("- Creating Files -");
                 // Create the default config directories
                 if dir_exists(&sherpa.config_dir) && !*force {
                     println!("Directory path already exists: {}", sherpa.config_dir);
@@ -166,6 +171,7 @@ impl Cli {
                     manifest.write_file()?;
                 }
 
+                println!("- Creating Networks -");
                 // Initialize the sherpa boot network
                 if qemu_conn
                     .list_networks()?
@@ -201,6 +207,11 @@ impl Cli {
                         ISOLATED_NETWORK_BRIDGE,
                     )?;
                 }
+
+                // Create cloud-init base image
+                println!("- Creating cloud-init ISO -");
+                let user = User::default()?;
+                create_cloud_init_iso(vec![user])?;
             }
             Commands::Up { config_file } => {
                 term_msg_surround("Building environment");
@@ -343,7 +354,7 @@ impl Cli {
                     });
 
                     // CDROM ISO
-                    let (src_cdrom_iso, dst_cdrom_iso) = match &device_model.cdrom_iso {
+                    let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom_iso {
                         Some(src_iso) => {
                             let src = format!(
                                 "{}/{}/{}/{}",
@@ -354,13 +365,23 @@ impl Cli {
                         }
                         None => (None, None),
                     };
+
+                    let config_dir = expand_path(CONFIG_DIR);
+
+                    // Cloud-Init
+                    if device_model.cloud_init {
+                        src_cdrom_iso = Some(format!("{config_dir}/{CLOUD_INIT_ISO}"));
+                        dst_cdrom_iso = Some(format!("{STORAGE_POOL_PATH}/{vm_name}.iso"));
+                    }
+
+                    // Other ISO
                     if dst_cdrom_iso.is_some() {
                         copy_disks.push(CloneDisk {
+                            // These should always have a value.
                             src: src_cdrom_iso.unwrap(),
                             dst: dst_cdrom_iso.clone().unwrap(),
                         })
                     }
-
                     let domain = DomainTemplate {
                         qemu_bin: config.qemu_bin.clone(),
                         name: vm_name,
@@ -600,7 +621,7 @@ impl Cli {
                     term_msg_surround("Not implemented");
                 }
             }
-            Commands::Connect { name } => {
+            Commands::Console { name } => {
                 term_msg_surround(&format!("Connecting to: {name}"));
 
                 let manifest = Manifest::load_file()?;
@@ -622,6 +643,33 @@ impl Cli {
                     if let Some(code) = status.code() {
                         eprintln!("Exit code: {}", code);
                     }
+                }
+            }
+            Commands::Ssh { name } => {
+                term_msg_surround(&format!("Connecting to: {name}"));
+
+                let manifest = Manifest::load_file()?;
+
+                let qemu_conn = qemu.connect()?;
+
+                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, manifest.id))?
+                {
+                    let status = Command::new("ssh")
+                        .arg(vm_ip)
+                        .arg("-o")
+                        .arg("StrictHostKeyChecking=no")
+                        .arg("-o")
+                        .arg("UserKnownHostsFile=/dev/null")
+                        .status()?;
+
+                    if !status.success() {
+                        eprintln!("SSH connection failed");
+                        if let Some(code) = status.code() {
+                            eprintln!("Exit code: {}", code);
+                        }
+                    }
+                } else {
+                    eprintln!("No IP address found for {name}")
                 }
             }
         }
