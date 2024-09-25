@@ -32,7 +32,7 @@ impl Default for Config {
             DeviceModel::juniper_vjunos_router(),
             DeviceModel::juniper_vjunos_switch(),
             DeviceModel::nokia_vsr(),
-            DeviceModel::nvidia_cumulus(),
+            DeviceModel::cumulus_linux(),
             DeviceModel::centos_linux(),
             DeviceModel::fedora_linux(),
             DeviceModel::redhat_linux(),

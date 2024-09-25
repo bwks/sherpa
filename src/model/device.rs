@@ -28,7 +28,7 @@ pub enum DeviceModels {
     ))]
     JuniperVjunosSwitch,
     NokiaVsr,
-    NvidiaCumulus,
+    CumulusLinux,
     CentosLinux,
     FedoraLinux,
     RedhatLinux,
@@ -51,7 +51,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::JuniperVjunosRouter => write!(f, "juniper_vjunos_router"),
             DeviceModels::JuniperVjunosSwitch => write!(f, "juniper_vjunos_switch"),
             DeviceModels::NokiaVsr => write!(f, "nokia_vsr"),
-            DeviceModels::NvidiaCumulus => write!(f, "nvidia_cumulus"),
+            DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
             DeviceModels::CentosLinux => write!(f, "centos_linux"),
             DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
             DeviceModels::RedhatLinux => write!(f, "rhel_linux"),
@@ -193,7 +193,7 @@ impl DeviceModel {
             DeviceModels::JuniperVjunosRouter => DeviceModel::juniper_vjunos_router(),
             DeviceModels::JuniperVjunosSwitch => DeviceModel::juniper_vjunos_switch(),
             DeviceModels::NokiaVsr => DeviceModel::nokia_vsr(),
-            DeviceModels::NvidiaCumulus => DeviceModel::nvidia_cumulus(),
+            DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
             DeviceModels::CentosLinux => DeviceModel::centos_linux(),
             DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
             DeviceModels::RedhatLinux => DeviceModel::redhat_linux(),
@@ -444,10 +444,10 @@ impl DeviceModel {
             reserved_interface_count: 2,
         }
     }
-    pub fn nvidia_cumulus() -> DeviceModel {
+    pub fn cumulus_linux() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::NvidiaCumulus,
+            name: DeviceModels::CumulusLinux,
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Nvidia,
             bios: BiosTypes::SeaBios,
@@ -459,10 +459,10 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             vmx_enabled: false,
             memory: 2048,
-            disk_count: 2,
+            disk_count: 1,
             cdrom_iso: None,
-            cloud_init: false,
-            management_interface: false,
+            cloud_init: true,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }

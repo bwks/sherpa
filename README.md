@@ -3,11 +3,14 @@
 Vagrant re-imagined.
 
 ## Why?
-I love the workflow of Vagrant. Define an environment and build/destroy it with a few commands. This also made sharing labs with peers much easier. 
+I love the workflow of Vagrant. Define an environment in a config file and build/destroy it with a few commands. 
+This also made sharing labs with peers much easier. 
 
-Docker came along and it's great when you can get by with only using Containers. I am from a networking background and in that space, VM's are mostly still king.
+Docker came along and it's great when you can get by with only using Containers. 
+I am from a networking background and in that space, VM's are mostly still king.
 
-I am learning Rust and what better way to learn than to build something that you can use. So that is why I am building Sherpa. To help me learn Rust and build a tool that I can use to make my life easier. 
+I am learning Rust and what better way to learn than to build something that you can use. 
+So that is why I am building Sherpa. To help me learn Rust and build a tool that I can use to make my life easier while im at it. 
 
 ## Project Goals
 - Multi-threaded/Asynchronous.
@@ -34,9 +37,10 @@ Ensure that you have the required packages installed. There is the list of packa
   - bridge-utils
   - virtinst
   - virt-manager # Optional, gui view of VMs
-  - telnet # Connect to VM serial consoles
   - ovmf # UEFI Firmware
   - genisoimage # ISO Creation
+  - telnet # Connect to VM serial consoles
+  - ssh # connect to VM via SSH
 ```
 
 ## Device Support Matrix
@@ -140,7 +144,7 @@ These images are extracted from Cisco Modeling Labs ISO.
 - ETC... UPDATE
 
 ### Juniper
-Juniper allows you to download images, you just need to sign up for an account.no
+Juniper allows you to download images, you just need to sign up for an account.
 [vJunos Router](https://support.juniper.net/support/downloads/?p=vjunos-router)
 
 [vJunos Switch](https://support.juniper.net/support/downloads/?p=vjunos)
@@ -163,10 +167,12 @@ Fedora provides ready built cloud images setup to work with cloud-init.
 [Fedora Cloud Images](https://fedoraproject.org/cloud/download)
 
 ### CentOS
+Centos provides ready built cloud images setup to work with cloud-init.
 [CentOS Cloud Images](https://cloud.centos.org/)
 
 ### RedHat
-RedHat requires a subscription. A trial subscription can is available.
+Redhat provides ready built cloud images setup to work with cloud-init.
+RedHat also requires a subscription. A trial or developer subscriptions are available.
 
 [RHEL](https://access.redhat.com/)
 
