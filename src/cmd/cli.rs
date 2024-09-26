@@ -14,9 +14,10 @@ use virt::sys;
 
 use crate::core::konst::{
     ARISTA_OUI, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
-    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CISCO_OUI,
-    CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
+    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
+    CISCO_OUI, CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE,
+    ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH,
+    TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -26,8 +27,9 @@ use crate::libvirt::{
 use crate::model::{ConnectionTypes, DeviceModels, Interface, User};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_cloud_init_iso, create_dir, dir_exists, expand_path, file_exists, get_ip,
-    id_to_port, random_mac, term_msg_surround, term_msg_underline,
+    copy_file, create_cloud_init_iso, create_dir, dir_exists, expand_path, file_exists,
+    fix_permissions_recursive, get_ip, id_to_port, random_mac, term_msg_surround,
+    term_msg_underline,
 };
 
 // Used to clone disk for VM creation
@@ -74,6 +76,29 @@ enum Commands {
     Resume,
     /// Destroy environment
     Destroy,
+    /// Inspect environment
+    Inspect,
+
+    /// Fix up environment
+    Doctor {
+        /// Set base box permissions to read-only
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        boxes: bool,
+    },
+
+    /// Clean up environment
+    Cleaner {
+        /// Remove all devices, disks and networks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        all: bool,
+        /// Remove all disks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        disks: bool,
+        /// Remove all networks
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        networks: bool,
+    },
+
     /// Import a disk image
     Import {
         /// Source path of the disk image
@@ -89,20 +114,7 @@ enum Commands {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         latest: bool,
     },
-    /// Inspect environment
-    Inspect,
-    /// Clean up environment
-    Clean {
-        /// Remove all devices, disks and networks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        all: bool,
-        /// Remove all disks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        disks: bool,
-        /// Remove all networks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        networks: bool,
-    },
+
     /// Connect to a device via serial console over Telnet
     Console { name: String },
 
@@ -622,8 +634,18 @@ impl Cli {
                     copy_file(src, &dst_latest_disk)?;
                     println!("Copied file from: {} to: {}", src, dst_latest_disk);
                 }
+
+                println!("Setting base box files to read-only");
+                fix_permissions_recursive(&format!("{CONFIG_DIR}/{BOXES_DIR}"))?;
             }
-            Commands::Clean {
+            Commands::Doctor { boxes } => {
+                if *boxes {
+                    term_msg_surround("Fixing base box permissions");
+
+                    fix_permissions_recursive(&format!("{CONFIG_DIR}/{BOXES_DIR}"))?;
+                }
+            }
+            Commands::Cleaner {
                 all,
                 disks,
                 networks,

@@ -1,6 +1,7 @@
 use std::fs;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use anyhow::Result;
@@ -51,8 +52,7 @@ pub fn copy_file(src: &str, dst: &str) -> Result<()> {
 
     io::copy(&mut reader, &mut writer)?;
 
-    // Ensure all buffered contents are written to the file
-    writer.flush()?;
+    writer.flush()?; // Ensures all buffered contents are written to the file
 
     Ok(())
 }
@@ -70,4 +70,35 @@ pub fn get_ssh_public_key(path: &str) -> Result<String> {
     } else {
         Err(anyhow::anyhow!("Invalid SSH public key file: {full_path}",))
     }
+}
+
+/// Set permissions for all files in a folder subtree.
+/// Sets files to read-only and removes executable bit for users/groups.
+pub fn fix_permissions_recursive(path: &str) -> Result<()> {
+    let path = expand_path(path);
+
+    let metadata = fs::metadata(&path)?;
+    let mut perms = metadata.permissions();
+
+    if metadata.is_dir() {
+        // Set directory permissions to 0755
+        perms.set_mode(0o755);
+        fs::set_permissions(&path, perms)?;
+
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
+            fix_permissions_recursive(
+                entry
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Error updating read-only permissions"))?,
+            )?;
+        }
+    } else {
+        // Set file permissions to 0444
+        perms.set_mode(0o440);
+        fs::set_permissions(path, perms)?;
+    }
+
+    Ok(())
 }

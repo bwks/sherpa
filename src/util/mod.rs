@@ -9,7 +9,8 @@ mod user;
 
 pub use crate::util::cloud_init::create_cloud_init_iso;
 pub use crate::util::file_system::{
-    copy_file, create_dir, create_file, dir_exists, expand_path, file_exists, get_ssh_public_key,
+    copy_file, create_dir, create_file, dir_exists, expand_path, file_exists,
+    fix_permissions_recursive, get_ssh_public_key,
 };
 pub use crate::util::ip::get_ip;
 pub use crate::util::mac::random_mac;
