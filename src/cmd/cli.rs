@@ -545,16 +545,21 @@ impl Cli {
 
                 let domains = qemu_conn.list_all_domains(0)?;
                 let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
-
-                for domain in domains {
-                    let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) {
-                        term_msg_underline(&vm_name);
-                        if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
+                for device in manifest.devices {
+                    let device_name = format!("{}-{}", device.name, manifest.id);
+                    if let Some(domain) = domains
+                        .iter()
+                        .find(|d| d.get_name().unwrap_or_default() == device_name)
+                    {
+                        term_msg_underline(&device.name);
+                        println!("Domain: {}", device_name);
+                        println!("Model: {}", device.device_model);
+                        println!("Active: {:#?}", domain.is_active()?);
+                        if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &device_name)? {
                             println!("Mgmt IP: {vm_ip}");
                         }
                         for volume in pool.list_volumes()? {
-                            if volume.contains(&manifest.id) {
+                            if volume.contains(&device_name) {
                                 println!("Disk: {volume}");
                             }
                         }
