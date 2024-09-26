@@ -1,10 +1,7 @@
 use rand::Rng;
 
-use crate::core::konst::KVM_OUI;
-
 /// Creates a random colon delimited hexadecimal string for use as MAC address.
-/// MAC addresses have the same OUI assigned via KVM (52:54:00).
-pub fn random_mac() -> String {
+pub fn random_mac(vendor_oui: String) -> String {
     // Generate a 24-bit random number (between 0 and 0xFFFFFF)
     let random_number: u32 = rand::thread_rng().gen_range(0..=0xFFFFFF);
 
@@ -12,7 +9,13 @@ pub fn random_mac() -> String {
     let hex = format!("{:06X}", random_number);
 
     // Insert colons between each two characters (aa:bb:cc)
-    format!("{}:{}:{}:{}", KVM_OUI, &hex[0..2], &hex[2..4], &hex[4..6])
+    format!(
+        "{}:{}:{}:{}",
+        vendor_oui,
+        &hex[0..2],
+        &hex[2..4],
+        &hex[4..6]
+    )
 }
 
 #[cfg(test)]
@@ -24,7 +27,7 @@ mod tests {
 
     #[test]
     fn test_random_mac_format() {
-        let mac = random_mac();
+        let mac = random_mac(KVM_OUI.to_string());
         let re = Regex::new(r"^52:54:00:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}$").unwrap();
         assert!(
             re.is_match(&mac),
@@ -35,8 +38,8 @@ mod tests {
 
     #[test]
     fn test_random_mac_uniqueness() {
-        let mac1 = random_mac();
-        let mac2 = random_mac();
+        let mac1 = random_mac(KVM_OUI.to_string());
+        let mac2 = random_mac(KVM_OUI.to_string());
         assert_ne!(
             mac1, mac2,
             "Two consecutive calls should generate different MACs"
@@ -45,19 +48,19 @@ mod tests {
 
     #[test]
     fn test_random_mac_oui() {
-        let mac = random_mac();
+        let mac = random_mac(KVM_OUI.to_string());
         assert!(mac.starts_with(KVM_OUI), "MAC should start with KVM OUI");
     }
 
     #[test]
     fn test_random_mac_length() {
-        let mac = random_mac();
+        let mac = random_mac(KVM_OUI.to_string());
         assert_eq!(mac.len(), 17, "MAC address should be 17 characters long");
     }
 
     #[test]
     fn test_random_mac_colon_positions() {
-        let mac = random_mac();
+        let mac = random_mac(KVM_OUI.to_string());
         assert_eq!(
             mac.chars().filter(|&c| c == ':').count(),
             5,
@@ -75,7 +78,7 @@ mod tests {
 
     #[test]
     fn test_random_mac_distribution() {
-        let macs: Vec<String> = (0..1000).map(|_| random_mac()).collect();
+        let macs: Vec<String> = (0..1000).map(|_| random_mac(KVM_OUI.to_string())).collect();
         let unique_macs: std::collections::HashSet<_> = macs.iter().cloned().collect();
         assert!(
             unique_macs.len() > 999,

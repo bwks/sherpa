@@ -23,7 +23,7 @@ use crate::util::expand_path;
 /// implement this functionality in pure Rust.
 pub fn create_cloud_init_iso(users: Vec<User>) -> Result<()> {
     // Create a temporary directory
-    fs::create_dir_all(&format!("{TEMP_DIR}/{CLOUD_INIT_DIR}"))?;
+    fs::create_dir_all(format!("{TEMP_DIR}/{CLOUD_INIT_DIR}"))?;
 
     let cloud_init_template = CloudInitTemplate { users };
     let cloud_init_rendered = cloud_init_template.render()?;
@@ -43,7 +43,7 @@ pub fn create_cloud_init_iso(users: Vec<User>) -> Result<()> {
 
     // Create ISO using genisoimage
     Command::new("genisoimage")
-        .args(&[
+        .args([
             "-output",
             &iso_path,
             "-volid",
@@ -58,7 +58,7 @@ pub fn create_cloud_init_iso(users: Vec<User>) -> Result<()> {
     println!("cloud-init ISO created successfully: {iso_path}");
 
     // Clean up temp files
-    fs::remove_dir_all(&format!("{TEMP_DIR}/{CLOUD_INIT_DIR}"))?;
+    fs::remove_dir_all(format!("{TEMP_DIR}/{CLOUD_INIT_DIR}"))?;
 
     Ok(())
 }

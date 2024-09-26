@@ -88,7 +88,7 @@ use crate::model::{
     {%     when ConnectionTypes::Management %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-mgmt{{ interface.num }}'/>
-      <mtu size='9600'/>
+      <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::BOOT_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
@@ -97,7 +97,7 @@ use crate::model::{
     {%     when ConnectionTypes::Reserved %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-reserved{{ interface.num }}'/>
-      <mtu size='9600'/>
+      <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
@@ -107,7 +107,7 @@ use crate::model::{
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
       <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
-      <mtu size='9600'/>
+      <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>

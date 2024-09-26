@@ -17,6 +17,7 @@ pub struct Interface {
     pub name: String,
     pub num: u8,
     pub mac_address: String,
+    pub mtu: u16,
     pub connection_type: ConnectionTypes,
     pub connection_map: Option<ConnectionMap>,
 }

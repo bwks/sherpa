@@ -4,6 +4,8 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
+use crate::core::konst::MTU_JUMBO_INT;
+
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
@@ -174,6 +176,7 @@ pub struct DeviceModel {
     pub interface_count: u8,
     pub interface_prefix: String,
     pub interface_type: InterfaceTypes,
+    pub interface_mtu: u16,
     pub management_interface: bool,
     pub reserved_interface_count: u8,
 }
@@ -212,9 +215,10 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::PcQ35_6_2,
+            machine_type: MachineTypes::PcI440Fx_4_2,
             vmx_enabled: false,
             memory: 4096,
             disk_count: 1,
@@ -234,6 +238,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -256,6 +261,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
             interface_type: InterfaceTypes::Vmxnet3,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -264,7 +270,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             cloud_init: false,
-            management_interface: false,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -278,6 +284,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -286,7 +293,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             cloud_init: false,
-            management_interface: false,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -300,6 +307,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig0/0/".to_owned(),
             interface_type: InterfaceTypes::E1000,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -322,6 +330,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig0/0/0/".to_owned(),
             interface_type: InterfaceTypes::E1000,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -344,6 +353,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Eth1/".to_owned(),
             interface_type: InterfaceTypes::E1000,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -366,6 +376,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig0/".to_owned(),
             interface_type: InterfaceTypes::E1000,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -374,7 +385,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             cloud_init: false,
-            management_interface: false,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -388,6 +399,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Gig".to_owned(),
             interface_type: InterfaceTypes::E1000,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -396,7 +408,7 @@ impl DeviceModel {
             disk_count: 1,
             cdrom_iso: None,
             cloud_init: false,
-            management_interface: false,
+            management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -410,6 +422,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "ge-0/0/".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -432,6 +445,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "ge-0/0/".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -454,6 +468,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "swp".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -476,6 +491,7 @@ impl DeviceModel {
             interface_count: 8,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::default(),
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcI440Fx_4_2,
@@ -498,6 +514,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -520,6 +537,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -542,6 +560,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -564,6 +583,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -586,6 +606,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
@@ -608,6 +629,7 @@ impl DeviceModel {
             interface_count: 0,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,

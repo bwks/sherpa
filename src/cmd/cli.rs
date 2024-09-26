@@ -13,10 +13,10 @@ use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_IP,
-    BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE,
-    ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH,
-    TELNET_PORT,
+    ARISTA_OUI, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
+    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, CISCO_OUI,
+    CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -189,6 +189,7 @@ impl Cli {
                         BOOT_NETWORK_NETMASK,
                         BOOT_NETWORK_DHCP_START,
                         BOOT_NETWORK_DHCP_END,
+                        BOOT_NETWORK_HTTP_SERVER,
                     )?;
                 }
 
@@ -235,7 +236,21 @@ impl Cli {
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
-
+                    let mac_oui = match device.device_model {
+                        DeviceModels::AristaVeos => ARISTA_OUI,
+                        DeviceModels::CiscoAsav
+                        | DeviceModels::CiscoCat8000v
+                        | DeviceModels::CiscoCat9000v
+                        | DeviceModels::CiscoCsr1000v
+                        | DeviceModels::CiscoIosv
+                        | DeviceModels::CiscoIosvl2
+                        | DeviceModels::CiscoIosxrv9000
+                        | DeviceModels::CiscoNexus9300v => CISCO_OUI,
+                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
+                            JUNIPER_OUI
+                        }
+                        _ => KVM_OUI,
+                    };
                     let device_model = config
                         .device_models
                         .iter()
@@ -250,7 +265,8 @@ impl Cli {
                         interfaces.push(Interface {
                             name: "mgmt".to_owned(),
                             num: 0,
-                            mac_address: random_mac(),
+                            mtu: device_model.interface_mtu,
+                            mac_address: random_mac(mac_oui.to_string()),
                             connection_type: ConnectionTypes::Management,
                             connection_map: None,
                         });
@@ -260,7 +276,8 @@ impl Cli {
                             interfaces.push(Interface {
                                 name: "reserved".to_owned(),
                                 num: i,
-                                mac_address: random_mac(),
+                                mtu: device_model.interface_mtu,
+                                mac_address: random_mac(KVM_OUI.to_string()),
                                 connection_type: ConnectionTypes::Reserved,
                                 connection_map: None,
                             });
@@ -291,7 +308,8 @@ impl Cli {
                                         interfaces.push(Interface {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
-                                            mac_address: random_mac(),
+                                            mtu: device_model.interface_mtu,
+                                            mac_address: random_mac(KVM_OUI.to_string()),
                                             connection_type: ConnectionTypes::Peer,
                                             connection_map: Some(connection_map),
                                         })
@@ -316,7 +334,8 @@ impl Cli {
                                         interfaces.push(Interface {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
-                                            mac_address: random_mac(),
+                                            mtu: device_model.interface_mtu,
+                                            mac_address: random_mac(KVM_OUI.to_string()),
                                             connection_type: ConnectionTypes::Peer,
                                             connection_map: Some(connection_map),
                                         })
@@ -325,7 +344,8 @@ impl Cli {
                                         interfaces.push(Interface {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
-                                            mac_address: random_mac(),
+                                            mtu: device_model.interface_mtu,
+                                            mac_address: random_mac(KVM_OUI.to_string()),
                                             connection_type: ConnectionTypes::Disabled,
                                             connection_map: None,
                                         })
@@ -335,7 +355,8 @@ impl Cli {
                             None => interfaces.push(Interface {
                                 name: format!("{}{}", device_model.interface_prefix, i),
                                 num: i,
-                                mac_address: random_mac(),
+                                mtu: device_model.interface_mtu,
+                                mac_address: random_mac(KVM_OUI.to_string()),
                                 connection_type: ConnectionTypes::Disabled,
                                 connection_map: None,
                             }),
