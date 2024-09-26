@@ -537,23 +537,27 @@ impl Cli {
                 }
             }
             Commands::Inspect => {
-                term_msg_surround("Sherpa Environment");
-
                 let manifest = Manifest::load_file()?;
+
+                term_msg_surround(&format!("Sherpa Environment - {}", manifest.id));
 
                 let qemu_conn = qemu.connect()?;
 
                 let domains = qemu_conn.list_all_domains(0)?;
+                let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
+
                 for domain in domains {
                     let vm_name = domain.get_name()?;
                     if vm_name.contains(&manifest.id) {
-                        println!("VM: {vm_name}");
-                    }
-                }
-                let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
-                for volume in pool.list_volumes()? {
-                    if volume.contains(&manifest.id) {
-                        println!("Disk: {volume}");
+                        term_msg_underline(&vm_name);
+                        if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
+                            println!("Mgmt IP: {vm_ip}");
+                        }
+                        for volume in pool.list_volumes()? {
+                            if volume.contains(&manifest.id) {
+                                println!("Disk: {volume}");
+                            }
+                        }
                     }
                 }
             }
