@@ -1,4 +1,3 @@
-mod cloud_init;
 mod file_system;
 mod ip;
 mod mac;
@@ -7,9 +6,8 @@ mod port;
 mod random;
 mod user;
 
-pub use crate::util::cloud_init::create_cloud_init_iso;
 pub use crate::util::file_system::{
-    copy_file, create_dir, create_file, dir_exists, expand_path, file_exists,
+    copy_file, create_bootstrap_iso, create_dir, create_file, dir_exists, expand_path, file_exists,
     fix_permissions_recursive, get_ssh_public_key,
 };
 pub use crate::util::ip::get_ip;

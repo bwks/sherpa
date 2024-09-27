@@ -3,7 +3,7 @@ use anyhow::Result;
 use virt::connect::Connect;
 use virt::network::Network;
 
-use crate::core::konst::{ARISTA_OUI, CISCO_OUI, JUNIPER_OUI, MTU_JUMBO_NET};
+use crate::core::konst::{ARISTA_OUI, CISCO_OUI, DOMAIN_NAME, JUNIPER_OUI, MTU_JUMBO_NET};
 
 /// Create an isolated bridge for forwarding disabled and ports
 /// isolated from one another.
@@ -74,7 +74,7 @@ pub fn create_network(
 
           <bridge name='{bridge_name}' stp='on' delay='0'/>
           
-          <domain name='sherpa.lab.local' localOnly='yes'/>
+          <domain name='{DOMAIN_NAME}' localOnly='yes'/>
           
           <ip address='{ip_address}' netmask='{netmask}'>
             <dhcp>

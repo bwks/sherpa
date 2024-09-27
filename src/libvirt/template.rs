@@ -41,7 +41,7 @@ use crate::model::{
     <osinfo name='generic'/>
     <bootmenu enable='no'/>
     <smbios mode='host'/>
-    {% if let Some(cdrom_iso) = cdrom_iso %}
+    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
     <boot dev='cdrom'/>
     {% endif %}
     <boot dev='hd'/>
@@ -63,10 +63,10 @@ use crate::model::{
 
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% if let Some(cdrom_iso) = cdrom_iso %}
+    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
-      <source file='{{ cdrom_iso }}'/>
+      <source file='{{ cdrom_bootdisk }}'/>
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>
@@ -174,7 +174,7 @@ pub struct DomainTemplate {
     pub qemu_bin: String,
     pub bios: BiosTypes,
     pub boot_disk: String,
-    pub cdrom_iso: Option<String>,
+    pub cdrom_bootdisk: Option<String>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
@@ -184,6 +184,7 @@ pub struct DomainTemplate {
 #[derive(Template)]
 #[template(
     source = r#"#cloud-config
+hostname: {{ hostname }}
 users:
   {%- for user in users %}
   - name: {{ user.username }}
@@ -199,7 +200,59 @@ users:
     ext = "yml"
 )]
 pub struct CloudInitTemplate {
+    pub hostname: String,
     pub users: Vec<User>,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+hostname {{ hostname }}
+ip domain name {{ crate::core::konst::DOMAIN_NAME }}
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+aaa new-model
+aaa session-id common
+aaa authentication login LOCAL-ONLY local
+aaa authorization exec LOCAL-ONLY local
+!
+{% for user in users %}
+username {{ user.username }} privilege 15
+{% endfor %}
+ip ssh pubkey-chain
+  username bradmin
+{% for user in users %}
+   key-hash ssh-rsa {{ user.ssh_public_key }}
+{% endfor %}
+!
+!
+interface {{ mgmt_interface }}
+ ip address dhcp
+ negotiation auto
+ no shutdown
+ exit
+!
+line con 0
+ logging synchronous
+ stopbits 1
+ exit
+!
+line vty 0 4
+ authorization exec LOCAL-ONLY
+ logging synchronous
+ login authentication LOCAL-ONLY
+ transport input ssh
+ exit
+!
+exit
+"#,
+    ext = "txt"
+)]
+pub struct CiscoIosXeInitTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+    pub mgmt_interface: String,
 }
 
 /*
@@ -252,10 +305,10 @@ pub struct CloudInitTemplate {
 
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% if let Some(cdrom_iso) = cdrom_iso %}
+    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
-      <source file='{{ cdrom_iso }}'/>
+      <source file='{{ cdrom_bootdisk }}'/>
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>

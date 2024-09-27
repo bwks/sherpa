@@ -13,11 +13,10 @@ use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    ARISTA_OUI, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
+    ARISTA_OUI, BOOTSTRAP_ISO, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
     BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
-    CISCO_OUI, CLOUD_INIT_ISO, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE,
-    ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH,
-    TELNET_PORT,
+    CISCO_OUI, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -27,7 +26,7 @@ use crate::libvirt::{
 use crate::model::{ConnectionTypes, DeviceModels, Interface, User};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_cloud_init_iso, create_dir, dir_exists, expand_path, file_exists,
+    copy_file, create_bootstrap_iso, create_dir, dir_exists, expand_path, file_exists,
     fix_permissions_recursive, get_ip, id_to_port, random_mac, term_msg_surround,
     term_msg_underline,
 };
@@ -220,11 +219,6 @@ impl Cli {
                         ISOLATED_NETWORK_BRIDGE,
                     )?;
                 }
-
-                // Create cloud-init base image
-                println!("- Creating cloud-init ISO -");
-                let user = User::default()?;
-                create_cloud_init_iso(vec![user])?;
             }
             Commands::Up { config_file } => {
                 term_msg_surround("Building environment");
@@ -387,7 +381,8 @@ impl Cli {
                     });
 
                     // CDROM ISO
-                    let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom_iso {
+                    let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom_bootdisk
+                    {
                         Some(src_iso) => {
                             let src = format!(
                                 "{}/{}/{}/{}",
@@ -402,8 +397,8 @@ impl Cli {
                     let config_dir = expand_path(CONFIG_DIR);
 
                     // Cloud-Init
-                    if device_model.cloud_init {
-                        src_cdrom_iso = Some(format!("{config_dir}/{CLOUD_INIT_ISO}"));
+                    if device_model.bootstrap_config {
+                        src_cdrom_iso = Some(format!("{config_dir}/{BOOTSTRAP_ISO}"));
                         dst_cdrom_iso = Some(format!("{STORAGE_POOL_PATH}/{vm_name}.iso"));
                     }
 
@@ -425,7 +420,7 @@ impl Cli {
                         vmx_enabled: device_model.vmx_enabled,
                         bios: device_model.bios.clone(),
                         boot_disk: dst_boot_disk,
-                        cdrom_iso: dst_cdrom_iso,
+                        cdrom_bootdisk: dst_cdrom_iso,
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),
