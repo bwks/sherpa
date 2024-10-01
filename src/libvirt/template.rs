@@ -210,6 +210,7 @@ pub struct CloudInitTemplate {
     source = r#"!
 hostname {{ hostname }}
 ip domain name {{ crate::core::konst::DOMAIN_NAME }}
+no ip domain lookup
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !

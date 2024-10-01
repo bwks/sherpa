@@ -36,3 +36,6 @@ pub const SHERPA_USERNAME: &str = "sherpa";
 pub const SHERPA_PASSWORD: &str = "Sherpa42069!";
 pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
+pub const SSH_PORT: u16 = 22;
+pub const READINESS_TIMEOUT: u64 = 600;
+pub const READINESS_SLEEP: u64 = 10;

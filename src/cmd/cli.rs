@@ -3,6 +3,8 @@ use std::fs;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
@@ -18,8 +20,8 @@ use crate::core::konst::{
     BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_OUI, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
     CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
-    MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME, STORAGE_POOL, STORAGE_POOL_PATH,
-    TELNET_PORT, TEMP_DIR, ZTP_ISO,
+    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_USERNAME, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -31,7 +33,7 @@ use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
     copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
     fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
-    random_mac, term_msg_surround, term_msg_underline,
+    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
 };
 
 // Used to clone disk for VM creation
@@ -252,7 +254,7 @@ impl Cli {
                 // let mut ztp_disks: Vec<ZtpDisk> = vec![];
                 let mut copy_disks: Vec<CloneDisk> = vec![];
                 let mut domains: Vec<DomainTemplate> = vec![];
-                for device in manifest.devices {
+                for device in &manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
                     let mac_oui = match device.device_model {
                         DeviceModels::AristaVeos => ARISTA_OUI,
@@ -407,9 +409,12 @@ impl Cli {
                     let user = User::default()?;
                     if device_model.ztp_enable && device_model.ztp_method == ZtpMethods::Cdrom {
                         // generate the template
+                        println!("Creating ZTP config {}", device.name);
+                        let mut user = user.clone();
+                        let dir = format!("{}/{}", TEMP_DIR, vm_name);
+
                         match device_model.os_variant {
                             OsVariants::Iosxe => {
-                                let mut user = user.clone();
                                 let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                                 user.ssh_public_key.key = key_hash;
                                 let t = CiscoIosXeZtpTemplate {
@@ -418,24 +423,19 @@ impl Cli {
                                     mgmt_interface: "GigabitEthernet1".to_owned(),
                                 };
                                 let rendered_template = t.render()?;
-                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
                                 let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
-                                println!("Creating ZTP config");
                                 create_dir(&dir)?;
                                 create_file(&ztp_config, rendered_template)?;
                                 create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                             }
                             OsVariants::Linux => {
-                                let user = user.clone();
                                 let t = CloudInitTemplate {
                                     hostname: device.name.clone(),
                                     users: vec![user],
                                 };
                                 let rendered_template = t.render()?;
-                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
                                 let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                                 let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                                println!("Creating ZTP config");
                                 create_dir(&dir)?;
                                 create_file(&user_data, rendered_template)?;
                                 create_file(&meta_data, "".to_string())?;
@@ -528,6 +528,52 @@ impl Cli {
                     handle
                         .join()
                         .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
+                }
+
+                // Check if VMs are ready
+                term_msg_underline("Checking VM Readiness");
+                let start_time = Instant::now();
+                let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
+                let mut connected_devices = std::collections::HashSet::new();
+
+                while start_time.elapsed() < timeout
+                    && connected_devices.len() < manifest.devices.len()
+                {
+                    for device in &manifest.devices {
+                        if connected_devices.contains(&device.name) {
+                            continue;
+                        }
+
+                        let vm_name = format!("{}-{}", device.name, manifest.id);
+                        if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
+                            match tcp_connect(&vm_ip, SSH_PORT)? {
+                                true => {
+                                    println!("{} is ready", device.name);
+                                    connected_devices.insert(device.name.clone());
+                                }
+                                false => {
+                                    println!("Waiting for {}", device.name);
+                                }
+                            }
+                        } else {
+                            println!("Waiting for {}", device.name);
+                        }
+                    }
+
+                    if connected_devices.len() < manifest.devices.len() {
+                        sleep(Duration::from_secs(READINESS_SLEEP));
+                    }
+                }
+
+                if connected_devices.len() == manifest.devices.len() {
+                    println!("All devices are ready!");
+                } else {
+                    println!("Timeout reached. Not all devices are ready.");
+                    for device in &manifest.devices {
+                        if !connected_devices.contains(&device.name) {
+                            println!("Device is not ready: {}", device.name);
+                        }
+                    }
                 }
             }
             Commands::Down => {
