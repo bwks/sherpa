@@ -4,7 +4,9 @@ use std::path::Path;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use super::konst::{BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN};
+use super::konst::{
+    BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN, SHERPA_PASSWORD, SHERPA_USERNAME,
+};
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
 use crate::util::{create_file, expand_path};
@@ -15,6 +17,8 @@ pub struct Config {
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub device_models: Vec<DeviceModel>,
+    pub username: String,
+    pub password: String,
 }
 
 impl Default for Config {
@@ -45,6 +49,8 @@ impl Default for Config {
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
+            username: SHERPA_USERNAME.to_owned(),
+            password: SHERPA_PASSWORD.to_owned(),
         }
     }
 }

@@ -2,6 +2,7 @@ use std::env;
 
 use anyhow::{anyhow, Result};
 
+#[allow(dead_code)]
 /// Get the username of the current user from environment variables.
 pub fn get_username() -> Result<String> {
     env::var("USER")

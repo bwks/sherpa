@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::process::Command;
 use std::sync::Arc;
 use std::thread;
@@ -13,28 +14,35 @@ use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    ARISTA_OUI, BOOTSTRAP_ISO, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
+    ARISTA_OUI, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
     BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
-    CISCO_OUI, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT,
+    CISCO_IOSXE_ZTP_CONFIG, CISCO_OUI, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
+    CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
+    MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME, STORAGE_POOL, STORAGE_POOL_PATH,
+    TELNET_PORT, TEMP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
-    DomainTemplate, Qemu,
+    CiscoIosXeZtpTemplate, CloudInitTemplate, DomainTemplate, Qemu,
 };
-use crate::model::{ConnectionTypes, DeviceModels, Interface, User};
+use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_bootstrap_iso, create_dir, dir_exists, expand_path, file_exists,
-    fix_permissions_recursive, get_ip, id_to_port, random_mac, term_msg_surround,
-    term_msg_underline,
+    copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
+    fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
+    random_mac, term_msg_surround, term_msg_underline,
 };
 
 // Used to clone disk for VM creation
 struct CloneDisk {
     src: String,
     dst: String,
+}
+
+struct _ZtpDisk {
+    name: String,
+    files: Vec<String>,
 }
 
 #[derive(Default, Debug, Parser)]
@@ -220,6 +228,7 @@ impl Cli {
                     )?;
                 }
             }
+
             Commands::Up { config_file } => {
                 term_msg_surround("Building environment");
 
@@ -231,6 +240,8 @@ impl Cli {
                 let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
 
+                generate_ssh_keypair()?;
+
                 // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
                     .devices
@@ -238,6 +249,7 @@ impl Cli {
                     .map(|d| (d.name.clone(), d.id))
                     .collect();
 
+                // let mut ztp_disks: Vec<ZtpDisk> = vec![];
                 let mut copy_disks: Vec<CloneDisk> = vec![];
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in manifest.devices {
@@ -374,15 +386,13 @@ impl Cli {
                         sherpa.boxes_dir, device_model.name, device_model.version
                     );
                     let dst_boot_disk = format!("{STORAGE_POOL_PATH}/{vm_name}.qcow2");
-                    // clone_disk(&qemu_conn, &src_boot_disk, &dst_boot_disk)?;
                     copy_disks.push(CloneDisk {
                         src: src_boot_disk,
                         dst: dst_boot_disk.clone(),
                     });
 
                     // CDROM ISO
-                    let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom_bootdisk
-                    {
+                    let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom {
                         Some(src_iso) => {
                             let src = format!(
                                 "{}/{}/{}/{}",
@@ -394,11 +404,51 @@ impl Cli {
                         None => (None, None),
                     };
 
-                    let config_dir = expand_path(CONFIG_DIR);
-
-                    // Cloud-Init
-                    if device_model.bootstrap_config {
-                        src_cdrom_iso = Some(format!("{config_dir}/{BOOTSTRAP_ISO}"));
+                    let user = User::default()?;
+                    if device_model.ztp_enable && device_model.ztp_method == ZtpMethods::Cdrom {
+                        // generate the template
+                        match device_model.os_variant {
+                            OsVariants::Iosxe => {
+                                let mut user = user.clone();
+                                let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                                user.ssh_public_key.key = key_hash;
+                                let t = CiscoIosXeZtpTemplate {
+                                    hostname: device.name.clone(),
+                                    users: vec![user],
+                                    mgmt_interface: "GigabitEthernet1".to_owned(),
+                                };
+                                let rendered_template = t.render()?;
+                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
+                                let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
+                                println!("Creating ZTP config");
+                                create_dir(&dir)?;
+                                create_file(&ztp_config, rendered_template)?;
+                                create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                            }
+                            OsVariants::Linux => {
+                                let user = user.clone();
+                                let t = CloudInitTemplate {
+                                    hostname: device.name.clone(),
+                                    users: vec![user],
+                                };
+                                let rendered_template = t.render()?;
+                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
+                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                                println!("Creating ZTP config");
+                                create_dir(&dir)?;
+                                create_file(&user_data, rendered_template)?;
+                                create_file(&meta_data, "".to_string())?;
+                                create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                            }
+                            _ => {
+                                println!(
+                                    "CDROM ZTP method not supported for {}",
+                                    device_model.name
+                                );
+                            }
+                        };
+                        src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
                         dst_cdrom_iso = Some(format!("{STORAGE_POOL_PATH}/{vm_name}.iso"));
                     }
 
@@ -420,7 +470,7 @@ impl Cli {
                         vmx_enabled: device_model.vmx_enabled,
                         bios: device_model.bios.clone(),
                         boot_disk: dst_boot_disk,
-                        cdrom_bootdisk: dst_cdrom_iso,
+                        cdrom: dst_cdrom_iso,
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),
@@ -563,6 +613,10 @@ impl Cli {
                         }
                     }
                 }
+                if dir_exists(TEMP_DIR) {
+                    fs::remove_dir_all(TEMP_DIR)?;
+                    println!("Deleted directory: {TEMP_DIR}");
+                }
             }
             Commands::Inspect => {
                 let manifest = Manifest::load_file()?;
@@ -702,7 +756,9 @@ impl Cli {
                 if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, manifest.id))?
                 {
                     let status = Command::new("ssh")
-                        .arg(vm_ip)
+                        .arg(&format!("{SHERPA_USERNAME}@{vm_ip}"))
+                        .arg("-i")
+                        .arg(&format!("{TEMP_DIR}/{SHERPA_SSH_PRIVATE_KEY_FILE}"))
                         .arg("-o")
                         .arg("StrictHostKeyChecking=no")
                         .arg("-o")

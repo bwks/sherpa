@@ -1,23 +1,25 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::{SSH_DIR, SSH_PUBLIC_KEY_FILE};
-use crate::util::{get_ssh_public_key, get_username};
+use crate::core::konst::{SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME, TEMP_DIR};
+use crate::model::SshPublicKey;
+use crate::util::get_ssh_public_key;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct User {
     pub username: String,
-    pub ssh_public_key: String,
+    pub ssh_public_key: SshPublicKey,
     pub sudo: bool,
 }
 
 impl User {
-    /// Default will return a User from the current user and set sudo to True.
+    /// Returns the default sherpa user and set sudo to True.
     pub fn default() -> Result<User> {
-        let username = get_username()?;
-        let ssh_public_key = get_ssh_public_key(&format!("{SSH_DIR}/{SSH_PUBLIC_KEY_FILE}"))?;
+        let username = SHERPA_USERNAME;
+        let ssh_public_key =
+            get_ssh_public_key(&format!("{TEMP_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"))?;
         Ok(User {
-            username,
+            username: username.to_owned(),
             ssh_public_key,
             sudo: true,
         })

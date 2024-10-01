@@ -41,7 +41,7 @@ use crate::model::{
     <osinfo name='generic'/>
     <bootmenu enable='no'/>
     <smbios mode='host'/>
-    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
+    {% if let Some(cdrom) = cdrom %}
     <boot dev='cdrom'/>
     {% endif %}
     <boot dev='hd'/>
@@ -63,10 +63,10 @@ use crate::model::{
 
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
+    {% if let Some(cdrom) = cdrom %}
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
-      <source file='{{ cdrom_bootdisk }}'/>
+      <source file='{{ cdrom }}'/>
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>
@@ -174,7 +174,7 @@ pub struct DomainTemplate {
     pub qemu_bin: String,
     pub bios: BiosTypes,
     pub boot_disk: String,
-    pub cdrom_bootdisk: Option<String>,
+    pub cdrom: Option<String>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
@@ -185,11 +185,12 @@ pub struct DomainTemplate {
 #[template(
     source = r#"#cloud-config
 hostname: {{ hostname }}
+fqdn: {{ hostname }}.{{ crate::core::konst::DOMAIN_NAME }}
 users:
   {%- for user in users %}
   - name: {{ user.username }}
     ssh_authorized_keys:
-      - {{ user.ssh_public_key }}
+      - {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
     {%- if user.sudo %}
     groups: sudo
@@ -217,14 +218,15 @@ aaa session-id common
 aaa authentication login LOCAL-ONLY local
 aaa authorization exec LOCAL-ONLY local
 !
-{% for user in users %}
+{%- for user in users %}
 username {{ user.username }} privilege 15
-{% endfor %}
+{%- endfor %}
+!
 ip ssh pubkey-chain
-  username bradmin
-{% for user in users %}
-   key-hash ssh-rsa {{ user.ssh_public_key }}
-{% endfor %}
+{%- for user in users %}
+  username {{ user.username }}
+   key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
 !
 !
 interface {{ mgmt_interface }}
@@ -249,7 +251,7 @@ exit
 "#,
     ext = "txt"
 )]
-pub struct CiscoIosXeInitTemplate {
+pub struct CiscoIosXeZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
@@ -305,10 +307,10 @@ pub struct CiscoIosXeInitTemplate {
 
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% if let Some(cdrom_bootdisk) = cdrom_bootdisk %}
+    {% if let Some(cdrom) = cdrom %}
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
-      <source file='{{ cdrom_bootdisk }}'/>
+      <source file='{{ cdrom }}'/>
       <target dev='sda' bus='sata'/>
       <readonly/>
     </disk>

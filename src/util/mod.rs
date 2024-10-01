@@ -4,15 +4,16 @@ mod mac;
 mod output;
 mod port;
 mod random;
+mod ssh;
 mod user;
 
 pub use crate::util::file_system::{
-    copy_file, create_bootstrap_iso, create_dir, create_file, dir_exists, expand_path, file_exists,
-    fix_permissions_recursive, get_ssh_public_key,
+    copy_file, create_dir, create_file, create_ztp_iso, dir_exists, expand_path, file_exists,
+    fix_permissions_recursive,
 };
 pub use crate::util::ip::get_ip;
 pub use crate::util::mac::random_mac;
 pub use crate::util::output::{term_msg_surround, term_msg_underline};
 pub use crate::util::port::id_to_port;
 pub use crate::util::random::generate_id;
-pub use crate::util::user::get_username;
+pub use crate::util::ssh::{generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash};

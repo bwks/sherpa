@@ -38,5 +38,9 @@ shellexpand = "3.1.0"
 base64 = "0.21"
 md5 = "0.7.0"
 
+# Generate SSH keys
+ssh-key = { version = "0.6.6", features = ["ed25519"] }
+
+
 [dev-dependencies]
 regex = "1.10.6"
