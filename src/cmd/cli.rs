@@ -20,8 +20,8 @@ use crate::core::konst::{
     BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_OUI, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
     CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
-    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_USERNAME, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_ISO,
+    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SSH_PORT,
+    STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -33,7 +33,7 @@ use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
     copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
     fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
-    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
+    random_mac, tcp_connect, term_msg_surround, term_msg_underline, DeviceIp, SshConfigTemplate,
 };
 
 // Used to clone disk for VM creation
@@ -242,7 +242,12 @@ impl Cli {
                 let config = Config::load(&sherpa.config_path)?;
                 let manifest = Manifest::load_file()?;
 
-                generate_ssh_keypair()?;
+                // Create the tmp directory
+                term_msg_underline("Creating .tmp directory");
+                create_dir(TEMP_DIR)?;
+
+                term_msg_underline("Creating SSH Keypair");
+                generate_ssh_keypair(TEMP_DIR)?;
 
                 // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
@@ -408,6 +413,7 @@ impl Cli {
 
                     let user = User::default()?;
                     if device_model.ztp_enable && device_model.ztp_method == ZtpMethods::Cdrom {
+                        term_msg_underline("Creating ZTP disks");
                         // generate the template
                         println!("Creating ZTP config {}", device.name);
                         let mut user = user.clone();
@@ -432,6 +438,7 @@ impl Cli {
                                 let t = CloudInitTemplate {
                                     hostname: device.name.clone(),
                                     users: vec![user],
+                                    password_auth: device_model.ztp_password_auth,
                                 };
                                 let rendered_template = t.render()?;
                                 let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
@@ -535,6 +542,7 @@ impl Cli {
                 let start_time = Instant::now();
                 let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
                 let mut connected_devices = std::collections::HashSet::new();
+                let mut device_ip_map = vec![];
 
                 while start_time.elapsed() < timeout
                     && connected_devices.len() < manifest.devices.len()
@@ -548,8 +556,13 @@ impl Cli {
                         if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
                             match tcp_connect(&vm_ip, SSH_PORT)? {
                                 true => {
-                                    println!("{} is ready", device.name);
+                                    println!("{} is ready", &device.name);
+                                    let ip = vm_ip;
                                     connected_devices.insert(device.name.clone());
+                                    device_ip_map.push(DeviceIp {
+                                        name: device.name.clone(),
+                                        ip_address: ip,
+                                    });
                                 }
                                 false => {
                                     println!("Waiting for {}", device.name);
@@ -574,6 +587,17 @@ impl Cli {
                             println!("Device is not ready: {}", device.name);
                         }
                     }
+                }
+                if !device_ip_map.is_empty() {
+                    term_msg_underline("Creating SSH Config File");
+                    let ssh_config_template = SshConfigTemplate {
+                        hosts: device_ip_map,
+                    };
+                    let rendered_template = ssh_config_template.render()?;
+                    create_file(
+                        &format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"),
+                        rendered_template,
+                    )?;
                 }
             }
             Commands::Down => {
@@ -802,13 +826,9 @@ impl Cli {
                 if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, manifest.id))?
                 {
                     let status = Command::new("ssh")
-                        .arg(&format!("{SHERPA_USERNAME}@{vm_ip}"))
-                        .arg("-i")
-                        .arg(&format!("{TEMP_DIR}/{SHERPA_SSH_PRIVATE_KEY_FILE}"))
-                        .arg("-o")
-                        .arg("StrictHostKeyChecking=no")
-                        .arg("-o")
-                        .arg("UserKnownHostsFile=/dev/null")
+                        .arg(&vm_ip)
+                        .arg("-F")
+                        .arg(&format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
                         .status()?;
 
                     if !status.success() {

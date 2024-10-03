@@ -1,16 +1,41 @@
 use anyhow::{anyhow, Result};
+use askama::Template;
 use base64::{engine::general_purpose, Engine as _};
 use rand::rngs::OsRng;
-use ssh_key::{Algorithm, LineEnding, PrivateKey};
+use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 
-use crate::core::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, TEMP_DIR};
+use crate::core::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE};
 use crate::model::{SshKeyAlgorithms, SshPublicKey};
-use crate::util::{create_dir, create_file, expand_path};
+use crate::util::{create_file, expand_path};
+
+pub struct DeviceIp {
+    pub name: String,
+    pub ip_address: String,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"Host *
+    User {{ crate::core::konst::SHERPA_USERNAME }}
+    IdentityFile {{ crate::core::konst::TEMP_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
+    StrictHostKeyChecking no
+    UserKnownHostsFile /dev/null
+    PubkeyAcceptedAlgorithms +ssh-rsa
+{%- for host in hosts %}
+Host {{ host.name }}
+    HostName {{ host.ip_address }}
+{%- endfor %}
+"#,
+    ext = "txt"
+)]
+pub struct SshConfigTemplate {
+    pub hosts: Vec<DeviceIp>,
+}
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
@@ -60,13 +85,17 @@ pub fn pub_ssh_key_to_md5_hash(pub_key_str: &str) -> Result<String> {
     Ok(formatted_hash)
 }
 
-/// Generate a new ed25519 SSH keypair.
-/// ed25519 was chosen as it's secure enough for lab environments
-/// and fast to generate a keypair.
-pub fn generate_ssh_keypair() -> Result<()> {
-    // Generate a new private key
+/// Generate an SSH RSA keypair.
+pub fn generate_ssh_keypair(directory: &str) -> Result<()> {
     let mut rng = OsRng;
-    let private_key = PrivateKey::random(&mut rng, Algorithm::Ed25519)?;
+
+    // Generate a new private key
+    let private_key = PrivateKey::random(
+        &mut rng,
+        Algorithm::Rsa {
+            hash: Some(HashAlg::Sha256),
+        },
+    )?;
 
     // Serialize the private key to the OpenSSH format
     let private_key_pem = private_key.to_openssh(LineEnding::LF)?;
@@ -75,11 +104,8 @@ pub fn generate_ssh_keypair() -> Result<()> {
     let public_key = private_key.public_key();
     let public_key_ssh = public_key.to_openssh()?;
 
-    // Create the SSH directory
-    create_dir(TEMP_DIR)?;
-
-    let private_key_path = &format!("{TEMP_DIR}/{SHERPA_SSH_PRIVATE_KEY_FILE}");
-    let public_key_path = &format!("{TEMP_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
+    let private_key_path = &format!("{directory}/{SHERPA_SSH_PRIVATE_KEY_FILE}");
+    let public_key_path = &format!("{directory}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
 
     // Create the SSH Public/Private keypair
     create_file(public_key_path, public_key_ssh.to_string())?;

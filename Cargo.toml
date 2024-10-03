@@ -3,6 +3,10 @@ name = "sherpa"
 version = "0.1.0"
 edition = "2021"
 
+# Speed up SSH key generation in debug mode.
+[profile.dev.package.num-bigint-dig]
+opt-level = 3
+
 [dependencies]
 # Errors
 anyhow = "1.0.86"
@@ -39,7 +43,7 @@ base64 = "0.21"
 md5 = "0.7.0"
 
 # Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["ed25519"] }
+ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
 
 
 [dev-dependencies]

@@ -186,23 +186,31 @@ pub struct DomainTemplate {
     source = r#"#cloud-config
 hostname: {{ hostname }}
 fqdn: {{ hostname }}.{{ crate::core::konst::DOMAIN_NAME }}
+{%- if password_auth %}
+ssh_pwauth: True
+{%- endif %}
 users:
   {%- for user in users %}
   - name: {{ user.username }}
+    {%- if let Some(password) = user.password %}
+    plain_text_passwd: {{ password }}
+    lock_passwd: false
+    {%- endif %}
     ssh_authorized_keys:
       - {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
-    sudo: ["ALL=(ALL) NOPASSWD:ALL"]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
     {%- if user.sudo %}
     groups: sudo
     {%- endif %}
     shell: /bin/bash
-  {%- endfor %}      
+  {%- endfor %}
 "#,
     ext = "yml"
 )]
 pub struct CloudInitTemplate {
     pub hostname: String,
     pub users: Vec<User>,
+    pub password_auth: bool,
 }
 
 #[derive(Template)]
@@ -220,7 +228,7 @@ aaa authentication login LOCAL-ONLY local
 aaa authorization exec LOCAL-ONLY local
 !
 {%- for user in users %}
-username {{ user.username }} privilege 15
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
 {%- endfor %}
 !
 ip ssh pubkey-chain

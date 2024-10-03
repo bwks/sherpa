@@ -1276,6 +1276,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca9b366a80cf18bb6406f4cf4d10aebfb46140a8c0c33f666a144c5c76ecbafc"
 dependencies = [
  "ed25519-dalek",
+ "num-bigint-dig",
  "p256",
  "p384",
  "p521",
