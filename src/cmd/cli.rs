@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use askama::Template;
 
 use clap::{Parser, Subcommand};
+use virt::network::Network;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::sys;
@@ -788,8 +789,20 @@ impl Cli {
                         }
                     }
                 } else if *networks {
-                    // term_msg_surround("Cleaning networks");
-                    term_msg_surround("Not implemented");
+                    term_msg_surround("Cleaning networks");
+
+                    let qemu_conn = qemu.connect()?;
+
+                    let networks = qemu_conn.list_all_networks(0)?;
+                    for network in networks {
+                        if network.get_name()?.contains("sherpa") {
+                            let network_name = network.get_name()?;
+                            println!("Destroying network: {}", network_name);
+                            network.destroy()?;
+                            network.undefine()?;
+                            println!("Destroyed network: {}", network_name);
+                        }
+                    }
                 }
             }
             Commands::Console { name } => {
