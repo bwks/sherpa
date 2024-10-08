@@ -20,16 +20,16 @@ use crate::core::konst::{
     BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
     BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOXES_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
     CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_SSH_CONFIG_FILE, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_ISO,
+    CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG,
+    CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
+    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SSH_PORT,
+    STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
     AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CloudInitTemplate,
-    DomainTemplate, Qemu,
+    CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
 };
 use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
 use crate::topology::{ConnectionMap, Manifest};
@@ -271,6 +271,18 @@ impl Cli {
                 let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
                 create_file(&arista_ztp_config, rendered_template)?;
 
+                // Cumulus Linux
+                let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
+                create_dir(&cumulus_dir)?;
+
+                let cumulus_template = CumulusLinuxZtpTemplate {
+                    hostname: "cumulus-ztp".to_owned(),
+                    users: vec![sherpa_user.clone()],
+                };
+                let rendered_template = cumulus_template.render()?;
+                let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
+                create_file(&cumulus_ztp_config, rendered_template)?;
+
                 // Cisco
                 let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
                 create_dir(&cisco_dir)?;
@@ -330,6 +342,7 @@ impl Cli {
                         DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
                             JUNIPER_OUI
                         }
+                        DeviceModels::CumulusLinux => CUMULUS_OUI,
                         _ => KVM_OUI,
                     };
 
