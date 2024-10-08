@@ -17,8 +17,8 @@ pub struct Config {
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub device_models: Vec<DeviceModel>,
-    pub username: String,
-    pub password: String,
+    pub ztp_username: String,
+    pub ztp_password: String,
 }
 
 impl Default for Config {
@@ -49,8 +49,8 @@ impl Default for Config {
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
-            username: SHERPA_USERNAME.to_owned(),
-            password: SHERPA_PASSWORD.to_owned(),
+            ztp_username: SHERPA_USERNAME.to_owned(),
+            ztp_password: SHERPA_PASSWORD.to_owned(),
         }
     }
 }

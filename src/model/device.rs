@@ -4,12 +4,14 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::{MTU_JUMBO_INT, SHERPA_PASSWORD, SHERPA_USERNAME};
+use crate::core::konst::MTU_JUMBO_INT;
 
-#[derive(PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
 pub enum DeviceModels {
+    #[default]
+    UnknownUnknown,
     AristaVeos,
     CiscoAsav,
     CiscoCsr1000v,
@@ -60,13 +62,16 @@ impl fmt::Display for DeviceModels {
             DeviceModels::OpensuseLinux => write!(f, "opensuse_linux"),
             DeviceModels::SuseLinux => write!(f, "suse_linux"),
             DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
+            DeviceModels::UnknownUnknown => write!(f, "unknown_unknown"),
         }
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Manufacturers {
+    #[default]
+    Unknown,
     Cisco,
     Arista,
     Juniper,
@@ -77,9 +82,11 @@ pub enum Manufacturers {
     Suse,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum OsVariants {
+    #[default]
+    Unknown,
     Asa,
     Ios,
     Iosxe,
@@ -167,6 +174,7 @@ pub enum ZtpMethods {
     Tftp,
     Ipxe,
     Usb,
+    None,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -185,7 +193,7 @@ pub struct DeviceModel {
     pub cdrom: Option<String>,
     pub ztp_enable: bool,
     pub ztp_method: ZtpMethods,
-    pub ztp_user: Option<String>,
+    pub ztp_username: Option<String>,
     pub ztp_password: Option<String>,
     pub ztp_password_auth: bool,
     pub interface_count: u8,
@@ -195,6 +203,37 @@ pub struct DeviceModel {
     pub management_interface: bool,
     pub reserved_interface_count: u8,
 }
+
+impl Default for DeviceModel {
+    fn default() -> Self {
+        Self {
+            version: "0.0.0".to_owned(),
+            name: DeviceModels::default(),
+            os_variant: OsVariants::default(),
+            manufacturer: Manufacturers::default(),
+            bios: BiosTypes::default(),
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::default(),
+            machine_type: MachineTypes::default(),
+            vmx_enabled: false,
+            memory: 1024,
+            hdd_count: 1,
+            cdrom: None,
+            ztp_enable: true,
+            ztp_method: ZtpMethods::default(),
+            ztp_username: None,
+            ztp_password: None,
+            ztp_password_auth: false,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceTypes::default(),
+            interface_mtu: 1500,
+            management_interface: true,
+            reserved_interface_count: 0,
+        }
+    }
+}
+
 impl DeviceModel {
     #[allow(dead_code)]
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
@@ -218,6 +257,7 @@ impl DeviceModel {
             DeviceModels::OpensuseLinux => DeviceModel::opensuse_linux(),
             DeviceModels::SuseLinux => DeviceModel::suse_linux(),
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
+            DeviceModels::UnknownUnknown => DeviceModel::default(),
         }
     }
     pub fn arista_veos() -> DeviceModel {
@@ -238,10 +278,10 @@ impl DeviceModel {
             memory: 4096,
             hdd_count: 1,
             cdrom: Some("aboot.iso".to_owned()),
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
-            ztp_method: ZtpMethods::Usb,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 0,
@@ -266,8 +306,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
@@ -292,9 +332,9 @@ impl DeviceModel {
             memory: 4096,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: true,
             management_interface: true,
@@ -319,9 +359,9 @@ impl DeviceModel {
             memory: 16384,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -346,9 +386,9 @@ impl DeviceModel {
             memory: 18432,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -374,8 +414,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
@@ -401,8 +441,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
@@ -428,9 +468,9 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
-            ztp_method: ZtpMethods::Http,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 0,
@@ -455,9 +495,9 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
-            ztp_method: ZtpMethods::Http,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 0,
@@ -482,8 +522,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
@@ -509,8 +549,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
             management_interface: true,
@@ -536,8 +576,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
             management_interface: true,
@@ -563,8 +603,8 @@ impl DeviceModel {
             hdd_count: 1,
             cdrom: None,
             ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::default(),
             ztp_password_auth: false,
             management_interface: true,
@@ -589,9 +629,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -616,9 +656,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -643,9 +683,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -670,9 +710,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -697,9 +737,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
@@ -724,9 +764,9 @@ impl DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
-            ztp_user: Some(SHERPA_USERNAME.to_owned()),
-            ztp_password: Some(SHERPA_PASSWORD.to_owned()),
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,

@@ -11,23 +11,25 @@ use anyhow::{Context, Result};
 use askama::Template;
 
 use clap::{Parser, Subcommand};
-use virt::network::Network;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    ARISTA_OUI, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START,
-    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK, BOXES_DIR,
-    CISCO_IOSXE_ZTP_CONFIG, CISCO_OUI, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
-    CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
-    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SSH_PORT,
-    STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_ISO,
+    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END,
+    BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
+    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOXES_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
+    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA,
+    CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_SSH_CONFIG_FILE, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
-    CiscoIosXeZtpTemplate, CloudInitTemplate, DomainTemplate, Qemu,
+    AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CloudInitTemplate,
+    DomainTemplate, Qemu,
 };
 use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
 use crate::topology::{ConnectionMap, Manifest};
@@ -208,6 +210,7 @@ impl Cli {
                         BOOT_NETWORK_NAME,
                         BOOT_NETWORK_BRIDGE,
                         BOOT_NETWORK_IP,
+                        BOOT_NETWORK_PORT,
                         BOOT_NETWORK_NETMASK,
                         BOOT_NETWORK_DHCP_START,
                         BOOT_NETWORK_DHCP_END,
@@ -240,15 +243,60 @@ impl Cli {
 
                 let qemu_conn = Arc::new(qemu.connect()?);
 
+                println!("Loading config");
                 let config = Config::load(&sherpa.config_path)?;
+
+                println!("Loading manifest");
                 let manifest = Manifest::load_file()?;
 
-                // Create the tmp directory
-                term_msg_underline("Creating .tmp directory");
-                create_dir(TEMP_DIR)?;
-
+                // SSH Keys
                 term_msg_underline("Creating SSH Keypair");
+                create_dir(TEMP_DIR)?;
                 generate_ssh_keypair(TEMP_DIR)?;
+
+                let sherpa_user = User::default()?;
+
+                // Create ZTP files
+                term_msg_underline("Creating ZTP configs");
+
+                // Aristra vEOS
+                let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
+                create_dir(&arista_dir)?;
+
+                let arista_template = AristaVeosZtpTemplate {
+                    hostname: "veos-ztp".to_owned(),
+                    users: vec![sherpa_user.clone()],
+                };
+                let rendered_template = arista_template.render()?;
+                let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
+                create_file(&arista_ztp_config, rendered_template)?;
+
+                // Cisco
+                let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
+                create_dir(&cisco_dir)?;
+                let mut cisco_user = sherpa_user.clone();
+                cisco_user.ssh_public_key.key =
+                    pub_ssh_key_to_md5_hash(&cisco_user.ssh_public_key.key)?;
+
+                // IOSXE
+                let cisco_iosxe_template = CiscoIosXeZtpTemplate {
+                    hostname: "iosxe-ztp".to_owned(),
+                    users: vec![cisco_user.clone()],
+                    mgmt_interface: "GigabitEthernet1".to_owned(),
+                };
+                let rendered_template = cisco_iosxe_template.render()?;
+                let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
+                create_file(&cisco_iosxe_ztp_config, rendered_template)?;
+
+                // IOSv
+                let cisco_iosv_template = CiscoIosvZtpTemplate {
+                    hostname: "iosv-ztp".to_owned(),
+                    users: vec![cisco_user.clone()],
+                    mgmt_interface: "GigabitEthernet0/0".to_owned(),
+                };
+                let rendered_template = cisco_iosv_template.render()?;
+                let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
+                create_file(&cisco_iosv_ztp_config, rendered_template)?;
 
                 // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
@@ -262,21 +310,7 @@ impl Cli {
                 let mut domains: Vec<DomainTemplate> = vec![];
                 for device in &manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
-                    let mac_oui = match device.device_model {
-                        DeviceModels::AristaVeos => ARISTA_OUI,
-                        DeviceModels::CiscoAsav
-                        | DeviceModels::CiscoCat8000v
-                        | DeviceModels::CiscoCat9000v
-                        | DeviceModels::CiscoCsr1000v
-                        | DeviceModels::CiscoIosv
-                        | DeviceModels::CiscoIosvl2
-                        | DeviceModels::CiscoIosxrv9000
-                        | DeviceModels::CiscoNexus9300v => CISCO_OUI,
-                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
-                            JUNIPER_OUI
-                        }
-                        _ => KVM_OUI,
-                    };
+
                     let device_model = config
                         .device_models
                         .iter()
@@ -284,6 +318,20 @@ impl Cli {
                         .ok_or_else(|| {
                             anyhow::anyhow!("Device model not found: {}", device.device_model)
                         })?;
+
+                    let mac_oui = match device.device_model {
+                        DeviceModels::AristaVeos => ARISTA_OUI,
+                        DeviceModels::CiscoCat8000v
+                        | DeviceModels::CiscoCat9000v
+                        | DeviceModels::CiscoCsr1000v
+                        | DeviceModels::CiscoIosxrv9000
+                        | DeviceModels::CiscoNexus9300v => CISCO_IOSXE_OUI,
+                        DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => CISCO_IOSV_OUI,
+                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
+                            JUNIPER_OUI
+                        }
+                        _ => KVM_OUI,
+                    };
 
                     let mut interfaces: Vec<Interface> = vec![];
 
@@ -413,53 +461,75 @@ impl Cli {
                     };
 
                     let user = User::default()?;
-                    if device_model.ztp_enable && device_model.ztp_method == ZtpMethods::Cdrom {
-                        term_msg_underline("Creating ZTP disks");
-                        // generate the template
-                        println!("Creating ZTP config {}", device.name);
-                        let mut user = user.clone();
-                        let dir = format!("{}/{}", TEMP_DIR, vm_name);
+                    if device_model.ztp_enable {
+                        match device_model.ztp_method {
+                            ZtpMethods::Cdrom => {
+                                term_msg_underline("Creating ZTP disks");
+                                // generate the template
+                                println!("Creating ZTP config {}", device.name);
+                                let mut user = user.clone();
+                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
 
-                        match device_model.os_variant {
-                            OsVariants::Iosxe => {
-                                let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                                user.ssh_public_key.key = key_hash;
-                                let t = CiscoIosXeZtpTemplate {
-                                    hostname: device.name.clone(),
-                                    users: vec![user],
-                                    mgmt_interface: "GigabitEthernet1".to_owned(),
+                                match device_model.os_variant {
+                                    OsVariants::Iosxe => {
+                                        let key_hash =
+                                            pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                                        user.ssh_public_key.key = key_hash;
+                                        let t = CiscoIosXeZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                            mgmt_interface: "GigabitEthernet1".to_owned(),
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                                    }
+                                    OsVariants::Linux => {
+                                        let t = CloudInitTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                            password_auth: device_model.ztp_password_auth,
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+                                        let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                                        create_dir(&dir)?;
+                                        create_file(&user_data, rendered_template)?;
+                                        create_file(&meta_data, "".to_string())?;
+                                        create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                                    }
+                                    _ => {
+                                        anyhow::bail!(
+                                            "CDROM ZTP method not supported for {}",
+                                            device_model.name
+                                        );
+                                    }
                                 };
-                                let rendered_template = t.render()?;
-                                let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
-                                create_dir(&dir)?;
-                                create_file(&ztp_config, rendered_template)?;
-                                create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                                src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
+                                dst_cdrom_iso =
+                                    Some(format!("{STORAGE_POOL_PATH}/{vm_name}-ztp.iso"));
                             }
-                            OsVariants::Linux => {
-                                let t = CloudInitTemplate {
-                                    hostname: device.name.clone(),
-                                    users: vec![user],
-                                    password_auth: device_model.ztp_password_auth,
-                                };
-                                let rendered_template = t.render()?;
-                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
-                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                                create_dir(&dir)?;
-                                create_file(&user_data, rendered_template)?;
-                                create_file(&meta_data, "".to_string())?;
-                                create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                            ZtpMethods::Http => {
+                                // generate the template
+                                println!("Creating ZTP config {}", device.name);
+                                let _user = user.clone();
+                                let _dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
+
+                                match device_model.os_variant {
+                                    OsVariants::Eos => {}
+                                    _ => {
+                                        anyhow::bail!(
+                                            "HTTP ZTP method not supported for {}",
+                                            device_model.name
+                                        );
+                                    }
+                                }
                             }
-                            _ => {
-                                println!(
-                                    "CDROM ZTP method not supported for {}",
-                                    device_model.name
-                                );
-                            }
-                        };
-                        src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
-                        dst_cdrom_iso = Some(format!("{STORAGE_POOL_PATH}/{vm_name}.iso"));
+                            _ => {}
+                        }
                     }
-
                     // Other ISO
                     if dst_cdrom_iso.is_some() {
                         copy_disks.push(CloneDisk {
@@ -468,6 +538,7 @@ impl Cli {
                             dst: dst_cdrom_iso.clone().unwrap(),
                         })
                     }
+
                     let domain = DomainTemplate {
                         qemu_bin: config.qemu_bin.clone(),
                         name: vm_name,

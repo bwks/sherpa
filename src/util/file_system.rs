@@ -94,10 +94,7 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 ///
 /// `genisoimage` must be installed on the system.
 ///
-/// DOGWATER:
-/// This function creates temp directory and files in the /tmp
-/// directory. This is dogwater, and in the future, the plan is to
-/// implement this functionality in pure Rust.
+/// DOGWATER: Implement this functionality in pure Rust.
 pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
     // Create ISO using genisoimage
     Command::new("genisoimage")

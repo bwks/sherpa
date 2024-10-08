@@ -217,15 +217,47 @@ pub struct CloudInitTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
+dns domain {{ crate::core::konst::DOMAIN_NAME }}
+!
+no aaa root
+!
+service routing protocols model multi-agent
+!
+aaa authorization exec default local
+!
+{%- for user in users %}
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
+!
+interface Management1
+   ip address dhcp
+!
+management api http-commands
+   no shutdown
+!
+end
+!
+"#,
+    ext = "txt"
+)]
+pub struct AristaVeosZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+hostname {{ hostname }}
 ip domain name {{ crate::core::konst::DOMAIN_NAME }}
 no ip domain lookup
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
 aaa new-model
-aaa session-id common
-aaa authentication login LOCAL-ONLY local
-aaa authorization exec LOCAL-ONLY local
+aaa authentication login default local
+aaa authorization exec default local
 !
 {%- for user in users %}
 username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
@@ -250,9 +282,7 @@ line con 0
  exit
 !
 line vty 0 4
- authorization exec LOCAL-ONLY
  logging synchronous
- login authentication LOCAL-ONLY
  transport input ssh
  exit
 !
@@ -261,6 +291,65 @@ exit
     ext = "txt"
 )]
 pub struct CiscoIosXeZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+    pub mgmt_interface: String,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+hostname {{ hostname }}
+ip domain name {{ crate::core::konst::DOMAIN_NAME }}
+no ip domain lookup
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+{%- for user in users %}
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+{%- endfor %}
+!
+ip ssh pubkey-chain
+{%- for user in users %}
+  username {{ user.username }}
+   key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
+!
+!
+interface {{ mgmt_interface }}
+ ip address dhcp
+ negotiation auto
+ no shutdown
+ exit
+!
+line con 0
+ logging synchronous
+ stopbits 1
+ exit
+!
+line vty 0 4
+ logging synchronous
+ transport input ssh
+ exit
+!
+event manager applet ENABLE-MGMT
+ event syslog pattern "SYS-5-RESTART"
+ action 0 cli command "enable"
+ action 1 cli command "conf t"
+ action 2 cli command "interface {{ mgmt_interface }}"
+ action 3 cli command "no shutdown"
+ action 4 cli command "exit"
+ action 5 cli command "crypto key generate rsa modulus 2048"
+!
+exit
+"#,
+    ext = "txt"
+)]
+pub struct CiscoIosvZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
