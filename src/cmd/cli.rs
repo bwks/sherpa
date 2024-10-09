@@ -563,6 +563,7 @@ impl Cli {
                         bios: device_model.bios.clone(),
                         boot_disk: dst_boot_disk,
                         cdrom: dst_cdrom_iso,
+                        usb_disk: None,
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),

@@ -36,11 +36,12 @@ Ensure that you have the required packages installed. There is the list of packa
   - libvirt-dev
   - bridge-utils
   - virtinst
-  - virt-manager # Optional, gui view of VMs
+  - libguestfs-tools # disk images
   - ovmf # UEFI Firmware
   - genisoimage # ISO Creation
   - telnet # Connect to VM serial consoles
   - ssh # connect to VM via SSH
+  - virt-manager # Optional, gui view of VMs
 ```
 
 ## Device Support Matrix
@@ -128,6 +129,9 @@ Arista allows you to download images, you just need to sign up for an account.
 
 #### vEOS
 [Arista vEOS](https://www.arista.com/en/support/software-download)
+
+#### ZTP
+
 
 Notes:
  - vEOS requires an IOS boot disk (Aboot).

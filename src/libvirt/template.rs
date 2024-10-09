@@ -78,6 +78,14 @@ use crate::model::{
       <target dev='sdb' bus='sata'/>
     </disk>
 
+    {% if let Some(usb_disk) = usb_disk %}
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ usb_disk }}'/>
+      <target dev='sdc' bus='usb'/>
+    </disk>
+    {% endif %}
+
     <controller type='usb' index='0' model='piix3-uhci'>
       <alias name='usb'/>
     </controller>
@@ -180,6 +188,7 @@ pub struct DomainTemplate {
     pub bios: BiosTypes,
     pub boot_disk: String,
     pub cdrom: Option<String>,
+    pub usb_disk: Option<String>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
