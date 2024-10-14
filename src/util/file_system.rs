@@ -88,7 +88,7 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a ztp ISO file.
+/// Create a ZTP ISO file.
 /// This wraps the `genisoimage` command to create a ztp ISO file
 /// from a directory of source files.
 ///
@@ -112,5 +112,13 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
         .status()?;
     println!("ISO created successfully: {iso_dst}");
 
+    Ok(())
+}
+
+/// Convert an ISO file to a Qcow2 disk image.
+pub fn convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
+    Command::new("qemu-img")
+        .args(["convert", "-O", "qcow2", src_iso, dst_disk])
+        .status()?;
     Ok(())
 }

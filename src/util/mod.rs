@@ -9,8 +9,8 @@ mod user;
 mod validate;
 
 pub use crate::util::file_system::{
-    copy_file, create_dir, create_file, create_ztp_iso, dir_exists, expand_path, file_exists,
-    fix_permissions_recursive,
+    convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, expand_path,
+    file_exists, fix_permissions_recursive,
 };
 pub use crate::util::ip::get_ip;
 pub use crate::util::mac::random_mac;

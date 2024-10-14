@@ -189,6 +189,10 @@ RedHat also requires a subscription. A trial or developer subscriptions are avai
 
 [SUSE Enterprise](https://www.suse.com/download/sles/)
 
+#### Windows
+[Windows Server](https://cloudbase.it/windows-cloud-images/)
+
+
 ## Usage
 ### Initialise Sherpa
 Setup Sherpa configurations, boxes directory structure and required Libvirt parameters.

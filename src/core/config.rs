@@ -17,6 +17,7 @@ pub struct Config {
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub device_models: Vec<DeviceModel>,
+    pub ztp_server: bool,
     pub ztp_username: String,
     pub ztp_password: String,
 }
@@ -43,12 +44,14 @@ impl Default for Config {
             DeviceModel::ubuntu_linux(),
             DeviceModel::opensuse_linux(),
             DeviceModel::suse_linux(),
+            DeviceModel::flatcar_linux(),
         ];
         Config {
             name: CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
+            ztp_server: true,
             ztp_username: SHERPA_USERNAME.to_owned(),
             ztp_password: SHERPA_PASSWORD.to_owned(),
         }

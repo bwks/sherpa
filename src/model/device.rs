@@ -39,6 +39,8 @@ pub enum DeviceModels {
     OpensuseLinux,
     SuseLinux,
     UbuntuLinux,
+    FlatcarLinux,
+    WindowsServer2012,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,6 +64,8 @@ impl fmt::Display for DeviceModels {
             DeviceModels::OpensuseLinux => write!(f, "opensuse_linux"),
             DeviceModels::SuseLinux => write!(f, "suse_linux"),
             DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
+            DeviceModels::WindowsServer2012 => write!(f, "windows_server"),
+            DeviceModels::FlatcarLinux => write!(f, "flatcar_linux"),
             DeviceModels::UnknownUnknown => write!(f, "unknown_unknown"),
         }
     }
@@ -70,32 +74,36 @@ impl fmt::Display for DeviceModels {
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Manufacturers {
-    #[default]
-    Unknown,
-    Cisco,
     Arista,
-    Juniper,
-    Nvidia,
-    Nokia,
     Canonical,
+    Cisco,
+    Juniper,
+    Kinvolk,
+    Microsoft,
+    Nokia,
+    Nvidia,
     Redhat,
     Suse,
+    #[default]
+    Unknown,
 }
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "snake_case")]
 pub enum OsVariants {
-    #[default]
-    Unknown,
     Asa,
+    CumulusLinux,
+    Eos,
+    Junos,
     Ios,
     Iosxe,
     Iosxr,
-    Nxos,
-    Eos,
-    Junos,
     Linux,
+    Nxos,
+    Server2012,
     Sros,
+    #[default]
+    Unknown,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -117,7 +125,6 @@ impl fmt::Display for CpuArchitecture {
 pub enum MachineTypes {
     #[default]
     #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
-    // kvm value: pc-q35-6.2
     PcQ35_6_2,
     #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
     PcI440Fx_4_2,
@@ -257,6 +264,8 @@ impl DeviceModel {
             DeviceModels::OpensuseLinux => DeviceModel::opensuse_linux(),
             DeviceModels::SuseLinux => DeviceModel::suse_linux(),
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
+            DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
+            DeviceModels::WindowsServer2012 => todo!(),
             DeviceModels::UnknownUnknown => DeviceModel::default(),
         }
     }
@@ -561,7 +570,7 @@ impl DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
             name: DeviceModels::CumulusLinux,
-            os_variant: OsVariants::Linux,
+            os_variant: OsVariants::CumulusLinux,
             manufacturer: Manufacturers::Nvidia,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
@@ -578,7 +587,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Http,
+            ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 0,
@@ -619,7 +628,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -646,7 +655,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -673,7 +682,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Redhat,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -700,7 +709,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Suse,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -727,7 +736,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Suse,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -754,7 +763,7 @@ impl DeviceModel {
             manufacturer: Manufacturers::Canonical,
             bios: BiosTypes::SeaBios,
             interface_count: 0,
-            interface_prefix: "Eth".to_owned(),
+            interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
@@ -762,6 +771,33 @@ impl DeviceModel {
             machine_type: MachineTypes::PcQ35_6_2,
             vmx_enabled: false,
             memory: 1024,
+            hdd_count: 1,
+            cdrom: None,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Cdrom,
+            ztp_password_auth: false,
+            management_interface: true,
+            reserved_interface_count: 0,
+        }
+    }
+    pub fn flatcar_linux() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::FlatcarLinux,
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Microsoft,
+            bios: BiosTypes::SeaBios,
+            interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            vmx_enabled: false,
+            memory: 2048,
             hdd_count: 1,
             cdrom: None,
             ztp_enable: true,

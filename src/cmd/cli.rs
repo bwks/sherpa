@@ -21,20 +21,21 @@ use crate::core::konst::{
     BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOXES_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
     CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA,
     CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI,
-    MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SSH_PORT,
-    STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    CUMULUS_ZTP_DIR, FLATCAR_ZTP_CONFIG, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_SSH_CONFIG_FILE, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_ISO, ZTP_USB,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
     AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CloudInitTemplate,
-    CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
+    CumulusLinuxZtpTemplate, DomainTemplate, FlatcarIgnitionTemplate, Qemu,
 };
 use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
+    convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
     fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
     random_mac, tcp_connect, term_msg_surround, term_msg_underline, DeviceIp, SshConfigTemplate,
 };
@@ -473,6 +474,8 @@ impl Cli {
                         None => (None, None),
                     };
 
+                    // let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
+
                     let user = User::default()?;
                     if device_model.ztp_enable {
                         match device_model.ztp_method {
@@ -481,10 +484,12 @@ impl Cli {
                                 // generate the template
                                 println!("Creating ZTP config {}", device.name);
                                 let mut user = user.clone();
-                                let dir = format!("{}/{}", TEMP_DIR, vm_name);
+                                let dir = format!("{TEMP_DIR}/{vm_name}",);
 
-                                match device_model.os_variant {
-                                    OsVariants::Iosxe => {
+                                match device.device_model {
+                                    DeviceModels::CiscoCsr1000v
+                                    | DeviceModels::CiscoCat8000v
+                                    | DeviceModels::CiscoCat9000v => {
                                         let key_hash =
                                             pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                                         user.ssh_public_key.key = key_hash;
@@ -497,9 +502,14 @@ impl Cli {
                                         let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
                                         create_dir(&dir)?;
                                         create_file(&ztp_config, rendered_template)?;
-                                        create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                                        create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                                     }
-                                    OsVariants::Linux => {
+                                    DeviceModels::CentosLinux
+                                    | DeviceModels::FedoraLinux
+                                    | DeviceModels::OpensuseLinux
+                                    | DeviceModels::RedhatLinux
+                                    | DeviceModels::SuseLinux
+                                    | DeviceModels::UbuntuLinux => {
                                         let t = CloudInitTemplate {
                                             hostname: device.name.clone(),
                                             users: vec![user],
@@ -511,6 +521,18 @@ impl Cli {
                                         create_dir(&dir)?;
                                         create_file(&user_data, rendered_template)?;
                                         create_file(&meta_data, "".to_string())?;
+                                        create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                                    }
+                                    DeviceModels::FlatcarLinux => {
+                                        let t = FlatcarIgnitionTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                            // password_auth: device_model.ztp_password_auth,
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let flatcar_config = format!("{dir}/{FLATCAR_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&flatcar_config, rendered_template)?;
                                         create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                                     }
                                     _ => {
@@ -532,6 +554,7 @@ impl Cli {
 
                                 match device_model.os_variant {
                                     OsVariants::Eos => {}
+                                    OsVariants::CumulusLinux => {}
                                     _ => {
                                         anyhow::bail!(
                                             "HTTP ZTP method not supported for {}",
@@ -540,6 +563,38 @@ impl Cli {
                                     }
                                 }
                             }
+                            // ZtpMethods::Usb => {
+                            //     println!("Creating ZTP config {}", device.name);
+                            //     let user = user.clone();
+                            //     let dir = format!("{TEMP_DIR}/{vm_name}");
+
+                            //     match device_model.os_variant {
+                            //         OsVariants::CumulusLinux => {
+                            //             let t = CumulusLinuxZtpTemplate {
+                            //                 hostname: device.name.clone(),
+                            //                 users: vec![user],
+                            //             };
+                            //             let rendered_template = t.render()?;
+                            //             let ztp_config = format!("{dir}/{CUMULUS_ZTP_CONFIG}");
+                            //             let ztp_iso = format!("{dir}/{ZTP_ISO}");
+                            //             let src_ztp_usb = format!("{dir}/{ZTP_USB}");
+                            //             create_dir(&dir)?;
+                            //             create_file(&ztp_config, rendered_template)?;
+                            //             create_ztp_iso(&ztp_iso, dir)?;
+                            //             convert_iso_qcow2(&ztp_iso, &src_ztp_usb)?;
+
+                            //             src_usb_disk = Some(src_ztp_usb);
+                            //             dst_usb_disk =
+                            //                 Some(format!("{STORAGE_POOL_PATH}/{vm_name}-ztp.qcow2"))
+                            //         }
+                            //         _ => {
+                            //             anyhow::bail!(
+                            //                 "USB ZTP method not supported for {}",
+                            //                 device_model.name
+                            //             );
+                            //         }
+                            //     }
+                            // }
                             _ => {}
                         }
                     }
@@ -551,6 +606,13 @@ impl Cli {
                             dst: dst_cdrom_iso.clone().unwrap(),
                         })
                     }
+                    // if dst_usb_disk.is_some() {
+                    //     copy_disks.push(CloneDisk {
+                    //         // These should always have a value.
+                    //         src: src_usb_disk.unwrap(),
+                    //         dst: dst_usb_disk.clone().unwrap(),
+                    //     })
+                    // }
 
                     let domain = DomainTemplate {
                         qemu_bin: config.qemu_bin.clone(),

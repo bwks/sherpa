@@ -6,7 +6,7 @@ use crate::model::{
 
 #[derive(Template)]
 #[template(
-    source = r#"<domain type='kvm'>
+    source = r#"<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
   <name>{{ name }}</name>
 
   <vcpu placement='static'>{{ cpu_count }}</vcpu>
@@ -59,6 +59,11 @@ use crate::model::{
     <suspend-to-disk enabled='no'/>
   </pm>
   
+  <qemu:commandline>
+    <qemu:arg value='-fw_cfg'/>
+    <qemu:arg value='name=opt/org.flatcar-linux/config,file=/tmp/provision.ign'/>
+  </qemu:commandline>
+
   <devices>
 
     <emulator>{{ qemu_bin }}</emulator>
@@ -225,6 +230,33 @@ pub struct CloudInitTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub password_auth: bool,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"
+variant: flatcar
+version: 1.0.0
+storage:
+  files:
+  - path: /etc/hostname
+    contents:
+      inline: "{{ hostname }}"
+
+passwd:
+  users:
+    {% for user in users %}
+    - name: {{ user.username }}
+      ssh_authorized_keys:
+        - "{{ user.ssh_public_key.key }}"
+    {% endfor %}
+        "#,
+    ext = "yml"
+)]
+pub struct FlatcarIgnitionTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+    // pub password_auth: bool,
 }
 
 #[derive(Template)]
