@@ -21,23 +21,25 @@ use crate::core::konst::{
     BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOXES_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
     CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA,
     CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, FLATCAR_ZTP_CONFIG, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    CUMULUS_ZTP_DIR, IGNITION_CONFIG_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
     JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_SSH_CONFIG_FILE, SSH_PORT, STORAGE_POOL, STORAGE_POOL_PATH, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_ISO, ZTP_USB,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT,
+    TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON, ZTP_USB,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
-    clone_disk, create_isolated_network, create_network, create_vm, delete_disk, get_mgmt_ip,
-    AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CloudInitTemplate,
-    CumulusLinuxZtpTemplate, DomainTemplate, FlatcarIgnitionTemplate, Qemu,
+    clone_disk, create_isolated_network, create_network, create_sherpa_storage_pool, create_vm,
+    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
+    CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
 };
 use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
     convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
     fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
-    random_mac, tcp_connect, term_msg_surround, term_msg_underline, DeviceIp, SshConfigTemplate,
+    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
+    Contents as IgnitionFileContents, DeviceIp, File as IgnitionFile, IgnitionConfig,
+    SshConfigTemplate, User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation
@@ -234,6 +236,8 @@ impl Cli {
                         ISOLATED_NETWORK_BRIDGE,
                     )?;
                 }
+
+                create_sherpa_storage_pool(&qemu_conn)?;
             }
 
             Commands::Up { config_file } => {
@@ -455,7 +459,7 @@ impl Cli {
                         "{}/{}/{}/virtioa.qcow2",
                         sherpa.boxes_dir, device_model.name, device_model.version
                     );
-                    let dst_boot_disk = format!("{STORAGE_POOL_PATH}/{vm_name}.qcow2");
+                    let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.qcow2");
                     copy_disks.push(CloneDisk {
                         src: src_boot_disk,
                         dst: dst_boot_disk.clone(),
@@ -468,7 +472,7 @@ impl Cli {
                                 "{}/{}/{}/{}",
                                 sherpa.boxes_dir, device_model.name, device_model.version, src_iso
                             );
-                            let dst = format!("{STORAGE_POOL_PATH}/{vm_name}.iso");
+                            let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso");
                             (Some(src), Some(dst))
                         }
                         None => (None, None),
@@ -484,7 +488,7 @@ impl Cli {
                                 // generate the template
                                 println!("Creating ZTP config {}", device.name);
                                 let mut user = user.clone();
-                                let dir = format!("{TEMP_DIR}/{vm_name}",);
+                                let dir = format!("{TEMP_DIR}/{vm_name}");
 
                                 match device.device_model {
                                     DeviceModels::CiscoCsr1000v
@@ -523,18 +527,6 @@ impl Cli {
                                         create_file(&meta_data, "".to_string())?;
                                         create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                                     }
-                                    DeviceModels::FlatcarLinux => {
-                                        let t = FlatcarIgnitionTemplate {
-                                            hostname: device.name.clone(),
-                                            users: vec![user],
-                                            // password_auth: device_model.ztp_password_auth,
-                                        };
-                                        let rendered_template = t.render()?;
-                                        let flatcar_config = format!("{dir}/{FLATCAR_ZTP_CONFIG}");
-                                        create_dir(&dir)?;
-                                        create_file(&flatcar_config, rendered_template)?;
-                                        create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
-                                    }
                                     _ => {
                                         anyhow::bail!(
                                             "CDROM ZTP method not supported for {}",
@@ -544,7 +536,7 @@ impl Cli {
                                 };
                                 src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
                                 dst_cdrom_iso =
-                                    Some(format!("{STORAGE_POOL_PATH}/{vm_name}-ztp.iso"));
+                                    Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso"));
                             }
                             ZtpMethods::Http => {
                                 // generate the template
@@ -558,6 +550,52 @@ impl Cli {
                                     _ => {
                                         anyhow::bail!(
                                             "HTTP ZTP method not supported for {}",
+                                            device_model.name
+                                        );
+                                    }
+                                }
+                            }
+                            ZtpMethods::Ignition => {
+                                term_msg_underline("Creating ZTP disks");
+                                // generate the template
+                                println!("Creating ZTP config {}", device.name);
+                                let user = user.clone();
+                                let dir = format!("{TEMP_DIR}/{vm_name}");
+                                match device.device_model {
+                                    DeviceModels::FlatcarLinux => {
+                                        let ignition_user = IgnitionUser {
+                                            name: user.username,
+                                            ssh_authorized_keys: vec![format!(
+                                                "{} {}",
+                                                user.ssh_public_key.algorithm,
+                                                user.ssh_public_key.key
+                                            )],
+                                        };
+                                        let hostname_file = IgnitionFile {
+                                            filesystem: "root".to_owned(),
+                                            path: "/etc/hostname".to_owned(),
+                                            mode: 420,
+                                            contents: IgnitionFileContents::new("data:,dev1"),
+                                        };
+                                        let config = IgnitionConfig::new(
+                                            vec![ignition_user],
+                                            vec![hostname_file],
+                                        );
+                                        let flatcar_config = config.to_json()?;
+                                        let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                                        let dst_ztp_file =
+                                            format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.ign");
+
+                                        create_dir(&dir)?;
+                                        create_file(&src_ztp_file, flatcar_config)?;
+                                        copy_disks.push(CloneDisk {
+                                            src: src_ztp_file,
+                                            dst: dst_ztp_file.clone(),
+                                        });
+                                    }
+                                    _ => {
+                                        anyhow::bail!(
+                                            "Ignition ZTP method not supported for {}",
                                             device_model.name
                                         );
                                     }
@@ -585,7 +623,7 @@ impl Cli {
 
                             //             src_usb_disk = Some(src_ztp_usb);
                             //             dst_usb_disk =
-                            //                 Some(format!("{STORAGE_POOL_PATH}/{vm_name}-ztp.qcow2"))
+                            //                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-ztp.qcow2"))
                             //         }
                             //         _ => {
                             //             anyhow::bail!(
@@ -626,6 +664,7 @@ impl Cli {
                         boot_disk: dst_boot_disk,
                         cdrom: dst_cdrom_iso,
                         usb_disk: None,
+                        ignition_config: Some(true),
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),
@@ -825,9 +864,16 @@ impl Cli {
 
                         // ISO
                         let iso_name = format!("{vm_name}.iso");
-                        if file_exists(&format!("{STORAGE_POOL_PATH}/{iso_name}")) {
+                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{iso_name}")) {
                             delete_disk(&qemu_conn, &iso_name)?;
                             println!("Deleted ISO: {iso_name}");
+                        }
+
+                        // Ignition
+                        let ign_name = format!("{vm_name}.ign");
+                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{ign_name}")) {
+                            delete_disk(&qemu_conn, &ign_name)?;
+                            println!("Deleted Ignition: {ign_name}");
                         }
                     }
                 }
@@ -844,7 +890,7 @@ impl Cli {
                 let qemu_conn = qemu.connect()?;
 
                 let domains = qemu_conn.list_all_domains(0)?;
-                let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
+                let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
                 for device in manifest.devices {
                     let device_name = format!("{}-{}", device.name, manifest.id);
                     if let Some(domain) = domains
@@ -926,7 +972,7 @@ impl Cli {
 
                     let qemu_conn = qemu.connect()?;
 
-                    let pool = StoragePool::lookup_by_name(&qemu_conn, STORAGE_POOL)?;
+                    let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
                     for volume in pool.list_volumes()? {
                         if volume.contains(&manifest.id) {
                             println!("Deleting disk: {}", volume);

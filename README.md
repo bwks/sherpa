@@ -44,6 +44,22 @@ Ensure that you have the required packages installed. There is the list of packa
   - virt-manager # Optional, gui view of VMs
 ```
 
+### SELINUX
+```
+sudo mkdir /var/lib/libvirt/flatcar-linux/
+sudo semanage fcontext -a -t virt_content_t "/var/lib/libvirt/flatcar-linux/flatcar-linux1"
+sudo restorecon -R "/var/lib/libvirt/flatcar-linux/flatcar-linux1"
+sudo systemctl restart libvirtd.service
+```
+
+### AppArmour
+```
+sudo mkdir /var/lib/libvirt/flatcar-linux/
+sudo sh -c 'echo "  # For ignition files" >> /etc/apparmor.d/abstractions/libvirt-qemu'
+sudo sh -c 'echo "  /var/lib/libvirt/flatcar-linux/** r," >> /etc/apparmor.d/abstractions/libvirt-qemu'
+sudo systemctl restart libvirtd.service
+```
+
 ## Device Support Matrix
 
 - Working - :white_check_mark:

@@ -59,10 +59,12 @@ use crate::model::{
     <suspend-to-disk enabled='no'/>
   </pm>
   
+  {% if let Some(ignition_config) = ignition_config %}
   <qemu:commandline>
     <qemu:arg value='-fw_cfg'/>
-    <qemu:arg value='name=opt/org.flatcar-linux/config,file=/tmp/provision.ign'/>
+    <qemu:arg value='name=opt/org.flatcar-linux/config,file={{ crate::core::konst::SHERPA_STORAGE_POOL_PATH }}/{{ name }}.ign'/>
   </qemu:commandline>
+  {% endif %}
 
   <devices>
 
@@ -194,6 +196,7 @@ pub struct DomainTemplate {
     pub boot_disk: String,
     pub cdrom: Option<String>,
     pub usb_disk: Option<String>,
+    pub ignition_config: Option<bool>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
@@ -230,33 +233,6 @@ pub struct CloudInitTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub password_auth: bool,
-}
-
-#[derive(Template)]
-#[template(
-    source = r#"
-variant: flatcar
-version: 1.0.0
-storage:
-  files:
-  - path: /etc/hostname
-    contents:
-      inline: "{{ hostname }}"
-
-passwd:
-  users:
-    {% for user in users %}
-    - name: {{ user.username }}
-      ssh_authorized_keys:
-        - "{{ user.ssh_public_key.key }}"
-    {% endfor %}
-        "#,
-    ext = "yml"
-)]
-pub struct FlatcarIgnitionTemplate {
-    pub hostname: String,
-    pub users: Vec<User>,
-    // pub password_auth: bool,
 }
 
 #[derive(Template)]

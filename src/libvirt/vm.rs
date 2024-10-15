@@ -10,11 +10,11 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
 
-use crate::core::konst::STORAGE_POOL;
+use crate::core::konst::SHERPA_STORAGE_POOL;
 
 /// Clone a disk image.
 pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {
-    let pool = StoragePool::lookup_by_name(conn, STORAGE_POOL)?;
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
 
     let file_path = Path::new(dst_path);
     let file_name = file_path
@@ -30,6 +30,8 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
 
     let format_type = match file_extension.to_lowercase().as_str() {
         "iso" => "raw",
+        "json" => "raw",
+        "ign" => "raw",
         "qcow2" => "qcow2",
         _ => {
             return Err(anyhow::anyhow!(
@@ -47,6 +49,9 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
             <target>
                 <path>{dst_path}</path>
                 <format type='{format_type}'/>
+                <permissions>
+                    <mode>0644</mode>
+                </permissions>
             </target>
         </volume>"#
     );
@@ -88,7 +93,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
 
 /// Delete a volume from the storage pool.
 pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
-    let pool = StoragePool::lookup_by_name(conn, STORAGE_POOL)?;
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
     let vol = StorageVol::lookup_by_name(&pool, disk_name)?;
     vol.delete(0)?;
     Ok(())

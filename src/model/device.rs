@@ -181,6 +181,7 @@ pub enum ZtpMethods {
     Tftp,
     Ipxe,
     Usb,
+    Ignition,
     None,
 }
 
@@ -803,7 +804,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethods::Ignition,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 0,
