@@ -4,9 +4,10 @@ use virt::connect::Connect;
 use virt::network::Network;
 
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
-    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, DOMAIN_NAME, JUNIPER_OUI, MTU_JUMBO_NET,
+    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_HTTP_SERVER, BOOT_SERVER_MAC,
+    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
+    CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DOMAIN_NAME, JUNIPER_OUI, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_DIR, MTU_JUMBO_NET,
 };
 
 /// Create an isolated bridge for forwarding disabled and ports
@@ -59,7 +60,7 @@ pub fn create_network(
             <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{boot_server}:{port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{boot_server}:{port}/juniper/bootstrap.py"/>
+            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{boot_server}:{port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{boot_server}:{port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
 
             <dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>
@@ -92,6 +93,7 @@ pub fn create_network(
               <range start='{dhcp_start}' end='{dhcp_end}'>
                 <lease expiry='1' unit='hours'/>
               </range>
+              <host mac='{BOOT_SERVER_MAC}' name='boot-server' ip='{BOOT_NETWORK_HTTP_SERVER}'/>
             </dhcp>
           </ip>
         

@@ -63,6 +63,7 @@ use crate::model::{
   <qemu:commandline>
     <qemu:arg value='-fw_cfg'/>
     <qemu:arg value='name=opt/org.flatcar-linux/config,file={{ crate::core::konst::SHERPA_STORAGE_POOL_PATH }}/{{ name }}.ign'/>
+    {# <qemu:arg value='name=opt/org.flatcar-linux/config,file=/var/lib/libvirt/sherpa/ztp.ign'/> #}
   </qemu:commandline>
   {% endif %}
 

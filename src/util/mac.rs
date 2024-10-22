@@ -1,7 +1,7 @@
 use rand::Rng;
 
 /// Creates a random colon delimited hexadecimal string for use as MAC address.
-pub fn random_mac(vendor_oui: String) -> String {
+pub fn random_mac(vendor_oui: &str) -> String {
     // Generate a 24-bit random number (between 0 and 0xFFFFFF)
     let random_number: u32 = rand::thread_rng().gen_range(0..=0xFFFFFF);
 
@@ -27,7 +27,7 @@ mod tests {
 
     #[test]
     fn test_random_mac_format() {
-        let mac = random_mac(KVM_OUI.to_string());
+        let mac = random_mac(KVM_OUI);
         let re = Regex::new(r"^52:54:00:[0-9A-F]{2}:[0-9A-F]{2}:[0-9A-F]{2}$").unwrap();
         assert!(
             re.is_match(&mac),
@@ -38,8 +38,8 @@ mod tests {
 
     #[test]
     fn test_random_mac_uniqueness() {
-        let mac1 = random_mac(KVM_OUI.to_string());
-        let mac2 = random_mac(KVM_OUI.to_string());
+        let mac1 = random_mac(KVM_OUI);
+        let mac2 = random_mac(KVM_OUI);
         assert_ne!(
             mac1, mac2,
             "Two consecutive calls should generate different MACs"
@@ -48,19 +48,19 @@ mod tests {
 
     #[test]
     fn test_random_mac_oui() {
-        let mac = random_mac(KVM_OUI.to_string());
+        let mac = random_mac(KVM_OUI);
         assert!(mac.starts_with(KVM_OUI), "MAC should start with KVM OUI");
     }
 
     #[test]
     fn test_random_mac_length() {
-        let mac = random_mac(KVM_OUI.to_string());
+        let mac = random_mac(KVM_OUI);
         assert_eq!(mac.len(), 17, "MAC address should be 17 characters long");
     }
 
     #[test]
     fn test_random_mac_colon_positions() {
-        let mac = random_mac(KVM_OUI.to_string());
+        let mac = random_mac(KVM_OUI);
         assert_eq!(
             mac.chars().filter(|&c| c == ':').count(),
             5,
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn test_random_mac_distribution() {
-        let macs: Vec<String> = (0..1000).map(|_| random_mac(KVM_OUI.to_string())).collect();
+        let macs: Vec<String> = (0..1000).map(|_| random_mac(KVM_OUI)).collect();
         let unique_macs: std::collections::HashSet<_> = macs.iter().cloned().collect();
         assert!(
             unique_macs.len() > 999,

@@ -39,8 +39,8 @@ futures = "0.3.30"
 # file system
 shellexpand = "3.1.0"
 
-# SSH key handling
-base64 = "0.21"
+# encoder/decoders
+base64 = "0.22.1"
 md5 = "0.7.0"
 
 # Generate SSH keys

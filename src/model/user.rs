@@ -1,7 +1,9 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::{SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME, TEMP_DIR};
+use crate::core::konst::{
+    CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
+};
 use crate::model::SshPublicKey;
 use crate::util::get_ssh_public_key;
 
@@ -18,7 +20,7 @@ impl User {
     pub fn default() -> Result<User> {
         let username = SHERPA_USERNAME;
         let ssh_public_key =
-            get_ssh_public_key(&format!("{TEMP_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"))?;
+            get_ssh_public_key(&format!("{CONFIG_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"))?;
         Ok(User {
             username: username.to_owned(),
             password: Some(SHERPA_PASSWORD.to_owned()),

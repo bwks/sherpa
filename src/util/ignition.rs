@@ -15,12 +15,17 @@ pub struct IgnitionConfig {
 }
 
 impl IgnitionConfig {
-    pub fn new(users: Vec<User>, files: Vec<File>) -> IgnitionConfig {
+    pub fn new(users: Vec<User>, files: Vec<File>, links: Vec<Link>) -> IgnitionConfig {
+        let directories = vec![Directory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
             networkd: Networkd::default(),
             passwd: Passwd { users },
-            storage: Storage { files },
+            storage: Storage {
+                files,
+                links,
+                directories,
+            },
             systemd: Systemd::default(),
         }
     }
@@ -30,7 +35,7 @@ impl IgnitionConfig {
     }
 
     /// Serialize the IgnitionConfig to a pretty-printed JSON string
-    pub fn _to_json_pretty(&self) -> Result<String> {
+    pub fn to_json_pretty(&self) -> Result<String> {
         serde_json::to_string_pretty(self)
             .map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))
     }
@@ -86,19 +91,57 @@ pub struct User {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Storage {
     pub files: Vec<File>,
+    pub links: Vec<Link>,
+    pub directories: Vec<Directory>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Directory {
+    pub path: String,
+    pub mode: u16,
+    pub overwrite: bool,
+}
+
+impl Default for Directory {
+    fn default() -> Self {
+        Self {
+            path: "/opt/ztp".to_owned(),
+            mode: 0755,
+            overwrite: false,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct File {
-    pub filesystem: String,
+    // pub filesystem: String,
     pub path: String,
-    pub contents: Contents,
     pub mode: u16,
+    pub contents: Contents,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Link {
+    pub path: String,
+    pub target: String,
+    pub hard: bool,
+    pub overwrite: bool,
+}
+impl Default for Link {
+    fn default() -> Self {
+        Self {
+            path: "/etc/systemd/system/multi-user.target.wants/docker.service".to_owned(),
+            target: "/usr/lib/systemd/system/docker.service".to_owned(),
+            hard: false,
+            overwrite: true,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Contents {
     pub source: String,
+    pub compression: Option<String>,
     pub verification: Verification,
 }
 
@@ -106,6 +149,7 @@ impl Contents {
     pub fn new(source: &str) -> Contents {
         Contents {
             source: source.to_owned(),
+            compression: None,
             verification: Verification::default(),
         }
     }
@@ -114,5 +158,58 @@ impl Contents {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Verification {}
 
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Systemd {}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Unit {
+    name: String,
+    enabled: bool,
+    contents: String,
+}
+
+impl Default for Unit {
+    fn default() -> Self {
+        Self {
+            name: "webdir.service".to_owned(),
+            enabled: true,
+            contents: r#"[Unit]
+Description=WebDir
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+ExecStartPre=-/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 13337:13337 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStop=/usr/bin/docker container stop webdir-app
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#.to_owned(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Systemd {
+    units: Vec<Unit>,
+}
+
+impl Default for Systemd {
+    fn default() -> Self {
+        // https://github.com/flatcar/Flatcar/issues/134
+        // let docker_service = Unit {
+        //     name: "docker.service".to_owned(),
+        //     enabled: true,
+        // };
+        // let docker_socket = Unit {
+        //     name: "docker.socket".to_owned(),
+        //     enabled: false,
+        // };
+
+        Self {
+            units: vec![Unit::default()],
+        }
+    }
+}

@@ -22,7 +22,7 @@ pub struct DeviceIp {
 #[template(
     source = r#"Host *
     User {{ crate::core::konst::SHERPA_USERNAME }}
-    IdentityFile {{ crate::core::konst::TEMP_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
+    IdentityFile {{ crate::core::konst::CONFIG_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
@@ -95,6 +95,7 @@ pub fn generate_ssh_keypair(directory: &str) -> Result<()> {
         Algorithm::Rsa {
             hash: Some(HashAlg::Sha256),
         },
+        // Algorithm::Ed25519,
     )?;
 
     // Serialize the private key to the OpenSSH format

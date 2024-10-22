@@ -18,13 +18,13 @@ use virt::sys;
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END,
     BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
-    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOXES_DIR, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
-    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, IGNITION_CONFIG_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT,
-    TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON, ZTP_USB,
+    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_IOSV_OUI,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
+    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
+    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -32,14 +32,17 @@ use crate::libvirt::{
     delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
     CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
 };
-use crate::model::{ConnectionTypes, DeviceModels, Interface, OsVariants, User, ZtpMethods};
+use crate::model::{
+    BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
+    MachineTypes, OsVariants, User, ZtpMethods,
+};
 use crate::topology::{ConnectionMap, Manifest};
 use crate::util::{
-    convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
-    fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port, pub_ssh_key_to_md5_hash,
-    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
+    base64_encode, convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso,
+    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port,
+    pub_ssh_key_to_md5_hash, random_mac, tcp_connect, term_msg_surround, term_msg_underline,
     Contents as IgnitionFileContents, DeviceIp, File as IgnitionFile, IgnitionConfig,
-    SshConfigTemplate, User as IgnitionUser,
+    Link as IgnitionLink, SshConfigTemplate, User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation
@@ -198,6 +201,17 @@ impl Cli {
                     manifest.write_file()?;
                 }
 
+                // SSH Keys
+                let ssh_pub_key_file =
+                    format!("{}/{}", &sherpa.config_dir, SHERPA_SSH_PUBLIC_KEY_FILE);
+
+                if file_exists(&ssh_pub_key_file) && !*force {
+                    println!("SSH keys already exists: {ssh_pub_key_file}");
+                } else {
+                    term_msg_underline("Creating SSH Keypair");
+                    generate_ssh_keypair(&sherpa.config_dir)?;
+                }
+
                 println!("- Creating Networks -");
                 // Initialize the sherpa boot network
                 if qemu_conn
@@ -254,11 +268,6 @@ impl Cli {
                 println!("Loading manifest");
                 let manifest = Manifest::load_file()?;
 
-                // SSH Keys
-                term_msg_underline("Creating SSH Keypair");
-                create_dir(TEMP_DIR)?;
-                generate_ssh_keypair(TEMP_DIR)?;
-
                 let sherpa_user = User::default()?;
 
                 // Create ZTP files
@@ -272,9 +281,9 @@ impl Cli {
                     hostname: "veos-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
                 };
-                let rendered_template = arista_template.render()?;
+                let arsita_rendered_template = arista_template.render()?;
                 let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
-                create_file(&arista_ztp_config, rendered_template)?;
+                create_file(&arista_ztp_config, arsita_rendered_template.clone())?;
 
                 // Cumulus Linux
                 let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
@@ -284,9 +293,9 @@ impl Cli {
                     hostname: "cumulus-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
                 };
-                let rendered_template = cumulus_template.render()?;
+                let cumulus_rendered_template = cumulus_template.render()?;
                 let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
-                create_file(&cumulus_ztp_config, rendered_template)?;
+                create_file(&cumulus_ztp_config, cumulus_rendered_template.clone())?;
 
                 // Cisco
                 let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
@@ -301,9 +310,9 @@ impl Cli {
                     users: vec![cisco_user.clone()],
                     mgmt_interface: "GigabitEthernet1".to_owned(),
                 };
-                let rendered_template = cisco_iosxe_template.render()?;
+                let iosxe_rendered_template = cisco_iosxe_template.render()?;
                 let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
-                create_file(&cisco_iosxe_ztp_config, rendered_template)?;
+                create_file(&cisco_iosxe_ztp_config, iosxe_rendered_template.clone())?;
 
                 // IOSv
                 let cisco_iosv_template = CiscoIosvZtpTemplate {
@@ -311,9 +320,9 @@ impl Cli {
                     users: vec![cisco_user.clone()],
                     mgmt_interface: "GigabitEthernet0/0".to_owned(),
                 };
-                let rendered_template = cisco_iosv_template.render()?;
+                let iosv_rendered_template = cisco_iosv_template.render()?;
                 let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
-                create_file(&cisco_iosv_ztp_config, rendered_template)?;
+                create_file(&cisco_iosv_ztp_config, iosv_rendered_template.clone())?;
 
                 // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
@@ -325,6 +334,7 @@ impl Cli {
                 // let mut ztp_disks: Vec<ZtpDisk> = vec![];
                 let mut copy_disks: Vec<CloneDisk> = vec![];
                 let mut domains: Vec<DomainTemplate> = vec![];
+                let user = User::default()?;
                 for device in &manifest.devices {
                     let vm_name = format!("{}-{}", device.name, manifest.id);
 
@@ -336,19 +346,22 @@ impl Cli {
                             anyhow::anyhow!("Device model not found: {}", device.device_model)
                         })?;
 
-                    let mac_oui = match device.device_model {
-                        DeviceModels::AristaVeos => ARISTA_OUI,
+                    let mac_address = match device.device_model {
+                        DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
                         DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v
                         | DeviceModels::CiscoCsr1000v
                         | DeviceModels::CiscoIosxrv9000
-                        | DeviceModels::CiscoNexus9300v => CISCO_IOSXE_OUI,
-                        DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => CISCO_IOSV_OUI,
-                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
-                            JUNIPER_OUI
+                        | DeviceModels::CiscoNexus9300v => random_mac(CISCO_IOSXE_OUI),
+                        DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => {
+                            random_mac(CISCO_IOSV_OUI)
                         }
-                        DeviceModels::CumulusLinux => CUMULUS_OUI,
-                        _ => KVM_OUI,
+                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
+                            random_mac(JUNIPER_OUI)
+                        }
+                        DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
+                        DeviceModels::FlatcarLinux => BOOT_SERVER_MAC.to_owned(),
+                        _ => random_mac(KVM_OUI),
                     };
 
                     let mut interfaces: Vec<Interface> = vec![];
@@ -358,7 +371,7 @@ impl Cli {
                             name: "mgmt".to_owned(),
                             num: 0,
                             mtu: device_model.interface_mtu,
-                            mac_address: random_mac(mac_oui.to_string()),
+                            mac_address: mac_address.to_string(),
                             connection_type: ConnectionTypes::Management,
                             connection_map: None,
                         });
@@ -369,7 +382,7 @@ impl Cli {
                                 name: "reserved".to_owned(),
                                 num: i,
                                 mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI.to_string()),
+                                mac_address: random_mac(KVM_OUI),
                                 connection_type: ConnectionTypes::Reserved,
                                 connection_map: None,
                             });
@@ -401,7 +414,7 @@ impl Cli {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
                                             mtu: device_model.interface_mtu,
-                                            mac_address: random_mac(KVM_OUI.to_string()),
+                                            mac_address: random_mac(KVM_OUI),
                                             connection_type: ConnectionTypes::Peer,
                                             connection_map: Some(connection_map),
                                         })
@@ -427,7 +440,7 @@ impl Cli {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
                                             mtu: device_model.interface_mtu,
-                                            mac_address: random_mac(KVM_OUI.to_string()),
+                                            mac_address: random_mac(KVM_OUI),
                                             connection_type: ConnectionTypes::Peer,
                                             connection_map: Some(connection_map),
                                         })
@@ -437,7 +450,7 @@ impl Cli {
                                             name: format!("{}{}", device_model.interface_prefix, i),
                                             num: i,
                                             mtu: device_model.interface_mtu,
-                                            mac_address: random_mac(KVM_OUI.to_string()),
+                                            mac_address: random_mac(KVM_OUI),
                                             connection_type: ConnectionTypes::Disabled,
                                             connection_map: None,
                                         })
@@ -448,7 +461,7 @@ impl Cli {
                                 name: format!("{}{}", device_model.interface_prefix, i),
                                 num: i,
                                 mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI.to_string()),
+                                mac_address: random_mac(KVM_OUI),
                                 connection_type: ConnectionTypes::Disabled,
                                 connection_map: None,
                             }),
@@ -480,7 +493,6 @@ impl Cli {
 
                     // let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
 
-                    let user = User::default()?;
                     if device_model.ztp_enable {
                         match device_model.ztp_method {
                             ZtpMethods::Cdrom => {
@@ -563,35 +575,86 @@ impl Cli {
                                 let dir = format!("{TEMP_DIR}/{vm_name}");
                                 match device.device_model {
                                     DeviceModels::FlatcarLinux => {
-                                        let ignition_user = IgnitionUser {
-                                            name: user.username,
-                                            ssh_authorized_keys: vec![format!(
-                                                "{} {}",
-                                                user.ssh_public_key.algorithm,
-                                                user.ssh_public_key.key
-                                            )],
-                                        };
-                                        let hostname_file = IgnitionFile {
-                                            filesystem: "root".to_owned(),
-                                            path: "/etc/hostname".to_owned(),
-                                            mode: 420,
-                                            contents: IgnitionFileContents::new("data:,dev1"),
-                                        };
-                                        let config = IgnitionConfig::new(
-                                            vec![ignition_user],
-                                            vec![hostname_file],
-                                        );
-                                        let flatcar_config = config.to_json()?;
-                                        let src_ztp_file = format!("{dir}/{ZTP_JSON}");
-                                        let dst_ztp_file =
-                                            format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.ign");
+                                        // let ignition_user = IgnitionUser {
+                                        //     name: user.username,
+                                        //     ssh_authorized_keys: vec![format!(
+                                        //         "{} {}",
+                                        //         user.ssh_public_key.algorithm,
+                                        //         user.ssh_public_key.key
+                                        //     )],
+                                        // };
+                                        // let hostname_file = IgnitionFile {
+                                        //     // filesystem: "root".to_owned(),
+                                        //     path: "/etc/hostname".to_owned(),
+                                        //     mode: 0644,
+                                        //     contents: IgnitionFileContents::new(
+                                        //         "data:,boot-server",
+                                        //     ),
+                                        // };
+                                        // let arista_ztp_base64 =
+                                        //     base64_encode(&arsita_rendered_template);
+                                        // let arista_ztp_file = IgnitionFile {
+                                        //     // filesystem: "root".to_owned(),
+                                        //     path: format!("/opt/ztp/{ARISTA_VEOS_ZTP_CONFIG}"),
+                                        //     mode: 0644,
+                                        //     contents: IgnitionFileContents::new(&format!(
+                                        //         "data:;base64,{arista_ztp_base64}"
+                                        //     )),
+                                        // };
+                                        // let cumulus_ztp_base64 =
+                                        //     base64_encode(&cumulus_rendered_template);
+                                        // let cumulus_ztp_file = IgnitionFile {
+                                        //     // filesystem: "root".to_owned(),
+                                        //     path: format!("/opt/ztp/{CUMULUS_ZTP_CONFIG}"),
+                                        //     mode: 0644,
+                                        //     contents: IgnitionFileContents::new(&format!(
+                                        //         "data:;base64,{cumulus_ztp_base64}"
+                                        //     )),
+                                        // };
+                                        // let iosxe_ztp_base64 =
+                                        //     base64_encode(&iosxe_rendered_template);
+                                        // let iosxe_ztp_file = IgnitionFile {
+                                        //     // filesystem: "root".to_owned(),
+                                        //     path: format!("/opt/ztp/{CISCO_IOSXE_ZTP_CONFIG}"),
+                                        //     mode: 0644,
+                                        //     contents: IgnitionFileContents::new(&format!(
+                                        //         "data:;base64,{iosxe_ztp_base64}"
+                                        //     )),
+                                        // };
+                                        // let iosv_ztp_base64 =
+                                        //     base64_encode(&iosv_rendered_template);
+                                        // let iosv_ztp_file = IgnitionFile {
+                                        //     // filesystem: "root".to_owned(),
+                                        //     path: format!("/opt/ztp/{CISCO_IOSV_ZTP_CONFIG}"),
+                                        //     mode: 0644,
+                                        //     contents: IgnitionFileContents::new(&format!(
+                                        //         "data:;base64,{iosv_ztp_base64}"
+                                        //     )),
+                                        // };
 
-                                        create_dir(&dir)?;
-                                        create_file(&src_ztp_file, flatcar_config)?;
-                                        copy_disks.push(CloneDisk {
-                                            src: src_ztp_file,
-                                            dst: dst_ztp_file.clone(),
-                                        });
+                                        // let config = IgnitionConfig::new(
+                                        //     vec![ignition_user],
+                                        //     vec![
+                                        //         hostname_file,
+                                        //         arista_ztp_file,
+                                        //         cumulus_ztp_file,
+                                        //         iosxe_ztp_file,
+                                        //         iosv_ztp_file,
+                                        //     ],
+                                        //     vec![],
+                                        //     // vec![link_default],
+                                        // );
+                                        // let flatcar_config = config.to_json_pretty()?;
+                                        // let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                                        // let dst_ztp_file =
+                                        //     format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.ign");
+
+                                        // create_dir(&dir)?;
+                                        // create_file(&src_ztp_file, flatcar_config)?;
+                                        // copy_disks.push(CloneDisk {
+                                        //     src: src_ztp_file,
+                                        //     dst: dst_ztp_file.clone(),
+                                        // });
                                     }
                                     _ => {
                                         anyhow::bail!(
@@ -651,6 +714,10 @@ impl Cli {
                     //         dst: dst_usb_disk.clone().unwrap(),
                     //     })
                     // }
+                    let ignition_config = match device_model.name {
+                        DeviceModels::FlatcarLinux => Some(true),
+                        _ => None,
+                    };
 
                     let domain = DomainTemplate {
                         qemu_bin: config.qemu_bin.clone(),
@@ -664,10 +731,129 @@ impl Cli {
                         boot_disk: dst_boot_disk,
                         cdrom: dst_cdrom_iso,
                         usb_disk: None,
-                        ignition_config: Some(true),
+                        ignition_config,
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
                         loopback_ipv4: get_ip(device.id).to_string(),
+                        telnet_port: TELNET_PORT,
+                    };
+
+                    domains.push(domain);
+                }
+
+                // Boot Server
+                if config.ztp_server {
+                    let boot_server_name = format!("boot-server-{}", manifest.id);
+                    let dir = format!("{TEMP_DIR}/{boot_server_name}");
+                    let ignition_user = IgnitionUser {
+                        name: user.username,
+                        ssh_authorized_keys: vec![format!(
+                            "{} {}",
+                            user.ssh_public_key.algorithm, user.ssh_public_key.key
+                        )],
+                    };
+                    let hostname_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: "/etc/hostname".to_owned(),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new("data:,boot-server"),
+                    };
+                    let arista_ztp_base64 = base64_encode(&arsita_rendered_template);
+                    let arista_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{ARISTA_VEOS_ZTP_CONFIG}"),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{arista_ztp_base64}"
+                        )),
+                    };
+                    let cumulus_ztp_base64 = base64_encode(&cumulus_rendered_template);
+                    let cumulus_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{CUMULUS_ZTP_CONFIG}"),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{cumulus_ztp_base64}"
+                        )),
+                    };
+                    let iosxe_ztp_base64 = base64_encode(&iosxe_rendered_template);
+                    let iosxe_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{CISCO_IOSXE_ZTP_CONFIG}"),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{iosxe_ztp_base64}"
+                        )),
+                    };
+                    let iosv_ztp_base64 = base64_encode(&iosv_rendered_template);
+                    let iosv_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{CISCO_IOSV_ZTP_CONFIG}"),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{iosv_ztp_base64}"
+                        )),
+                    };
+
+                    let ignition_config = IgnitionConfig::new(
+                        vec![ignition_user],
+                        vec![
+                            hostname_file,
+                            arista_ztp_file,
+                            cumulus_ztp_file,
+                            iosxe_ztp_file,
+                            iosv_ztp_file,
+                        ],
+                        vec![],
+                        // vec![link_default],
+                    );
+                    let flatcar_config = ignition_config.to_json_pretty()?;
+                    let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                    let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.ign");
+
+                    create_dir(&dir)?;
+                    create_file(&src_ztp_file, flatcar_config)?;
+                    copy_disks.push(CloneDisk {
+                        src: src_ztp_file,
+                        dst: dst_ztp_file.clone(),
+                    });
+
+                    let src_boot_disk = format!(
+                        "{}/{}/{}/virtioa.qcow2",
+                        sherpa.boxes_dir,
+                        DeviceModels::FlatcarLinux,
+                        "latest"
+                    );
+                    let dst_boot_disk =
+                        format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.qcow2");
+                    copy_disks.push(CloneDisk {
+                        src: src_boot_disk,
+                        dst: dst_boot_disk.clone(),
+                    });
+
+                    let domain = DomainTemplate {
+                        qemu_bin: config.qemu_bin.clone(),
+                        name: boot_server_name.to_owned(),
+                        memory: 512,
+                        cpu_architecture: CpuArchitecture::default(),
+                        machine_type: MachineTypes::default(),
+                        cpu_count: 1,
+                        vmx_enabled: false,
+                        bios: BiosTypes::default(),
+                        boot_disk: dst_boot_disk,
+                        cdrom: None,
+                        usb_disk: None,
+                        ignition_config: Some(true),
+                        interfaces: vec![Interface {
+                            name: "mgmt".to_owned(),
+                            num: 0,
+                            mtu: MTU_JUMBO_INT,
+                            mac_address: BOOT_SERVER_MAC.to_owned(),
+                            connection_type: ConnectionTypes::Management,
+                            connection_map: None,
+                        }],
+                        interface_type: InterfaceTypes::Virtio,
+                        loopback_ipv4: get_ip(255).to_string(),
                         telnet_port: TELNET_PORT,
                     };
 
