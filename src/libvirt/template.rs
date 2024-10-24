@@ -460,7 +460,9 @@ http 0.0.0.0 0.0.0.0 management
 domain-name {{ crate::core::konst::DOMAIN_NAME }}
 !
 {%- for user in users %}
-username {{ user.username }} nopassword
+{%-   if let Some(password) = user.password %}
+username {{ user.username }} password {{ password }} 
+{%-   endif %}
 username {{ user.username }} attributes
 {%-   if user.sudo %}
   service-type admin
