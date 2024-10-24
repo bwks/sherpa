@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use askama::Template;
 use base64::{engine::general_purpose, Engine as _};
 use rand::rngs::OsRng;
+use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 
 use std::fs;
@@ -23,9 +24,11 @@ pub struct DeviceIp {
     source = r#"Host *
     User {{ crate::core::konst::SHERPA_USERNAME }}
     IdentityFile {{ crate::core::konst::CONFIG_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
+    IdentitiesOnly yes
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa
+    HostkeyAlgorithms +ssh-rsa
 {%- for host in hosts %}
 Host {{ host.name }}
     HostName {{ host.ip_address }}
@@ -85,6 +88,26 @@ pub fn pub_ssh_key_to_md5_hash(pub_key_str: &str) -> Result<String> {
     Ok(formatted_hash)
 }
 
+/// Convert a base64 encoded SSH public key to an SHA-256 hash
+pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
+    // Decode the base64 encoded key to get binary data
+    let binary_key = general_purpose::STANDARD
+        .decode(pub_key_str)
+        .map_err(|e| anyhow!("Error decoding base64 key: {}", e))?;
+
+    // Compute the SHA-256 hash of the binary key data
+    let sha256_hash = Sha256::digest(&binary_key);
+
+    // Format the hash as a lowercase hexadecimal string
+    let fingerprint = sha256_hash
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<Vec<String>>()
+        .join(":");
+
+    Ok(fingerprint)
+}
+
 /// Generate an SSH RSA keypair.
 pub fn generate_ssh_keypair(directory: &str) -> Result<()> {
     let mut rng = OsRng;
@@ -142,6 +165,30 @@ mod tests {
         for (input, expected) in test_cases {
             assert_eq!(pub_ssh_key_to_md5_hash(input).unwrap(), expected);
         }
+    }
+
+    #[test]
+    fn test_pub_ssh_key_to_sha256_hash() {
+        let test_cases = vec![
+            (
+                "AAAAB3NzaC1yc2EAAAABIwAAAQEA6NF8iallvQVp22WDkTkyrtvp9eWW6A8YVr+kz4TjGYe7gHzIw+niNltGEFHzD8+v1I2YJ6oXevct1YeS0o9HZyN1Q9qgCgzUFtdOKLv6IedplqoPkcmF0aYet2PkEDo3MlTBckFXPITAMzF8dJSIFo9D8HfdOV0IAdx4O7PtixWKn5y2hMNG0zQPyUecp4pzC6kivAIhyfHilFR61RGL+GPXQ2MWZWFYbAGjyiYJnAmCP3NOTd0jMZEnDkbUvxhMmBYSdETk1rRgm+R4LOzFUGaHqHDLKLX+FIPKcF96hrucXzcWyLbIbEgE98OHlnVYCzRdK8jlqm8tehUc9c9WhQ==",
+                "d4ce11ce13325ae152ffceae3d8fdc7b6a6b87f7554c75bb883d91869aae3990",
+            ),
+            (
+                "AAAAC3NzaC1lZDI1NTE5AAAAIPxpcrq+EIzKyYav9c/h3BRAHcv4M1fzSDY7OhGDwFf+",
+                "8c7f4d2a44e3fe5680f25db54e8af17a71a64d182dab3dc9ab26106915cd8b61",
+            ),
+        ];
+
+        for (input, expected) in test_cases {
+            assert_eq!(pub_ssh_key_to_sha256_hash(input).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn test_pub_ssh_key_to_sha256_hash_invalid_input() {
+        let invalid_key = "not a valid ssh key";
+        assert!(pub_ssh_key_to_sha256_hash(invalid_key).is_err());
     }
 
     #[test]

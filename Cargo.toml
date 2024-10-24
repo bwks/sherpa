@@ -42,6 +42,7 @@ shellexpand = "3.1.0"
 # encoder/decoders
 base64 = "0.22.1"
 md5 = "0.7.0"
+sha2 = "0.10.8"
 
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }

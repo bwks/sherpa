@@ -86,6 +86,7 @@ pub struct User {
     pub name: String,
     #[serde(rename = "sshAuthorizedKeys")]
     pub ssh_authorized_keys: Vec<String>,
+    pub groups: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

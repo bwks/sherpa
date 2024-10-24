@@ -18,31 +18,33 @@ use virt::sys;
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END,
     BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
-    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_IOSV_OUI,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG,
+    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_NXOS_OUI,
+    CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
+    CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE,
+    ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_sherpa_storage_pool, create_vm,
-    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
+    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosvZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate,
+    DomainTemplate, Qemu,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
     MachineTypes, OsVariants, User, ZtpMethods,
 };
-use crate::topology::{ConnectionMap, Manifest};
+use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
     base64_encode, convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso,
     dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port,
-    pub_ssh_key_to_md5_hash, random_mac, tcp_connect, term_msg_surround, term_msg_underline,
-    Contents as IgnitionFileContents, DeviceIp, File as IgnitionFile, IgnitionConfig,
-    Link as IgnitionLink, SshConfigTemplate, User as IgnitionUser,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    term_msg_surround, term_msg_underline, Contents as IgnitionFileContents, DeviceIp,
+    File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, SshConfigTemplate,
+    User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation
@@ -105,7 +107,7 @@ enum Commands {
     },
 
     /// Clean up environment
-    Cleaner {
+    Clean {
         /// Remove all devices, disks and networks
         #[arg(long, action = clap::ArgAction::SetTrue)]
         all: bool,
@@ -350,12 +352,11 @@ impl Cli {
                         DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
                         DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v
-                        | DeviceModels::CiscoCsr1000v
-                        | DeviceModels::CiscoIosxrv9000
-                        | DeviceModels::CiscoNexus9300v => random_mac(CISCO_IOSXE_OUI),
+                        | DeviceModels::CiscoCsr1000v => random_mac(CISCO_IOSXE_OUI),
                         DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => {
                             random_mac(CISCO_IOSV_OUI)
                         }
+                        DeviceModels::CiscoNexus9300v => random_mac(CISCO_NXOS_OUI),
                         DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
                             random_mac(JUNIPER_OUI)
                         }
@@ -515,7 +516,33 @@ impl Cli {
                                             mgmt_interface: "GigabitEthernet1".to_owned(),
                                         };
                                         let rendered_template = t.render()?;
-                                        let ztp_config = format!("{dir}/{CISCO_IOSXE_ZTP_CONFIG}");
+                                        let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
+                                        let ztp_config = format!("{dir}/{c}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                                    }
+                                    DeviceModels::CiscoAsav => {
+                                        let key_hash =
+                                            pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
+                                        user.ssh_public_key.key = key_hash;
+                                        let t = CiscoAsavZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                                    }
+                                    DeviceModels::CiscoNexus9300v => {
+                                        let t = CiscoNxosZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
                                         create_dir(&dir)?;
                                         create_file(&ztp_config, rendered_template)?;
                                         create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
@@ -571,8 +598,8 @@ impl Cli {
                                 term_msg_underline("Creating ZTP disks");
                                 // generate the template
                                 println!("Creating ZTP config {}", device.name);
-                                let user = user.clone();
-                                let dir = format!("{TEMP_DIR}/{vm_name}");
+                                let _user = user.clone();
+                                let _dir = format!("{TEMP_DIR}/{vm_name}");
                                 match device.device_model {
                                     DeviceModels::FlatcarLinux => {
                                         // let ignition_user = IgnitionUser {
@@ -751,6 +778,7 @@ impl Cli {
                             "{} {}",
                             user.ssh_public_key.algorithm, user.ssh_public_key.key
                         )],
+                        groups: vec!["wheel".to_owned(), "docker".to_owned()],
                     };
                     let hostname_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
@@ -761,7 +789,7 @@ impl Cli {
                     let arista_ztp_base64 = base64_encode(&arsita_rendered_template);
                     let arista_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
-                        path: format!("/opt/ztp/{ARISTA_VEOS_ZTP_CONFIG}"),
+                        path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"),
                         mode: 0644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{arista_ztp_base64}"
@@ -770,7 +798,7 @@ impl Cli {
                     let cumulus_ztp_base64 = base64_encode(&cumulus_rendered_template);
                     let cumulus_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
-                        path: format!("/opt/ztp/{CUMULUS_ZTP_CONFIG}"),
+                        path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
                         mode: 0644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{cumulus_ztp_base64}"
@@ -779,7 +807,7 @@ impl Cli {
                     let iosxe_ztp_base64 = base64_encode(&iosxe_rendered_template);
                     let iosxe_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
-                        path: format!("/opt/ztp/{CISCO_IOSXE_ZTP_CONFIG}"),
+                        path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
                         mode: 0644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{iosxe_ztp_base64}"
@@ -788,7 +816,7 @@ impl Cli {
                     let iosv_ztp_base64 = base64_encode(&iosv_rendered_template);
                     let iosv_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
-                        path: format!("/opt/ztp/{CISCO_IOSV_ZTP_CONFIG}"),
+                        path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
                         mode: 0644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{iosv_ztp_base64}"
@@ -916,11 +944,15 @@ impl Cli {
                 let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
                 let mut connected_devices = std::collections::HashSet::new();
                 let mut device_ip_map = vec![];
+                let mut devices = manifest.devices;
+                devices.push(Device {
+                    id: 255,
+                    name: "boot-server".to_owned(),
+                    device_model: DeviceModels::FlatcarLinux,
+                });
 
-                while start_time.elapsed() < timeout
-                    && connected_devices.len() < manifest.devices.len()
-                {
-                    for device in &manifest.devices {
+                while start_time.elapsed() < timeout && connected_devices.len() < devices.len() {
+                    for device in &devices {
                         if connected_devices.contains(&device.name) {
                             continue;
                         }
@@ -946,16 +978,16 @@ impl Cli {
                         }
                     }
 
-                    if connected_devices.len() < manifest.devices.len() {
+                    if connected_devices.len() < devices.len() {
                         sleep(Duration::from_secs(READINESS_SLEEP));
                     }
                 }
 
-                if connected_devices.len() == manifest.devices.len() {
+                if connected_devices.len() == devices.len() {
                     println!("All devices are ready!");
                 } else {
                     println!("Timeout reached. Not all devices are ready.");
-                    for device in &manifest.devices {
+                    for device in &devices {
                         if !connected_devices.contains(&device.name) {
                             println!("Device is not ready: {}", device.name);
                         }
@@ -1077,7 +1109,13 @@ impl Cli {
 
                 let domains = qemu_conn.list_all_domains(0)?;
                 let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-                for device in manifest.devices {
+                let mut devices = manifest.devices;
+                devices.push(Device {
+                    id: 255,
+                    name: "boot-server".to_owned(),
+                    device_model: DeviceModels::FlatcarLinux,
+                });
+                for device in devices {
                     let device_name = format!("{}-{}", device.name, manifest.id);
                     if let Some(domain) = domains
                         .iter()
@@ -1144,7 +1182,7 @@ impl Cli {
                     fix_permissions_recursive(&format!("{CONFIG_DIR}/{BOXES_DIR}"))?;
                 }
             }
-            Commands::Cleaner {
+            Commands::Clean {
                 all,
                 disks,
                 networks,
@@ -1190,14 +1228,21 @@ impl Cli {
                 let manifest = Manifest::load_file()?;
 
                 // Find the device in the manifest
-                let device = manifest
-                    .devices
-                    .iter()
-                    .find(|d| d.name == *name)
-                    .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
+                let device_ip = {
+                    if name == "boot-server" {
+                        get_ip(255)
+                    } else {
+                        let device = manifest
+                            .devices
+                            .iter()
+                            .find(|d| d.name == *name)
+                            .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
+                        get_ip(device.id)
+                    }
+                };
 
                 let status = Command::new("telnet")
-                    .arg(get_ip(device.id).to_string())
+                    .arg(device_ip.to_string())
                     .arg(TELNET_PORT.to_string())
                     .status()?;
 

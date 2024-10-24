@@ -75,7 +75,12 @@ use crate::model::{
     <disk type='file' device='cdrom'>
       <driver name='qemu' type='raw'/>
       <source file='{{ cdrom }}'/>
-      <target dev='sda' bus='sata'/>
+      {% match machine_type %}
+      {%   when MachineTypes::PcI440Fx_4_2 %}
+      <target dev="hda" bus="ide"/>
+      {%   else %}
+      <target dev="sda" bus="sata"/>
+      {% endmatch %}
       <readonly/>
     </disk>
     {% endif %}
@@ -419,6 +424,93 @@ pub struct CiscoIosvZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+console serial
+!
+interface Management0/0
+ nameif management
+ management-only
+ security-level 0
+ ip address dhcp
+ no shutdown
+!
+hostname {{ hostname }}
+!
+username enable_1 privilege 15
+enable password {{ crate::core::konst::SHERPA_PASSWORD }}
+{%- for user in users %}
+username {{ user.username }} privilege 15
+{%-   if let Some(password) = user.password %} 
+username {{ user.username }} password {{ password }}
+{%-   endif %}
+{%- endfor %}
+!
+aaa authentication ssh console LOCAL
+aaa authentication http console LOCAL
+aaa authorization exec LOCAL auto-enable
+no ssh stack ciscossh
+crypto key generate rsa modulus 2048 noconfirm
+ssh 0.0.0.0 0.0.0.0 management
+http server enable
+http 0.0.0.0 0.0.0.0 management
+domain-name {{ crate::core::konst::DOMAIN_NAME }}
+!
+{%- for user in users %}
+username {{ user.username }} nopassword
+username {{ user.username }} attributes
+{%-   if user.sudo %}
+  service-type admin
+{%-   endif %}
+  ssh authentication publickey {{ user.ssh_public_key.key }} hashed
+{%- endfor %}
+!
+"#,
+    ext = "txt"
+)]
+pub struct CiscoAsavZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+feature bash-shell
+feature nxapi
+feature scp-server
+!
+hostname {{ hostname }}
+!
+username admin password 0 {{ crate::core::konst::SHERPA_PASSWORD }} role network-admin
+{%- for user in users %}
+{%-   if let Some(password) = user.password %}
+username {{ user.username }} password 0 {{ password }} 
+{%-   endif %}
+{%-   if user.sudo %}
+username {{ user.username }} role network-admin
+{%-   endif %}
+username {{ user.username }} sshkey {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
+!
+no ip domain-lookup
+!
+line vty
+  exec-timeout 0
+!
+interface mgmt0
+  ip address dhcp
+  no shutdown
+!
+"#,
+    ext = "txt"
+)]
+pub struct CiscoNxosZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
 }
 
 /*

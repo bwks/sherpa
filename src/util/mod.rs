@@ -22,6 +22,7 @@ pub use crate::util::output::{term_msg_surround, term_msg_underline};
 pub use crate::util::port::id_to_port;
 pub use crate::util::random::generate_id;
 pub use crate::util::ssh::{
-    generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, DeviceIp, SshConfigTemplate,
+    generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
+    DeviceIp, SshConfigTemplate,
 };
 pub use crate::util::validate::tcp_connect;
