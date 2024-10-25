@@ -19,19 +19,20 @@ use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END,
     BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
     BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_NXOS_OUI,
-    CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR,
-    CONFIG_FILE, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE,
-    ISOLATED_NETWORK_NAME, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
+    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
+    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
+    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
+    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_sherpa_storage_pool, create_vm,
     delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate,
-    DomainTemplate, Qemu,
+    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate,
+    CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -357,6 +358,7 @@ impl Cli {
                             random_mac(CISCO_IOSV_OUI)
                         }
                         DeviceModels::CiscoNexus9300v => random_mac(CISCO_NXOS_OUI),
+                        DeviceModels::CiscoIosxrv9000 => random_mac(CISCO_IOSXR_OUI),
                         DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
                             random_mac(JUNIPER_OUI)
                         }
@@ -543,6 +545,17 @@ impl Cli {
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                                    }
+                                    DeviceModels::CiscoIosxrv9000 => {
+                                        let t = CiscoIosxrZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
                                         create_dir(&dir)?;
                                         create_file(&ztp_config, rendered_template)?;
                                         create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?

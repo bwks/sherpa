@@ -9,6 +9,7 @@ pub use crate::libvirt::qemu::Qemu;
 pub use crate::libvirt::storage::create_sherpa_storage_pool;
 pub use crate::libvirt::template::{
     AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate,
+    CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate,
+    DomainTemplate,
 };
 pub use crate::libvirt::vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip};

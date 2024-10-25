@@ -61,22 +61,25 @@ sudo systemctl restart libvirtd.service
 ```
 
 ## Device Support Matrix
-
 - Working - :white_check_mark:
 - Planned - :construction:
 - Partially Working - :warning:
 
-| Vendor        | Model             | Minimum Tested Version | Status             |
-| ------------- | ----------------- | ---------------------- | :----------------: |
-| Arista        | vEOS              | 4.32.2f                | :white_check_mark: |
-| Cisco         | ASAv              | 9.20.2                 | :white_check_mark: |
-| Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: |
-| Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: |
-| Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: |
-| Cisco         | Catalyst XRv 9000 | 7.11.1                 | :white_check_mark: |
-| Cisco         | Nexus 9300v       | 10.4.2.f               | :warning:          |
-| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: |
-| Cisco         | IOSv L2           | 20200920               | :white_check_mark: |
+| Vendor        | Model             | Minimum Tested Version | Status             | ZTP Method         |
+| ------------- | ----------------- | ---------------------- | :----------------: | :----------------: |
+| Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP               |
+| Cisco         | ASAv              | 9.20.2                 | :white_check_mark: | CDROM              |
+| Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: | CDROM              |
+| Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: | CDROM              |
+| Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: | CDROM              |
+| Cisco         | Catalyst XRv 9000 | 7.11.1                 | :white_check_mark: | CDROM              |
+| Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
+| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | N/A                |
+| Cisco         | IOSv L2           | 20200920               | :white_check_mark: | N/A                |
+| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | HTTP               |
+| Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
+| Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | CDROM              |
+| RedHat        | Fedora Linux      | 40-1.14                | :white_check_mark: | CDROM              |
 
 
 ## Obtain Boxes
