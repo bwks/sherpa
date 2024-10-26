@@ -15,7 +15,12 @@ pub struct IgnitionConfig {
 }
 
 impl IgnitionConfig {
-    pub fn new(users: Vec<User>, files: Vec<File>, links: Vec<Link>) -> IgnitionConfig {
+    pub fn new(
+        users: Vec<User>,
+        files: Vec<File>,
+        links: Vec<Link>,
+        units: Vec<Unit>,
+    ) -> IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
@@ -26,7 +31,7 @@ impl IgnitionConfig {
                 links,
                 directories,
             },
-            systemd: Systemd::default(),
+            systemd: Systemd { units },
         }
     }
     /// Serialize the IgnitionConfig to a JSON string
@@ -178,7 +183,7 @@ Requires=docker.service
 
 [Service]
 TimeoutStartSec=0
-ExecStartPre=-/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
+ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
 ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 13337:13337 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 

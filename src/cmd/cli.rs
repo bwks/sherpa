@@ -814,26 +814,27 @@ impl Cli {
                         mode: 0644,
                         contents: IgnitionFileContents::new("data:,boot-server"),
                     };
-                    let unit_docker = IgnitionUnit {
-                        name: "webdir.service".to_owned(),
+                    let unit_webdir = IgnitionUnit::default();
+                    let unit_tftp = IgnitionUnit {
+                        name: "tftpd.service".to_owned(),
                         enabled: true,
                         contents: r#"[Unit]
-            Description=WebDir
-            After=docker.service
-            Requires=docker.service
-            
-            [Service]
-            TimeoutStartSec=0
-            ExecStartPre=-/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-            ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 13337:13337 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
-            ExecStop=/usr/bin/docker container stop webdir-app
-            
-            Restart=always
-            RestartSec=5s
-            
-            [Install]
-            WantedBy=multi-user.target
-            "#.to_owned(),
+Description=TFTPd
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/tftpd:latest
+ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p 6969:6969/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
+ExecStop=/usr/bin/docker container stop tftpd-app
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#.to_owned(),
                     };
                     let arista_ztp_base64 = base64_encode(&arista_rendered_template);
                     let arista_ztp_file = IgnitionFile {
@@ -892,7 +893,7 @@ impl Cli {
                             iosv_ztp_file,
                         ],
                         vec![],
-                        // vec![link_default],
+                        vec![unit_webdir, unit_tftp], // vec![link_default],
                     );
                     let flatcar_config = ignition_config.to_json_pretty()?;
                     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
