@@ -13,6 +13,7 @@ pub enum DeviceModels {
     #[default]
     UnknownUnknown,
     AristaVeos,
+    ArubaAoscx,
     CiscoAsav,
     CiscoCsr1000v,
     CiscoCat8000v,
@@ -46,6 +47,7 @@ impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceModels::AristaVeos => write!(f, "arista_veos"),
+            DeviceModels::ArubaAoscx => write!(f, "aruba_aoscx"),
             DeviceModels::CiscoAsav => write!(f, "cisco_asav"),
             DeviceModels::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
             DeviceModels::CiscoCat8000v => write!(f, "cisco_cat8000v"),
@@ -75,6 +77,7 @@ impl fmt::Display for DeviceModels {
 #[serde(rename_all = "lowercase")]
 pub enum Manufacturers {
     Arista,
+    Aruba,
     Canonical,
     Cisco,
     Juniper,
@@ -92,6 +95,7 @@ pub enum Manufacturers {
 #[serde(rename_all = "snake_case")]
 pub enum OsVariants {
     Asa,
+    Aos,
     CumulusLinux,
     Eos,
     Junos,
@@ -247,6 +251,7 @@ impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
         match device_model {
             DeviceModels::AristaVeos => DeviceModel::arista_veos(),
+            DeviceModels::ArubaAoscx => DeviceModel::aruba_aoscx(),
             DeviceModels::CiscoAsav => DeviceModel::cisco_asav(),
             DeviceModels::CiscoCsr1000v => DeviceModel::cisco_csr1000v(),
             DeviceModels::CiscoCat8000v => DeviceModel::cisco_cat8000v(),
@@ -293,6 +298,33 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: false,
+            management_interface: true,
+            reserved_interface_count: 0,
+        }
+    }
+    pub fn aruba_aoscx() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::ArubaAoscx,
+            os_variant: OsVariants::Aos,
+            manufacturer: Manufacturers::Arista,
+            bios: BiosTypes::SeaBios,
+            interface_count: 8,
+            interface_prefix: "1/1/".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_count: 1,
+            cdrom: None,
+            ztp_enable: false,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Cdrom,
+            ztp_password_auth: true,
             management_interface: true,
             reserved_interface_count: 0,
         }

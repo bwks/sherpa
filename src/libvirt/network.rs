@@ -4,11 +4,11 @@ use virt::connect::Connect;
 use virt::network::Network;
 
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_HTTP_SERVER, BOOT_SERVER_MAC,
-    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DOMAIN_NAME, JUNIPER_OUI, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_DIR, MTU_JUMBO_NET,
+    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
+    BOOT_NETWORK_HTTP_SERVER, BOOT_SERVER_MAC, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
+    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
+    CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
+    DOMAIN_NAME, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_NET,
 };
 
 /// Create an isolated bridge for forwarding disabled and ports
@@ -42,7 +42,8 @@ pub fn create_network(
     name: &str,
     bridge_name: &str,
     ip_address: &str,
-    port: u16,
+    http_port: u16,
+    tftp_port: u16,
     netmask: &str,
     dhcp_start: &str,
     dhcp_end: &str,
@@ -58,13 +59,15 @@ pub fn create_network(
         <network connections='1' xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
           <dnsmasq:options>
 
-            <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{boot_server}:{port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxr,67,http://{boot_server}:{port}/{CISCO_ZTP_DIR}/{CISCO_IOSXR_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{boot_server}:{port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{boot_server}:{port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{boot_server}:{http_port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{boot_server}:{http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{boot_server}:{http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{boot_server}:{http_port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxr,67,http://{boot_server}:{http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXR_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{boot_server}:{http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{boot_server}:{http_port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:aruba,66,{boot_server}:{tftp_port}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"/>
 
             <dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cisco_iosxe,{CISCO_IOSXE_OUI}:*:*:*"/>
@@ -73,6 +76,7 @@ pub fn create_network(
             <dnsmasq:option value="dhcp-mac=set:cisco_iosxr,{CISCO_NXOS_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:juniper,{JUNIPER_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cumulus,{CUMULUS_OUI}:*:*:*"/>
+            <dnsmasq:option value="dhcp-mac=set:aruba,{ARUBA_OUI}:*:*:*"/>
 
             <dnsmasq:option value="dhcp-ignore-clid"/>
 

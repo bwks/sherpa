@@ -26,6 +26,7 @@ impl Default for Config {
     fn default() -> Self {
         let device_models: Vec<DeviceModel> = vec![
             DeviceModel::arista_veos(),
+            DeviceModel::aruba_aoscx(),
             DeviceModel::cisco_asav(),
             DeviceModel::cisco_cat8000v(),
             DeviceModel::cisco_cat9000v(),

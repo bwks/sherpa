@@ -161,9 +161,9 @@ pub struct Verification {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Unit {
-    name: String,
-    enabled: bool,
-    contents: String,
+    pub name: String,
+    pub enabled: bool,
+    pub contents: String,
 }
 
 impl Default for Unit {

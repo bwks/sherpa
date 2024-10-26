@@ -16,11 +16,12 @@ use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END,
-    BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME,
-    BOOT_NETWORK_NETMASK, BOOT_NETWORK_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
+    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
+    BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_PORT,
+    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK,
+    BOOT_NETWORK_TFTP_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
+    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
     CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
     JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
@@ -30,9 +31,9 @@ use crate::core::konst::{
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_isolated_network, create_network, create_sherpa_storage_pool, create_vm,
-    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate,
-    CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
+    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
+    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
+    CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -45,7 +46,7 @@ use crate::util::{
     pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline, Contents as IgnitionFileContents, DeviceIp,
     File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, SshConfigTemplate,
-    User as IgnitionUser,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation
@@ -230,7 +231,8 @@ impl Cli {
                         BOOT_NETWORK_NAME,
                         BOOT_NETWORK_BRIDGE,
                         BOOT_NETWORK_IP,
-                        BOOT_NETWORK_PORT,
+                        BOOT_NETWORK_HTTP_PORT,
+                        BOOT_NETWORK_TFTP_PORT,
                         BOOT_NETWORK_NETMASK,
                         BOOT_NETWORK_DHCP_START,
                         BOOT_NETWORK_DHCP_END,
@@ -284,9 +286,21 @@ impl Cli {
                     hostname: "veos-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
                 };
-                let arsita_rendered_template = arista_template.render()?;
+                let arista_rendered_template = arista_template.render()?;
                 let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
-                create_file(&arista_ztp_config, arsita_rendered_template.clone())?;
+                create_file(&arista_ztp_config, arista_rendered_template.clone())?;
+
+                // Aruba AOS
+                let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
+                create_dir(&aruba_dir)?;
+
+                let aruba_template = ArubaAoscxTemplate {
+                    hostname: "aos-ztp".to_owned(),
+                    users: vec![sherpa_user.clone()],
+                };
+                let aruba_rendered_template = aruba_template.render()?;
+                let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
+                create_file(&aruba_ztp_config, aruba_rendered_template.clone())?;
 
                 // Cumulus Linux
                 let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
@@ -351,6 +365,7 @@ impl Cli {
 
                     let mac_address = match device.device_model {
                         DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
+                        DeviceModels::ArubaAoscx => random_mac(ARUBA_OUI),
                         DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v
                         | DeviceModels::CiscoCsr1000v => random_mac(CISCO_IOSXE_OUI),
@@ -632,7 +647,7 @@ impl Cli {
                                         //     ),
                                         // };
                                         // let arista_ztp_base64 =
-                                        //     base64_encode(&arsita_rendered_template);
+                                        //     base64_encode(&arista_rendered_template);
                                         // let arista_ztp_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: format!("/opt/ztp/{ARISTA_VEOS_ZTP_CONFIG}"),
@@ -799,13 +814,43 @@ impl Cli {
                         mode: 0644,
                         contents: IgnitionFileContents::new("data:,boot-server"),
                     };
-                    let arista_ztp_base64 = base64_encode(&arsita_rendered_template);
+                    let unit_docker = IgnitionUnit {
+                        name: "webdir.service".to_owned(),
+                        enabled: true,
+                        contents: r#"[Unit]
+            Description=WebDir
+            After=docker.service
+            Requires=docker.service
+            
+            [Service]
+            TimeoutStartSec=0
+            ExecStartPre=-/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
+            ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 13337:13337 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+            ExecStop=/usr/bin/docker container stop webdir-app
+            
+            Restart=always
+            RestartSec=5s
+            
+            [Install]
+            WantedBy=multi-user.target
+            "#.to_owned(),
+                    };
+                    let arista_ztp_base64 = base64_encode(&arista_rendered_template);
                     let arista_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"),
                         mode: 0644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{arista_ztp_base64}"
+                        )),
+                    };
+                    let aruba_ztp_base64 = base64_encode(&aruba_rendered_template);
+                    let aruba_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
+                        mode: 0644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{aruba_ztp_base64}"
                         )),
                     };
                     let cumulus_ztp_base64 = base64_encode(&cumulus_rendered_template);
@@ -841,6 +886,7 @@ impl Cli {
                         vec![
                             hostname_file,
                             arista_ztp_file,
+                            aruba_ztp_file,
                             cumulus_ztp_file,
                             iosxe_ztp_file,
                             iosv_ztp_file,
