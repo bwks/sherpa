@@ -1,3 +1,4 @@
+use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Write};
 use std::os::unix::fs::PermissionsExt;
@@ -5,6 +6,12 @@ use std::path::Path;
 use std::process::Command;
 
 use anyhow::Result;
+
+/// Get the current working directory path
+pub fn get_cwd() -> Result<String> {
+    let path = env::current_dir()?;
+    Ok(path.display().to_string())
+}
 
 /// Create a directory, expanding ~ if it's passed
 pub fn create_dir(dir_path: &str) -> Result<()> {

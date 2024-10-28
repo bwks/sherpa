@@ -42,8 +42,8 @@ use crate::model::{
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
     base64_encode, convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso,
-    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_ip, id_to_port,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip,
+    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline, Contents as IgnitionFileContents, DeviceIp,
     File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, SshConfigTemplate,
     Unit as IgnitionUnit, User as IgnitionUser,
@@ -273,6 +273,8 @@ impl Cli {
                 println!("Loading manifest");
                 let manifest = Manifest::load_file()?;
 
+                let lab_id = get_id()?;
+
                 let sherpa_user = User::default()?;
 
                 // Create ZTP files
@@ -353,7 +355,7 @@ impl Cli {
                 let mut domains: Vec<DomainTemplate> = vec![];
                 let user = User::default()?;
                 for device in &manifest.devices {
-                    let vm_name = format!("{}-{}", device.name, manifest.id);
+                    let vm_name = format!("{}-{}", device.name, lab_id);
 
                     let device_model = config
                         .device_models
@@ -798,7 +800,7 @@ impl Cli {
 
                 // Boot Server
                 if config.ztp_server {
-                    let boot_server_name = format!("boot-server-{}", manifest.id);
+                    let boot_server_name = format!("boot-server-{}", lab_id);
                     let dir = format!("{TEMP_DIR}/{boot_server_name}");
                     let ignition_user = IgnitionUser {
                         name: user.username,
@@ -1017,7 +1019,7 @@ WantedBy=multi-user.target
                             continue;
                         }
 
-                        let vm_name = format!("{}-{}", device.name, manifest.id);
+                        let vm_name = format!("{}-{}", device.name, lab_id);
                         if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
                             match tcp_connect(&vm_ip, SSH_PORT)? {
                                 true => {
@@ -1068,6 +1070,8 @@ WantedBy=multi-user.target
             Commands::Down => {
                 term_msg_surround("Suspending environment");
 
+                let lab_id = get_id()?;
+
                 let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
@@ -1076,7 +1080,7 @@ WantedBy=multi-user.target
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) {
+                    if vm_name.contains(&lab_id) {
                         if domain.is_active()? {
                             domain.suspend()?;
                             println!("Suspended: {vm_name}");
@@ -1089,6 +1093,8 @@ WantedBy=multi-user.target
             Commands::Resume => {
                 term_msg_surround("Resuming environment");
 
+                let lab_id = get_id()?;
+
                 let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
@@ -1097,7 +1103,7 @@ WantedBy=multi-user.target
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) {
+                    if vm_name.contains(&lab_id) {
                         match domain.get_state() {
                             Ok((state, _reason)) => {
                                 if state == virt::sys::VIR_DOMAIN_PAUSED {
@@ -1120,6 +1126,8 @@ WantedBy=multi-user.target
             Commands::Destroy => {
                 term_msg_surround("Destroying environment");
 
+                let lab_id = get_id()?;
+
                 let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
@@ -1128,7 +1136,7 @@ WantedBy=multi-user.target
 
                 for domain in domains {
                     let vm_name = domain.get_name()?;
-                    if vm_name.contains(&manifest.id) && domain.is_active()? {
+                    if vm_name.contains(&lab_id) && domain.is_active()? {
                         // EUFI domains will have an NVRAM file that must be deleted.
                         let nvram_flag = sys::VIR_DOMAIN_UNDEFINE_NVRAM;
                         domain.undefine_flags(nvram_flag)?;
@@ -1161,9 +1169,11 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Inspect => {
+                let lab_id = get_id()?;
+
                 let manifest = Manifest::load_file()?;
 
-                term_msg_surround(&format!("Sherpa Environment - {}", manifest.id));
+                term_msg_surround(&format!("Sherpa Environment - {}", lab_id));
 
                 let qemu_conn = qemu.connect()?;
 
@@ -1176,7 +1186,7 @@ WantedBy=multi-user.target
                     device_model: DeviceModels::FlatcarLinux,
                 });
                 for device in devices {
-                    let device_name = format!("{}-{}", device.name, manifest.id);
+                    let device_name = format!("{}-{}", device.name, lab_id);
                     if let Some(domain) = domains
                         .iter()
                         .find(|d| d.get_name().unwrap_or_default() == device_name)
@@ -1252,13 +1262,15 @@ WantedBy=multi-user.target
                     term_msg_surround("Not implemented");
                 } else if *disks {
                     term_msg_surround("Cleaning disks");
+                    let lab_id = get_id()?;
+
                     let manifest = Manifest::load_file()?;
 
                     let qemu_conn = qemu.connect()?;
 
                     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
                     for volume in pool.list_volumes()? {
-                        if volume.contains(&manifest.id) {
+                        if volume.contains(&lab_id) {
                             println!("Deleting disk: {}", volume);
                             let vol = StorageVol::lookup_by_name(&pool, &volume)?;
                             vol.delete(0)?;
@@ -1315,13 +1327,11 @@ WantedBy=multi-user.target
             }
             Commands::Ssh { name } => {
                 term_msg_surround(&format!("Connecting to: {name}"));
-
-                let manifest = Manifest::load_file()?;
+                let lab_id = get_id()?;
 
                 let qemu_conn = qemu.connect()?;
 
-                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, manifest.id))?
-                {
+                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, lab_id))? {
                     let status = Command::new("ssh")
                         .arg(&vm_ip)
                         .arg("-F")
