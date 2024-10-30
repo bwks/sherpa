@@ -17,23 +17,24 @@ use virt::sys;
 
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
-    BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_PORT,
-    BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK,
-    BOOT_NETWORK_TFTP_PORT, BOOT_SERVER_MAC, BOOT_SERVER_NAME, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
+    BOOT_SERVER_MAC, BOOT_SERVER_NAME, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
+    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
-    JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_ISOLATED_NETWORK_BRIDGE,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
+    SHERPA_MANAGEMENT_NETWORK_HTTP_PORT, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_MANAGEMENT_NETWORK_TFTP_PORT, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR,
+    ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
-    clone_disk, create_isolated_network, create_network, create_sherpa_storage_pool, create_vm,
-    delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate, Qemu,
+    clone_disk, create_vm, delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, ArubaAoscxTemplate,
+    CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate,
+    CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate,
+    IsolatedNetwork, ManagementNetwork, Qemu, SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -172,20 +173,22 @@ impl Cli {
 
                 println!("- Creating Files -");
                 // Create the default config directories
-                if dir_exists(&sherpa.config_dir) && !*force {
+                let config = if dir_exists(&sherpa.config_dir) && !*force {
                     println!("Directory path already exists: {}", sherpa.config_dir);
+                    Config::load(&sherpa.config_path)?
                 } else {
                     create_dir(&sherpa.config_dir)?;
                     create_dir(&sherpa.boxes_dir)?;
                     // box directories
                     let config = Config::default();
-                    for device_model in config.device_models {
+                    for device_model in &config.device_models {
                         create_dir(&format!(
                             "{}/{}/latest",
                             sherpa.boxes_dir, device_model.name
                         ))?;
                     }
-                }
+                    config
+                };
 
                 // Initialize default files
                 if file_exists(&sherpa.config_path) && !*force {
@@ -221,43 +224,47 @@ impl Cli {
                 if qemu_conn
                     .list_networks()?
                     .iter()
-                    .any(|net| net == BOOT_NETWORK_NAME)
+                    .any(|net| net == SHERPA_MANAGEMENT_NETWORK_NAME)
                 {
-                    println!("Network already exists: {BOOT_NETWORK_NAME}");
+                    println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
                 } else {
-                    println!("Creating network: {BOOT_NETWORK_NAME}");
-                    create_network(
-                        &qemu_conn,
-                        BOOT_NETWORK_NAME,
-                        BOOT_NETWORK_BRIDGE,
-                        BOOT_NETWORK_IP,
-                        BOOT_NETWORK_HTTP_PORT,
-                        BOOT_NETWORK_TFTP_PORT,
-                        BOOT_NETWORK_NETMASK,
-                        BOOT_NETWORK_DHCP_START,
-                        BOOT_NETWORK_DHCP_END,
-                        BOOT_NETWORK_HTTP_SERVER,
-                        BOOT_SERVER_NAME,
-                    )?;
+                    println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
+                    let last_usable_ipv4 = config.management_prefix_ipv4.size() - 2;
+                    let management_network = ManagementNetwork {
+                        network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
+                        bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
+                        ipv4_address: config.management_prefix_ipv4.network(),
+                        ipv4_netmask: config.management_prefix_ipv4.mask(),
+                        dhcp_start: config.management_prefix_ipv4.nth(5).unwrap(),
+                        dhcp_end: config.management_prefix_ipv4.nth(last_usable_ipv4).unwrap(),
+                        ztp_http_port: SHERPA_MANAGEMENT_NETWORK_HTTP_PORT,
+                        ztp_tftp_port: SHERPA_MANAGEMENT_NETWORK_TFTP_PORT,
+                        ztp_server_ipv4: config.ztp_server.ipv4_address,
+                        ztp_server_name: BOOT_SERVER_NAME.to_owned(),
+                    };
+                    management_network.create(&qemu_conn)?;
                 }
 
                 // Create the isolated network
                 if qemu_conn
                     .list_networks()?
                     .iter()
-                    .any(|net| net == ISOLATED_NETWORK_NAME)
+                    .any(|net| net == SHERPA_ISOLATED_NETWORK_NAME)
                 {
-                    println!("Network already exists: {ISOLATED_NETWORK_NAME}");
+                    println!("Network already exists: {SHERPA_ISOLATED_NETWORK_NAME}");
                 } else {
-                    println!("Creating network: {ISOLATED_NETWORK_NAME}");
-                    create_isolated_network(
-                        &qemu_conn,
-                        ISOLATED_NETWORK_NAME,
-                        ISOLATED_NETWORK_BRIDGE,
-                    )?;
+                    println!("Creating network: {SHERPA_ISOLATED_NETWORK_NAME}");
+                    let isolated_network = IsolatedNetwork {
+                        network_name: SHERPA_ISOLATED_NETWORK_NAME.to_owned(),
+                        bridge_name: SHERPA_ISOLATED_NETWORK_BRIDGE.to_owned(),
+                    };
+                    isolated_network.create(&qemu_conn)?;
                 }
-
-                create_sherpa_storage_pool(&qemu_conn)?;
+                let storage_pool = SherpaStoragePool {
+                    name: SHERPA_STORAGE_POOL.to_owned(),
+                    path: SHERPA_STORAGE_POOL_PATH.to_owned(),
+                };
+                storage_pool.create(&qemu_conn)?;
             }
 
             Commands::Up { config_file } => {
@@ -615,8 +622,9 @@ impl Cli {
                                 let _dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
 
                                 match device_model.os_variant {
-                                    OsVariants::Eos => {}
+                                    OsVariants::Aos => {}
                                     OsVariants::CumulusLinux => {}
+                                    OsVariants::Eos => {}
                                     _ => {
                                         anyhow::bail!(
                                             "HTTP ZTP method not supported for {}",
@@ -644,7 +652,7 @@ impl Cli {
                                         // let hostname_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: "/etc/hostname".to_owned(),
-                                        //     mode: 0644,
+                                        //     mode: 644,
                                         //     contents: IgnitionFileContents::new(
                                         //         "data:,boot-server",
                                         //     ),
@@ -654,7 +662,7 @@ impl Cli {
                                         // let arista_ztp_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: format!("/opt/ztp/{ARISTA_VEOS_ZTP_CONFIG}"),
-                                        //     mode: 0644,
+                                        //     mode: 644,
                                         //     contents: IgnitionFileContents::new(&format!(
                                         //         "data:;base64,{arista_ztp_base64}"
                                         //     )),
@@ -664,7 +672,7 @@ impl Cli {
                                         // let cumulus_ztp_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: format!("/opt/ztp/{CUMULUS_ZTP_CONFIG}"),
-                                        //     mode: 0644,
+                                        //     mode: 644,
                                         //     contents: IgnitionFileContents::new(&format!(
                                         //         "data:;base64,{cumulus_ztp_base64}"
                                         //     )),
@@ -674,7 +682,7 @@ impl Cli {
                                         // let iosxe_ztp_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: format!("/opt/ztp/{CISCO_IOSXE_ZTP_CONFIG}"),
-                                        //     mode: 0644,
+                                        //     mode: 644,
                                         //     contents: IgnitionFileContents::new(&format!(
                                         //         "data:;base64,{iosxe_ztp_base64}"
                                         //     )),
@@ -684,7 +692,7 @@ impl Cli {
                                         // let iosv_ztp_file = IgnitionFile {
                                         //     // filesystem: "root".to_owned(),
                                         //     path: format!("/opt/ztp/{CISCO_IOSV_ZTP_CONFIG}"),
-                                        //     mode: 0644,
+                                        //     mode: 644,
                                         //     contents: IgnitionFileContents::new(&format!(
                                         //         "data:;base64,{iosv_ztp_base64}"
                                         //     )),
@@ -800,7 +808,7 @@ impl Cli {
                 }
 
                 // Boot Server
-                if config.ztp_server {
+                if config.ztp_server.enabled {
                     let boot_server_name = format!("{}-{}", BOOT_SERVER_NAME, lab_id);
                     let dir = format!("{TEMP_DIR}/{boot_server_name}");
                     let ignition_user = IgnitionUser {
@@ -814,7 +822,7 @@ impl Cli {
                     let hostname_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: "/etc/hostname".to_owned(),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!("data:,{}", BOOT_SERVER_NAME)),
                     };
                     let unit_webdir = IgnitionUnit::default();
@@ -843,7 +851,7 @@ WantedBy=multi-user.target
                     let arista_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{arista_ztp_base64}"
                         )),
@@ -852,7 +860,7 @@ WantedBy=multi-user.target
                     let aruba_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{aruba_ztp_base64}"
                         )),
@@ -861,7 +869,7 @@ WantedBy=multi-user.target
                     let cumulus_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{cumulus_ztp_base64}"
                         )),
@@ -870,7 +878,7 @@ WantedBy=multi-user.target
                     let iosxe_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{iosxe_ztp_base64}"
                         )),
@@ -879,7 +887,7 @@ WantedBy=multi-user.target
                     let iosv_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
-                        mode: 0644,
+                        mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{iosv_ztp_base64}"
                         )),
@@ -1328,7 +1336,7 @@ WantedBy=multi-user.target
                     let status = Command::new("ssh")
                         .arg(&vm_ip)
                         .arg("-F")
-                        .arg(&format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
+                        .arg(format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
                         .status()?;
 
                     if !status.success() {

@@ -1,7 +1,6 @@
 use anyhow::Result;
 
 use serde_derive::{Deserialize, Serialize};
-use serde_json;
 
 use crate::core::konst::IGNITION_VERSION;
 
@@ -112,7 +111,7 @@ impl Default for Directory {
     fn default() -> Self {
         Self {
             path: "/opt/ztp".to_owned(),
-            mode: 0755,
+            mode: 755,
             overwrite: false,
         }
     }

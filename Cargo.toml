@@ -48,6 +48,8 @@ twox-hash = "2.0.0"
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
 
+# IP Addressing
+ipnetwork = "0.20.0"
 
 [dev-dependencies]
 regex = "1.10.6"

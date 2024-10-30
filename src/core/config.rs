@@ -1,25 +1,36 @@
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::Path;
+use std::str::FromStr;
 
 use anyhow::Result;
+use ipnetwork::Ipv4Network;
 use serde_derive::{Deserialize, Serialize};
 
-use super::konst::{
-    BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN, SHERPA_PASSWORD, SHERPA_USERNAME,
+use crate::core::konst::{
+    BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD,
+    SHERPA_USERNAME,
 };
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
 use crate::util::{create_file, expand_path};
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ZtpServer {
+    pub enabled: bool,
+    pub ipv4_address: Ipv4Addr,
+    pub username: String,
+    pub password: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub name: String,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
+    pub management_prefix_ipv4: Ipv4Network,
+    pub ztp_server: ZtpServer,
     pub device_models: Vec<DeviceModel>,
-    pub ztp_server: bool,
-    pub ztp_username: String,
-    pub ztp_password: String,
 }
 
 impl Default for Config {
@@ -47,14 +58,23 @@ impl Default for Config {
             DeviceModel::suse_linux(),
             DeviceModel::flatcar_linux(),
         ];
+        let mgmt_prefix_ipv4 = Ipv4Network::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)
+            .expect("Failed to parse IPv4 network");
+
+        let ztp_server = ZtpServer {
+            enabled: true,
+            ipv4_address: mgmt_prefix_ipv4.nth(5).unwrap(),
+            username: SHERPA_USERNAME.to_owned(),
+            password: SHERPA_PASSWORD.to_owned(),
+        };
+
         Config {
             name: CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
-            ztp_server: true,
-            ztp_username: SHERPA_USERNAME.to_owned(),
-            ztp_password: SHERPA_PASSWORD.to_owned(),
+            management_prefix_ipv4: mgmt_prefix_ipv4,
+            ztp_server,
         }
     }
 }
