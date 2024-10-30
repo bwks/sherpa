@@ -35,7 +35,7 @@ impl IgnitionConfig {
         }
     }
     /// Serialize the IgnitionConfig to a JSON string
-    pub fn to_json(&self) -> Result<String> {
+    pub fn _to_json(&self) -> Result<String> {
         serde_json::to_string(self).map_err(|e| anyhow::anyhow!("JSON serialization error: {}", e))
     }
 
@@ -184,7 +184,7 @@ Requires=docker.service
 [Service]
 TimeoutStartSec=0
 ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 13337:13337 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 8080:8080 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always

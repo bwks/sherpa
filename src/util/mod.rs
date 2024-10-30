@@ -12,10 +12,10 @@ mod validate;
 
 pub use crate::util::encode::base64_encode;
 pub use crate::util::file_system::{
-    convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, expand_path,
-    file_exists, fix_permissions_recursive, get_cwd,
+    copy_file, create_dir, create_file, create_ztp_iso, dir_exists, expand_path, file_exists,
+    fix_permissions_recursive, get_cwd,
 };
-pub use crate::util::ignition::{Contents, File, IgnitionConfig, Link, Unit, User};
+pub use crate::util::ignition::{Contents, File, IgnitionConfig, Unit, User};
 pub use crate::util::ip::get_ip;
 pub use crate::util::mac::random_mac;
 pub use crate::util::output::{term_msg_surround, term_msg_underline};

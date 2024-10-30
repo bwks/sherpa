@@ -123,7 +123,7 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
 }
 
 /// Convert an ISO file to a Qcow2 disk image.
-pub fn convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
+pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
     Command::new("qemu-img")
         .args(["convert", "-O", "qcow2", src_iso, dst_disk])
         .status()?;

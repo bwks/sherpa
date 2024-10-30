@@ -19,9 +19,9 @@ use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
     BOOT_NETWORK_BRIDGE, BOOT_NETWORK_DHCP_END, BOOT_NETWORK_DHCP_START, BOOT_NETWORK_HTTP_PORT,
     BOOT_NETWORK_HTTP_SERVER, BOOT_NETWORK_IP, BOOT_NETWORK_NAME, BOOT_NETWORK_NETMASK,
-    BOOT_NETWORK_TFTP_PORT, BOOT_SERVER_MAC, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
+    BOOT_NETWORK_TFTP_PORT, BOOT_SERVER_MAC, BOOT_SERVER_NAME, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG,
+    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
+    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
     CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, ISOLATED_NETWORK_BRIDGE, ISOLATED_NETWORK_NAME,
     JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
@@ -41,12 +41,12 @@ use crate::model::{
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
-    base64_encode, convert_iso_qcow2, copy_file, create_dir, create_file, create_ztp_iso,
-    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip,
-    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    base64_encode, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
+    fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip, id_to_port,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline, Contents as IgnitionFileContents, DeviceIp,
-    File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    File as IgnitionFile, IgnitionConfig, SshConfigTemplate, Unit as IgnitionUnit,
+    User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation
@@ -237,6 +237,7 @@ impl Cli {
                         BOOT_NETWORK_DHCP_START,
                         BOOT_NETWORK_DHCP_END,
                         BOOT_NETWORK_HTTP_SERVER,
+                        BOOT_SERVER_NAME,
                     )?;
                 }
 
@@ -800,7 +801,7 @@ impl Cli {
 
                 // Boot Server
                 if config.ztp_server {
-                    let boot_server_name = format!("boot-server-{}", lab_id);
+                    let boot_server_name = format!("{}-{}", BOOT_SERVER_NAME, lab_id);
                     let dir = format!("{TEMP_DIR}/{boot_server_name}");
                     let ignition_user = IgnitionUser {
                         name: user.username,
@@ -814,7 +815,7 @@ impl Cli {
                         // filesystem: "root".to_owned(),
                         path: "/etc/hostname".to_owned(),
                         mode: 0644,
-                        contents: IgnitionFileContents::new("data:,boot-server"),
+                        contents: IgnitionFileContents::new(&format!("data:,{}", BOOT_SERVER_NAME)),
                     };
                     let unit_webdir = IgnitionUnit::default();
                     let unit_tftp = IgnitionUnit {
@@ -1009,7 +1010,7 @@ WantedBy=multi-user.target
                 let mut devices = manifest.devices;
                 devices.push(Device {
                     id: 255,
-                    name: "boot-server".to_owned(),
+                    name: BOOT_SERVER_NAME.to_owned(),
                     device_model: DeviceModels::FlatcarLinux,
                 });
 
@@ -1072,8 +1073,6 @@ WantedBy=multi-user.target
 
                 let lab_id = get_id()?;
 
-                let manifest = Manifest::load_file()?;
-
                 let qemu_conn = qemu.connect()?;
 
                 let domains = qemu_conn.list_all_domains(0)?;
@@ -1094,8 +1093,6 @@ WantedBy=multi-user.target
                 term_msg_surround("Resuming environment");
 
                 let lab_id = get_id()?;
-
-                let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
 
@@ -1127,8 +1124,6 @@ WantedBy=multi-user.target
                 term_msg_surround("Destroying environment");
 
                 let lab_id = get_id()?;
-
-                let manifest = Manifest::load_file()?;
 
                 let qemu_conn = qemu.connect()?;
 
@@ -1182,7 +1177,7 @@ WantedBy=multi-user.target
                 let mut devices = manifest.devices;
                 devices.push(Device {
                     id: 255,
-                    name: "boot-server".to_owned(),
+                    name: BOOT_SERVER_NAME.to_owned(),
                     device_model: DeviceModels::FlatcarLinux,
                 });
                 for device in devices {
@@ -1264,8 +1259,6 @@ WantedBy=multi-user.target
                     term_msg_surround("Cleaning disks");
                     let lab_id = get_id()?;
 
-                    let manifest = Manifest::load_file()?;
-
                     let qemu_conn = qemu.connect()?;
 
                     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
@@ -1301,7 +1294,7 @@ WantedBy=multi-user.target
 
                 // Find the device in the manifest
                 let device_ip = {
-                    if name == "boot-server" {
+                    if name == BOOT_SERVER_NAME {
                         get_ip(255)
                     } else {
                         let device = manifest

@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use std::fs;
 use virt::connect::Connect;
 use virt::storage_pool::StoragePool;
 

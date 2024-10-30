@@ -14,25 +14,25 @@ pub struct Manifest {
 
 impl Default for Manifest {
     fn default() -> Self {
-        let dev1 = Device {
-            name: "dev1".to_owned(),
+        let dev01 = Device {
+            name: "dev01".to_owned(),
             device_model: crate::model::DeviceModels::FedoraLinux,
             id: 1,
         };
-        let dev2 = Device {
-            name: "dev2".to_owned(),
+        let dev02 = Device {
+            name: "dev02".to_owned(),
             device_model: crate::model::DeviceModels::FedoraLinux,
             id: 2,
         };
 
         let connections = vec![Connection {
-            device_a: dev1.name.clone(),
+            device_a: dev01.name.clone(),
             interface_a: 0,
-            device_b: dev2.name.clone(),
+            device_b: dev02.name.clone(),
             interface_b: 0,
         }];
 
-        let devices: Vec<Device> = vec![dev1, dev2];
+        let devices: Vec<Device> = vec![dev01, dev02];
 
         Self {
             devices,
