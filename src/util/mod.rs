@@ -18,7 +18,7 @@ pub use crate::util::file_system::{
 pub use crate::util::ignition::{Contents, File, IgnitionConfig, Unit, User};
 pub use crate::util::ip::get_ip;
 pub use crate::util::mac::random_mac;
-pub use crate::util::output::{term_msg_surround, term_msg_underline};
+pub use crate::util::output::{term_msg_highlight, term_msg_surround, term_msg_underline};
 pub use crate::util::port::id_to_port;
 pub use crate::util::random::get_id;
 pub use crate::util::ssh::{

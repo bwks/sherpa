@@ -25,8 +25,8 @@ use crate::core::konst::{
     SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_ISOLATED_NETWORK_BRIDGE,
     SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME,
     SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO,
-    ZTP_JSON,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR,
+    ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -44,8 +44,8 @@ use crate::util::{
     base64_encode, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
     fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip, id_to_port,
     pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
-    term_msg_surround, term_msg_underline, Contents as IgnitionFileContents, DeviceIp,
-    File as IgnitionFile, IgnitionConfig, SshConfigTemplate, Unit as IgnitionUnit,
+    term_msg_highlight, term_msg_surround, term_msg_underline, Contents as IgnitionFileContents,
+    DeviceIp, File as IgnitionFile, IgnitionConfig, SshConfigTemplate, Unit as IgnitionUnit,
     User as IgnitionUser,
 };
 
@@ -170,7 +170,7 @@ impl Cli {
 
                 sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
 
-                println!("- Creating Files -");
+                term_msg_highlight("Creating Files");
                 // Create the default config directories
                 let config = if dir_exists(&sherpa.config_dir) && !*force {
                     println!("Directory path already exists: {}", sherpa.config_dir);
@@ -218,7 +218,7 @@ impl Cli {
                     generate_ssh_keypair(&sherpa.config_dir)?;
                 }
 
-                println!("- Creating Networks -");
+                term_msg_highlight("Creating Networks");
                 // Initialize the sherpa boot network
                 if qemu_conn
                     .list_networks()?
@@ -812,7 +812,7 @@ impl Cli {
 
                 // Boot Server
                 if config.ztp_server.enabled {
-                    let boot_server_name = format!("{}-{}", BOOT_SERVER_NAME, lab_id);
+                    let boot_server_name = format!("{BOOT_SERVER_NAME}-{lab_id}");
                     let dir = format!("{TEMP_DIR}/{boot_server_name}");
                     let ignition_user = IgnitionUser {
                         name: user.username,
@@ -826,7 +826,7 @@ impl Cli {
                         // filesystem: "root".to_owned(),
                         path: "/etc/hostname".to_owned(),
                         mode: 644,
-                        contents: IgnitionFileContents::new(&format!("data:,{}", BOOT_SERVER_NAME)),
+                        contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
                     };
                     let unit_webdir = IgnitionUnit::default();
                     let unit_tftp = IgnitionUnit {
@@ -849,6 +849,16 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 "#.to_owned(),
+                    };
+                    // files
+                    let sudo_config_base64 =
+                        base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
+                    let sudo_config_file = IgnitionFile {
+                        path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
+                        mode: 440,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{sudo_config_base64}"
+                        )),
                     };
                     let arista_ztp_base64 = base64_encode(&arista_rendered_template);
                     let arista_ztp_file = IgnitionFile {
@@ -899,6 +909,7 @@ WantedBy=multi-user.target
                     let ignition_config = IgnitionConfig::new(
                         vec![ignition_user],
                         vec![
+                            sudo_config_file,
                             hostname_file,
                             arista_ztp_file,
                             aruba_ztp_file,

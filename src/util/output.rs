@@ -19,3 +19,8 @@ pub fn term_msg_underline(message: &str) {
 {underline}"#,
     );
 }
+
+/// Prints an highlighted message to the terminal
+pub fn term_msg_highlight(message: &str) {
+    println!("- {message} - ");
+}
