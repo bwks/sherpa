@@ -17,17 +17,16 @@ use virt::sys;
 
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
-    BOOT_SERVER_MAC, BOOT_SERVER_NAME, BOXES_DIR, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
+    BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONFIG_DIR, CONFIG_FILE, CUMULUS_OUI,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_OUI, KVM_OUI, MANIFEST_FILE, MTU_JUMBO_INT,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_ISOLATED_NETWORK_BRIDGE,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
-    SHERPA_MANAGEMENT_NETWORK_HTTP_PORT, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_MANAGEMENT_NETWORK_TFTP_PORT, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR,
-    ZTP_ISO, ZTP_JSON,
+    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
+    HTTP_PORT, JUNIPER_OUI, KVM_OUI, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_ISOLATED_NETWORK_BRIDGE,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO,
+    ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -76,11 +75,11 @@ enum Commands {
     /// Initialise a Sherpa environment
     Init {
         /// Name of the config file
-        #[arg(default_value = CONFIG_FILE)]
+        #[arg(default_value = SHERPA_CONFIG_FILE)]
         config_file: String,
 
         /// Name of the manifest file
-        #[arg(default_value = MANIFEST_FILE)]
+        #[arg(default_value = SHERPA_MANIFEST_FILE)]
         manifest_file: String,
 
         /// Overwrite config file if one exists
@@ -90,7 +89,7 @@ enum Commands {
     /// Build environment
     Up {
         /// Name of the config file
-        #[arg(default_value = CONFIG_FILE)]
+        #[arg(default_value = SHERPA_CONFIG_FILE)]
         config_file: String,
     },
     /// Stop environment
@@ -147,8 +146,8 @@ enum Commands {
 impl Default for Commands {
     fn default() -> Self {
         Commands::Init {
-            config_file: CONFIG_FILE.to_owned(),
-            manifest_file: MANIFEST_FILE.to_owned(),
+            config_file: SHERPA_CONFIG_FILE.to_owned(),
+            manifest_file: SHERPA_MANIFEST_FILE.to_owned(),
             force: false,
         }
     }
@@ -229,17 +228,21 @@ impl Cli {
                     println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
                 } else {
                     println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
-                    let last_usable_ipv4 = config.management_prefix_ipv4.size() - 2;
+                    let ipv4_network_size = config.management_prefix_ipv4.size();
                     let management_network = ManagementNetwork {
                         network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
                         bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
-                        ipv4_address: config.management_prefix_ipv4.network(),
+                        ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
                         ipv4_netmask: config.management_prefix_ipv4.mask(),
+                        ipv4_default_gateway: config.management_prefix_ipv4.nth(1).unwrap(),
                         dhcp_start: config.management_prefix_ipv4.nth(5).unwrap(),
-                        dhcp_end: config.management_prefix_ipv4.nth(last_usable_ipv4).unwrap(),
-                        ztp_http_port: SHERPA_MANAGEMENT_NETWORK_HTTP_PORT,
-                        ztp_tftp_port: SHERPA_MANAGEMENT_NETWORK_TFTP_PORT,
-                        ztp_server_ipv4: config.ztp_server.ipv4_address,
+                        dhcp_end: config
+                            .management_prefix_ipv4
+                            .nth(ipv4_network_size - 2)
+                            .unwrap(),
+                        ztp_http_port: HTTP_PORT,
+                        ztp_tftp_port: TFTP_PORT,
+                        ztp_server_ipv4: config.management_prefix_ipv4.nth(5).unwrap(),
                         ztp_server_name: BOOT_SERVER_NAME.to_owned(),
                     };
                     management_network.create(&qemu_conn)?;
@@ -1246,13 +1249,13 @@ WantedBy=multi-user.target
                 }
 
                 println!("Setting base box files to read-only");
-                fix_permissions_recursive(&format!("{CONFIG_DIR}/{BOXES_DIR}"))?;
+                fix_permissions_recursive(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"))?;
             }
             Commands::Doctor { boxes } => {
                 if *boxes {
                     term_msg_surround("Fixing base box permissions");
 
-                    fix_permissions_recursive(&format!("{CONFIG_DIR}/{BOXES_DIR}"))?;
+                    fix_permissions_recursive(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"))?;
                 }
             }
             Commands::Clean {

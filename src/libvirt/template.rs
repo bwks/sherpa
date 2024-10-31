@@ -213,7 +213,7 @@ pub struct DomainTemplate {
 #[template(
     source = r#"#cloud-config
 hostname: {{ hostname }}
-fqdn: {{ hostname }}.{{ crate::core::konst::DOMAIN_NAME }}
+fqdn: {{ hostname }}.{{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 {%- if password_auth %}
 ssh_pwauth: True
 {%- endif %}
@@ -260,7 +260,7 @@ trap error ERR
 
 #Configs
 nv set system hostname {{ hostname }}
-nv set service dns default search {{ hostname }}.{{ crate::core::konst::DOMAIN_NAME }}
+nv set service dns default search {{ hostname }}.{{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 {%- for user in users %}
 nv set system aaa user {{ user.username }}
 {%-   if let Some(password) = user.password %}
@@ -288,7 +288,7 @@ pub struct CumulusLinuxZtpTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
-dns domain {{ crate::core::konst::DOMAIN_NAME }}
+dns domain {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 !
 no aaa root
 !
@@ -321,7 +321,7 @@ pub struct AristaVeosZtpTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
-ip domain name {{ crate::core::konst::DOMAIN_NAME }}
+ip domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 no ip domain lookup
 crypto key generate rsa modulus 2048
 ip ssh version 2
@@ -371,7 +371,7 @@ pub struct CiscoIosXeZtpTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
-ip domain name {{ crate::core::konst::DOMAIN_NAME }}
+ip domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 no ip domain lookup
 crypto key generate rsa modulus 2048
 ip ssh version 2
@@ -457,7 +457,7 @@ crypto key generate rsa modulus 2048 noconfirm
 ssh 0.0.0.0 0.0.0.0 management
 http server enable
 http 0.0.0.0 0.0.0.0 management
-domain-name {{ crate::core::konst::DOMAIN_NAME }}
+domain-name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 !
 {%- for user in users %}
 {%-   if let Some(password) = user.password %}
@@ -519,7 +519,7 @@ pub struct CiscoNxosZtpTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
-domain name {{ crate::core::konst::DOMAIN_NAME }}
+domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 username admin
  group root-lr
  group cisco-support
@@ -571,7 +571,7 @@ pub struct CiscoIosxrZtpTemplate {
 #[template(
     source = r#"!
 hostname {{ hostname }}
-domain-name {{ crate::core::konst::DOMAIN_NAME }}
+domain-name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 user admin group administrators password plaintext {{ crate::core::konst::SHERPA_PASSWORD }}
 {%- for user in users %}
 user {{ user.username }} {% if user.sudo %} group administrators{% endif %}{% if let Some(password) = user.password %} password plaintext {{ password }}{% endif %}

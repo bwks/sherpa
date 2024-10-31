@@ -23,7 +23,7 @@ pub struct DeviceIp {
 #[template(
     source = r#"Host *
     User {{ crate::core::konst::SHERPA_USERNAME }}
-    IdentityFile {{ crate::core::konst::CONFIG_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
+    IdentityFile {{ crate::core::konst::SHERPA_CONFIG_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
     IdentitiesOnly yes
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null

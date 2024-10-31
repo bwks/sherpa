@@ -1,5 +1,4 @@
 use std::fs;
-use std::net::Ipv4Addr;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -8,8 +7,8 @@ use ipnetwork::Ipv4Network;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::konst::{
-    BOXES_DIR, CONFIG_DIR, CONFIG_FILE, QEMU_BIN, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD,
-    SHERPA_USERNAME,
+    QEMU_BIN, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 use crate::model::DeviceModel;
 use crate::model::VmProviders;
@@ -18,7 +17,6 @@ use crate::util::{create_file, expand_path};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ZtpServer {
     pub enabled: bool,
-    pub ipv4_address: Ipv4Addr,
     pub username: String,
     pub password: String,
 }
@@ -63,13 +61,12 @@ impl Default for Config {
 
         let ztp_server = ZtpServer {
             enabled: true,
-            ipv4_address: mgmt_prefix_ipv4.nth(5).unwrap(),
             username: SHERPA_USERNAME.to_owned(),
             password: SHERPA_PASSWORD.to_owned(),
         };
 
         Config {
-            name: CONFIG_FILE.to_owned(),
+            name: SHERPA_CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
@@ -104,9 +101,9 @@ pub struct Sherpa {
 
 impl Default for Sherpa {
     fn default() -> Self {
-        let config_dir = expand_path(CONFIG_DIR);
-        let boxes_dir = expand_path(&format!("{config_dir}/{BOXES_DIR}"));
-        let config_path = expand_path(&format!("{CONFIG_DIR}/{CONFIG_FILE}"));
+        let config_dir = expand_path(SHERPA_CONFIG_DIR);
+        let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"));
+        let config_path = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}"));
         Self {
             config_dir,
             config_path,

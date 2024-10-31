@@ -10,7 +10,7 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
     CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
-    DOMAIN_NAME, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_NET,
+    JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_NET, SHERPA_DOMAIN_NAME,
     SHERPA_MANAGEMENT_NETWORK_HTTP_SERVER,
 };
 
@@ -52,6 +52,7 @@ pub struct ManagementNetwork {
     pub bridge_name: String,
     pub ipv4_address: Ipv4Addr,
     pub ipv4_netmask: Ipv4Addr,
+    pub ipv4_default_gateway: Ipv4Addr,
     pub dhcp_start: Ipv4Addr,
     pub dhcp_end: Ipv4Addr,
     pub ztp_http_port: u16,
@@ -70,6 +71,7 @@ impl ManagementNetwork {
         let bridge_name = &self.bridge_name;
         let ipv4_address = &self.ipv4_address;
         let ipv4_netmask = &self.ipv4_netmask;
+        let ipv4_default_gateway = &self.ipv4_default_gateway;
         let dhcp_start = &self.dhcp_start;
         let dhcp_end = &self.dhcp_end;
         let ztp_http_port = &self.ztp_http_port;
@@ -80,6 +82,9 @@ impl ManagementNetwork {
             r#"
         <network connections='1' xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
           <dnsmasq:options>
+            <dnsmasq:option value="dhcp-option=3,{ipv4_default_gateway}"/>
+            <dnsmasq:option value="dhcp-option=150,{ztp_server_ipv4}"/>
+            <dnsmasq:option value="dhcp-ignore-clid"/>
 
             <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{ztp_server_ipv4}:{ztp_http_port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
@@ -100,9 +105,6 @@ impl ManagementNetwork {
             <dnsmasq:option value="dhcp-mac=set:cumulus,{CUMULUS_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:aruba,{ARUBA_OUI}:*:*:*"/>
 
-            <dnsmasq:option value="dhcp-ignore-clid"/>
-
-            <dnsmasq:option value="dhcp-option=150,{ztp_server_ipv4}"/>
           </dnsmasq:options>
 
           <name>{network_name}</name>
@@ -117,7 +119,7 @@ impl ManagementNetwork {
 
           <bridge name='{bridge_name}' stp='on' delay='0'/>
           
-          <domain name='{DOMAIN_NAME}' localOnly='yes'/>
+          <domain name='{SHERPA_DOMAIN_NAME}' localOnly='yes'/>
           
           <dns enable='yes'/>
           
