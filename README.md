@@ -36,6 +36,7 @@ Ensure that you have the required packages installed. There is the list of packa
   - libvirt-dev
   - bridge-utils
   - virtinst
+  - libosinfo-bin # Guest OS KVM info
   - libguestfs-tools # disk images
   - ovmf # UEFI Firmware
   - genisoimage # ISO Creation
@@ -68,6 +69,7 @@ sudo systemctl restart libvirtd.service
 | Vendor        | Model             | Minimum Tested Version | Status             | ZTP Method         |
 | ------------- | ----------------- | ---------------------- | :----------------: | :----------------: |
 | Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP               |
+| Aruba         | AOS-CX            | 10.07                  | :white_check_mark: | TFTP               |
 | Cisco         | ASAv              | 9.20.2                 | :white_check_mark: | CDROM              |
 | Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: | CDROM              |
 | Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: | CDROM              |
@@ -76,6 +78,9 @@ sudo systemctl restart libvirtd.service
 | Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
 | Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | N/A                |
 | Cisco         | IOSv L2           | 20200920               | :white_check_mark: | N/A                |
+| Juniper       | vRouter           | TBA                    | :Planned:          | CDROM              |
+| Juniper       | vSwitch           | TBA                    | :Planned:          | CDROM              |
+| Juniper       | vSRX              | TBA                    | :Planned:          | CDROM              |
 | Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | HTTP               |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | CDROM              |

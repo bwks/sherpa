@@ -7,11 +7,10 @@ use virt::network::Network;
 
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
-    BOOT_SERVER_MAC, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI,
+    BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
     CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
     JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_NET, SHERPA_DOMAIN_NAME,
-    SHERPA_MANAGEMENT_NETWORK_HTTP_SERVER,
 };
 
 pub struct IsolatedNetwork {
@@ -58,7 +57,6 @@ pub struct ManagementNetwork {
     pub ztp_http_port: u16,
     pub ztp_tftp_port: u16,
     pub ztp_server_ipv4: Ipv4Addr,
-    pub ztp_server_name: String,
 }
 impl ManagementNetwork {
     // Using network namespaces to push config down to dnsmasq.
@@ -77,7 +75,6 @@ impl ManagementNetwork {
         let ztp_http_port = &self.ztp_http_port;
         let ztp_tftp_port = &self.ztp_tftp_port;
         let ztp_server_ipv4 = &self.ztp_server_ipv4;
-        let ztp_server_name = &self.ztp_server_name;
         let network_xml = format!(
             r#"
         <network connections='1' xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
@@ -91,10 +88,11 @@ impl ManagementNetwork {
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxr,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXR_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{ztp_server_ipv4}:{ztp_http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{ztp_server_ipv4}:{ztp_http_port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:aruba,66,{ztp_server_ipv4}:{ztp_tftp_port}"/>
             <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:juniper,66,{ztp_server_ipv4}:{ztp_tftp_port}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
 
             <dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cisco_iosxe,{CISCO_IOSXE_OUI}:*:*:*"/>
@@ -128,7 +126,7 @@ impl ManagementNetwork {
               <range start='{dhcp_start}' end='{dhcp_end}'>
                 <lease expiry='1' unit='hours'/>
               </range>
-              <host mac='{BOOT_SERVER_MAC}' name='{ztp_server_name}' ip='{SHERPA_MANAGEMENT_NETWORK_HTTP_SERVER}'/>
+              <host mac='{BOOT_SERVER_MAC}' name='{BOOT_SERVER_NAME}' ip='{ztp_server_ipv4}'/>
             </dhcp>
           </ip>
         

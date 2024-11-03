@@ -10,6 +10,6 @@ pub use crate::libvirt::storage::SherpaStoragePool;
 pub use crate::libvirt::template::{
     AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
     CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitTemplate,
-    CumulusLinuxZtpTemplate, DomainTemplate,
+    CumulusLinuxZtpTemplate, DomainTemplate, JunipervJunosZtpTemplate,
 };
 pub use crate::libvirt::vm::{clone_disk, create_vm, delete_disk, get_mgmt_ip};

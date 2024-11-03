@@ -22,16 +22,11 @@ pub enum DeviceModels {
     CiscoNexus9300v,
     CiscoIosv,
     CiscoIosvl2,
-    #[serde(rename(
-        serialize = "juniper_vjunos_router",
-        deserialize = "juniper_vjunos_router"
-    ))]
-    JuniperVjunosRouter,
-    #[serde(rename(
-        serialize = "juniper_vjunos_switch",
-        deserialize = "juniper_vjunos_switch"
-    ))]
-    JuniperVjunosSwitch,
+    #[serde(rename(serialize = "juniper_vrouter", deserialize = "juniper_vrouter"))]
+    JuniperVrouter,
+    #[serde(rename(serialize = "juniper_vswitch", deserialize = "juniper_vswitch"))]
+    JuniperVswitch,
+    JuniperVsrxv3,
     NokiaVsr,
     CumulusLinux,
     CentosLinux,
@@ -56,8 +51,9 @@ impl fmt::Display for DeviceModels {
             DeviceModels::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
             DeviceModels::CiscoIosv => write!(f, "cisco_iosv"),
             DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
-            DeviceModels::JuniperVjunosRouter => write!(f, "juniper_vjunos_router"),
-            DeviceModels::JuniperVjunosSwitch => write!(f, "juniper_vjunos_switch"),
+            DeviceModels::JuniperVrouter => write!(f, "juniper_vrouter"),
+            DeviceModels::JuniperVswitch => write!(f, "juniper_vswitch"),
+            DeviceModels::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
             DeviceModels::NokiaVsr => write!(f, "nokia_vsr"),
             DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
             DeviceModels::CentosLinux => write!(f, "centos_linux"),
@@ -260,8 +256,9 @@ impl DeviceModel {
             DeviceModels::CiscoNexus9300v => DeviceModel::cisco_nexus9300v(),
             DeviceModels::CiscoIosv => DeviceModel::cisco_iosv(),
             DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
-            DeviceModels::JuniperVjunosRouter => DeviceModel::juniper_vjunos_router(),
-            DeviceModels::JuniperVjunosSwitch => DeviceModel::juniper_vjunos_switch(),
+            DeviceModels::JuniperVrouter => DeviceModel::juniper_vrouter(),
+            DeviceModels::JuniperVswitch => DeviceModel::juniper_vswitch(),
+            DeviceModels::JuniperVsrxv3 => DeviceModel::juniper_vsrxv3(),
             DeviceModels::NokiaVsr => DeviceModel::nokia_vsr(),
             DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
             DeviceModels::CentosLinux => DeviceModel::centos_linux(),
@@ -545,10 +542,10 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vjunos_router() -> DeviceModel {
+    pub fn juniper_vrouter() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::JuniperVjunosRouter,
+            name: DeviceModels::JuniperVrouter,
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
             bios: BiosTypes::SeaBios,
@@ -559,23 +556,23 @@ impl DeviceModel {
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
-            vmx_enabled: false,
+            vmx_enabled: true,
             memory: 5120,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
+            ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Http,
+            ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 2,
         }
     }
-    pub fn juniper_vjunos_switch() -> DeviceModel {
+    pub fn juniper_vswitch() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::JuniperVjunosSwitch,
+            name: DeviceModels::JuniperVswitch,
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
             bios: BiosTypes::SeaBios,
@@ -586,17 +583,44 @@ impl DeviceModel {
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             machine_type: MachineTypes::PcQ35_6_2,
-            vmx_enabled: false,
+            vmx_enabled: true,
             memory: 5120,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: false,
+            ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Http,
+            ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 2,
+        }
+    }
+    pub fn juniper_vsrxv3() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::JuniperVsrxv3,
+            os_variant: OsVariants::Junos,
+            manufacturer: Manufacturers::Juniper,
+            bios: BiosTypes::SeaBios,
+            interface_count: 8,
+            interface_prefix: "ge-0/0/".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            vmx_enabled: true,
+            memory: 4096,
+            hdd_count: 1,
+            cdrom: None,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Cdrom,
+            ztp_password_auth: false,
+            management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn cumulus_linux() -> DeviceModel {

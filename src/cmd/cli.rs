@@ -21,19 +21,19 @@ use crate::core::konst::{
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
-    HTTP_PORT, JUNIPER_OUI, KVM_OUI, MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_ISOLATED_NETWORK_BRIDGE,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR,
-    ZTP_ISO, ZTP_JSON,
+    HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI, MTU_JUMBO_INT,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
+    SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_vm, delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, ArubaAoscxTemplate,
     CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate,
-    IsolatedNetwork, ManagementNetwork, Qemu, SherpaStoragePool,
+    IsolatedNetwork, JunipervJunosZtpTemplate, ManagementNetwork, Qemu, SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -243,7 +243,6 @@ impl Cli {
                         ztp_http_port: HTTP_PORT,
                         ztp_tftp_port: TFTP_PORT,
                         ztp_server_ipv4: config.management_prefix_ipv4.nth(5).unwrap(),
-                        ztp_server_name: BOOT_SERVER_NAME.to_owned(),
                     };
                     management_network.create(&qemu_conn)?;
                 }
@@ -354,6 +353,21 @@ impl Cli {
                 let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
                 create_file(&cisco_iosv_ztp_config, iosv_rendered_template.clone())?;
 
+                // Juniper vrouter
+                let juniper_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{JUNIPER_ZTP_DIR}");
+                create_dir(&juniper_dir)?;
+
+                let juniper_vjunos_template = JunipervJunosZtpTemplate {
+                    hostname: "vjunos-ztp".to_owned(),
+                    users: vec![sherpa_user.clone()],
+                };
+                let juniper_vjunos_rendered_template = juniper_vjunos_template.render()?;
+                let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");
+                create_file(
+                    &juniper_vjunos_ztp_config,
+                    juniper_vjunos_rendered_template.clone(),
+                )?;
+
                 // Create a mapping of device name to device id.
                 let dev_id_map: HashMap<String, u8> = manifest
                     .devices
@@ -387,9 +401,9 @@ impl Cli {
                         }
                         DeviceModels::CiscoNexus9300v => random_mac(CISCO_NXOS_OUI),
                         DeviceModels::CiscoIosxrv9000 => random_mac(CISCO_IOSXR_OUI),
-                        DeviceModels::JuniperVjunosRouter | DeviceModels::JuniperVjunosSwitch => {
-                            random_mac(JUNIPER_OUI)
-                        }
+                        DeviceModels::JuniperVrouter
+                        | DeviceModels::JuniperVswitch
+                        | DeviceModels::JuniperVsrxv3 => random_mac(JUNIPER_OUI),
                         DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
                         DeviceModels::FlatcarLinux => BOOT_SERVER_MAC.to_owned(),
                         _ => random_mac(KVM_OUI),
@@ -584,6 +598,17 @@ impl Cli {
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                                    }
+                                    DeviceModels::JuniperVsrxv3 => {
+                                        let t = JunipervJunosZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
                                         create_dir(&dir)?;
                                         create_file(&ztp_config, rendered_template)?;
                                         create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
@@ -906,6 +931,17 @@ WantedBy=multi-user.target
                         )),
                     };
 
+                    let juniper_vjunos_ztp_base64 =
+                        base64_encode(&juniper_vjunos_rendered_template);
+                    let juniper_vjunos_ztp_file = IgnitionFile {
+                        // filesystem: "root".to_owned(),
+                        path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"),
+                        mode: 644,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{juniper_vjunos_ztp_base64}"
+                        )),
+                    };
+
                     let ignition_config = IgnitionConfig::new(
                         vec![ignition_user],
                         vec![
@@ -916,6 +952,7 @@ WantedBy=multi-user.target
                             cumulus_ztp_file,
                             iosxe_ztp_file,
                             iosv_ztp_file,
+                            juniper_vjunos_ztp_file,
                         ],
                         vec![],
                         vec![unit_webdir, unit_tftp], // vec![link_default],
