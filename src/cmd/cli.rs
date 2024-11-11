@@ -296,6 +296,7 @@ impl Cli {
                 let arista_template = AristaVeosZtpTemplate {
                     hostname: "veos-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
+                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
                 };
                 let arista_rendered_template = arista_template.render()?;
                 let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");

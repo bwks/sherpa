@@ -297,6 +297,7 @@ pub struct CumulusLinuxZtpTemplate {
     source = r#"!
 hostname {{ hostname }}
 dns domain {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+ip name-server {{ name_server }}
 !
 no aaa root
 !
@@ -323,6 +324,7 @@ end
 pub struct AristaVeosZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
+    pub name_server: Ipv4Addr,
 }
 
 #[derive(Template)]
