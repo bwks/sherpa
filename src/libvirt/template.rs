@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use askama::Template;
 
 use crate::model::{
@@ -328,7 +330,7 @@ pub struct AristaVeosZtpTemplate {
     source = r#"!
 hostname {{ hostname }}
 ip domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-no ip domain lookup
+ip name-server {{ name_server }}
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
@@ -371,6 +373,7 @@ pub struct CiscoIosXeZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
+    pub name_server: Ipv4Addr,
 }
 
 #[derive(Template)]

@@ -273,12 +273,11 @@ impl Cli {
                 term_msg_surround("Building environment");
 
                 // TODO: allow config file to be specified.
-                let _config_file = config_file;
+                println!("Loading config");
+                sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
+                let config = Config::load(&sherpa.config_path)?;
 
                 let qemu_conn = Arc::new(qemu.connect()?);
-
-                println!("Loading config");
-                let config = Config::load(&sherpa.config_path)?;
 
                 println!("Loading manifest");
                 let manifest = Manifest::load_file()?;
@@ -338,6 +337,7 @@ impl Cli {
                     hostname: "iosxe-ztp".to_owned(),
                     users: vec![cisco_user.clone()],
                     mgmt_interface: "GigabitEthernet1".to_owned(),
+                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
                 };
                 let iosxe_rendered_template = cisco_iosxe_template.render()?;
                 let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
@@ -558,6 +558,10 @@ impl Cli {
                                             hostname: device.name.clone(),
                                             users: vec![user],
                                             mgmt_interface: "GigabitEthernet1".to_owned(),
+                                            name_server: config
+                                                .management_prefix_ipv4
+                                                .nth(1)
+                                                .unwrap(),
                                         };
                                         let rendered_template = t.render()?;
                                         let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
