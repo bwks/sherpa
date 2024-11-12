@@ -103,11 +103,12 @@ use crate::model::{
     <disk type='file' device='disk'>
       <driver name='qemu' type='raw'/>
       <source file='{{ usb_disk }}'/>
-      <target dev='sdc' bus='usb'/>
+      <target dev='sdc' bus='usb' removable='on'/>
+      <address type='usb' bus='0' port='1'/>
     </disk>
     {% endif %}
 
-    <controller type='usb' index='0' model='piix3-uhci'>
+    <controller type='usb' index='0' model='qemu-xhci'>
       <alias name='usb'/>
     </controller>
 
@@ -268,7 +269,7 @@ trap error ERR
 
 #Configs
 nv set system hostname {{ hostname }}
-nv set service dns default search {{ hostname }}.{{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+nv set service dns default search {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
 {%- for user in users %}
 nv set system aaa user {{ user.username }}
 {%-   if let Some(password) = user.password %}
@@ -285,7 +286,7 @@ nv config apply --assume-yes --message "ZTP config"
 
 exit 0
 "#,
-    ext = "yml"
+    ext = "txt"
 )]
 pub struct CumulusLinuxZtpTemplate {
     pub hostname: String,

@@ -43,6 +43,17 @@ Ensure that you have the required packages installed. There is the list of packa
   - telnet # Connect to VM serial consoles
   - ssh # connect to VM via SSH
   - virt-manager # Optional, gui view of VMs
+  - mtools # Copy files to fat formatted drives
+```
+
+```
+10025  qemu-img create -f raw usb_config.img 32M
+10026  mkfs.vfat usb_config.img
+10027  echo "beuler, beuler" >> config.txt
+10028  mcopy -i usb_config.img config.txt ::/
+10029  mdir -i usb_config.img ::
+10030  7z l usb_config.img
+10031  file usb_config.img
 ```
 
 ### SELINUX

@@ -20,13 +20,14 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
-    HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI, MTU_JUMBO_INT,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
-    SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
+    CUMULUS_ZTP_DIR, HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI,
+    MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR,
+    SHERPA_CONFIG_FILE, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT,
+    TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
@@ -41,9 +42,9 @@ use crate::model::{
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
-    base64_encode, copy_file, create_dir, create_file, create_ztp_iso, dir_exists, file_exists,
-    fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip, id_to_port,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso,
+    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip,
+    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_highlight, term_msg_surround, term_msg_underline, Contents as IgnitionFileContents,
     DeviceIp, File as IgnitionFile, IgnitionConfig, SshConfigTemplate, Unit as IgnitionUnit,
     User as IgnitionUser,
@@ -537,7 +538,7 @@ impl Cli {
                         None => (None, None),
                     };
 
-                    // let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
+                    let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
 
                     if device_model.ztp_enable {
                         match device_model.ztp_method {
@@ -656,8 +657,48 @@ impl Cli {
 
                                 match device_model.os_variant {
                                     OsVariants::Aos => {}
-                                    OsVariants::CumulusLinux => {}
                                     OsVariants::Eos => {}
+                                    _ => {
+                                        anyhow::bail!(
+                                            "HTTP ZTP method not supported for {}",
+                                            device_model.name
+                                        );
+                                    }
+                                }
+                            }
+                            ZtpMethods::Usb => {
+                                // generate the template
+                                println!("Creating ZTP config {}", device.name);
+                                let user = user.clone();
+                                let dir = format!("{TEMP_DIR}/{vm_name}");
+
+                                match device_model.os_variant {
+                                    OsVariants::CumulusLinux => {
+                                        let t = CumulusLinuxZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        // clone USB disk
+                                        let src_usb = format!(
+                                            "{}/{}/{}",
+                                            &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                        );
+                                        let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+
+                                        // Create a copy of the usb base image
+                                        copy_file(&src_usb, &dst_usb)?;
+                                        // copy file to USB disk
+                                        copy_to_usb_image(&ztp_config, &dst_usb)?;
+
+                                        src_usb_disk = Some(dst_usb.to_owned());
+                                        dst_usb_disk = Some(format!(
+                                            "{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"
+                                        ));
+                                    }
                                     _ => {
                                         anyhow::bail!(
                                             "HTTP ZTP method not supported for {}",
@@ -806,13 +847,13 @@ impl Cli {
                             dst: dst_cdrom_iso.clone().unwrap(),
                         })
                     }
-                    // if dst_usb_disk.is_some() {
-                    //     copy_disks.push(CloneDisk {
-                    //         // These should always have a value.
-                    //         src: src_usb_disk.unwrap(),
-                    //         dst: dst_usb_disk.clone().unwrap(),
-                    //     })
-                    // }
+                    if dst_usb_disk.is_some() {
+                        copy_disks.push(CloneDisk {
+                            // These should always have a value.
+                            src: src_usb_disk.unwrap(),
+                            dst: dst_usb_disk.clone().unwrap(),
+                        })
+                    }
                     let ignition_config = match device_model.name {
                         DeviceModels::FlatcarLinux => Some(true),
                         _ => None,
@@ -829,7 +870,7 @@ impl Cli {
                         bios: device_model.bios.clone(),
                         boot_disk: dst_boot_disk,
                         cdrom: dst_cdrom_iso,
-                        usb_disk: None,
+                        usb_disk: dst_usb_disk,
                         ignition_config,
                         interfaces,
                         interface_type: device_model.interface_type.clone(),
@@ -1219,6 +1260,13 @@ WantedBy=multi-user.target
                         if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{ign_name}")) {
                             delete_disk(&qemu_conn, &ign_name)?;
                             println!("Deleted Ignition: {ign_name}");
+                        }
+
+                        // USB Image
+                        let usb_name = format!("{vm_name}.img");
+                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{usb_name}")) {
+                            delete_disk(&qemu_conn, &usb_name)?;
+                            println!("Deleted USB Disk: {usb_name}");
                         }
                     }
                 }
