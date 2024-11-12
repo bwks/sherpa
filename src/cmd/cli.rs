@@ -322,6 +322,7 @@ impl Cli {
                 let cumulus_template = CumulusLinuxZtpTemplate {
                     hostname: "cumulus-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
+                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
                 };
                 let cumulus_rendered_template = cumulus_template.render()?;
                 let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
@@ -677,6 +678,10 @@ impl Cli {
                                         let t = CumulusLinuxZtpTemplate {
                                             hostname: device.name.clone(),
                                             users: vec![user],
+                                            name_server: config
+                                                .management_prefix_ipv4
+                                                .nth(1)
+                                                .unwrap(),
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
