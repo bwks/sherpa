@@ -92,7 +92,7 @@ sudo systemctl restart libvirtd.service
 | Juniper       | vRouter           | TBA                    | :Planned:          | CDROM              |
 | Juniper       | vSwitch           | TBA                    | :Planned:          | CDROM              |
 | Juniper       | vSRX              | TBA                    | :Planned:          | CDROM              |
-| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | HTTP               |
+| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | CDROM              |
 | RedHat        | Fedora Linux      | 40-1.14                | :white_check_mark: | CDROM              |

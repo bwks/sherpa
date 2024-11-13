@@ -16,10 +16,10 @@ use virt::storage_vol::StorageVol;
 use virt::sys;
 
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
-    BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
+    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
+    ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
+    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
+    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
     CUMULUS_ZTP_DIR, HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI,
     MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR,
@@ -49,6 +49,8 @@ use crate::util::{
     DeviceIp, File as IgnitionFile, IgnitionConfig, SshConfigTemplate, Unit as IgnitionUnit,
     User as IgnitionUser,
 };
+
+use crate::bootstrap::arista_veos_ztp_script;
 
 // Used to clone disk for VM creation
 struct CloneDisk {
@@ -294,14 +296,18 @@ impl Cli {
                 let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
                 create_dir(&arista_dir)?;
 
-                let arista_template = AristaVeosZtpTemplate {
-                    hostname: "veos-ztp".to_owned(),
-                    users: vec![sherpa_user.clone()],
-                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
-                };
-                let arista_rendered_template = arista_template.render()?;
-                let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
-                create_file(&arista_ztp_config, arista_rendered_template.clone())?;
+                // let arista_template = AristaVeosZtpTemplate {
+                //     hostname: "veos-ztp".to_owned(),
+                //     users: vec![sherpa_user.clone()],
+                //     name_server: config.management_prefix_ipv4.nth(1).unwrap(),
+                // };
+                // let arista_rendered_template = arista_template.render()?;
+                // let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
+                // create_file(&arista_ztp_config, arista_rendered_template.clone())?;
+
+                let arista_ztp_file = format!("{arista_dir}/{ARISTA_VEOS_ZTP_SCRIPT}");
+                let arista_ztp_script = arista_veos_ztp_script();
+                create_file(&arista_ztp_file, arista_ztp_script.clone())?;
 
                 // Aruba AOS
                 let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
@@ -697,7 +703,37 @@ impl Cli {
                                         // Create a copy of the usb base image
                                         copy_file(&src_usb, &dst_usb)?;
                                         // copy file to USB disk
-                                        copy_to_usb_image(&ztp_config, &dst_usb)?;
+                                        copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
+
+                                        src_usb_disk = Some(dst_usb.to_owned());
+                                        dst_usb_disk = Some(format!(
+                                            "{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"
+                                        ));
+                                    }
+                                    OsVariants::Eos => {
+                                        let t = AristaVeosZtpTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![user],
+                                            name_server: config
+                                                .management_prefix_ipv4
+                                                .nth(1)
+                                                .unwrap(),
+                                        };
+                                        let rendered_template = t.render()?;
+                                        let ztp_config = format!("{dir}/{ARISTA_VEOS_ZTP}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, rendered_template)?;
+                                        // clone USB disk
+                                        let src_usb = format!(
+                                            "{}/{}/{}",
+                                            &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                        );
+                                        let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+
+                                        // Create a copy of the usb base image
+                                        copy_file(&src_usb, &dst_usb)?;
+                                        // copy file to USB disk
+                                        copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
 
                                         src_usb_disk = Some(dst_usb.to_owned());
                                         dst_usb_disk = Some(format!(
@@ -936,10 +972,10 @@ WantedBy=multi-user.target
                             "data:;base64,{sudo_config_base64}"
                         )),
                     };
-                    let arista_ztp_base64 = base64_encode(&arista_rendered_template);
+                    let arista_ztp_base64 = base64_encode(&arista_ztp_script);
                     let arista_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
-                        path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"),
+                        path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
                         mode: 644,
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{arista_ztp_base64}"

@@ -6,7 +6,7 @@ use virt::connect::Connect;
 use virt::network::Network;
 
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP_CONFIG, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
+    ARISTA_OUI, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR,
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
     CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
@@ -83,7 +83,7 @@ impl ManagementNetwork {
             <dnsmasq:option value="dhcp-option=150,{ztp_server_ipv4}"/>
             <dnsmasq:option value="dhcp-ignore-clid"/>
 
-            <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{ztp_server_ipv4}:{ztp_http_port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{ztp_server_ipv4}:{ztp_http_port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>

@@ -125,9 +125,9 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
 /// Copy a file to a virtual USB disk image using the `mcopy` command.
 ///
 /// `mcopy` must be installed on the system.
-pub fn copy_to_usb_image(src_file: &str, dst_image: &str) -> Result<()> {
+pub fn copy_to_usb_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
     Command::new("mcopy")
-        .args(["-i", dst_image, src_file, "::/"])
+        .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
         .status()?;
     println!("File copied successfully to USB image: {dst_image}");
 
