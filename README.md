@@ -47,13 +47,13 @@ Ensure that you have the required packages installed. There is the list of packa
 ```
 
 ```
-10025  qemu-img create -f raw usb_config.img 32M
-10026  mkfs.vfat usb_config.img
-10027  echo "beuler, beuler" >> config.txt
-10028  mcopy -i usb_config.img config.txt ::/
-10029  mdir -i usb_config.img ::
-10030  7z l usb_config.img
-10031  file usb_config.img
+qemu-img create -f raw usb_config.img 32M
+mkfs.vfat usb_config.img
+echo "beuler, beuler" >> config.txt
+mcopy -i usb_config.img config.txt ::/
+mdir -i usb_config.img ::
+7z l usb_config.img
+file usb_config.img
 ```
 
 ### SELINUX
@@ -79,7 +79,7 @@ sudo systemctl restart libvirtd.service
 
 | Vendor        | Model             | Minimum Tested Version | Status             | ZTP Method         |
 | ------------- | ----------------- | ---------------------- | :----------------: | :----------------: |
-| Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP               |
+| Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP+USB           |
 | Aruba         | AOS-CX            | 10.07                  | :white_check_mark: | TFTP               |
 | Cisco         | ASAv              | 9.20.2                 | :white_check_mark: | CDROM              |
 | Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: | CDROM              |
@@ -92,7 +92,7 @@ sudo systemctl restart libvirtd.service
 | Juniper       | vRouter           | TBA                    | :Planned:          | CDROM              |
 | Juniper       | vSwitch           | TBA                    | :Planned:          | CDROM              |
 | Juniper       | vSRX              | TBA                    | :Planned:          | CDROM              |
-| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
+| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB               |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | CDROM              |
 | RedHat        | Fedora Linux      | 40-1.14                | :white_check_mark: | CDROM              |
