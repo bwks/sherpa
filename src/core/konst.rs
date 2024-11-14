@@ -37,7 +37,7 @@ pub const CISCO_IOSXR_OUI: &str = "02:02:03";
 pub const JUNIPER_OUI: &str = "02:03:00";
 pub const CUMULUS_OUI: &str = "02:04:00";
 pub const ARUBA_OUI: &str = "02:05:00";
-pub const BOOT_SERVER_MAC: &str = "02:ff:00:00:b0:07";
+pub const BOOT_SERVER_MAC: &str = "02:ff:ff:b0:07:01";
 
 pub const BOOT_SERVER_NAME: &str = "boot01";
 
