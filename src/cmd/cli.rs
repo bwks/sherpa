@@ -43,15 +43,15 @@ use crate::util::{
     base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso,
     dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip,
     id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
-    term_msg_highlight, term_msg_surround, term_msg_underline, DeviceIp, SshConfigTemplate,
+    term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
 use crate::template::{
     arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, Unit as IgnitionUnit,
-    User as IgnitionUser,
+    CloudInitTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DeviceIp,
+    File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 
 // Used to clone disk for VM creation

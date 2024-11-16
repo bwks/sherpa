@@ -1,5 +1,4 @@
 use anyhow::{anyhow, Result};
-use askama::Template;
 use base64::{engine::general_purpose, Engine as _};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
@@ -13,32 +12,6 @@ use std::os::unix::fs::PermissionsExt;
 use crate::core::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE};
 use crate::model::{SshKeyAlgorithms, SshPublicKey};
 use crate::util::{create_file, expand_path};
-
-pub struct DeviceIp {
-    pub name: String,
-    pub ip_address: String,
-}
-
-#[derive(Template)]
-#[template(
-    source = r#"Host *
-    User {{ crate::core::konst::SHERPA_USERNAME }}
-    IdentityFile {{ crate::core::konst::SHERPA_CONFIG_DIR }}/{{ crate::core::konst::SHERPA_SSH_PRIVATE_KEY_FILE }}
-    IdentitiesOnly yes
-    StrictHostKeyChecking no
-    UserKnownHostsFile /dev/null
-    PubkeyAcceptedAlgorithms +ssh-rsa
-    HostkeyAlgorithms +ssh-rsa
-{%- for host in hosts %}
-Host {{ host.name }}
-    HostName {{ host.ip_address }}
-{%- endfor %}
-"#,
-    ext = "txt"
-)]
-pub struct SshConfigTemplate {
-    pub hosts: Vec<DeviceIp>,
-}
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {

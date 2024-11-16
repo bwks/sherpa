@@ -9,6 +9,7 @@ pub mod cloud_init;
 pub mod cumulus_linux;
 pub mod ignition;
 pub mod juniper_junos;
+pub mod ssh;
 
 pub use crate::template::arista_eos::{arista_veos_ztp_script, AristaVeosZtpTemplate};
 pub use crate::template::aruba_aos::ArubaAoscxTemplate;
@@ -21,3 +22,4 @@ pub use crate::template::cloud_init::CloudInitTemplate;
 pub use crate::template::cumulus_linux::CumulusLinuxZtpTemplate;
 pub use crate::template::ignition::{Contents, File, IgnitionConfig, Unit, User};
 pub use crate::template::juniper_junos::JunipervJunosZtpTemplate;
+pub use crate::template::ssh::{DeviceIp, SshConfigTemplate};
