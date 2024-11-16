@@ -31,9 +31,9 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
-    clone_disk, create_vm, delete_disk, get_mgmt_ip, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CloudInitTemplate, DomainTemplate, IsolatedNetwork, JunipervJunosZtpTemplate,
-    ManagementNetwork, Qemu, SherpaStoragePool,
+    clone_disk, create_vm, delete_disk, get_mgmt_ip, ArubaAoscxTemplate, CloudInitTemplate,
+    DomainTemplate, IsolatedNetwork, JunipervJunosZtpTemplate, ManagementNetwork, Qemu,
+    SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -50,8 +50,8 @@ use crate::util::{
 };
 
 use crate::bootstrap::{
-    arista_veos_ztp_script, AristaVeosZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
+    arista_veos_ztp_script, AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
 };
 
 // Used to clone disk for VM creation
@@ -589,6 +589,10 @@ impl Cli {
                                         let t = CiscoAsavZtpTemplate {
                                             hostname: device.name.clone(),
                                             users: vec![user],
+                                            name_server: config
+                                                .management_prefix_ipv4
+                                                .nth(1)
+                                                .unwrap(),
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");

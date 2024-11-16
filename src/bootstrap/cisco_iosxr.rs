@@ -9,7 +9,7 @@ use crate::model::User;
     source = r#"!
 hostname {{ hostname }}
 domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-ip name-server {{ name_server }}
+domain name-server {{ name_server }}
 username admin
  group root-lr
  group cisco-support
