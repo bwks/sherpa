@@ -124,15 +124,33 @@ impl fmt::Display for CpuArchitecture {
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub enum MachineTypes {
     #[default]
+    #[serde(rename(serialize = "pc", deserialize = "pc"))]
+    Pc, // alias of pc-q35-X.Y - Qemu version dependent
+    #[serde(rename(serialize = "q35", deserialize = "q35"))]
+    Q35, // alias of pc-i440fx-X.Y - Qemu version dependent
+    #[serde(rename(serialize = "pc-q35-5.0", deserialize = "pc-q35-5.0"))]
+    PcQ35_5_0,
+    #[serde(rename(serialize = "pc-q35-5.2", deserialize = "pc-q35-5.2"))]
+    PcQ35_5_2,
     #[serde(rename(serialize = "pc-q35-6.2", deserialize = "pc-q35-6.2"))]
     PcQ35_6_2,
+    #[serde(rename(serialize = "pc-q35-6.0", deserialize = "pc-q35-6.0"))]
+    PcQ35_6_0,
+    #[serde(rename(serialize = "pc-q35-8.0", deserialize = "pc-q35-8.0"))]
+    PcQ35_8_0,
     #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
     PcI440Fx_4_2,
 }
 impl fmt::Display for MachineTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            MachineTypes::Q35 => write!(f, "q35"),
+            MachineTypes::Pc => write!(f, "pc"),
+            MachineTypes::PcQ35_5_0 => write!(f, "pc-q35-5.0"),
+            MachineTypes::PcQ35_5_2 => write!(f, "pc-q35-5.2"),
+            MachineTypes::PcQ35_6_0 => write!(f, "pc-q35-6.0"),
             MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
+            MachineTypes::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
             MachineTypes::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
         }
     }

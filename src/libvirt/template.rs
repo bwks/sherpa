@@ -68,12 +68,10 @@ use crate::model::{
   </qemu:commandline>
   {% endif %}
 
-  {# 
-  <qemu:commandline>
+  {# <qemu:commandline>
     <ns0:arg value="-smbios"/>
     <ns0:arg value="type=1,product=VM-VEX"/>
-  </qemu:commandline>
-  #}
+  </qemu:commandline> #}
   
   <devices>
 
