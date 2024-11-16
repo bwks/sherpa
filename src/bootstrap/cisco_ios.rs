@@ -9,7 +9,7 @@ use crate::model::User;
     source = r#"!
 hostname {{ hostname }}
 ip domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-no ip domain lookup
+ip name-server {{ name_server }}
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
@@ -61,4 +61,5 @@ pub struct CiscoIosvZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
+    pub name_server: Ipv4Addr,
 }
