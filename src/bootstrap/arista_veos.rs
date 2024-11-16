@@ -1,3 +1,9 @@
+use std::net::Ipv4Addr;
+
+use askama::Template;
+
+use crate::model::User;
+
 pub fn arista_veos_ztp_script() -> String {
     r#"#!/usr/bin/env bash
 
@@ -62,4 +68,39 @@ unmount_usb
 exit 0
 "#
     .to_owned()
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+hostname {{ hostname }}
+dns domain {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+ip name-server {{ name_server }}
+!
+no aaa root
+!
+service routing protocols model multi-agent
+!
+aaa authorization exec default local
+!
+{%- for user in users %}
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
+!
+interface Management1
+   ip address dhcp
+!
+management api http-commands
+   no shutdown
+!
+end
+!
+"#,
+    ext = "txt"
+)]
+pub struct AristaVeosZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+    pub name_server: Ipv4Addr,
 }
