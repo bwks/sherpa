@@ -54,6 +54,8 @@ use crate::template::{
     Unit as IgnitionUnit, User as IgnitionUser,
 };
 
+use crate::data::Dns;
+
 // Used to clone disk for VM creation
 struct CloneDisk {
     src: String,
@@ -291,6 +293,8 @@ impl Cli {
 
                 let sherpa_user = User::default()?;
 
+                let dns = Dns::default()?;
+
                 // Create ZTP files
                 term_msg_underline("Creating ZTP configs");
 
@@ -331,7 +335,7 @@ impl Cli {
                 let cumulus_template = CumulusLinuxZtpTemplate {
                     hostname: "cumulus-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
-                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
+                    dns: dns.clone(),
                 };
                 let cumulus_rendered_template = cumulus_template.render()?;
                 let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
@@ -700,10 +704,7 @@ impl Cli {
                                         let t = CumulusLinuxZtpTemplate {
                                             hostname: device.name.clone(),
                                             users: vec![user],
-                                            name_server: config
-                                                .management_prefix_ipv4
-                                                .nth(1)
-                                                .unwrap(),
+                                            dns: dns.clone(),
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CUMULUS_ZTP}");

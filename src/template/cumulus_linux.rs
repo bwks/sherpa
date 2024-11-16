@@ -1,7 +1,6 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
 #[derive(Template)]
@@ -23,8 +22,10 @@ trap error ERR
 
 #Configs
 nv set system hostname {{ hostname }}
-nv set service dns default search {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-nv set service dns default server {{ name_server }}
+nv set service dns default search {{ dns.domain }}
+{% for server in dns.name_servers %}
+nv set service dns default server {{ server.ipv4_address }}
+{% endfor %}
 {%- for user in users %}
 nv set system aaa user {{ user.username }}
 {%-   if let Some(password) = user.password %}
@@ -46,5 +47,5 @@ exit 0
 pub struct CumulusLinuxZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }
