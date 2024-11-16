@@ -1,0 +1,23 @@
+pub mod arista_eos;
+pub mod aruba_aos;
+pub mod cisco_asa;
+pub mod cisco_ios;
+pub mod cisco_iosxe;
+pub mod cisco_iosxr;
+pub mod cisco_nxos;
+pub mod cloud_init;
+pub mod cumulus_linux;
+pub mod ignition;
+pub mod juniper_junos;
+
+pub use crate::template::arista_eos::{arista_veos_ztp_script, AristaVeosZtpTemplate};
+pub use crate::template::aruba_aos::ArubaAoscxTemplate;
+pub use crate::template::cisco_asa::CiscoAsavZtpTemplate;
+pub use crate::template::cisco_ios::CiscoIosvZtpTemplate;
+pub use crate::template::cisco_iosxe::CiscoIosXeZtpTemplate;
+pub use crate::template::cisco_iosxr::CiscoIosxrZtpTemplate;
+pub use crate::template::cisco_nxos::CiscoNxosZtpTemplate;
+pub use crate::template::cloud_init::CloudInitTemplate;
+pub use crate::template::cumulus_linux::CumulusLinuxZtpTemplate;
+pub use crate::template::ignition::{Contents, File, IgnitionConfig, Unit, User};
+pub use crate::template::juniper_junos::JunipervJunosZtpTemplate;

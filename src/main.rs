@@ -1,8 +1,8 @@
-mod bootstrap;
 mod cmd;
 mod core;
 mod libvirt;
 mod model;
+mod template;
 mod topology;
 mod util;
 
