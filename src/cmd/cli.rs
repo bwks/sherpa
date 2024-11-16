@@ -31,9 +31,8 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{
-    clone_disk, create_vm, delete_disk, get_mgmt_ip, ArubaAoscxTemplate, CloudInitTemplate,
-    DomainTemplate, IsolatedNetwork, JunipervJunosZtpTemplate, ManagementNetwork, Qemu,
-    SherpaStoragePool,
+    clone_disk, create_vm, delete_disk, get_mgmt_ip, CloudInitTemplate, DomainTemplate,
+    IsolatedNetwork, JunipervJunosZtpTemplate, ManagementNetwork, Qemu, SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -50,8 +49,9 @@ use crate::util::{
 };
 
 use crate::bootstrap::{
-    arista_veos_ztp_script, AristaVeosZtpTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CumulusLinuxZtpTemplate,
+    arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
+    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
+    CumulusLinuxZtpTemplate,
 };
 
 // Used to clone disk for VM creation
@@ -318,6 +318,7 @@ impl Cli {
                 let aruba_template = ArubaAoscxTemplate {
                     hostname: "aos-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
+                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
                 };
                 let aruba_rendered_template = aruba_template.render()?;
                 let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
