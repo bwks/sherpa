@@ -33,8 +33,8 @@ use crate::core::{Config, Sherpa};
 use crate::libvirt::{
     clone_disk, create_vm, delete_disk, get_mgmt_ip, AristaVeosZtpTemplate, ArubaAoscxTemplate,
     CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate,
-    CiscoNxosZtpTemplate, CloudInitTemplate, CumulusLinuxZtpTemplate, DomainTemplate,
-    IsolatedNetwork, JunipervJunosZtpTemplate, ManagementNetwork, Qemu, SherpaStoragePool,
+    CiscoNxosZtpTemplate, CloudInitTemplate, DomainTemplate, IsolatedNetwork,
+    JunipervJunosZtpTemplate, ManagementNetwork, Qemu, SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
@@ -50,7 +50,7 @@ use crate::util::{
     User as IgnitionUser,
 };
 
-use crate::bootstrap::arista_veos_ztp_script;
+use crate::bootstrap::{arista_veos_ztp_script, CumulusLinuxZtpTemplate};
 
 // Used to clone disk for VM creation
 struct CloneDisk {
