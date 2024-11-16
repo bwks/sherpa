@@ -1,9 +1,14 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
+/// ZTP script for an Arista vEOS device.
+/// This script will run on a ZTP server and instructs the
+/// EOS device to load a bootstrap configuration from an attached USB.
+/// This exists, because I was unable to find a way to have the vEOS device
+/// load the bootstrap config from the USB.
+/// If I find a way in the future, this can probably go away.
 pub fn arista_veos_ztp_script() -> String {
     r#"#!/usr/bin/env bash
 
@@ -75,7 +80,9 @@ exit 0
     source = r#"!
 hostname {{ hostname }}
 dns domain {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-ip name-server {{ name_server }}
+{% for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{% endfor %}
 !
 no aaa root
 !
@@ -102,5 +109,5 @@ end
 pub struct AristaVeosZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }
