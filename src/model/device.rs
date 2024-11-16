@@ -26,6 +26,7 @@ pub enum DeviceModels {
     JuniperVrouter,
     #[serde(rename(serialize = "juniper_vswitch", deserialize = "juniper_vswitch"))]
     JuniperVswitch,
+    JuniperVsrx,
     JuniperVsrxv3,
     NokiaVsr,
     CumulusLinux,
@@ -53,6 +54,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
             DeviceModels::JuniperVrouter => write!(f, "juniper_vrouter"),
             DeviceModels::JuniperVswitch => write!(f, "juniper_vswitch"),
+            DeviceModels::JuniperVsrx => write!(f, "juniper_vsrx"),
             DeviceModels::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
             DeviceModels::NokiaVsr => write!(f, "nokia_vsr"),
             DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
@@ -276,6 +278,7 @@ impl DeviceModel {
             DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
             DeviceModels::JuniperVrouter => DeviceModel::juniper_vrouter(),
             DeviceModels::JuniperVswitch => DeviceModel::juniper_vswitch(),
+            DeviceModels::JuniperVsrx => DeviceModel::juniper_vsrx(),
             DeviceModels::JuniperVsrxv3 => DeviceModel::juniper_vsrxv3(),
             DeviceModels::NokiaVsr => DeviceModel::nokia_vsr(),
             DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
@@ -612,6 +615,33 @@ impl DeviceModel {
             ztp_password_auth: false,
             management_interface: true,
             reserved_interface_count: 2,
+        }
+    }
+    pub fn juniper_vsrx() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::JuniperVsrx,
+            os_variant: OsVariants::Junos,
+            manufacturer: Manufacturers::Juniper,
+            bios: BiosTypes::SeaBios,
+            interface_count: 8,
+            interface_prefix: "ge-0/0/".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::PcQ35_6_2,
+            vmx_enabled: true,
+            memory: 4096,
+            hdd_count: 1,
+            cdrom: None,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Usb,
+            ztp_password_auth: false,
+            management_interface: true,
+            reserved_interface_count: 0,
         }
     }
     pub fn juniper_vsrxv3() -> DeviceModel {
