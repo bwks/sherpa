@@ -23,9 +23,9 @@ use crate::core::konst::{
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
     CUMULUS_ZTP_DIR, HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI,
     MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR,
-    SHERPA_CONFIG_FILE, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_CONFIG_FILE, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT,
     TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -49,8 +49,8 @@ use crate::util::{
 use crate::template::{
     arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DeviceIp,
-    File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
+    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
+    DeviceIp, File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
     Unit as IgnitionUnit, User as IgnitionUser,
 };
 
@@ -636,16 +636,25 @@ impl Cli {
                                     | DeviceModels::RedhatLinux
                                     | DeviceModels::SuseLinux
                                     | DeviceModels::UbuntuLinux => {
-                                        let t = CloudInitTemplate {
+                                        let cloud_init_user = CloudInitUser::default()?;
+                                        let cloud_init_config = CloudInitConfig {
                                             hostname: device.name.clone(),
-                                            users: vec![user],
-                                            password_auth: device_model.ztp_password_auth,
+                                            fqdn: format!(
+                                                "{}.{}",
+                                                device.name.clone(),
+                                                SHERPA_DOMAIN_NAME
+                                            ),
+                                            ssh_pwauth: true,
+                                            users: vec![cloud_init_user],
                                         };
-                                        let rendered_template = t.render()?;
+                                        let yaml_config = cloud_init_config.to_string()?;
+                                        println!("{yaml_config}");
+
                                         let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                                         let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                                         create_dir(&dir)?;
-                                        create_file(&user_data, rendered_template)?;
+                                        create_file(&user_data, yaml_config)?;
+                                        // create_file(&user_data, rendered_template)?;
                                         create_file(&meta_data, "".to_string())?;
                                         create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                                     }

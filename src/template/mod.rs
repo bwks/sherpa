@@ -18,7 +18,7 @@ pub use crate::template::cisco_ios::CiscoIosvZtpTemplate;
 pub use crate::template::cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use crate::template::cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use crate::template::cisco_nxos::CiscoNxosZtpTemplate;
-pub use crate::template::cloud_init::CloudInitTemplate;
+pub use crate::template::cloud_init::{CloudInitConfig, CloudInitUser};
 pub use crate::template::cumulus_linux::CumulusLinuxZtpTemplate;
 pub use crate::template::ignition::{Contents, File, IgnitionConfig, Unit, User};
 pub use crate::template::juniper_junos::JunipervJunosZtpTemplate;
