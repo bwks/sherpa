@@ -360,7 +360,7 @@ impl Cli {
                     hostname: "iosv-ztp".to_owned(),
                     users: vec![cisco_user.clone()],
                     mgmt_interface: "GigabitEthernet0/0".to_owned(),
-                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
+                    dns: dns.clone(),
                 };
                 let iosv_rendered_template = cisco_iosv_template.render()?;
                 let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");

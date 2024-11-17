@@ -1,15 +1,16 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
 #[derive(Template)]
 #[template(
     source = r#"!
 hostname {{ hostname }}
-ip domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-ip name-server {{ name_server }}
+ip domain name {{ dns.domain }}
+{% for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{% endfor %}
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !
@@ -61,5 +62,5 @@ pub struct CiscoIosvZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }
