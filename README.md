@@ -47,8 +47,9 @@ Ensure that you have the required packages installed. There is the list of packa
 ```
 
 ```
-qemu-img create -f raw usb_config.img 32M
+qemu-img create -f raw usb_config.img 64M
 mkfs.vfat usb_config.img
+mkfs.fat -F 32 usb_config.img
 echo "beuler, beuler" >> config.txt
 mcopy -i usb_config.img config.txt ::/
 mdir -i usb_config.img ::

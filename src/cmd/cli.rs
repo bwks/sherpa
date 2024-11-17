@@ -302,15 +302,6 @@ impl Cli {
                 let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
                 create_dir(&arista_dir)?;
 
-                // let arista_template = AristaVeosZtpTemplate {
-                //     hostname: "veos-ztp".to_owned(),
-                //     users: vec![sherpa_user.clone()],
-                //     name_server: config.management_prefix_ipv4.nth(1).unwrap(),
-                // };
-                // let arista_rendered_template = arista_template.render()?;
-                // let arista_ztp_config = format!("{arista_dir}/{ARISTA_VEOS_ZTP_CONFIG}");
-                // create_file(&arista_ztp_config, arista_rendered_template.clone())?;
-
                 let arista_ztp_file = format!("{arista_dir}/{ARISTA_VEOS_ZTP_SCRIPT}");
                 let arista_ztp_script = arista_veos_ztp_script();
                 create_file(&arista_ztp_file, arista_ztp_script.clone())?;
@@ -322,11 +313,16 @@ impl Cli {
                 let aruba_template = ArubaAoscxTemplate {
                     hostname: "aos-ztp".to_owned(),
                     users: vec![sherpa_user.clone()],
-                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
+                    dns: dns.clone(),
                 };
                 let aruba_rendered_template = aruba_template.render()?;
                 let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
                 create_file(&aruba_ztp_config, aruba_rendered_template.clone())?;
+
+                // TODO: Aruba USB ZTP config
+                // let aruba_ztp_file = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
+                // let aruba_ztp_config = aruba_aoscx_ztp_config();
+                // create_file(&aruba_ztp_file, aruba_ztp_config.clone())?;
 
                 // Cumulus Linux
                 let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
@@ -754,6 +750,34 @@ impl Cli {
                                             "{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"
                                         ));
                                     }
+                                    OsVariants::Aos => {
+                                        let aruba_template = ArubaAoscxTemplate {
+                                            hostname: device.name.clone(),
+                                            users: vec![sherpa_user.clone()],
+                                            dns: dns.clone(),
+                                        };
+                                        let aruba_rendered_template = aruba_template.render()?;
+
+                                        let ztp_config = format!("{dir}/{ARUBA_ZTP_CONFIG}");
+                                        create_dir(&dir)?;
+                                        create_file(&ztp_config, aruba_rendered_template)?;
+                                        // clone USB disk
+                                        let src_usb = format!(
+                                            "{}/{}/{}",
+                                            &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                        );
+                                        let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+
+                                        // Create a copy of the usb base image
+                                        copy_file(&src_usb, &dst_usb)?;
+                                        // copy file to USB disk
+                                        copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
+
+                                        src_usb_disk = Some(dst_usb.to_owned());
+                                        dst_usb_disk = Some(format!(
+                                            "{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"
+                                        ));
+                                    }
                                     _ => {
                                         anyhow::bail!(
                                             "HTTP ZTP method not supported for {}",
@@ -996,6 +1020,7 @@ WantedBy=multi-user.target
                         )),
                     };
                     let aruba_ztp_base64 = base64_encode(&aruba_rendered_template);
+                    // let aruba_ztp_base64 = base64_encode(&aruba_ztp_config);
                     let aruba_ztp_file = IgnitionFile {
                         // filesystem: "root".to_owned(),
                         path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),

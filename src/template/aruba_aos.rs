@@ -1,15 +1,31 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::core::konst::ARUBA_ZTP_CONFIG;
+use crate::data::Dns;
 use crate::model::User;
+
+#[allow(dead_code)]
+pub fn aruba_aoscx_ztp_config() -> String {
+    format!(
+        r#"!
+# usb
+# usb mount
+# copy usb:/{ARUBA_ZTP_CONFIG} running-config
+# write memory
+start-shell
+mount /dev/sdb /mnt/external-storage/
+    "#,
+    )
+}
 
 #[derive(Template)]
 #[template(
     source = r#"!
 hostname {{ hostname }}
 domain-name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-ip dns server-address {{ name_server }}
+{%- for server in dns.name_servers %}
+ip dns server-address {{ server.ipv4_address }}
+{%- endfor %}
 user admin group administrators password plaintext {{ crate::core::konst::SHERPA_PASSWORD }}
 {%- for user in users %}
 user {{ user.username }} {% if user.sudo %} group administrators{% endif %}{% if let Some(password) = user.password %} password plaintext {{ password }}{% endif %}
@@ -35,5 +51,5 @@ https-server vrf mgmt
 pub struct ArubaAoscxTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }
