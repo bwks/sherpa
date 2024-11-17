@@ -49,9 +49,9 @@ username {{ user.username }} attributes
 !
 names
 dns domain-lookup management
-{% for server in dns.name_servers %}
+{%- for server in dns.name_servers %}
 dns name-server {{ server.ipv4_address }}
-{% endfor %}
+{%- endfor %}
 !
 "#,
     ext = "txt"

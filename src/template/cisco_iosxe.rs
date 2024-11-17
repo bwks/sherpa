@@ -8,9 +8,9 @@ use crate::model::User;
     source = r#"!
 hostname {{ hostname }}
 ip domain name {{ dns.domain }}
-{% for server in dns.name_servers %}
+{%- for server in dns.name_servers %}
 ip name-server {{ server.ipv4_address }}
-{% endfor %}
+{%- endfor %}
 crypto key generate rsa modulus 2048
 ip ssh version 2
 !

@@ -599,10 +599,7 @@ impl Cli {
                                         let t = CiscoNxosZtpTemplate {
                                             hostname: device.name.clone(),
                                             users: vec![user],
-                                            name_server: config
-                                                .management_prefix_ipv4
-                                                .nth(1)
-                                                .unwrap(),
+                                            dns: dns.clone(),
                                         };
                                         let rendered_template = t.render()?;
                                         let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");

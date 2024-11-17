@@ -1,7 +1,6 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
 #[derive(Template)]
@@ -24,7 +23,10 @@ username {{ user.username }} role network-admin
 username {{ user.username }} sshkey {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 {%- endfor %}
 !
-ip name-server {{ name_server }}
+ip domain-name {{ dns.domain }}
+{%- for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{%- endfor %}
 !
 line vty
   exec-timeout 0
@@ -39,5 +41,5 @@ interface mgmt0
 pub struct CiscoNxosZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }

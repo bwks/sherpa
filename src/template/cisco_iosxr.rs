@@ -8,9 +8,9 @@ use crate::model::User;
     source = r#"!
 hostname {{ hostname }}
 domain name {{ dns.domain }}
-{% for server in dns.name_servers %}
+{%- for server in dns.name_servers %}
 domain name-server {{ server.ipv4_address }}
-{% endfor %}
+{%- endfor %}
 username admin
  group root-lr
  group cisco-support

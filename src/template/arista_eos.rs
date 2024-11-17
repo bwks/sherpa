@@ -80,9 +80,9 @@ exit 0
     source = r#"!
 hostname {{ hostname }}
 dns domain {{ dns.domain }}
-{% for server in dns.name_servers %}
+{%- for server in dns.name_servers %}
 ip name-server {{ server.ipv4_address }}
-{% endfor %}
+{%- endfor %}
 !
 no aaa root
 !
