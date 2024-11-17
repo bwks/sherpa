@@ -349,7 +349,7 @@ impl Cli {
                     hostname: "iosxe-ztp".to_owned(),
                     users: vec![cisco_user.clone()],
                     mgmt_interface: "GigabitEthernet1".to_owned(),
-                    name_server: config.management_prefix_ipv4.nth(1).unwrap(),
+                    dns: dns.clone(),
                 };
                 let iosxe_rendered_template = cisco_iosxe_template.render()?;
                 let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
@@ -571,10 +571,7 @@ impl Cli {
                                             hostname: device.name.clone(),
                                             users: vec![user],
                                             mgmt_interface: "GigabitEthernet1".to_owned(),
-                                            name_server: config
-                                                .management_prefix_ipv4
-                                                .nth(1)
-                                                .unwrap(),
+                                            dns: dns.clone(),
                                         };
                                         let rendered_template = t.render()?;
                                         let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
