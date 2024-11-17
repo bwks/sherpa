@@ -1,15 +1,16 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
 #[derive(Template)]
 #[template(
     source = r#"!
 hostname {{ hostname }}
-domain name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
-domain name-server {{ name_server }}
+domain name {{ dns.domain }}
+{% for server in dns.name_servers %}
+domain name-server {{ server.ipv4_address }}
+{% endfor %}
 username admin
  group root-lr
  group cisco-support
@@ -55,5 +56,5 @@ ssh server netconf vrf default
 pub struct CiscoIosxrZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }
