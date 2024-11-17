@@ -1,7 +1,6 @@
-use std::net::Ipv4Addr;
-
 use askama::Template;
 
+use crate::data::Dns;
 use crate::model::User;
 
 #[derive(Template)]
@@ -35,7 +34,7 @@ crypto key generate rsa modulus 2048 noconfirm
 ssh 0.0.0.0 0.0.0.0 management
 http server enable
 http 0.0.0.0 0.0.0.0 management
-domain-name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+domain-name {{ dns.domain }}
 !
 {%- for user in users %}
 {%-   if let Some(password) = user.password %}
@@ -50,7 +49,9 @@ username {{ user.username }} attributes
 !
 names
 dns domain-lookup management
-dns name-server {{ name_server }}
+{% for server in dns.name_servers %}
+dns name-server {{ server.ipv4_address }}
+{% endfor %}
 !
 "#,
     ext = "txt"
@@ -58,5 +59,5 @@ dns name-server {{ name_server }}
 pub struct CiscoAsavZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
-    pub name_server: Ipv4Addr,
+    pub dns: Dns,
 }

@@ -22,7 +22,7 @@ mount /dev/sdb /mnt/external-storage/
 #[template(
     source = r#"!
 hostname {{ hostname }}
-domain-name {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+domain-name {{ dns.domain }}
 {%- for server in dns.name_servers %}
 ip dns server-address {{ server.ipv4_address }}
 {%- endfor %}

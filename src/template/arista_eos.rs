@@ -79,7 +79,7 @@ exit 0
 #[template(
     source = r#"!
 hostname {{ hostname }}
-dns domain {{ crate::core::konst::SHERPA_DOMAIN_NAME }}
+dns domain {{ dns.domain }}
 {% for server in dns.name_servers %}
 ip name-server {{ server.ipv4_address }}
 {% endfor %}
