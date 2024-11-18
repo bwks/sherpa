@@ -3,8 +3,9 @@ use std::fs;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{Connection, Device};
 use crate::core::konst::SHERPA_MANIFEST_FILE;
+use crate::data::DeviceModels;
+use crate::topology::{Connection, Device};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
@@ -16,12 +17,12 @@ impl Default for Manifest {
     fn default() -> Self {
         let dev01 = Device {
             name: "dev01".to_owned(),
-            device_model: crate::model::DeviceModels::FedoraLinux,
+            device_model: DeviceModels::FedoraLinux,
             id: 1,
         };
         let dev02 = Device {
             name: "dev02".to_owned(),
-            device_model: crate::model::DeviceModels::FedoraLinux,
+            device_model: DeviceModels::FedoraLinux,
             id: 2,
         };
 

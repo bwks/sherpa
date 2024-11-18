@@ -22,9 +22,7 @@ pub enum DeviceModels {
     CiscoNexus9300v,
     CiscoIosv,
     CiscoIosvl2,
-    #[serde(rename(serialize = "juniper_vrouter", deserialize = "juniper_vrouter"))]
     JuniperVrouter,
-    #[serde(rename(serialize = "juniper_vswitch", deserialize = "juniper_vswitch"))]
     JuniperVswitch,
     JuniperVsrx,
     JuniperVsrxv3,

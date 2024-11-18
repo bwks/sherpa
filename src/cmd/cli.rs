@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::fs;
-use std::process::Command;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
@@ -15,6 +14,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::sys;
 
+use crate::cmd::{console, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -30,20 +30,19 @@ use crate::core::konst::{
     TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
-use crate::data::{Dns, User};
+use crate::data::{
+    BiosTypes, ConnectionTypes, CpuArchitecture, DeviceIp, DeviceModels, Dns, Interface,
+    InterfaceTypes, MachineTypes, OsVariants, User, ZtpMethods,
+};
 use crate::libvirt::{
     clone_disk, create_vm, delete_disk, get_mgmt_ip, DomainTemplate, IsolatedNetwork,
     ManagementNetwork, Qemu, SherpaStoragePool,
-};
-use crate::model::{
-    BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
-    MachineTypes, OsVariants, ZtpMethods,
 };
 use crate::template::{
     arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
     CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    DeviceIp, File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
+    File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
     Unit as IgnitionUnit, User as IgnitionUser,
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
@@ -1475,58 +1474,10 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Console { name } => {
-                term_msg_surround(&format!("Connecting to: {name}"));
-
-                let manifest = Manifest::load_file()?;
-
-                // Find the device in the manifest
-                let device_ip = {
-                    if name == BOOT_SERVER_NAME {
-                        get_ip(255)
-                    } else {
-                        let device = manifest
-                            .devices
-                            .iter()
-                            .find(|d| d.name == *name)
-                            .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
-                        get_ip(device.id)
-                    }
-                };
-
-                let status = Command::new("telnet")
-                    .arg(device_ip.to_string())
-                    .arg(TELNET_PORT.to_string())
-                    .status()?;
-
-                if !status.success() {
-                    eprintln!("Telnet connection failed");
-                    if let Some(code) = status.code() {
-                        eprintln!("Exit code: {}", code);
-                    }
-                }
+                console(name)?;
             }
             Commands::Ssh { name } => {
-                term_msg_surround(&format!("Connecting to: {name}"));
-                let lab_id = get_id()?;
-
-                let qemu_conn = qemu.connect()?;
-
-                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &format!("{}-{}", name, lab_id))? {
-                    let status = Command::new("ssh")
-                        .arg(&vm_ip)
-                        .arg("-F")
-                        .arg(format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
-                        .status()?;
-
-                    if !status.success() {
-                        eprintln!("SSH connection failed");
-                        if let Some(code) = status.code() {
-                            eprintln!("Exit code: {}", code);
-                        }
-                    }
-                } else {
-                    eprintln!("No IP address found for {name}")
-                }
+                ssh(&qemu, name)?;
             }
         }
         Ok(())

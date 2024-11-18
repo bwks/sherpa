@@ -2,7 +2,6 @@ mod cmd;
 mod core;
 mod data;
 mod libvirt;
-mod model;
 mod template;
 mod topology;
 mod util;

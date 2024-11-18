@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::model::DeviceModels;
+use crate::data::DeviceModels;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Device {

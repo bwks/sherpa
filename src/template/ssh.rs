@@ -1,9 +1,6 @@
 use askama::Template;
 
-pub struct DeviceIp {
-    pub name: String,
-    pub ip_address: String,
-}
+use crate::data::DeviceIp;
 
 #[derive(Template)]
 #[template(

@@ -10,8 +10,7 @@ use crate::core::konst::{
     QEMU_BIN, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
     SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
-use crate::model::DeviceModel;
-use crate::model::VmProviders;
+use crate::data::{DeviceModel, VmProviders};
 use crate::util::{create_file, expand_path};
 
 #[derive(Serialize, Deserialize, Debug)]

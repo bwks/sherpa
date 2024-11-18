@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::model::{
+use crate::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes,
 };
 
