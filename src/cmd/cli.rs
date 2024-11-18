@@ -10,10 +10,9 @@ use anyhow::{Context, Result};
 use askama::Template;
 
 use clap::{Parser, Subcommand};
-use virt::storage_pool::StoragePool;
 use virt::sys;
 
-use crate::cmd::{clean, console, doctor, import, ssh};
+use crate::cmd::{clean, console, doctor, import, inspect, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -1349,42 +1348,8 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Inspect => {
-                let lab_id = get_id()?;
-
-                let manifest = Manifest::load_file()?;
-
-                term_msg_surround(&format!("Sherpa Environment - {}", lab_id));
-
-                let qemu_conn = qemu.connect()?;
-
-                let domains = qemu_conn.list_all_domains(0)?;
-                let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-                let mut devices = manifest.devices;
-                devices.push(Device {
-                    id: 255,
-                    name: BOOT_SERVER_NAME.to_owned(),
-                    device_model: DeviceModels::FlatcarLinux,
-                });
-                for device in devices {
-                    let device_name = format!("{}-{}", device.name, lab_id);
-                    if let Some(domain) = domains
-                        .iter()
-                        .find(|d| d.get_name().unwrap_or_default() == device_name)
-                    {
-                        term_msg_underline(&device.name);
-                        println!("Domain: {}", device_name);
-                        println!("Model: {}", device.device_model);
-                        println!("Active: {:#?}", domain.is_active()?);
-                        if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &device_name)? {
-                            println!("Mgmt IP: {vm_ip}");
-                        }
-                        for volume in pool.list_volumes()? {
-                            if volume.contains(&device_name) {
-                                println!("Disk: {volume}");
-                            }
-                        }
-                    }
-                }
+                //
+                inspect(&qemu)?;
             }
             Commands::Import {
                 src,
