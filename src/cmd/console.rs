@@ -6,7 +6,7 @@ use crate::core::konst::{BOOT_SERVER_NAME, TELNET_PORT};
 use crate::topology::Manifest;
 use crate::util::{get_ip, term_msg_surround};
 
-pub fn console(name: &String) -> Result<()> {
+pub fn console(name: &str) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
 
     let manifest = Manifest::load_file()?;

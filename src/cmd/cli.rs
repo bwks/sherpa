@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use virt::storage_pool::StoragePool;
 use virt::sys;
 
-use crate::cmd::{clean, console, ssh};
+use crate::cmd::{clean, console, doctor, import, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -21,12 +21,12 @@ use crate::core::konst::{
     CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
     CUMULUS_ZTP_DIR, HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI,
-    MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR,
-    SHERPA_CONFIG_FILE, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT,
-    TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR,
+    SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO,
+    ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -47,8 +47,8 @@ use crate::template::{
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
     base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso,
-    dir_exists, file_exists, fix_permissions_recursive, generate_ssh_keypair, get_id, get_ip,
-    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    dir_exists, file_exists, generate_ssh_keypair, get_id, get_ip, id_to_port,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
@@ -1392,45 +1392,10 @@ WantedBy=multi-user.target
                 model,
                 latest,
             } => {
-                term_msg_surround("Importing disk image");
-
-                if !file_exists(src) {
-                    anyhow::bail!("File does not exist: {}", src);
-                }
-
-                let dst_path = format!("{}/{}", sherpa.boxes_dir, model);
-                let dst_version_dir = format!("{dst_path}/{version}");
-                let dst_latest_dir = format!("{dst_path}/latest");
-
-                create_dir(&dst_version_dir)?;
-                create_dir(&dst_latest_dir)?;
-
-                let dst_version_disk = format!("{dst_version_dir}/virtioa.qcow2");
-
-                if !file_exists(&dst_version_disk) {
-                    println!("Copying file from: {} to: {}", src, dst_version_disk);
-                    copy_file(src, &dst_version_disk)?;
-                    println!("Copied file from: {} to: {}", src, dst_version_disk);
-                } else {
-                    println!("File already exists: {}", dst_version_disk);
-                }
-
-                if *latest {
-                    let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
-                    println!("Copying file from: {} to: {}", src, dst_latest_disk);
-                    copy_file(src, &dst_latest_disk)?;
-                    println!("Copied file from: {} to: {}", src, dst_latest_disk);
-                }
-
-                println!("Setting base box files to read-only");
-                fix_permissions_recursive(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"))?;
+                import(src, version, model, *latest, &sherpa.boxes_dir)?;
             }
             Commands::Doctor { boxes } => {
-                if *boxes {
-                    term_msg_surround("Fixing base box permissions");
-
-                    fix_permissions_recursive(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"))?;
-                }
+                doctor(*boxes, &sherpa.boxes_dir)?;
             }
             Commands::Clean {
                 all,

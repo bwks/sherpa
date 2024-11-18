@@ -7,7 +7,7 @@ use crate::libvirt::get_mgmt_ip;
 use crate::libvirt::Qemu;
 use crate::util::{get_id, term_msg_surround};
 
-pub fn ssh(qemu: &Qemu, name: &String) -> Result<()> {
+pub fn ssh(qemu: &Qemu, name: &str) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
     let lab_id = get_id()?;
 
