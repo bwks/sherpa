@@ -1,7 +1,6 @@
 use askama::Template;
 
-use crate::data::Dns;
-use crate::model::User;
+use crate::data::{Dns, User};
 
 #[derive(Template)]
 #[template(

@@ -1,8 +1,7 @@
 use askama::Template;
 
 use crate::core::konst::ARUBA_ZTP_CONFIG;
-use crate::data::Dns;
-use crate::model::User;
+use crate::data::{Dns, User};
 
 #[allow(dead_code)]
 pub fn aruba_aoscx_ztp_config() -> String {

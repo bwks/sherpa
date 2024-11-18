@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 
 use crate::core::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE};
-use crate::model::{SshKeyAlgorithms, SshPublicKey};
+use crate::data::{SshKeyAlgorithms, SshPublicKey};
 use crate::util::{create_file, expand_path};
 
 /// Read an SSH public key file and return a String.

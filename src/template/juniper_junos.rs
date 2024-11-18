@@ -2,7 +2,7 @@
 
 use askama::Template;
 
-use crate::model::User;
+use crate::data::User;
 
 #[derive(Template)]
 #[template(

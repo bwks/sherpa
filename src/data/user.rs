@@ -4,7 +4,7 @@ use serde_derive::{Deserialize, Serialize};
 use crate::core::konst::{
     SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
 };
-use crate::model::SshPublicKey;
+use crate::data::SshPublicKey;
 use crate::util::get_ssh_public_key;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

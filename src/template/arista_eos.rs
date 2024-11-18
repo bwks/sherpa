@@ -1,7 +1,6 @@
 use askama::Template;
 
-use crate::data::Dns;
-use crate::model::User;
+use crate::data::{Dns, User};
 
 /// ZTP script for an Arista vEOS device.
 /// This script will run on a ZTP server and instructs the

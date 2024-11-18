@@ -30,13 +30,21 @@ use crate::core::konst::{
     TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
+use crate::data::{Dns, User};
 use crate::libvirt::{
     clone_disk, create_vm, delete_disk, get_mgmt_ip, DomainTemplate, IsolatedNetwork,
     ManagementNetwork, Qemu, SherpaStoragePool,
 };
 use crate::model::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceModels, Interface, InterfaceTypes,
-    MachineTypes, OsVariants, User, ZtpMethods,
+    MachineTypes, OsVariants, ZtpMethods,
+};
+use crate::template::{
+    arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
+    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
+    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
+    DeviceIp, File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
@@ -45,16 +53,6 @@ use crate::util::{
     id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_highlight, term_msg_surround, term_msg_underline,
 };
-
-use crate::template::{
-    arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    DeviceIp, File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
-};
-
-use crate::data::Dns;
 
 // Used to clone disk for VM creation
 struct CloneDisk {
