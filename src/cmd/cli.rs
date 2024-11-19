@@ -10,7 +10,7 @@ use askama::Template;
 
 use clap::{Parser, Subcommand};
 
-use crate::cmd::{clean, console, destroy, doctor, import, inspect, resume, ssh};
+use crate::cmd::{clean, console, destroy, doctor, down, import, inspect, resume, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -1244,25 +1244,7 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Down => {
-                term_msg_surround("Suspending environment");
-
-                let lab_id = get_id()?;
-
-                let qemu_conn = qemu.connect()?;
-
-                let domains = qemu_conn.list_all_domains(0)?;
-
-                for domain in domains {
-                    let vm_name = domain.get_name()?;
-                    if vm_name.contains(&lab_id) {
-                        if domain.is_active()? {
-                            domain.suspend()?;
-                            println!("Suspended: {vm_name}");
-                        } else {
-                            println!("Virtual machine not running: {vm_name}");
-                        }
-                    }
-                }
+                down(&qemu)?;
             }
             Commands::Resume => {
                 resume(&qemu)?;
