@@ -10,30 +10,24 @@ use askama::Template;
 
 use clap::{Parser, Subcommand};
 
-use crate::cmd::{clean, console, destroy, doctor, down, import, inspect, resume, ssh};
+use crate::cmd::{clean, console, destroy, doctor, down, import, init, inspect, resume, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
     CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
     CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, HTTP_PORT, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI,
-    MTU_JUMBO_INT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR,
-    SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TEMP_DIR, TFTP_PORT, ZTP_DIR, ZTP_ISO,
-    ZTP_JSON,
+    CUMULUS_ZTP_DIR, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI, MTU_JUMBO_INT,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE, SHERPA_DOMAIN_NAME,
+    SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR,
+    SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, DeviceIp, DeviceModels, Dns, Interface,
     InterfaceTypes, MachineTypes, OsVariants, User, ZtpMethods,
 };
-use crate::libvirt::{
-    clone_disk, create_vm, get_mgmt_ip, DomainTemplate, IsolatedNetwork, ManagementNetwork, Qemu,
-    SherpaStoragePool,
-};
+use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
     arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
@@ -43,10 +37,9 @@ use crate::template::{
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
-    base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso,
-    dir_exists, file_exists, generate_ssh_keypair, get_id, get_ip, id_to_port,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
-    term_msg_highlight, term_msg_surround, term_msg_underline,
+    base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso, get_id,
+    get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
+    tcp_connect, term_msg_surround, term_msg_underline,
 };
 
 // Used to clone disk for VM creation
@@ -165,108 +158,7 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
-                term_msg_surround("Sherpa Initializing");
-                let qemu_conn = qemu.connect()?;
-
-                sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
-
-                term_msg_highlight("Creating Files");
-                // Create the default config directories
-                let config = if dir_exists(&sherpa.config_dir) && !*force {
-                    println!("Directory path already exists: {}", sherpa.config_dir);
-                    Config::load(&sherpa.config_path)?
-                } else {
-                    create_dir(&sherpa.config_dir)?;
-                    create_dir(&sherpa.boxes_dir)?;
-                    // box directories
-                    let config = Config::default();
-                    for device_model in &config.device_models {
-                        create_dir(&format!(
-                            "{}/{}/latest",
-                            sherpa.boxes_dir, device_model.name
-                        ))?;
-                    }
-                    config
-                };
-
-                // Initialize default files
-                if file_exists(&sherpa.config_path) && !*force {
-                    println!("Config file already exists: {}", sherpa.config_path);
-                } else {
-                    let config = Config {
-                        name: config_file.to_owned(),
-                        ..Default::default()
-                    };
-                    config.create(&sherpa.config_path)?;
-                }
-
-                if file_exists(manifest_file) && !*force {
-                    println!("Manifest file already exists: {manifest_file}");
-                } else {
-                    let manifest = Manifest::default();
-                    manifest.write_file()?;
-                }
-
-                // SSH Keys
-                let ssh_pub_key_file =
-                    format!("{}/{}", &sherpa.config_dir, SHERPA_SSH_PUBLIC_KEY_FILE);
-
-                if file_exists(&ssh_pub_key_file) && !*force {
-                    println!("SSH keys already exists: {ssh_pub_key_file}");
-                } else {
-                    term_msg_underline("Creating SSH Keypair");
-                    generate_ssh_keypair(&sherpa.config_dir)?;
-                }
-
-                term_msg_highlight("Creating Networks");
-                // Initialize the sherpa boot network
-                if qemu_conn
-                    .list_networks()?
-                    .iter()
-                    .any(|net| net == SHERPA_MANAGEMENT_NETWORK_NAME)
-                {
-                    println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
-                } else {
-                    println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
-                    let ipv4_network_size = config.management_prefix_ipv4.size();
-                    let management_network = ManagementNetwork {
-                        network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
-                        bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
-                        ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
-                        ipv4_netmask: config.management_prefix_ipv4.mask(),
-                        ipv4_default_gateway: config.management_prefix_ipv4.nth(1).unwrap(),
-                        dhcp_start: config.management_prefix_ipv4.nth(5).unwrap(),
-                        dhcp_end: config
-                            .management_prefix_ipv4
-                            .nth(ipv4_network_size - 2)
-                            .unwrap(),
-                        ztp_http_port: HTTP_PORT,
-                        ztp_tftp_port: TFTP_PORT,
-                        ztp_server_ipv4: config.management_prefix_ipv4.nth(5).unwrap(),
-                    };
-                    management_network.create(&qemu_conn)?;
-                }
-
-                // Create the isolated network
-                if qemu_conn
-                    .list_networks()?
-                    .iter()
-                    .any(|net| net == SHERPA_ISOLATED_NETWORK_NAME)
-                {
-                    println!("Network already exists: {SHERPA_ISOLATED_NETWORK_NAME}");
-                } else {
-                    println!("Creating network: {SHERPA_ISOLATED_NETWORK_NAME}");
-                    let isolated_network = IsolatedNetwork {
-                        network_name: SHERPA_ISOLATED_NETWORK_NAME.to_owned(),
-                        bridge_name: SHERPA_ISOLATED_NETWORK_BRIDGE.to_owned(),
-                    };
-                    isolated_network.create(&qemu_conn)?;
-                }
-                let storage_pool = SherpaStoragePool {
-                    name: SHERPA_STORAGE_POOL.to_owned(),
-                    path: SHERPA_STORAGE_POOL_PATH.to_owned(),
-                };
-                storage_pool.create(&qemu_conn)?;
+                init(&sherpa, &qemu, config_file, manifest_file, *force)?;
             }
 
             Commands::Up { config_file } => {
