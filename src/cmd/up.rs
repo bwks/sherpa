@@ -302,6 +302,45 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
         if device_model.ztp_enable {
             match device_model.ztp_method {
+                ZtpMethods::CloudInit => {
+                    term_msg_underline("Creating Cloud-Init disks");
+                    // generate the template
+                    println!("Creating Cloud-Init config {}", device.name);
+                    let dir = format!("{TEMP_DIR}/{vm_name}");
+                    match device.device_model {
+                        DeviceModels::CentosLinux
+                        | DeviceModels::FedoraLinux
+                        | DeviceModels::OpensuseLinux
+                        | DeviceModels::RedhatLinux
+                        | DeviceModels::SuseLinux
+                        | DeviceModels::UbuntuLinux => {
+                            let cloud_init_user = CloudInitUser::default()?;
+                            let cloud_init_config = CloudInitConfig {
+                                hostname: device.name.clone(),
+                                fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
+                                ssh_pwauth: true,
+                                users: vec![cloud_init_user],
+                            };
+                            let yaml_config = cloud_init_config.to_string()?;
+
+                            let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+                            let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                            create_dir(&dir)?;
+                            create_file(&user_data, yaml_config)?;
+                            // create_file(&user_data, rendered_template)?;
+                            create_file(&meta_data, "".to_string())?;
+                            create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                        }
+                        _ => {
+                            anyhow::bail!(
+                                "CDROM ZTP method not supported for {}",
+                                device_model.name
+                            );
+                        }
+                    }
+                    src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
+                    dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso"));
+                }
                 ZtpMethods::Cdrom => {
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
@@ -376,29 +415,6 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
-                        }
-                        DeviceModels::CentosLinux
-                        | DeviceModels::FedoraLinux
-                        | DeviceModels::OpensuseLinux
-                        | DeviceModels::RedhatLinux
-                        | DeviceModels::SuseLinux
-                        | DeviceModels::UbuntuLinux => {
-                            let cloud_init_user = CloudInitUser::default()?;
-                            let cloud_init_config = CloudInitConfig {
-                                hostname: device.name.clone(),
-                                fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
-                                ssh_pwauth: true,
-                                users: vec![cloud_init_user],
-                            };
-                            let yaml_config = cloud_init_config.to_string()?;
-
-                            let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
-                            let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                            create_dir(&dir)?;
-                            create_file(&user_data, yaml_config)?;
-                            // create_file(&user_data, rendered_template)?;
-                            create_file(&meta_data, "".to_string())?;
-                            create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
                         _ => {
                             anyhow::bail!(
