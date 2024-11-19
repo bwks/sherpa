@@ -9,6 +9,7 @@ mod init;
 mod inspect;
 mod resume;
 mod ssh;
+mod up;
 
 pub use crate::cmd::clean::clean;
 pub use crate::cmd::cli::Cli;
@@ -21,3 +22,4 @@ pub use crate::cmd::init::init;
 pub use crate::cmd::inspect::inspect;
 pub use crate::cmd::resume::resume;
 pub use crate::cmd::ssh::ssh;
+pub use crate::cmd::up::up;
