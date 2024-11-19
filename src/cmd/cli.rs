@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::fs;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
@@ -10,9 +9,8 @@ use anyhow::{Context, Result};
 use askama::Template;
 
 use clap::{Parser, Subcommand};
-use virt::sys;
 
-use crate::cmd::{clean, console, doctor, import, inspect, ssh};
+use crate::cmd::{clean, console, destroy, doctor, import, inspect, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -33,8 +31,8 @@ use crate::data::{
     InterfaceTypes, MachineTypes, OsVariants, User, ZtpMethods,
 };
 use crate::libvirt::{
-    clone_disk, create_vm, delete_disk, get_mgmt_ip, DomainTemplate, IsolatedNetwork,
-    ManagementNetwork, Qemu, SherpaStoragePool,
+    clone_disk, create_vm, get_mgmt_ip, DomainTemplate, IsolatedNetwork, ManagementNetwork, Qemu,
+    SherpaStoragePool,
 };
 use crate::template::{
     arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
@@ -1298,57 +1296,9 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Destroy => {
-                term_msg_surround("Destroying environment");
-
-                let lab_id = get_id()?;
-
-                let qemu_conn = qemu.connect()?;
-
-                let domains = qemu_conn.list_all_domains(0)?;
-
-                for domain in domains {
-                    let vm_name = domain.get_name()?;
-                    if vm_name.contains(&lab_id) && domain.is_active()? {
-                        // EUFI domains will have an NVRAM file that must be deleted.
-                        let nvram_flag = sys::VIR_DOMAIN_UNDEFINE_NVRAM;
-                        domain.undefine_flags(nvram_flag)?;
-                        domain.destroy()?;
-                        println!("Destroyed VM: {vm_name}");
-
-                        // HDD
-                        let hdd_name = format!("{vm_name}.qcow2");
-                        delete_disk(&qemu_conn, &hdd_name)?;
-                        println!("Deleted HDD: {hdd_name}");
-
-                        // ISO
-                        let iso_name = format!("{vm_name}.iso");
-                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{iso_name}")) {
-                            delete_disk(&qemu_conn, &iso_name)?;
-                            println!("Deleted ISO: {iso_name}");
-                        }
-
-                        // Ignition
-                        let ign_name = format!("{vm_name}.ign");
-                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{ign_name}")) {
-                            delete_disk(&qemu_conn, &ign_name)?;
-                            println!("Deleted Ignition: {ign_name}");
-                        }
-
-                        // USB Image
-                        let usb_name = format!("{vm_name}.img");
-                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{usb_name}")) {
-                            delete_disk(&qemu_conn, &usb_name)?;
-                            println!("Deleted USB Disk: {usb_name}");
-                        }
-                    }
-                }
-                if dir_exists(TEMP_DIR) {
-                    fs::remove_dir_all(TEMP_DIR)?;
-                    println!("Deleted directory: {TEMP_DIR}");
-                }
+                destroy(&qemu)?;
             }
             Commands::Inspect => {
-                //
                 inspect(&qemu)?;
             }
             Commands::Import {
