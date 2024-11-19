@@ -5,6 +5,7 @@ mod destroy;
 mod doctor;
 mod import;
 mod inspect;
+mod resume;
 mod ssh;
 
 pub use crate::cmd::clean::clean;
@@ -14,4 +15,5 @@ pub use crate::cmd::destroy::destroy;
 pub use crate::cmd::doctor::doctor;
 pub use crate::cmd::import::import;
 pub use crate::cmd::inspect::inspect;
+pub use crate::cmd::resume::resume;
 pub use crate::cmd::ssh::ssh;

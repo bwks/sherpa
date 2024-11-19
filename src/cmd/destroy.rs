@@ -1,7 +1,7 @@
 use std::fs;
 
 use anyhow::Result;
-use virt::sys;
+use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use crate::core::konst::{SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use crate::libvirt::{delete_disk, Qemu};
@@ -20,7 +20,7 @@ pub fn destroy(qemu: &Qemu) -> Result<()> {
         let vm_name = domain.get_name()?;
         if vm_name.contains(&lab_id) && domain.is_active()? {
             // EUFI domains will have an NVRAM file that must be deleted.
-            let nvram_flag = sys::VIR_DOMAIN_UNDEFINE_NVRAM;
+            let nvram_flag = VIR_DOMAIN_UNDEFINE_NVRAM;
             domain.undefine_flags(nvram_flag)?;
             domain.destroy()?;
             println!("Destroyed VM: {vm_name}");

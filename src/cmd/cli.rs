@@ -10,7 +10,7 @@ use askama::Template;
 
 use clap::{Parser, Subcommand};
 
-use crate::cmd::{clean, console, destroy, doctor, import, inspect, ssh};
+use crate::cmd::{clean, console, destroy, doctor, import, inspect, resume, ssh};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
     ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
@@ -1265,35 +1265,7 @@ WantedBy=multi-user.target
                 }
             }
             Commands::Resume => {
-                term_msg_surround("Resuming environment");
-
-                let lab_id = get_id()?;
-
-                let qemu_conn = qemu.connect()?;
-
-                let domains = qemu_conn.list_all_domains(0)?;
-
-                for domain in domains {
-                    let vm_name = domain.get_name()?;
-                    if vm_name.contains(&lab_id) {
-                        match domain.get_state() {
-                            Ok((state, _reason)) => {
-                                if state == virt::sys::VIR_DOMAIN_PAUSED {
-                                    domain.resume()?;
-                                    println!("Resumed: {vm_name}");
-                                } else if state == virt::sys::VIR_DOMAIN_RUNNING {
-                                    println!("Virtual machine already running: {vm_name}");
-                                } else {
-                                    println!(
-                                        "Virtual machine not paused (state: {}): {}",
-                                        state, vm_name
-                                    );
-                                }
-                            }
-                            Err(e) => anyhow::bail!("Failed to get state for {vm_name}: {e}"),
-                        }
-                    }
-                }
+                resume(&qemu)?;
             }
             Commands::Destroy => {
                 destroy(&qemu)?;
