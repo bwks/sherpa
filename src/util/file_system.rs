@@ -16,7 +16,7 @@ pub fn get_cwd() -> Result<String> {
 /// Create a directory, expanding ~ if it's passed
 pub fn create_dir(dir_path: &str) -> Result<()> {
     fs::create_dir_all(dir_path)?;
-    println!("Directory path created successfully: {dir_path}");
+    println!("Path created: {dir_path}");
 
     Ok(())
 }
@@ -24,7 +24,7 @@ pub fn create_dir(dir_path: &str) -> Result<()> {
 /// Create a file, expanding ~ if it's passed
 pub fn create_file(file_path: &str, contents: String) -> Result<()> {
     fs::write(file_path, contents)?;
-    println!("File created successfully: {file_path}");
+    println!("File created: {file_path}");
 
     Ok(())
 }
@@ -129,7 +129,7 @@ pub fn copy_to_usb_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
     Command::new("mcopy")
         .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
         .status()?;
-    println!("File copied successfully to USB image: {dst_image}");
+    println!("File copied to USB image: {dst_image}");
 
     Ok(())
 }
