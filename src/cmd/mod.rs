@@ -1,3 +1,4 @@
+mod boot_server;
 mod clean;
 mod cli;
 mod console;

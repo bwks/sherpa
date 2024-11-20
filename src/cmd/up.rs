@@ -8,35 +8,32 @@ use anyhow::{Context, Result};
 
 use askama::Template;
 
+use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_OUI,
-    ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, CUMULUS_ZTP_CONFIG,
-    CUMULUS_ZTP_DIR, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, KVM_OUI, MTU_JUMBO_INT,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SHERPA_USERNAME, SSH_PORT,
-    TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, BOOT_SERVER_MAC,
+    BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI, CISCO_IOSXE_OUI,
+    CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
+    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP,
+    JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR,
+    SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, DeviceIp, DeviceModels, Dns, Interface,
-    InterfaceTypes, MachineTypes, OsVariants, User, ZtpMethods,
+    CloneDisk, ConnectionTypes, DeviceIp, DeviceModels, Dns, Interface, OsVariants, User,
+    ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
-    arista_veos_ztp_script, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    File as IgnitionFile, IgnitionConfig, JunipervJunosZtpTemplate, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser,
+    CumulusLinuxZtpTemplate, JunipervJunosZtpTemplate, SshConfigTemplate,
 };
 use crate::topology::{ConnectionMap, Device, Manifest};
 use crate::util::{
-    base64_encode, copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso, get_id,
-    get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
-    tcp_connect, term_msg_surround, term_msg_underline,
+    copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso, get_id, get_ip,
+    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    term_msg_surround, term_msg_underline,
 };
 
 pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
@@ -58,91 +55,6 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let sherpa_user = User::default()?;
 
     let dns = Dns::default()?;
-
-    // Create ZTP files
-    term_msg_underline("Creating ZTP configs");
-
-    // Aristra vEOS
-    let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
-    create_dir(&arista_dir)?;
-
-    let arista_ztp_file = format!("{arista_dir}/{ARISTA_VEOS_ZTP_SCRIPT}");
-    let arista_ztp_script = arista_veos_ztp_script();
-    create_file(&arista_ztp_file, arista_ztp_script.clone())?;
-
-    // Aruba AOS
-    let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
-    create_dir(&aruba_dir)?;
-
-    let aruba_template = ArubaAoscxTemplate {
-        hostname: "aos-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
-        dns: dns.clone(),
-    };
-    let aruba_rendered_template = aruba_template.render()?;
-    let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
-    create_file(&aruba_ztp_config, aruba_rendered_template.clone())?;
-
-    // TODO: Aruba USB ZTP config
-    // let aruba_ztp_file = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
-    // let aruba_ztp_config = aruba_aoscx_ztp_config();
-    // create_file(&aruba_ztp_file, aruba_ztp_config.clone())?;
-
-    // Cumulus Linux
-    let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
-    create_dir(&cumulus_dir)?;
-
-    let cumulus_template = CumulusLinuxZtpTemplate {
-        hostname: "cumulus-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
-        dns: dns.clone(),
-    };
-    let cumulus_rendered_template = cumulus_template.render()?;
-    let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
-    create_file(&cumulus_ztp_config, cumulus_rendered_template.clone())?;
-
-    // Cisco
-    let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
-    create_dir(&cisco_dir)?;
-    let mut cisco_user = sherpa_user.clone();
-    cisco_user.ssh_public_key.key = pub_ssh_key_to_md5_hash(&cisco_user.ssh_public_key.key)?;
-
-    // IOSXE
-    let cisco_iosxe_template = CiscoIosXeZtpTemplate {
-        hostname: "iosxe-ztp".to_owned(),
-        users: vec![cisco_user.clone()],
-        mgmt_interface: "GigabitEthernet1".to_owned(),
-        dns: dns.clone(),
-    };
-    let iosxe_rendered_template = cisco_iosxe_template.render()?;
-    let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
-    create_file(&cisco_iosxe_ztp_config, iosxe_rendered_template.clone())?;
-
-    // IOSv
-    let cisco_iosv_template = CiscoIosvZtpTemplate {
-        hostname: "iosv-ztp".to_owned(),
-        users: vec![cisco_user.clone()],
-        mgmt_interface: "GigabitEthernet0/0".to_owned(),
-        dns: dns.clone(),
-    };
-    let iosv_rendered_template = cisco_iosv_template.render()?;
-    let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
-    create_file(&cisco_iosv_ztp_config, iosv_rendered_template.clone())?;
-
-    // Juniper vrouter
-    let juniper_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{JUNIPER_ZTP_DIR}");
-    create_dir(&juniper_dir)?;
-
-    let juniper_vjunos_template = JunipervJunosZtpTemplate {
-        hostname: "vjunos-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
-    };
-    let juniper_vjunos_rendered_template = juniper_vjunos_template.render()?;
-    let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");
-    create_file(
-        &juniper_vjunos_ztp_config,
-        juniper_vjunos_rendered_template.clone(),
-    )?;
 
     // Create a mapping of device name to device id.
     let dev_id_map: HashMap<String, u8> = manifest
@@ -600,164 +512,18 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
     // Boot Server
     if config.ztp_server.enabled {
-        let boot_server_name = format!("{BOOT_SERVER_NAME}-{lab_id}");
-        let dir = format!("{TEMP_DIR}/{boot_server_name}");
-        let ignition_user = IgnitionUser {
-            name: user.username,
-            ssh_authorized_keys: vec![format!(
-                "{} {}",
-                user.ssh_public_key.algorithm, user.ssh_public_key.key
-            )],
-            groups: vec!["wheel".to_owned(), "docker".to_owned()],
-        };
-        let hostname_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: "/etc/hostname".to_owned(),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
-        };
-        let unit_webdir = IgnitionUnit::default();
-        let unit_tftp = IgnitionUnit {
-                name: "tftpd.service".to_owned(),
-                enabled: true,
-                contents: r#"[Unit]
-Description=TFTPd
-After=docker.service
-Requires=docker.service
+        let ztp_templates = create_ztp_files(&sherpa_user, &dns)?;
+        let boot_server = create_boot_server(
+            //
+            &sherpa,
+            &config,
+            &lab_id,
+            &user,
+            &ztp_templates,
+        )?;
 
-[Service]
-TimeoutStartSec=0
-ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/tftpd:latest
-ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p 6969:6969/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
-ExecStop=/usr/bin/docker container stop tftpd-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#.to_owned(),
-            };
-        // files
-        let sudo_config_base64 =
-            base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
-        let sudo_config_file = IgnitionFile {
-            path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
-            mode: 440,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{sudo_config_base64}")),
-        };
-        let arista_ztp_base64 = base64_encode(&arista_ztp_script);
-        let arista_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{arista_ztp_base64}")),
-        };
-        let aruba_ztp_base64 = base64_encode(&aruba_rendered_template);
-        // let aruba_ztp_base64 = base64_encode(&aruba_ztp_config);
-        let aruba_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{aruba_ztp_base64}")),
-        };
-        let cumulus_ztp_base64 = base64_encode(&cumulus_rendered_template);
-        let cumulus_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{cumulus_ztp_base64}")),
-        };
-        let iosxe_ztp_base64 = base64_encode(&iosxe_rendered_template);
-        let iosxe_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{iosxe_ztp_base64}")),
-        };
-        let iosv_ztp_base64 = base64_encode(&iosv_rendered_template);
-        let iosv_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!("data:;base64,{iosv_ztp_base64}")),
-        };
-
-        let juniper_vjunos_ztp_base64 = base64_encode(&juniper_vjunos_rendered_template);
-        let juniper_vjunos_ztp_file = IgnitionFile {
-            // filesystem: "root".to_owned(),
-            path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"),
-            mode: 644,
-            contents: IgnitionFileContents::new(&format!(
-                "data:;base64,{juniper_vjunos_ztp_base64}"
-            )),
-        };
-
-        let ignition_config = IgnitionConfig::new(
-            vec![ignition_user],
-            vec![
-                sudo_config_file,
-                hostname_file,
-                arista_ztp_file,
-                aruba_ztp_file,
-                cumulus_ztp_file,
-                iosxe_ztp_file,
-                iosv_ztp_file,
-                juniper_vjunos_ztp_file,
-            ],
-            vec![],
-            vec![unit_webdir, unit_tftp], // vec![link_default],
-        );
-        let flatcar_config = ignition_config.to_json_pretty()?;
-        let src_ztp_file = format!("{dir}/{ZTP_JSON}");
-        let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.ign");
-
-        create_dir(&dir)?;
-        create_file(&src_ztp_file, flatcar_config)?;
-        copy_disks.push(CloneDisk {
-            src: src_ztp_file,
-            dst: dst_ztp_file.clone(),
-        });
-
-        let src_boot_disk = format!(
-            "{}/{}/{}/virtioa.qcow2",
-            sherpa.boxes_dir,
-            DeviceModels::FlatcarLinux,
-            "latest"
-        );
-        let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.qcow2");
-        copy_disks.push(CloneDisk {
-            src: src_boot_disk,
-            dst: dst_boot_disk.clone(),
-        });
-
-        let domain = DomainTemplate {
-            qemu_bin: config.qemu_bin.clone(),
-            name: boot_server_name.to_owned(),
-            memory: 512,
-            cpu_architecture: CpuArchitecture::default(),
-            machine_type: MachineTypes::default(),
-            cpu_count: 1,
-            vmx_enabled: false,
-            bios: BiosTypes::default(),
-            boot_disk: dst_boot_disk,
-            cdrom: None,
-            usb_disk: None,
-            ignition_config: Some(true),
-            interfaces: vec![Interface {
-                name: "mgmt".to_owned(),
-                num: 0,
-                mtu: MTU_JUMBO_INT,
-                mac_address: BOOT_SERVER_MAC.to_owned(),
-                connection_type: ConnectionTypes::Management,
-                connection_map: None,
-            }],
-            interface_type: InterfaceTypes::Virtio,
-            loopback_ipv4: get_ip(255).to_string(),
-            telnet_port: TELNET_PORT,
-        };
-
-        domains.push(domain);
+        domains.push(boot_server.template);
+        copy_disks.extend(boot_server.copy_disks);
     }
 
     // Clone disks in parallel
