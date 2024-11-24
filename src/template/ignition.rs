@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::IGNITION_VERSION;
+use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -170,12 +170,12 @@ pub struct Unit {
     pub contents: String,
 }
 
-impl Default for Unit {
-    fn default() -> Self {
+impl Unit {
+    pub fn webdir() -> Self {
         Self {
             name: "webdir.service".to_owned(),
             enabled: true,
-            contents: r#"[Unit]
+            contents: format!(r#"[Unit]
 Description=WebDir
 After=docker.service
 Requires=docker.service
@@ -183,7 +183,7 @@ Requires=docker.service
 [Service]
 TimeoutStartSec=0
 ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p 8080:8080 -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -191,7 +191,30 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-"#.to_owned(),
+"#).to_owned(),
+        }
+    }
+    pub fn tftpd() -> Self {
+        Self {
+            name: "tftpd.service".to_owned(),
+            enabled: true,
+            contents: format!(r#"[Unit]
+Description=TFTPd
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/tftpd:latest
+ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p {TFTP_PORT}:{TFTP_PORT}/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
+ExecStop=/usr/bin/docker container stop tftpd-app
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#).to_owned(),
         }
     }
 }
@@ -203,18 +226,8 @@ pub struct Systemd {
 
 impl Default for Systemd {
     fn default() -> Self {
-        // https://github.com/flatcar/Flatcar/issues/134
-        // let docker_service = Unit {
-        //     name: "docker.service".to_owned(),
-        //     enabled: true,
-        // };
-        // let docker_socket = Unit {
-        //     name: "docker.socket".to_owned(),
-        //     enabled: false,
-        // };
-
         Self {
-            units: vec![Unit::default()],
+            units: vec![Unit::webdir(), Unit::tftpd()],
         }
     }
 }

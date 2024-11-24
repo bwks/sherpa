@@ -136,33 +136,13 @@ pub fn create_boot_server(
         groups: vec!["wheel".to_owned(), "docker".to_owned()],
     };
     let hostname_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: "/etc/hostname".to_owned(),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
     };
-    let unit_webdir = IgnitionUnit::default();
-    let unit_tftp = IgnitionUnit {
-            name: "tftpd.service".to_owned(),
-            enabled: true,
-            contents: r#"[Unit]
-Description=TFTPd
-After=docker.service
-Requires=docker.service
+    let unit_webdir = IgnitionUnit::webdir();
+    let unit_tftp = IgnitionUnit::tftpd();
 
-[Service]
-TimeoutStartSec=0
-ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/tftpd:latest
-ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p 6969:6969/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
-ExecStop=/usr/bin/docker container stop tftpd-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#.to_owned(),
-        };
     // files
     let sudo_config_base64 = base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
     let sudo_config_file = IgnitionFile {
@@ -170,38 +150,35 @@ WantedBy=multi-user.target
         mode: 440,
         contents: IgnitionFileContents::new(&format!("data:;base64,{sudo_config_base64}")),
     };
+
     let arista_ztp_base64 = base64_encode(&ztp_templates.arista_eos);
     let arista_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{arista_ztp_base64}")),
     };
+
     let aruba_ztp_base64 = base64_encode(&ztp_templates.aruba_aos);
-    // let aruba_ztp_base64 = base64_encode(&aruba_ztp_config);
     let aruba_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{aruba_ztp_base64}")),
     };
+
     let cumulus_ztp_base64 = base64_encode(&ztp_templates.cumulus_linux);
     let cumulus_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{cumulus_ztp_base64}")),
     };
     let iosxe_ztp_base64 = base64_encode(&ztp_templates.cisco_iosxe);
     let iosxe_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosxe_ztp_base64}")),
     };
     let iosv_ztp_base64 = base64_encode(&ztp_templates.cisco_iosv);
     let iosv_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosv_ztp_base64}")),
@@ -209,7 +186,6 @@ WantedBy=multi-user.target
 
     let juniper_vjunos_ztp_base64 = base64_encode(&ztp_templates.juniper_vjunos);
     let juniper_vjunos_ztp_file = IgnitionFile {
-        // filesystem: "root".to_owned(),
         path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{juniper_vjunos_ztp_base64}")),
@@ -228,7 +204,7 @@ WantedBy=multi-user.target
             juniper_vjunos_ztp_file,
         ],
         vec![],
-        vec![unit_webdir, unit_tftp], // vec![link_default],
+        vec![unit_webdir, unit_tftp],
     );
     let flatcar_config = ignition_config.to_json_pretty()?;
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
