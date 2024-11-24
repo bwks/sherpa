@@ -2,6 +2,17 @@ use serde_derive::{Deserialize, Serialize};
 
 use crate::topology::ConnectionMap;
 
+#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+#[allow(dead_code)]
+pub enum InterfaceTypes {
+    Mgt,
+    Eth,
+    Swp,
+    Gig,
+    Ten,
+}
+
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionTypes {
