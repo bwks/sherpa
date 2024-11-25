@@ -1,6 +1,7 @@
 use serde_derive::{Deserialize, Serialize};
 
 pub use crate::libvirt::DomainTemplate;
+
 // Device name to IP address mapping
 pub struct DeviceIp {
     pub name: String,

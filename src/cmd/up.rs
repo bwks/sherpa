@@ -43,7 +43,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let mut sherpa = sherpa.clone();
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
-    let config = Config::load(&sherpa.config_path)?;
+    let mut config = Config::load(&sherpa.config_path)?;
 
     let qemu_conn = Arc::new(qemu.connect()?);
 
@@ -65,6 +65,15 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
         .enumerate()
         .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
         .collect();
+
+    // TODO: Check if boot server is required for any of the device types
+    println!("Checking ZTP server requirement");
+    for device in &manifest.devices {
+        if device.device_model.needs_ztp_server() {
+            println!("ZTP server is required");
+            config.ztp_server.enabled = true
+        }
+    }
 
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];

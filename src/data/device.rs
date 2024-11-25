@@ -11,7 +11,7 @@ use crate::core::konst::MTU_JUMBO_INT;
 #[clap(rename_all = "snake_case")]
 pub enum DeviceModels {
     #[default]
-    UnknownUnknown,
+    CustomUnknown,
     AristaVeos,
     ArubaAoscx,
     CiscoAsav,
@@ -64,8 +64,14 @@ impl fmt::Display for DeviceModels {
             DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
             DeviceModels::WindowsServer2012 => write!(f, "windows_server"),
             DeviceModels::FlatcarLinux => write!(f, "flatcar_linux"),
-            DeviceModels::UnknownUnknown => write!(f, "unknown_unknown"),
+            DeviceModels::CustomUnknown => write!(f, "custom_unknown"),
         }
+    }
+}
+
+impl DeviceModels {
+    pub fn needs_ztp_server(&self) -> bool {
+        matches!(self, DeviceModels::AristaVeos | DeviceModels::ArubaAoscx)
     }
 }
 
@@ -248,8 +254,8 @@ impl Default for DeviceModel {
             memory: 1024,
             hdd_count: 1,
             cdrom: None,
-            ztp_enable: true,
-            ztp_method: ZtpMethods::default(),
+            ztp_enable: false,
+            ztp_method: ZtpMethods::None,
             ztp_username: None,
             ztp_password: None,
             ztp_password_auth: false,
@@ -258,7 +264,7 @@ impl Default for DeviceModel {
             interface_type: InterfaceTypes::default(),
             interface_mtu: 1500,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
             reserved_interface_count: 0,
         }
     }
@@ -292,7 +298,7 @@ impl DeviceModel {
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
             DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
             DeviceModels::WindowsServer2012 => todo!(),
-            DeviceModels::UnknownUnknown => DeviceModel::default(),
+            DeviceModels::CustomUnknown => DeviceModel::default(),
         }
     }
     pub fn arista_veos() -> DeviceModel {

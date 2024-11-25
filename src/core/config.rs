@@ -61,7 +61,7 @@ impl Default for Config {
             .expect("Failed to parse IPv4 network");
 
         let ztp_server = ZtpServer {
-            enabled: true,
+            enabled: false,
             username: SHERPA_USERNAME.to_owned(),
             password: SHERPA_PASSWORD.to_owned(),
         };
