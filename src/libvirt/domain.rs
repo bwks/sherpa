@@ -146,13 +146,13 @@ use crate::data::{
     </interface>
 
     {%     when ConnectionTypes::Peer %}
-    {%       match interface.connection_map %}
-    {%         when Some with (connection_map) %}
+    {%       match interface.interface_connection %}
+    {%         when Some with (interface_connection) %}
     <interface type='udp'>
       <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source address='{{ connection_map.source_loopback }}' port='{{ connection_map.source_port }}'>
-        <local address='{{ connection_map.local_loopback }}' port='{{ connection_map.local_port }}'/>
+      <source address='{{ interface_connection.source_loopback }}' port='{{ interface_connection.source_port }}'>
+        <local address='{{ interface_connection.local_loopback }}' port='{{ interface_connection.local_port }}'/>
       </source>
       <model type='{{ interface_type }}'/>
     </interface>

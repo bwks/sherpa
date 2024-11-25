@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::process::Command;
 
 use anyhow::Result;
@@ -11,7 +12,14 @@ pub fn console(name: &str) -> Result<()> {
 
     let manifest = Manifest::load_file()?;
 
-    // Find the device in the manifest
+    let dev_id_map: HashMap<String, u8> = manifest
+        .devices
+        .iter()
+        .enumerate()
+        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
+        .collect();
+
+    // Find the device in the manifes
     let device_ip = {
         if name == BOOT_SERVER_NAME {
             get_ip(255)
@@ -21,7 +29,8 @@ pub fn console(name: &str) -> Result<()> {
                 .iter()
                 .find(|d| d.name == *name)
                 .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
-            get_ip(device.id)
+            let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+            get_ip(device_id)
         }
     };
 

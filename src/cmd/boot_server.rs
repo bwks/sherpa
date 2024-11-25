@@ -251,7 +251,7 @@ pub fn create_boot_server(
             mtu: MTU_JUMBO_INT,
             mac_address: BOOT_SERVER_MAC.to_owned(),
             connection_type: ConnectionTypes::Management,
-            connection_map: None,
+            interface_connection: None,
         }],
         interface_type: InterfaceTypes::Virtio,
         loopback_ipv4: get_ip(255).to_string(),

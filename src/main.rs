@@ -5,6 +5,7 @@ mod libvirt;
 mod template;
 mod topology;
 mod util;
+mod validate;
 
 use std::process::ExitCode;
 

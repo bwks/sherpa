@@ -20,8 +20,8 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    CloneDisk, ConnectionTypes, DeviceIp, DeviceModels, Dns, Interface, OsVariants, User,
-    ZtpMethods,
+    CloneDisk, ConnectionTypes, DeviceIp, DeviceModels, Dns, Interface, InterfaceConnection,
+    OsVariants, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -29,7 +29,7 @@ use crate::template::{
     CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser,
     CumulusLinuxZtpTemplate, JunipervJunosZtpTemplate, SshConfigTemplate,
 };
-use crate::topology::{ConnectionMap, Device, Manifest};
+use crate::topology::{Device, Manifest};
 use crate::util::{
     copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso, get_id, get_ip,
     id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
@@ -57,13 +57,15 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let dns = Dns::default()?;
 
     // Create a mapping of device name to device id.
+    // Devices have an id based on their order in the list of devices
+    // from the manifest file.
     let dev_id_map: HashMap<String, u8> = manifest
         .devices
         .iter()
-        .map(|d| (d.name.clone(), d.id))
+        .enumerate()
+        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
         .collect();
 
-    // let mut ztp_disks: Vec<ZtpDisk> = vec![];
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
     let user = User::default()?;
@@ -95,14 +97,14 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
         let mut interfaces: Vec<Interface> = vec![];
 
-        if device_model.management_interface {
+        if device_model.dedicated_management_interface {
             interfaces.push(Interface {
                 name: "mgmt".to_owned(),
                 num: 0,
                 mtu: device_model.interface_mtu,
                 mac_address: mac_address.to_string(),
                 connection_type: ConnectionTypes::Management,
-                connection_map: None,
+                interface_connection: None,
             });
         }
         if device_model.reserved_interface_count > 0 {
@@ -113,7 +115,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                     mtu: device_model.interface_mtu,
                     mac_address: random_mac(KVM_OUI),
                     connection_type: ConnectionTypes::Reserved,
-                    connection_map: None,
+                    interface_connection: None,
                 });
             }
         }
@@ -126,10 +128,11 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             let source_id = dev_id_map.get(&c.device_b).ok_or_else(|| {
                                 anyhow::anyhow!("Connection device_b not found: {}", c.device_b)
                             })?;
-                            let connection_map = ConnectionMap {
-                                local_id: device.id,
+                            let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+                            let interface_connection = InterfaceConnection {
+                                local_id,
                                 local_port: id_to_port(i),
-                                local_loopback: get_ip(device.id).to_string(),
+                                local_loopback: get_ip(local_id).to_string(),
                                 source_id: source_id.to_owned(),
                                 source_port: id_to_port(c.interface_b),
                                 source_loopback: get_ip(source_id.to_owned()).to_string(),
@@ -140,17 +143,18 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 mtu: device_model.interface_mtu,
                                 mac_address: random_mac(KVM_OUI),
                                 connection_type: ConnectionTypes::Peer,
-                                connection_map: Some(connection_map),
+                                interface_connection: Some(interface_connection),
                             })
                         // Device is destination in manifest
                         } else if c.device_b == device.name && i == c.interface_b {
                             let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
                                 anyhow::anyhow!("Connection device_a not found: {}", c.device_a)
                             })?;
-                            let connection_map = ConnectionMap {
-                                local_id: device.id,
+                            let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+                            let interface_connection = InterfaceConnection {
+                                local_id,
                                 local_port: id_to_port(i),
-                                local_loopback: get_ip(device.id).to_string(),
+                                local_loopback: get_ip(local_id).to_string(),
                                 source_id: source_id.to_owned(),
                                 source_port: id_to_port(c.interface_a),
                                 source_loopback: get_ip(source_id.to_owned()).to_string(),
@@ -161,7 +165,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 mtu: device_model.interface_mtu,
                                 mac_address: random_mac(KVM_OUI),
                                 connection_type: ConnectionTypes::Peer,
-                                connection_map: Some(connection_map),
+                                interface_connection: Some(interface_connection),
                             })
                         } else {
                             // Interface not defined in manifest so disable.
@@ -171,7 +175,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 mtu: device_model.interface_mtu,
                                 mac_address: random_mac(KVM_OUI),
                                 connection_type: ConnectionTypes::Disabled,
-                                connection_map: None,
+                                interface_connection: None,
                             })
                         }
                     }
@@ -182,7 +186,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                     mtu: device_model.interface_mtu,
                     mac_address: random_mac(KVM_OUI),
                     connection_type: ConnectionTypes::Disabled,
-                    connection_map: None,
+                    interface_connection: None,
                 }),
             }
         }
@@ -487,7 +491,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             DeviceModels::FlatcarLinux => Some(true),
             _ => None,
         };
-
+        let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
         let domain = DomainTemplate {
             qemu_bin: config.qemu_bin.clone(),
             name: vm_name,
@@ -503,7 +507,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             ignition_config,
             interfaces,
             interface_type: device_model.interface_type.clone(),
-            loopback_ipv4: get_ip(device.id).to_string(),
+            loopback_ipv4: get_ip(device_id).to_string(),
             telnet_port: TELNET_PORT,
         };
 
@@ -584,7 +588,6 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let mut device_ip_map = vec![];
     let mut devices = manifest.devices;
     devices.push(Device {
-        id: 255,
         name: BOOT_SERVER_NAME.to_owned(),
         device_model: DeviceModels::FlatcarLinux,
     });

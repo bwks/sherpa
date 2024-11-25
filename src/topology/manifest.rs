@@ -18,12 +18,10 @@ impl Default for Manifest {
         let dev01 = Device {
             name: "dev01".to_owned(),
             device_model: DeviceModels::FedoraLinux,
-            id: 1,
         };
         let dev02 = Device {
             name: "dev02".to_owned(),
             device_model: DeviceModels::FedoraLinux,
-            id: 2,
         };
 
         let connections = vec![Connection {

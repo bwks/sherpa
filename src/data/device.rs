@@ -228,7 +228,8 @@ pub struct DeviceModel {
     pub interface_prefix: String,
     pub interface_type: InterfaceTypes,
     pub interface_mtu: u16,
-    pub management_interface: bool,
+    pub first_interface_index: u8,
+    pub dedicated_management_interface: bool,
     pub reserved_interface_count: u8,
 }
 
@@ -256,7 +257,8 @@ impl Default for DeviceModel {
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::default(),
             interface_mtu: 1500,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -316,7 +318,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 1,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -343,7 +346,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: true,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -370,7 +374,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -397,7 +402,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: true,
-            management_interface: true,
+            first_interface_index: 1,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -424,7 +430,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 1,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -451,7 +458,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -478,7 +486,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 2,
         }
     }
@@ -505,7 +514,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -532,7 +542,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -559,7 +570,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -586,7 +598,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 2,
         }
     }
@@ -613,7 +626,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 2,
         }
     }
@@ -640,7 +654,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -667,7 +682,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -694,7 +710,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -721,7 +738,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::default(),
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -748,7 +766,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -775,7 +794,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -802,7 +822,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -829,7 +850,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -856,7 +878,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -883,7 +906,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }
@@ -910,7 +934,8 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Ignition,
             ztp_password_auth: false,
-            management_interface: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             reserved_interface_count: 0,
         }
     }

@@ -21,7 +21,6 @@ pub fn inspect(qemu: &Qemu) -> Result<()> {
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
     let mut devices = manifest.devices;
     devices.push(Device {
-        id: 255,
         name: BOOT_SERVER_NAME.to_owned(),
         device_model: DeviceModels::FlatcarLinux,
     });

@@ -1,12 +1,14 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::topology::ConnectionMap;
+use crate::data::InterfaceConnection;
 
-#[derive(Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[allow(dead_code)]
 pub enum InterfaceTypes {
-    Mgt,
+    #[default]
+    Unknown,
+    Mgmt,
     Eth,
     Swp,
     Gig,
@@ -30,5 +32,5 @@ pub struct Interface {
     pub mac_address: String,
     pub mtu: u16,
     pub connection_type: ConnectionTypes,
-    pub connection_map: Option<ConnectionMap>,
+    pub interface_connection: Option<InterfaceConnection>,
 }

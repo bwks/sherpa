@@ -12,7 +12,9 @@ pub use crate::data::device::{
 };
 pub use crate::data::dns::Dns;
 pub use crate::data::interface::{ConnectionTypes, Interface};
-pub use crate::data::mapping::{BootServer, CloneDisk, DeviceIp, ZtpTemplates};
+pub use crate::data::mapping::{
+    BootServer, CloneDisk, DeviceIp, InterfaceConnection, ZtpTemplates,
+};
 pub use crate::data::provider::VmProviders;
 pub use crate::data::ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use crate::data::user::User;
