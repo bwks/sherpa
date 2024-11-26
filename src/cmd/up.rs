@@ -15,8 +15,8 @@ use crate::core::konst::{
     CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP,
     JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR,
-    SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -52,7 +52,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let qemu_conn = Arc::new(qemu.connect()?);
 
     println!("Loading manifest");
-    let manifest = Manifest::load_file()?;
+    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
 
     let lab_id = get_id()?;
 

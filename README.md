@@ -241,15 +241,13 @@ A manifest defines the device parameters and connection between them.
 
 #### manifest.toml
 ```toml
-id = "1e18b3bfe149"
-
 devices = [
-  { id = 1, name = "dev1", device_model = "linux_fedora" },
-  { id = 2, name = "dev2", device_model = "linux_fedora" },
+  { name = "dev01", device_model = "cisco_cat8000v" },
+  { name = "dev02", device_model = "arista_veos" },
 ]
 
 connections = [
-  { device_a = "dev1", interface_a = 0, device_b = "dev2", interface_b = 0 },
+  { device_a = "dev01", interface_a = 2, device_b = "dev02", interface_b = 1 },
 ]
 ```
 

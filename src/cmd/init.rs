@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::core::konst::{
     HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_FILE,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
+    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{IsolatedNetwork, ManagementNetwork, Qemu, SherpaStoragePool};
@@ -61,7 +61,7 @@ pub fn init(
         println!("Manifest file already exists: {manifest_file}");
     } else {
         let manifest = Manifest::default();
-        manifest.write_file()?;
+        manifest.write_file(SHERPA_MANIFEST_FILE)?;
     }
 
     // SSH Keys

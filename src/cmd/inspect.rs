@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
+use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_MANIFEST_FILE, SHERPA_STORAGE_POOL};
 use crate::data::DeviceModels;
 use crate::libvirt::{get_mgmt_ip, Qemu};
 use crate::topology::{Device, Manifest};
@@ -11,7 +11,7 @@ use crate::util::{get_id, term_msg_surround, term_msg_underline};
 pub fn inspect(qemu: &Qemu) -> Result<()> {
     let lab_id = get_id()?;
 
-    let manifest = Manifest::load_file()?;
+    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
 
     term_msg_surround(&format!("Sherpa Environment - {}", lab_id));
 
