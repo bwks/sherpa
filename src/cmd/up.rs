@@ -664,10 +664,13 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let mut connected_devices = std::collections::HashSet::new();
     let mut device_ip_map = vec![];
     let mut devices = manifest.devices;
-    devices.push(Device {
-        name: BOOT_SERVER_NAME.to_owned(),
-        device_model: DeviceModels::FlatcarLinux,
-    });
+
+    if config.ztp_server.enabled {
+        devices.push(Device {
+            name: BOOT_SERVER_NAME.to_owned(),
+            device_model: DeviceModels::FlatcarLinux,
+        });
+    }
 
     while start_time.elapsed() < timeout && connected_devices.len() < devices.len() {
         for device in &devices {
