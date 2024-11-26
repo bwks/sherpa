@@ -266,3 +266,13 @@ When done, tear down the environment.
 ```
 sherpa destroy
 ```
+
+## Troubleshooting
+
+1) qcow2: Image is corrupt; cannot be opened read/write
+
+Run the following command to fix the image
+
+```
+qemu-img check -r all  ~/.sherpa/boxes/cisco_cat9000v/latest/virtioa.qcow2
+```

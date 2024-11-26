@@ -80,7 +80,7 @@ use crate::data::{
       <driver name='qemu' type='raw'/>
       <source file='{{ cdrom }}'/>
       {% match machine_type %}
-      {%   when MachineTypes::PcI440Fx_4_2 %}
+      {%   when MachineTypes::Pc %}
       <target dev="hda" bus="ide"/>
       {%   else %}
       <target dev="sda" bus="sata"/>

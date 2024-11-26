@@ -353,7 +353,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             let t = CiscoIosXeZtpTemplate {
                                 hostname: device.name.clone(),
                                 users: vec![user],
-                                mgmt_interface: "GigabitEthernet1".to_owned(),
+                                mgmt_interface: "GigabitEthernet0/0".to_owned(),
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
