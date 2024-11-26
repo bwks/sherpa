@@ -35,6 +35,10 @@ use crate::util::{
     id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline,
 };
+use crate::validate::{
+    check_connection_device, check_duplicate_device, check_duplicate_interface_connection,
+    check_interface_bounds, check_mgmt_usage,
+};
 
 pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     term_msg_surround("Building environment");
@@ -66,19 +70,66 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
         .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
         .collect();
 
-    // TODO: Check if boot server is required for any of the device types
-    println!("Checking ZTP server requirement");
+    term_msg_underline("Validating Manifest");
+
+    let connections = manifest.connections.unwrap_or_default();
+
+    // Device Validators
+    check_duplicate_device(&manifest.devices)?;
+
     for device in &manifest.devices {
-        if device.device_model.needs_ztp_server() {
-            println!("ZTP server is required");
-            config.ztp_server.enabled = true
+        let device_model = config
+            .device_models
+            .iter()
+            .find(|d| d.name == device.device_model)
+            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.device_model))?;
+
+        if !device_model.dedicated_management_interface {
+            check_mgmt_usage(
+                &device.name,
+                device_model.first_interface_index,
+                &connections,
+            )?;
+        }
+
+        check_interface_bounds(
+            &device.name,
+            &device_model.name,
+            device_model.first_interface_index,
+            device_model.interface_count,
+            &connections,
+        )?;
+    }
+
+    // Connection Validators
+    if !connections.is_empty() {
+        check_duplicate_interface_connection(&connections)?;
+        check_connection_device(&manifest.devices, &connections)?;
+    };
+
+    println!("Manifest Ok");
+
+    term_msg_underline("ZTP Server Check");
+    if config.ztp_server.enabled {
+        println!("ZTP server is enabled in configuration")
+    } else {
+        for device in &manifest.devices {
+            if device.device_model.needs_ztp_server() {
+                println!("ZTP server is required");
+                config.ztp_server.enabled = true
+            }
+        }
+        if !config.ztp_server.enabled {
+            println!("ZTP server is not required")
         }
     }
 
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
     let user = User::default()?;
+
     for device in &manifest.devices {
+        let connections = &connections.to_owned();
         let vm_name = format!("{}-{}", device.name, lab_id);
 
         let device_model = config
@@ -106,6 +157,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
         let mut interfaces: Vec<Interface> = vec![];
 
+        // Management Interfaces
         if device_model.dedicated_management_interface {
             interfaces.push(Interface {
                 name: "mgmt".to_owned(),
@@ -115,9 +167,20 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 connection_type: ConnectionTypes::Management,
                 interface_connection: None,
             });
+        } else {
+            interfaces.push(Interface {
+                name: "mgmt".to_owned(),
+                num: device_model.first_interface_index,
+                mtu: device_model.interface_mtu,
+                mac_address: mac_address.to_string(),
+                connection_type: ConnectionTypes::Management,
+                interface_connection: None,
+            });
         }
+
+        // Reserved Interfaces
         if device_model.reserved_interface_count > 0 {
-            for i in 0..device_model.reserved_interface_count {
+            for i in device_model.first_interface_index..=device_model.reserved_interface_count {
                 interfaces.push(Interface {
                     name: "reserved".to_owned(),
                     num: i,
@@ -128,75 +191,83 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 });
             }
         }
-        for i in 0..device_model.interface_count {
-            match &manifest.connections {
-                Some(connections) => {
-                    for c in connections {
-                        // Device is source in manifest
-                        if c.device_a == device.name && i == c.interface_a {
-                            let source_id = dev_id_map.get(&c.device_b).ok_or_else(|| {
-                                anyhow::anyhow!("Connection device_b not found: {}", c.device_b)
-                            })?;
-                            let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
-                            let interface_connection = InterfaceConnection {
-                                local_id,
-                                local_port: id_to_port(i),
-                                local_loopback: get_ip(local_id).to_string(),
-                                source_id: source_id.to_owned(),
-                                source_port: id_to_port(c.interface_b),
-                                source_loopback: get_ip(source_id.to_owned()).to_string(),
-                            };
-                            interfaces.push(Interface {
-                                name: format!("{}{}", device_model.interface_prefix, i),
-                                num: i,
-                                mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI),
-                                connection_type: ConnectionTypes::Peer,
-                                interface_connection: Some(interface_connection),
-                            })
-                        // Device is destination in manifest
-                        } else if c.device_b == device.name && i == c.interface_b {
-                            let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
-                                anyhow::anyhow!("Connection device_a not found: {}", c.device_a)
-                            })?;
-                            let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
-                            let interface_connection = InterfaceConnection {
-                                local_id,
-                                local_port: id_to_port(i),
-                                local_loopback: get_ip(local_id).to_string(),
-                                source_id: source_id.to_owned(),
-                                source_port: id_to_port(c.interface_a),
-                                source_loopback: get_ip(source_id.to_owned()).to_string(),
-                            };
-                            interfaces.push(Interface {
-                                name: format!("{}{}", device_model.interface_prefix, i),
-                                num: i,
-                                mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI),
-                                connection_type: ConnectionTypes::Peer,
-                                interface_connection: Some(interface_connection),
-                            })
-                        } else {
-                            // Interface not defined in manifest so disable.
-                            interfaces.push(Interface {
-                                name: format!("{}{}", device_model.interface_prefix, i),
-                                num: i,
-                                mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI),
-                                connection_type: ConnectionTypes::Disabled,
-                                interface_connection: None,
-                            })
-                        }
+
+        // Device to device connections
+        for i in device_model.first_interface_index..=device_model.interface_count {
+            // When device does not have a dedicated management interface the first_interface_index
+            // Is assigned as a management interface
+            if !device_model.dedicated_management_interface
+                && i == device_model.first_interface_index
+            {
+                continue;
+            }
+            if !connections.is_empty() {
+                for c in connections {
+                    // Device is source in manifest
+                    if c.device_a == device.name && i == c.interface_a {
+                        let source_id = dev_id_map.get(&c.device_b).ok_or_else(|| {
+                            anyhow::anyhow!("Connection device_b not found: {}", c.device_b)
+                        })?;
+                        let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+                        let interface_connection = InterfaceConnection {
+                            local_id,
+                            local_port: id_to_port(i),
+                            local_loopback: get_ip(local_id).to_string(),
+                            source_id: source_id.to_owned(),
+                            source_port: id_to_port(c.interface_b),
+                            source_loopback: get_ip(source_id.to_owned()).to_string(),
+                        };
+                        interfaces.push(Interface {
+                            name: format!("{}{}", device_model.interface_prefix, i),
+                            num: i,
+                            mtu: device_model.interface_mtu,
+                            mac_address: random_mac(KVM_OUI),
+                            connection_type: ConnectionTypes::Peer,
+                            interface_connection: Some(interface_connection),
+                        })
+                    // Device is destination in manifest
+                    } else if c.device_b == device.name && i == c.interface_b {
+                        let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
+                            anyhow::anyhow!("Connection device_a not found: {}", c.device_a)
+                        })?;
+                        let local_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+                        let interface_connection = InterfaceConnection {
+                            local_id,
+                            local_port: id_to_port(i),
+                            local_loopback: get_ip(local_id).to_string(),
+                            source_id: source_id.to_owned(),
+                            source_port: id_to_port(c.interface_a),
+                            source_loopback: get_ip(source_id.to_owned()).to_string(),
+                        };
+                        interfaces.push(Interface {
+                            name: format!("{}{}", device_model.interface_prefix, i),
+                            num: i,
+                            mtu: device_model.interface_mtu,
+                            mac_address: random_mac(KVM_OUI),
+                            connection_type: ConnectionTypes::Peer,
+                            interface_connection: Some(interface_connection),
+                        })
+                    } else {
+                        // Interface not defined in manifest so disable.
+                        interfaces.push(Interface {
+                            name: format!("{}{}", device_model.interface_prefix, i),
+                            num: i,
+                            mtu: device_model.interface_mtu,
+                            mac_address: random_mac(KVM_OUI),
+                            connection_type: ConnectionTypes::Disabled,
+                            interface_connection: None,
+                        })
                     }
                 }
-                None => interfaces.push(Interface {
+            } else {
+                interfaces.push(Interface {
                     name: format!("{}{}", device_model.interface_prefix, i),
                     num: i,
                     mtu: device_model.interface_mtu,
                     mac_address: random_mac(KVM_OUI),
                     connection_type: ConnectionTypes::Disabled,
                     interface_connection: None,
-                }),
+                })
             }
         }
 
@@ -455,10 +526,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
                         }
                         _ => {
-                            anyhow::bail!(
-                                "HTTP ZTP method not supported for {}",
-                                device_model.name
-                            );
+                            anyhow::bail!("USB ZTP method not supported for {}", device_model.name);
                         }
                     }
                 }

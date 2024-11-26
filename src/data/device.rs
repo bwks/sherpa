@@ -350,7 +350,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Http,
+            ztp_method: ZtpMethods::Usb,
             ztp_password_auth: true,
             first_interface_index: 0,
             dedicated_management_interface: true,
