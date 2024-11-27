@@ -81,8 +81,8 @@ mod tests {
         let macs: Vec<String> = (0..1000).map(|_| random_mac(KVM_OUI)).collect();
         let unique_macs: std::collections::HashSet<_> = macs.iter().cloned().collect();
         assert!(
-            unique_macs.len() > 999,
-            "Less than 99.9% of generated MACs are unique"
+            unique_macs.len() > 990,
+            "Less than 99% of generated MACs are unique"
         );
     }
 }

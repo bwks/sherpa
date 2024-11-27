@@ -5,6 +5,7 @@ use clap::ValueEnum;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::konst::MTU_JUMBO_INT;
+use crate::data::MgmtInterfaces;
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
@@ -236,6 +237,7 @@ pub struct DeviceModel {
     pub interface_mtu: u16,
     pub first_interface_index: u8,
     pub dedicated_management_interface: bool,
+    pub management_interface: MgmtInterfaces,
     pub reserved_interface_count: u8,
 }
 
@@ -265,6 +267,7 @@ impl Default for DeviceModel {
             interface_mtu: 1500,
             first_interface_index: 0,
             dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::default(),
             reserved_interface_count: 0,
         }
     }
@@ -326,6 +329,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Management1,
             reserved_interface_count: 0,
         }
     }
@@ -354,6 +358,7 @@ impl DeviceModel {
             ztp_password_auth: true,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Mgmt,
             reserved_interface_count: 0,
         }
     }
@@ -382,6 +387,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Management0_0,
             reserved_interface_count: 0,
         }
     }
@@ -409,7 +415,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: true,
             first_interface_index: 1,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
         }
     }
@@ -437,7 +444,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 1,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
         }
     }
@@ -466,6 +474,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
         }
     }
@@ -494,6 +503,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
             reserved_interface_count: 2,
         }
     }
@@ -520,8 +530,9 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            first_interface_index: 0,
+            first_interface_index: 1,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
         }
     }
@@ -549,7 +560,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
         }
     }
@@ -577,7 +589,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::None,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
         }
     }
@@ -606,6 +619,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 2,
         }
     }
@@ -634,6 +648,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 2,
         }
     }
@@ -662,6 +677,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
         }
     }
@@ -690,6 +706,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
         }
     }
@@ -716,8 +733,9 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
-            first_interface_index: 0,
+            first_interface_index: 1,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -746,6 +764,7 @@ impl DeviceModel {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -773,7 +792,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -801,7 +821,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -829,7 +850,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -857,7 +879,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -885,7 +908,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -913,7 +937,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
@@ -941,7 +966,8 @@ impl DeviceModel {
             ztp_method: ZtpMethods::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }

@@ -11,7 +11,7 @@ pub use crate::data::device::{
     OsVariants, ZtpMethods,
 };
 pub use crate::data::dns::Dns;
-pub use crate::data::interface::{ConnectionTypes, Interface};
+pub use crate::data::interface::{ConnectionTypes, Interface, MgmtInterfaces};
 pub use crate::data::mapping::{
     BootServer, CloneDisk, DeviceIp, InterfaceConnection, ZtpTemplates,
 };
