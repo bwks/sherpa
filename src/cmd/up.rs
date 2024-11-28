@@ -43,32 +43,20 @@ use crate::validate::{
 pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     term_msg_surround("Building environment");
 
+    // Setup
+    let qemu_conn = Arc::new(qemu.connect()?);
+    let lab_id = get_id()?;
+    let sherpa_user = User::default()?;
+    let dns = Dns::default()?;
+
     println!("Loading config");
     let mut sherpa = sherpa.clone();
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = Config::load(&sherpa.config_path)?;
 
-    let qemu_conn = Arc::new(qemu.connect()?);
-
     println!("Loading manifest");
     let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-
-    let lab_id = get_id()?;
-
-    let sherpa_user = User::default()?;
-
-    let dns = Dns::default()?;
-
-    // Create a mapping of device name to device id.
-    // Devices have an id based on their order in the list of devices
-    // from the manifest file.
-    let dev_id_map: HashMap<String, u8> = manifest
-        .devices
-        .iter()
-        .enumerate()
-        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
-        .collect();
 
     term_msg_underline("Validating Manifest");
 
@@ -124,9 +112,18 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
         }
     }
 
+    // Create a mapping of device name to device id.
+    // Devices have an id based on their order in the list of devices
+    // from the manifest file.
+    let dev_id_map: HashMap<String, u8> = manifest
+        .devices
+        .iter()
+        .enumerate()
+        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
+        .collect();
+
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
-    let user = User::default()?;
 
     for device in &manifest.devices {
         let connections = &connections.to_owned();
@@ -341,7 +338,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let mut user = user.clone();
+                    let mut user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
                     match device.device_model {
@@ -425,7 +422,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 ZtpMethods::Http => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let _user = user.clone();
+                    let _user = sherpa_user.clone();
                     let _dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
 
                     match device_model.os_variant {
@@ -442,7 +439,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 ZtpMethods::Usb => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let user = user.clone();
+                    let user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
                     match device_model.os_variant {
@@ -534,7 +531,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let _user = user.clone();
+                    let _user = sherpa_user.clone();
                     let _dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.device_model {
                         DeviceModels::FlatcarLinux => {}
@@ -599,7 +596,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             &sherpa,
             &config,
             &lab_id,
-            &user,
+            &sherpa_user,
             &ztp_templates,
         )?;
 
