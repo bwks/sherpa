@@ -345,29 +345,15 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
                     match device.device_model {
-                        DeviceModels::CiscoCsr1000v | DeviceModels::CiscoCat8000v => {
+                        DeviceModels::CiscoCsr1000v
+                        | DeviceModels::CiscoCat8000v
+                        | DeviceModels::CiscoCat9000v => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoIosXeZtpTemplate {
                                 hostname: device.name.clone(),
                                 users: vec![user],
-                                mgmt_interface: "GigabitEthernet1".to_owned(),
-                                dns: dns.clone(),
-                            };
-                            let rendered_template = t.render()?;
-                            let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
-                            let ztp_config = format!("{dir}/{c}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
-                        }
-                        DeviceModels::CiscoCat9000v => {
-                            let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                            user.ssh_public_key.key = key_hash;
-                            let t = CiscoIosXeZtpTemplate {
-                                hostname: device.name.clone(),
-                                users: vec![user],
-                                mgmt_interface: "GigabitEthernet0/0".to_owned(),
+                                mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
