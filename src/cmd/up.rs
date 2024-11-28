@@ -122,9 +122,9 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
         .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
         .collect();
 
+    let mut ztp_devices: Vec<&Device> = vec![];
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
-
     for device in &manifest.devices {
         let connections = &connections.to_owned();
         let vm_name = format!("{}-{}", device.name, lab_id);
@@ -294,6 +294,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
         let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
 
         if device_model.ztp_enable {
+            ztp_devices.push(device);
             match device_model.ztp_method {
                 ZtpMethods::CloudInit => {
                     term_msg_underline("Creating Cloud-Init disks");
@@ -654,23 +655,22 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
     }
 
+    let ztp_server = Device {
+        name: BOOT_SERVER_NAME.to_owned(),
+        device_model: DeviceModels::FlatcarLinux,
+    };
+    if config.ztp_server.enabled {
+        ztp_devices.push(&ztp_server);
+    }
+
     // Check if VMs are ready
     term_msg_underline("Checking VM Readiness");
     let start_time = Instant::now();
     let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
     let mut connected_devices = std::collections::HashSet::new();
     let mut device_ip_map = vec![];
-    let mut devices = manifest.devices;
-
-    if config.ztp_server.enabled {
-        devices.push(Device {
-            name: BOOT_SERVER_NAME.to_owned(),
-            device_model: DeviceModels::FlatcarLinux,
-        });
-    }
-
-    while start_time.elapsed() < timeout && connected_devices.len() < devices.len() {
-        for device in &devices {
+    while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
+        for device in &ztp_devices {
             if connected_devices.contains(&device.name) {
                 continue;
             }
@@ -696,16 +696,16 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             }
         }
 
-        if connected_devices.len() < devices.len() {
+        if connected_devices.len() < ztp_devices.len() {
             sleep(Duration::from_secs(READINESS_SLEEP));
         }
     }
 
-    if connected_devices.len() == devices.len() {
+    if connected_devices.len() == ztp_devices.len() {
         println!("All devices are ready!");
     } else {
         println!("Timeout reached. Not all devices are ready.");
-        for device in &devices {
+        for device in &ztp_devices {
             if !connected_devices.contains(&device.name) {
                 println!("Device is not ready: {}", device.name);
             }
