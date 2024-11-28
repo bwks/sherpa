@@ -13,7 +13,7 @@ pub fn inspect(qemu: &Qemu) -> Result<()> {
 
     let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
 
-    term_msg_surround(&format!("Sherpa Environment - {}", lab_id));
+    term_msg_surround(&format!("Sherpa Environment - {lab_id}"));
 
     let qemu_conn = qemu.connect()?;
 

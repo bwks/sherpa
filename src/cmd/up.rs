@@ -41,13 +41,13 @@ use crate::validate::{
 };
 
 pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
-    term_msg_surround("Building environment");
-
     // Setup
     let qemu_conn = Arc::new(qemu.connect()?);
     let lab_id = get_id()?;
     let sherpa_user = User::default()?;
     let dns = Dns::default()?;
+
+    term_msg_surround(&format!("Building environment - {lab_id}"));
 
     println!("Loading config");
     let mut sherpa = sherpa.clone();
@@ -97,7 +97,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
     println!("Manifest Ok");
 
-    term_msg_underline("ZTP Server Check");
+    term_msg_underline("ZTP");
     if config.ztp_server.enabled {
         println!("ZTP server is enabled in configuration")
     } else {

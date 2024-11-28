@@ -8,12 +8,10 @@ use crate::libvirt::{delete_disk, Qemu};
 use crate::util::{dir_exists, file_exists, get_id, term_msg_surround};
 
 pub fn destroy(qemu: &Qemu) -> Result<()> {
-    term_msg_surround("Destroying environment");
-
     let lab_id = get_id()?;
+    term_msg_surround(&format!("Destroying environment - {lab_id}"));
 
     let qemu_conn = qemu.connect()?;
-
     let domains = qemu_conn.list_all_domains(0)?;
 
     for domain in domains {
