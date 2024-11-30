@@ -11,27 +11,29 @@ use askama::Template;
 use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, BOOT_SERVER_MAC,
-    BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI, CISCO_IOSXE_OUI,
-    CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
-    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP,
-    JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
+    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG,
+    CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI,
+    CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT,
+    TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    CloneDisk, ConnectionTypes, DeviceIp, DeviceModels, Dns, Interface, InterfaceConnection,
-    OsVariants, User, ZtpMethods,
+    CloneDisk, ConnectionTypes, DeviceDisk, DeviceIp, DeviceModels, DiskBuses, DiskDevices,
+    DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection, OsVariants, User,
+    ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
     AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser,
-    CumulusLinuxZtpTemplate, JunipervJunosZtpTemplate, SshConfigTemplate,
+    CiscoIosvZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate, CloudInitConfig,
+    CloudInitUser, CumulusLinuxZtpTemplate, JunipervJunosZtpTemplate, SshConfigTemplate,
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
-    copy_file, copy_to_usb_image, create_dir, create_file, create_ztp_iso, get_id, get_ip,
+    copy_file, copy_to_dos_image, create_dir, create_file, create_ztp_iso, get_id, get_ip,
     id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline,
 };
@@ -127,6 +129,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     let mut domains: Vec<DomainTemplate> = vec![];
     for device in &manifest.devices {
         let connections = &connections.to_owned();
+        let mut disks: Vec<DeviceDisk> = vec![];
         let vm_name = format!("{}-{}", device.name, lab_id);
 
         let device_model = config
@@ -134,6 +137,9 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             .iter()
             .find(|d| d.name == device.device_model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.device_model))?;
+
+        let hdd_bus = device_model.hdd_bus.clone();
+        let cdrom_bus = device_model.cdrom_bus.clone();
 
         let mac_address = match device.device_model {
             DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
@@ -291,6 +297,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             None => (None, None),
         };
 
+        // USB
         let (mut src_usb_disk, mut dst_usb_disk) = (None::<String>, None::<String>);
 
         if device_model.ztp_enable {
@@ -437,6 +444,45 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                         }
                     }
                 }
+                ZtpMethods::Disk => {
+                    println!("Creating ZTP config {}", device.name);
+                    let mut user = sherpa_user.clone();
+                    let dir = format!("{TEMP_DIR}/{vm_name}");
+                    match device.device_model {
+                        DeviceModels::CiscoIosv => {
+                            let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                            user.ssh_public_key.key = key_hash;
+                            let t = CiscoIosvZtpTemplate {
+                                hostname: device.name.clone(),
+                                users: vec![user],
+                                mgmt_interface: device_model.management_interface.to_string(),
+                                dns: dns.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let c = CISCO_IOSV_ZTP_CONFIG;
+                            let ztp_config = format!("{dir}/{c}");
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, rendered_template)?;
+                            // clone disk
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
+                            );
+                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}");
+
+                            // Create a copy of the usb base image
+                            copy_file(&src_disk, &dst_disk)?;
+                            // copy file to USB disk
+                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+                        }
+                        _ => {
+                            anyhow::bail!(
+                                "Disk ZTP method not supported for {}",
+                                device_model.name
+                            );
+                        }
+                    }
+                }
                 ZtpMethods::Usb => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
@@ -464,7 +510,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
                             // copy file to USB disk
-                            copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
+                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
@@ -490,7 +536,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
                             // copy file to USB disk
-                            copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
+                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
@@ -517,7 +563,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
                             // copy file to USB disk
-                            copy_to_usb_image(&ztp_config, &dst_usb, "/")?;
+                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
@@ -547,25 +593,56 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 _ => {}
             }
         }
-        // Other ISO
+        // ISO
         if dst_cdrom_iso.is_some() {
             copy_disks.push(CloneDisk {
                 // These should always have a value.
                 src: src_cdrom_iso.unwrap(),
                 dst: dst_cdrom_iso.clone().unwrap(),
-            })
+            });
+            disks.push(DeviceDisk {
+                disk_device: DiskDevices::Cdrom,
+                driver_name: DiskDrivers::Qemu,
+                driver_format: DiskFormats::Raw,
+                // These should always have a value.
+                src_file: dst_cdrom_iso.clone().unwrap(),
+                target_dev: DiskTargets::target(&cdrom_bus, 0)?,
+                target_bus: hdd_bus.clone(),
+            });
         }
+
+        // Hdd
+        disks.push(DeviceDisk {
+            disk_device: DiskDevices::File,
+            driver_name: DiskDrivers::Qemu,
+            driver_format: DiskFormats::Qcow2,
+            src_file: dst_boot_disk.clone(),
+            target_dev: DiskTargets::target(&hdd_bus, 1)?,
+            target_bus: hdd_bus.clone(),
+        });
+
+        // USB
         if dst_usb_disk.is_some() {
             copy_disks.push(CloneDisk {
                 // These should always have a value.
                 src: src_usb_disk.unwrap(),
                 dst: dst_usb_disk.clone().unwrap(),
-            })
+            });
+            disks.push(DeviceDisk {
+                disk_device: DiskDevices::File,
+                driver_name: DiskDrivers::Qemu,
+                driver_format: DiskFormats::Raw,
+                // These should always have a value.
+                src_file: dst_usb_disk.unwrap().clone(),
+                target_dev: DiskTargets::target(&DiskBuses::Usb, 2)?,
+                target_bus: DiskBuses::Usb,
+            });
         }
         let ignition_config = match device_model.name {
             DeviceModels::FlatcarLinux => Some(true),
             _ => None,
         };
+
         let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
         let domain = DomainTemplate {
             qemu_bin: config.qemu_bin.clone(),
@@ -576,9 +653,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             cpu_count: device_model.cpu_count,
             vmx_enabled: device_model.vmx_enabled,
             bios: device_model.bios.clone(),
-            boot_disk: dst_boot_disk,
-            cdrom: dst_cdrom_iso,
-            usb_disk: dst_usb_disk,
+            disks,
             ignition_config,
             interfaces,
             interface_type: device_model.interface_type.clone(),

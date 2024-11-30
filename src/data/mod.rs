@@ -1,4 +1,5 @@
 mod device;
+mod disk;
 mod dns;
 mod interface;
 mod mapping;
@@ -10,10 +11,11 @@ pub use crate::data::device::{
     BiosTypes, CpuArchitecture, DeviceModel, DeviceModels, InterfaceTypes, MachineTypes,
     OsVariants, ZtpMethods,
 };
+pub use crate::data::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use crate::data::dns::Dns;
 pub use crate::data::interface::{ConnectionTypes, Interface, MgmtInterfaces};
 pub use crate::data::mapping::{
-    BootServer, CloneDisk, DeviceIp, InterfaceConnection, ZtpTemplates,
+    BootServer, CloneDisk, DeviceDisk, DeviceIp, InterfaceConnection, ZtpTemplates,
 };
 pub use crate::data::provider::VmProviders;
 pub use crate::data::ssh::{SshKeyAlgorithms, SshPublicKey};

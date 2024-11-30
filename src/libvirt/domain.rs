@@ -1,7 +1,8 @@
 use askama::Template;
 
 use crate::data::{
-    BiosTypes, ConnectionTypes, CpuArchitecture, Interface, InterfaceTypes, MachineTypes,
+    BiosTypes, ConnectionTypes, CpuArchitecture, DeviceDisk, DiskBuses, DiskDevices, Interface,
+    InterfaceTypes, MachineTypes,
 };
 
 #[derive(Template)]
@@ -41,9 +42,7 @@ use crate::data::{
     <osinfo name='generic'/>
     <bootmenu enable='no'/>
     <smbios mode='host'/>
-    {% if let Some(cdrom) = cdrom %}
     <boot dev='cdrom'/>
-    {% endif %}
     <boot dev='hd'/>
     {% match bios %}
     {%   when BiosTypes::Uefi %}
@@ -75,34 +74,36 @@ use crate::data::{
 
     <emulator>{{ qemu_bin }}</emulator>
 
-    {% if let Some(cdrom) = cdrom %}
+    {% for disk in disks %}
+    {%   match disk.target_bus %}
+    {%     when DiskBuses::Usb %}
+    <disk type='file' device='disk'>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}' removable='on'/>
+      <address type='usb' bus='0' port='{{ loop.index }}'/>
+    </disk>
+    {%     else %}
+    {%       match disk.disk_device %}
+    {%         when DiskDevices::Cdrom %}
+    {#
+
+    #}
     <disk type='file' device='cdrom'>
-      <driver name='qemu' type='raw'/>
-      <source file='{{ cdrom }}'/>
-      {% match machine_type %}
-      {%   when MachineTypes::Pc %}
-      <target dev="hda" bus="ide"/>
-      {%   else %}
-      <target dev="sda" bus="sata"/>
-      {% endmatch %}
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
       <readonly/>
     </disk>
-    {% endif %}
-
+    {%         else %}
     <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2'/>
-      <source file='{{ boot_disk }}'/>
-      <target dev='sdb' bus='sata'/>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
     </disk>
-
-    {% if let Some(usb_disk) = usb_disk %}
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='raw'/>
-      <source file='{{ usb_disk }}'/>
-      <target dev='sdc' bus='usb' removable='on'/>
-      <address type='usb' bus='0' port='1'/>
-    </disk>
-    {% endif %}
+    {%      endmatch %}
+    {%   endmatch %}
+    {% endfor %}
 
     <controller type='usb' index='0' model='qemu-xhci'>
       <alias name='usb'/>
@@ -204,12 +205,66 @@ pub struct DomainTemplate {
     pub vmx_enabled: bool,
     pub qemu_bin: String,
     pub bios: BiosTypes,
-    pub boot_disk: String,
-    pub cdrom: Option<String>,
-    pub usb_disk: Option<String>,
+    // pub boot_disk: String,
+    // pub disk2: Option<String>,
+    // pub cdrom: Option<String>,
+    // pub usb_disk: Option<String>,
+    pub disks: Vec<DeviceDisk>,
     pub ignition_config: Option<bool>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
     pub telnet_port: u16,
 }
+
+/*
+    {#
+    {% if let Some(cdrom) = cdrom %}
+    <disk type='file' device='cdrom'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ cdrom }}'/>
+      {% match machine_type %}
+      {%   when MachineTypes::Pc %}
+      <target dev="hda" bus="ide"/>
+      {%   else %}
+      <target dev="sda" bus="sata"/>
+      {% endmatch %}
+      <readonly/>
+    </disk>
+    {% endif %}
+
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='qcow2'/>
+      <source file='{{ boot_disk }}'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='/tmp/disk2.img'/>
+      <target dev='vdb' bus='virtio'/>
+    </disk>
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='/tmp/disk3.img'/>
+      <target dev='vdc' bus='virtio'/>
+    </disk>
+
+    {% if let Some(disk2) = disk2 %}
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ disk2 }}'/>
+      <target dev='vdd' bus='virtio'/>
+    </disk>
+    {% endif %}
+
+    {% if let Some(usb_disk) = usb_disk %}
+    <disk type='file' device='disk'>
+      <driver name='qemu' type='raw'/>
+      <source file='{{ usb_disk }}'/>
+      <target dev='sdd' bus='usb' removable='on'/>
+      <address type='usb' bus='0' port='1'/>
+    </disk>
+    {% endif %}
+    #}
+*/

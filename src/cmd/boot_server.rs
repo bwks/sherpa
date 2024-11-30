@@ -9,8 +9,9 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, DeviceModels, Dns,
-    Interface, InterfaceTypes, MachineTypes, User, ZtpTemplates,
+    BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, DeviceDisk, DeviceModels,
+    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceTypes,
+    MachineTypes, User, ZtpTemplates,
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
@@ -232,6 +233,15 @@ pub fn create_boot_server(
         dst: dst_boot_disk.clone(),
     });
 
+    let device_disks: Vec<DeviceDisk> = vec![DeviceDisk {
+        disk_device: DiskDevices::File,
+        driver_name: DiskDrivers::Qemu,
+        driver_format: DiskFormats::Qcow2,
+        src_file: dst_boot_disk.clone(),
+        target_dev: DiskTargets::target(&DiskBuses::Sata, 0)?,
+        target_bus: DiskBuses::Sata,
+    }];
+
     let domain = DomainTemplate {
         qemu_bin: config.qemu_bin.clone(),
         name: boot_server_name.to_owned(),
@@ -241,9 +251,7 @@ pub fn create_boot_server(
         cpu_count: 1,
         vmx_enabled: false,
         bios: BiosTypes::default(),
-        boot_disk: dst_boot_disk,
-        cdrom: None,
-        usb_disk: None,
+        disks: device_disks,
         ignition_config: Some(true),
         interfaces: vec![Interface {
             name: "mgmt".to_owned(),
