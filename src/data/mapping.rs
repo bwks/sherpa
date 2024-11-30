@@ -50,6 +50,8 @@ pub struct BootServer {
       <address type='usb' bus='0' port='1'/>
     </disk>
 */
+
+#[derive(Debug, Deserialize, Serialize)]
 pub struct DeviceDisk {
     pub disk_device: DiskDevices,
     pub driver_name: DiskDrivers,

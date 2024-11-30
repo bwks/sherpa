@@ -607,7 +607,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 // These should always have a value.
                 src_file: dst_cdrom_iso.clone().unwrap(),
                 target_dev: DiskTargets::target(&cdrom_bus, 0)?,
-                target_bus: hdd_bus.clone(),
+                target_bus: cdrom_bus.clone(),
             });
         }
 
