@@ -39,6 +39,8 @@ pub enum MgmtInterfaces {
     Management1, // Management1 - eos
     #[serde(rename(serialize = "MgmtEth0/RP0/CPU0/0", deserialize = "MgmtEth0/RP0/CPU0/0"))]
     MgmtEth0Rp0Cpu0_0, // MgmtEth0/RP0/CPU0/0 - xr9kv
+    #[serde(rename(serialize = "Vlan1", deserialize = "Vlan1"))]
+    Vlan1, // Vlan1 - iosvl2
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -52,6 +54,7 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::Management1 => write!(f, "Management1"),
             MgmtInterfaces::Management0_0 => write!(f, "Management0/0"),
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
+            MgmtInterfaces::Vlan1 => write!(f, "Vlan1"),
         }
     }
 }
@@ -156,6 +159,14 @@ mod tests {
                 variant: "fxp0",
             }],
         );
+        // Test Vlan1 variant
+        assert_tokens(
+            &MgmtInterfaces::Vlan1,
+            &[Token::UnitVariant {
+                name: "MgmtInterfaces",
+                variant: "Vlan1",
+            }],
+        );
     }
 
     #[test]
@@ -199,6 +210,9 @@ mod tests {
 
         let fxp0: MgmtInterfaces = serde_json::from_str(r#""fxp0""#).unwrap();
         assert!(matches!(fxp0, MgmtInterfaces::Fxp0));
+
+        let vlan1: MgmtInterfaces = serde_json::from_str(r#""Vlan1""#).unwrap();
+        assert!(matches!(vlan1, MgmtInterfaces::Vlan1));
     }
 
     #[test]

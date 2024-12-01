@@ -30,7 +30,6 @@ ip ssh pubkey-chain
 !
 interface {{ mgmt_interface }}
  ip address dhcp
- negotiation auto
  no shutdown
  exit
 !
@@ -58,6 +57,68 @@ exit
     ext = "txt"
 )]
 pub struct CiscoIosvZtpTemplate {
+    pub hostname: String,
+    pub users: Vec<User>,
+    pub mgmt_interface: String,
+    pub dns: Dns,
+}
+
+#[derive(Template)]
+#[template(
+    source = r#"!
+hostname {{ hostname }}
+ip domain name {{ dns.domain }}
+{%- for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{%- endfor %}
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+{%- for user in users %}
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+{%- endfor %}
+!
+ip ssh pubkey-chain
+{%- for user in users %}
+  username {{ user.username }}
+   key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- endfor %}
+!
+!
+interface {{ mgmt_interface }}
+ no switchport
+ ip address dhcp
+ no shutdown
+ exit
+!
+line con 0
+ logging synchronous
+ stopbits 1
+ exit
+!
+line vty 0 4
+ logging synchronous
+ transport input ssh
+ exit
+!
+event manager applet ENABLE-MGMT
+ event syslog pattern "SYS-5-RESTART"
+ action 0 cli command "enable"
+ action 1 cli command "conf t"
+ action 2 cli command "interface {{ mgmt_interface }}"
+ action 3 cli command "no shutdown"
+ action 4 cli command "exit"
+ action 5 cli command "crypto key generate rsa modulus 2048"
+!
+exit
+"#,
+    ext = "txt"
+)]
+pub struct CiscoIosvl2ZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
     pub mgmt_interface: String,
