@@ -12,7 +12,7 @@ pub mod juniper_junos;
 pub mod ssh;
 
 pub use crate::template::arista_eos::{arista_veos_ztp_script, AristaVeosZtpTemplate};
-pub use crate::template::aruba_aos::ArubaAoscxTemplate;
+pub use crate::template::aruba_aos::{ArubaAoscxShTemplate, ArubaAoscxTemplate};
 pub use crate::template::cisco_asa::CiscoAsavZtpTemplate;
 pub use crate::template::cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 pub use crate::template::cisco_iosxe::CiscoIosXeZtpTemplate;

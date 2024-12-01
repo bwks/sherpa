@@ -10,14 +10,15 @@ use askama::Template;
 
 use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, BOOT_SERVER_MAC,
-    BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG,
-    CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG,
-    CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CUMULUS_OUI,
-    CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT,
-    TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT,
+    BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
+    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
+    CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -27,10 +28,10 @@ use crate::data::{
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
-    AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitUser, CumulusLinuxZtpTemplate, JunipervJunosZtpTemplate,
-    SshConfigTemplate,
+    AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
+    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
+    CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, CumulusLinuxZtpTemplate,
+    JunipervJunosZtpTemplate, SshConfigTemplate,
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
@@ -513,6 +514,34 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
                         }
+                        DeviceModels::ArubaAoscx => {
+                            let aruba_template = ArubaAoscxShTemplate {
+                                hostname: device.name.clone(),
+                                users: vec![sherpa_user.clone()],
+                                dns: dns.clone(),
+                            };
+                            let aruba_rendered_template = aruba_template.render()?;
+
+                            let ztp_config = format!("{dir}/{ARUBA_ZTP_SCRIPT}");
+
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, aruba_rendered_template)?;
+                            // clone HDD disk
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
+                            );
+                            let dst_disk = format!("{dir}/{SHERPA_USB_DISK}");
+
+                            // Create a copy of the usb base image
+                            copy_file(&src_disk, &dst_disk)?;
+                            // copy file to USB disk
+                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.to_owned());
+                            dst_config_disk =
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                        }
                         _ => {
                             anyhow::bail!(
                                 "Disk ZTP method not supported for {}",
@@ -567,7 +596,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_BLANK_DISK_IOSV
                             );
                             let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
 
@@ -594,7 +623,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
                             );
                             let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
 

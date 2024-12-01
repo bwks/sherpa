@@ -8,6 +8,8 @@ pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const _SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
+pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
+pub const _SHERPA_ZTP_DISK: &str = "boot.img";
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/sherpa";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
@@ -72,6 +74,7 @@ pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
 pub const ARISTA_VEOS_ZTP: &str = "startup-config";
 pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
+pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
 pub const JUNIPER_ZTP_DIR: &str = "juniper";
 pub const JUNIPER_ZTP_CONFIG: &str = "juniper-config.txt";
 

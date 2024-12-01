@@ -39,6 +39,11 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
     create_dir(&aruba_dir)?;
 
+    // TODO: Aruba USB ZTP config
+    // let aruba_ztp_file = format!("{aruba_dir}/{ARUBA_ZTP_SCRIPT}");
+    // let aruba_ztp_script = aruba_aoscx_ztp_script();
+    // create_file(&aruba_ztp_file, aruba_ztp_script.clone())?;
+
     let aruba_template = ArubaAoscxTemplate {
         hostname: "aos-ztp".to_owned(),
         users: vec![sherpa_user.clone()],
@@ -47,11 +52,6 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let aruba_rendered_template = aruba_template.render()?;
     let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
     create_file(&aruba_ztp_config, aruba_rendered_template.clone())?;
-
-    // TODO: Aruba USB ZTP config
-    // let aruba_ztp_file = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
-    // let aruba_ztp_config = aruba_aoscx_ztp_config();
-    // create_file(&aruba_ztp_file, aruba_ztp_config.clone())?;
 
     // Cumulus Linux
     let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
@@ -111,6 +111,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
 
     Ok(ZtpTemplates {
         arista_eos: arista_ztp_script,
+        // aruba_aos: aruba_ztp_script,
         aruba_aos: aruba_rendered_template,
         cumulus_linux: cumulus_rendered_template,
         cisco_iosv: iosv_rendered_template,
