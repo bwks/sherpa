@@ -88,8 +88,8 @@ sudo systemctl restart libvirtd.service
 | Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: | CDROM              |
 | Cisco         | Catalyst XRv 9000 | 7.11.1                 | :white_check_mark: | CDROM              |
 | Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
-| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | N/A                |
-| Cisco         | IOSv L2           | 20200920               | :white_check_mark: | N/A                |
+| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | Disk               |
+| Cisco         | IOSv L2           | 20200920               | :white_check_mark: | Disk               |
 | Juniper       | vRouter           | TBA                    | :construction:     | CDROM              |
 | Juniper       | vSwitch           | TBA                    | :construction:     | CDROM              |
 | Juniper       | vSRX              | TBA                    | :construction:     | CDROM              |
