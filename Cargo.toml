@@ -31,6 +31,9 @@ askama = "0.12.1"
 # Random number generator
 rand = "0.8.5"
 
+# Random names
+petname = "2.0.2"
+
 # Docker Integration
 # bollard = "0.17.1"
 

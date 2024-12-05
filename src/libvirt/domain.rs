@@ -81,14 +81,12 @@ use crate::data::{
       <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}' removable='on'/>
-      <address type='usb' bus='0' port='{{ loop.index }}'/>
+      <address type='usb'/>
     </disk>
     {%     else %}
     {%       match disk.disk_device %}
     {%         when DiskDevices::Cdrom %}
-    {#
 
-    #}
     <disk type='file' device='cdrom'>
       <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
       <source file='{{ disk.src_file }}'/>

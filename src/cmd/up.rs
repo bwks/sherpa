@@ -61,6 +61,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
     println!("Loading manifest");
     let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+    let lab_name = manifest.name;
 
     term_msg_underline("Validating Manifest");
 
@@ -132,7 +133,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     for device in &manifest.devices {
         let connections = &connections.to_owned();
         let mut disks: Vec<DeviceDisk> = vec![];
-        let vm_name = format!("{}-{}", device.name, lab_id);
+        let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
 
         let device_model = config
             .device_models
@@ -837,7 +838,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                 continue;
             }
 
-            let vm_name = format!("{}-{}", device.name, lab_id);
+            let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
             if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
                 match tcp_connect(&vm_ip, SSH_PORT)? {
                     true => {

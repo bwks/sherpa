@@ -3,13 +3,16 @@ use std::fs;
 use anyhow::Result;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use crate::core::konst::{SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
+use crate::core::konst::{SHERPA_MANIFEST_FILE, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use crate::libvirt::{delete_disk, Qemu};
+use crate::topology::Manifest;
 use crate::util::{dir_exists, file_exists, get_id, term_msg_surround};
 
 pub fn destroy(qemu: &Qemu) -> Result<()> {
     let lab_id = get_id()?;
-    term_msg_surround(&format!("Destroying environment - {lab_id}"));
+    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+    let lab_name = manifest.name;
+    term_msg_surround(&format!("Destroying environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
     let domains = qemu_conn.list_all_domains(0)?;
@@ -42,11 +45,11 @@ pub fn destroy(qemu: &Qemu) -> Result<()> {
                 println!("Deleted Ignition: {ign_name}");
             }
 
-            // USB Image
-            let usb_name = format!("{vm_name}.img");
-            if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{usb_name}")) {
-                delete_disk(&qemu_conn, &usb_name)?;
-                println!("Deleted USB Disk: {usb_name}");
+            // Disk Image
+            let disk_name = format!("{vm_name}.img");
+            if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{disk_name}")) {
+                delete_disk(&qemu_conn, &disk_name)?;
+                println!("Deleted Disk: {disk_name}");
             }
         }
     }

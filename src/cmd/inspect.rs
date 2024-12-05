@@ -12,8 +12,9 @@ pub fn inspect(qemu: &Qemu) -> Result<()> {
     let lab_id = get_id()?;
 
     let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+    let lab_name = manifest.name.clone();
 
-    term_msg_surround(&format!("Sherpa Environment - {lab_id}"));
+    term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
 
@@ -24,8 +25,9 @@ pub fn inspect(qemu: &Qemu) -> Result<()> {
         name: BOOT_SERVER_NAME.to_owned(),
         device_model: DeviceModels::FlatcarLinux,
     });
+    let mut inactive_devices = vec![];
     for device in devices {
-        let device_name = format!("{}-{}", device.name, lab_id);
+        let device_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
         if let Some(domain) = domains
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name)
@@ -42,6 +44,15 @@ pub fn inspect(qemu: &Qemu) -> Result<()> {
                     println!("Disk: {volume}");
                 }
             }
+        } else {
+            inactive_devices.push(device.name);
+        }
+    }
+
+    if !inactive_devices.is_empty() {
+        term_msg_underline("Inactive Devices");
+        for device in &inactive_devices {
+            println!("{device}")
         }
     }
     Ok(())

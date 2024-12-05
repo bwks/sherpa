@@ -145,6 +145,8 @@ pub enum MachineTypes {
     PcQ35_6_0,
     #[serde(rename(serialize = "pc-q35-8.0", deserialize = "pc-q35-8.0"))]
     PcQ35_8_0,
+    #[serde(rename(serialize = "pc-i440fx-5.1", deserialize = "pc-i440fx-5.1"))]
+    PcI440Fx_5_1,
     #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
     PcI440Fx_4_2,
 }
@@ -158,6 +160,7 @@ impl fmt::Display for MachineTypes {
             MachineTypes::PcQ35_6_0 => write!(f, "pc-q35-6.0"),
             MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
             MachineTypes::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
+            MachineTypes::PcI440Fx_5_1 => write!(f, "pc-i440fx-5.1"),
             MachineTypes::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
         }
     }
@@ -566,7 +569,7 @@ impl DeviceModel {
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
-            ztp_enable: false,
+            ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
             ztp_method: ZtpMethods::Disk,
@@ -620,12 +623,12 @@ impl DeviceModel {
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineTypes::Pc,
             vmx_enabled: true,
             memory: 5120,
-            hdd_bus: DiskBuses::Sata,
+            hdd_bus: DiskBuses::Virtio,
             cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            cdrom_bus: DiskBuses::Virtio,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
@@ -634,7 +637,7 @@ impl DeviceModel {
             first_interface_index: 0,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
-            reserved_interface_count: 2,
+            reserved_interface_count: 0,
         }
     }
     pub fn juniper_vswitch() -> DeviceModel {

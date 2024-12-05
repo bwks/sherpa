@@ -8,12 +8,16 @@ use crate::data::DeviceModels;
 use crate::topology::{Connection, Device};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
+    pub name: String,
     pub devices: Vec<Device>,
     pub connections: Option<Vec<Connection>>,
 }
 
-impl Default for Manifest {
-    fn default() -> Self {
+impl Manifest {
+    pub fn default() -> Result<Self> {
+        let name =
+            petname::petname(2, "-").ok_or(anyhow::anyhow!("Failed to generate manifest name"))?;
+
         let dev01 = Device {
             name: "dev01".to_owned(),
             device_model: DeviceModels::FedoraLinux,
@@ -32,16 +36,26 @@ impl Default for Manifest {
 
         let devices: Vec<Device> = vec![dev01, dev02];
 
-        Self {
+        Ok(Self {
+            name,
             devices,
             connections: Some(connections),
-        }
+        })
     }
 }
 
 impl Manifest {
     pub fn write_file(&self, file_path: &str) -> Result<()> {
         let mut doc = Document::new();
+
+        doc["name"] = Item::Value(Value::from(self.name.to_string()));
+        if let Some(table) = doc
+            .as_table_mut()
+            .get_mut("name")
+            .and_then(|v| v.as_value_mut())
+        {
+            table.decor_mut().set_suffix("\n");
+        }
 
         // Add devices array
         let mut devices_array = Array::new();
@@ -107,6 +121,7 @@ mod tests {
 
         // Create test manifest
         let manifest = Manifest {
+            name: "blah".to_string(),
             devices: vec![
                 Device {
                     name: "dev01".to_string(),
@@ -130,7 +145,9 @@ mod tests {
 
         // Read and verify contents
         let contents = fs::read_to_string(test_file)?;
-        let expected = r#"devices = [
+        let expected = r#"name = "blah"
+
+devices = [
   { name = "dev01", device_model = "cisco_cat8000v" },
   { name = "dev02", device_model = "arista_veos" },
 ]
