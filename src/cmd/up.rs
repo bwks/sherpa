@@ -47,8 +47,8 @@ pub fn up(
     sherpa: &Sherpa,
     config_file: &str,
     qemu: &Qemu,
-    lab_id: &str,
     lab_name: &str,
+    lab_id: &str,
     manifest: &Manifest,
 ) -> Result<()> {
     // Setup

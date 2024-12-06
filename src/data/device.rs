@@ -484,7 +484,7 @@ impl DeviceModel {
             ztp_password: None,
             ztp_method: ZtpMethods::Cdrom,
             ztp_password_auth: false,
-            first_interface_index: 0,
+            first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
