@@ -5,21 +5,20 @@ use virt::storage_vol::StorageVol;
 
 use crate::core::konst::SHERPA_STORAGE_POOL;
 use crate::libvirt::Qemu;
-use crate::util::{get_id, term_msg_surround};
+use crate::util::term_msg_surround;
 
-pub fn clean(qemu: &Qemu, all: bool, disks: bool, networks: bool) -> Result<()> {
+pub fn clean(qemu: &Qemu, all: bool, disks: bool, networks: bool, lab_id: &str) -> Result<()> {
     if all {
         // term_msg_surround("Cleaning environment");
         term_msg_surround("Not implemented");
     } else if disks {
         term_msg_surround("Cleaning disks");
-        let lab_id = get_id()?;
 
         let qemu_conn = qemu.connect()?;
 
         let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
         for volume in pool.list_volumes()? {
-            if volume.contains(&lab_id) {
+            if volume.contains(lab_id) {
                 println!("Deleting disk: {}", volume);
                 let vol = StorageVol::lookup_by_name(&pool, &volume)?;
                 vol.delete(0)?;

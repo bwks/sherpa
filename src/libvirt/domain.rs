@@ -61,7 +61,7 @@ use crate::data::{
   {% if let Some(ignition_config) = ignition_config %}
   <qemu:commandline>
     <qemu:arg value='-fw_cfg'/>
-    <qemu:arg value='name=opt/org.flatcar-linux/config,file={{ crate::core::konst::SHERPA_STORAGE_POOL_PATH }}/{{ name }}.ign'/>
+    <qemu:arg value='name=opt/org.flatcar-linux/config,file={{ crate::core::konst::SHERPA_STORAGE_POOL_PATH }}/{{ name }}-cfg.ign'/>
   </qemu:commandline>
   {% endif %}
 

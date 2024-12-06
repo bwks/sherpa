@@ -11,7 +11,7 @@ use crate::core::{Config, Sherpa};
 use crate::data::{
     BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, DeviceDisk, DeviceModels,
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceTypes,
-    MachineTypes, User, ZtpTemplates,
+    MachineTypes, MgmtInterfaces, User, ZtpTemplates,
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
@@ -76,7 +76,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let cisco_iosxe_template = CiscoIosXeZtpTemplate {
         hostname: "iosxe-ztp".to_owned(),
         users: vec![cisco_user.clone()],
-        mgmt_interface: "GigabitEthernet1".to_owned(),
+        mgmt_interface: MgmtInterfaces::GigabitEthernet1.to_string(),
         dns: dns.clone(),
     };
     let iosxe_rendered_template = cisco_iosxe_template.render()?;
@@ -87,7 +87,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let cisco_iosv_template = CiscoIosvZtpTemplate {
         hostname: "iosv-ztp".to_owned(),
         users: vec![cisco_user.clone()],
-        mgmt_interface: "GigabitEthernet0/0".to_owned(),
+        mgmt_interface: MgmtInterfaces::GigabitEthernet0_0.to_string(),
         dns: dns.clone(),
     };
     let iosv_rendered_template = cisco_iosv_template.render()?;
@@ -123,11 +123,12 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
 pub fn create_boot_server(
     sherpa: &Sherpa,
     config: &Config,
+    lab_name: &str,
     lab_id: &str,
     user: &User,
     ztp_templates: &ZtpTemplates,
 ) -> Result<BootServer> {
-    let boot_server_name = format!("{BOOT_SERVER_NAME}-{lab_id}");
+    let boot_server_name = format!("{BOOT_SERVER_NAME}-{lab_name}-{lab_id}");
     let dir = format!("{TEMP_DIR}/{boot_server_name}");
     let ignition_user = IgnitionUser {
         name: user.username.clone(),
@@ -210,7 +211,7 @@ pub fn create_boot_server(
     );
     let flatcar_config = ignition_config.to_json_pretty()?;
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
-    let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.ign");
+    let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}-cfg.ign");
 
     create_dir(&dir)?;
     create_file(&src_ztp_file, flatcar_config)?;
@@ -227,7 +228,7 @@ pub fn create_boot_server(
         DeviceModels::FlatcarLinux,
         "latest"
     );
-    let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}.qcow2");
+    let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}-hdd.qcow2");
 
     copy_disks.push(CloneDisk {
         src: src_boot_disk,

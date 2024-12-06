@@ -2,17 +2,13 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::core::konst::{SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
+use crate::core::konst::{SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
 use crate::libvirt::get_mgmt_ip;
 use crate::libvirt::Qemu;
-use crate::topology::Manifest;
-use crate::util::{get_id, term_msg_surround};
+use crate::util::term_msg_surround;
 
-pub fn ssh(qemu: &Qemu, name: &str) -> Result<()> {
+pub fn ssh(qemu: &Qemu, name: &str, lab_name: &str, lab_id: &str) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
-    let lab_id = get_id()?;
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-    let lab_name = manifest.name.clone();
 
     let qemu_conn = qemu.connect()?;
 

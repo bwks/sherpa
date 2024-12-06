@@ -3,11 +3,12 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::cmd::{clean, console, destroy, doctor, down, import, init, inspect, resume, ssh, up};
-
 use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::core::Sherpa;
 use crate::data::DeviceModels;
 use crate::libvirt::Qemu;
+use crate::topology::Manifest;
+use crate::util::get_id;
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -107,6 +108,10 @@ impl Cli {
         let cli = Cli::parse();
         let qemu = Qemu::default();
         let sherpa = Sherpa::default();
+        let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+
+        let lab_id = get_id()?;
+        let lab_name = manifest.name.clone();
 
         match &cli.commands {
             Commands::Init {
@@ -118,19 +123,19 @@ impl Cli {
             }
 
             Commands::Up { config_file } => {
-                up(&sherpa, config_file, &qemu)?;
+                up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest)?;
             }
             Commands::Down => {
-                down(&qemu)?;
+                down(&qemu, &lab_id)?;
             }
             Commands::Resume => {
-                resume(&qemu)?;
+                resume(&qemu, &lab_id)?;
             }
             Commands::Destroy => {
-                destroy(&qemu)?;
+                destroy(&qemu, &lab_name, &lab_id)?;
             }
             Commands::Inspect => {
-                inspect(&qemu)?;
+                inspect(&qemu, &lab_name, &lab_id, &manifest.devices)?;
             }
             Commands::Import {
                 src,
@@ -148,13 +153,13 @@ impl Cli {
                 disks,
                 networks,
             } => {
-                clean(&qemu, *all, *disks, *networks)?;
+                clean(&qemu, *all, *disks, *networks, &lab_id)?;
             }
             Commands::Console { name } => {
-                console(name)?;
+                console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                ssh(&qemu, name)?;
+                ssh(&qemu, name, &lab_name, &lab_id)?;
             }
         }
         Ok(())

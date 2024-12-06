@@ -2,25 +2,20 @@ use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_MANIFEST_FILE, SHERPA_STORAGE_POOL};
+use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
 use crate::data::DeviceModels;
 use crate::libvirt::{get_mgmt_ip, Qemu};
-use crate::topology::{Device, Manifest};
-use crate::util::{get_id, term_msg_surround, term_msg_underline};
+use crate::topology::Device;
+use crate::util::{term_msg_surround, term_msg_underline};
 
-pub fn inspect(qemu: &Qemu) -> Result<()> {
-    let lab_id = get_id()?;
-
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-    let lab_name = manifest.name.clone();
-
+pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
+    let mut devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
 
     let domains = qemu_conn.list_all_domains(0)?;
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-    let mut devices = manifest.devices;
     devices.push(Device {
         name: BOOT_SERVER_NAME.to_owned(),
         device_model: DeviceModels::FlatcarLinux,

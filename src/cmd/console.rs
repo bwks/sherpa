@@ -3,14 +3,12 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_MANIFEST_FILE, TELNET_PORT};
+use crate::core::konst::{BOOT_SERVER_NAME, TELNET_PORT};
 use crate::topology::Manifest;
 use crate::util::{get_ip, term_msg_surround};
 
-pub fn console(name: &str) -> Result<()> {
+pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
-
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
 
     let dev_id_map: HashMap<String, u8> = manifest
         .devices

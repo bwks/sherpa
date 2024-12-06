@@ -2,12 +2,10 @@ use anyhow::Result;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING};
 
 use crate::libvirt::Qemu;
-use crate::util::{get_id, term_msg_surround};
+use crate::util::term_msg_surround;
 
-pub fn resume(qemu: &Qemu) -> Result<()> {
+pub fn resume(qemu: &Qemu, lab_id: &str) -> Result<()> {
     term_msg_surround("Resuming environment");
-
-    let lab_id = get_id()?;
 
     let qemu_conn = qemu.connect()?;
 
@@ -15,7 +13,7 @@ pub fn resume(qemu: &Qemu) -> Result<()> {
 
     for domain in domains {
         let vm_name = domain.get_name()?;
-        if vm_name.contains(&lab_id) {
+        if vm_name.contains(lab_id) {
             match domain.get_state() {
                 Ok((state, _reason)) => {
                     if state == VIR_DOMAIN_PAUSED {

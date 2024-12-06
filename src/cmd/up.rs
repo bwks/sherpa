@@ -16,9 +16,8 @@ use crate::core::konst::{
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
     CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI,
     READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USB_DIR, SHERPA_USB_DISK, SSH_PORT, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_ISO,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -35,8 +34,8 @@ use crate::template::{
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
-    copy_file, copy_to_dos_image, create_dir, create_file, create_ztp_iso, get_id, get_ip,
-    id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
+    copy_file, copy_to_dos_image, create_dir, create_file, create_ztp_iso, get_ip, id_to_port,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
     term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
@@ -44,10 +43,16 @@ use crate::validate::{
     check_interface_bounds, check_mgmt_usage,
 };
 
-pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
+pub fn up(
+    sherpa: &Sherpa,
+    config_file: &str,
+    qemu: &Qemu,
+    lab_id: &str,
+    lab_name: &str,
+    manifest: &Manifest,
+) -> Result<()> {
     // Setup
     let qemu_conn = Arc::new(qemu.connect()?);
-    let lab_id = get_id()?;
     let sherpa_user = User::default()?;
     let dns = Dns::default()?;
 
@@ -59,13 +64,9 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = Config::load(&sherpa.config_path)?;
 
-    println!("Loading manifest");
-    let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-    let lab_name = manifest.name;
-
     term_msg_underline("Validating Manifest");
 
-    let connections = manifest.connections.unwrap_or_default();
+    let connections = manifest.connections.clone().unwrap_or_default();
 
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
@@ -281,7 +282,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             "{}/{}/{}/virtioa.qcow2",
             sherpa.boxes_dir, device_model.name, device_model.version
         );
-        let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.qcow2");
+        let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-hdd.qcow2");
         copy_disks.push(CloneDisk {
             src: src_boot_disk,
             dst: dst_boot_disk.clone(),
@@ -431,7 +432,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                         }
                     };
                     src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
-                    dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso"));
+                    dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.iso"));
                 }
                 ZtpMethods::Http => {
                     // generate the template
@@ -474,16 +475,16 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 "{}/{}/{}",
                                 &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}.img");
+                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
-                            // Create a copy of the usb base image
+                            // Create a copy of the disk base image
                             copy_file(&src_disk, &dst_disk)?;
-                            // copy file to USB disk
+                            // copy file to disk disk
                             copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         DeviceModels::CiscoIosvl2 => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
@@ -504,16 +505,16 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 "{}/{}/{}",
                                 &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}.img");
+                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
-                            // Create a copy of the usb base image
+                            // Create a copy of the hdd base image
                             copy_file(&src_disk, &dst_disk)?;
-                            // copy file to USB disk
+                            // copy file to hdd disk
                             copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         DeviceModels::ArubaAoscx => {
                             let aruba_template = ArubaAoscxShTemplate {
@@ -532,7 +533,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 "{}/{}/{}",
                                 &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_USB_DISK}");
+                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
                             // Create a copy of the usb base image
                             copy_file(&src_disk, &dst_disk)?;
@@ -541,7 +542,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         _ => {
                             anyhow::bail!(
@@ -571,9 +572,10 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_USB_DISK
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
                             );
-                            let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+
+                            let dst_usb = format!("{dir}/cfg.img");
 
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
@@ -582,7 +584,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         OsVariants::Eos => {
                             let t = AristaVeosZtpTemplate {
@@ -597,9 +599,9 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_USB_DIR, SHERPA_BLANK_DISK_IOSV
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
                             );
-                            let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+                            let dst_usb = format!("{dir}/cfg.img");
 
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
@@ -608,7 +610,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         OsVariants::Aos => {
                             let aruba_template = ArubaAoscxTemplate {
@@ -626,7 +628,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
                                 "{}/{}/{}",
                                 &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
                             );
-                            let dst_usb = format!("{dir}/{SHERPA_USB_DISK}");
+                            let dst_usb = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
@@ -635,7 +637,7 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.img"));
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
                         _ => {
                             anyhow::bail!("USB ZTP method not supported for {}", device_model.name);
@@ -759,7 +761,8 @@ pub fn up(sherpa: &Sherpa, config_file: &str, qemu: &Qemu) -> Result<()> {
             //
             &sherpa,
             &config,
-            &lab_id,
+            lab_name,
+            lab_id,
             &sherpa_user,
             &ztp_templates,
         )?;
