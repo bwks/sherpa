@@ -890,7 +890,7 @@ pub fn up(
     }
 
     if config.inventory_management.pyats {
-        let pyats_inventory = PyatsInventory::from_manifest(&manifest, &config)?;
+        let pyats_inventory = PyatsInventory::from_manifest(manifest, &config)?;
         let pyats_yaml = pyats_inventory.to_yaml()?;
         create_file(".tmp/testbed.yaml", pyats_yaml)?;
     }
