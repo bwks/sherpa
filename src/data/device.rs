@@ -112,6 +112,25 @@ pub enum OsVariants {
     #[default]
     Unknown,
 }
+impl fmt::Display for OsVariants {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OsVariants::Asa => write!(f, "asa"),
+            OsVariants::Aos => write!(f, "aos"),
+            OsVariants::CumulusLinux => write!(f, "cumulus_linux"),
+            OsVariants::Eos => write!(f, "eos"),
+            OsVariants::Junos => write!(f, "junos"),
+            OsVariants::Ios => write!(f, "ios"),
+            OsVariants::Iosxe => write!(f, "iosxe"),
+            OsVariants::Iosxr => write!(f, "iosxr"),
+            OsVariants::Linux => write!(f, "linux"),
+            OsVariants::Nxos => write!(f, "nxos"),
+            OsVariants::Server2012 => write!(f, "server_2012"),
+            OsVariants::Sros => write!(f, "sros"),
+            OsVariants::Unknown => write!(f, "unknown"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]

@@ -19,6 +19,22 @@ pub struct ZtpServer {
     pub username: String,
     pub password: String,
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct InventoryManagement {
+    pub pyats: bool,
+    pub ansible: bool,
+    pub nornir: bool,
+}
+
+impl Default for InventoryManagement {
+    fn default() -> Self {
+        Self {
+            pyats: true,
+            ansible: false,
+            nornir: false,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -27,6 +43,7 @@ pub struct Config {
     pub qemu_bin: String,
     pub management_prefix_ipv4: Ipv4Network,
     pub ztp_server: ZtpServer,
+    pub inventory_management: InventoryManagement,
     pub device_models: Vec<DeviceModel>,
 }
 
@@ -72,6 +89,7 @@ impl Default for Config {
             qemu_bin: QEMU_BIN.to_owned(),
             device_models,
             management_prefix_ipv4: mgmt_prefix_ipv4,
+            inventory_management: InventoryManagement::default(),
             ztp_server,
         }
     }

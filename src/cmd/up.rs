@@ -30,7 +30,7 @@ use crate::template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, CumulusLinuxZtpTemplate,
-    JunipervJunosZtpTemplate, SshConfigTemplate,
+    JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate,
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
@@ -888,5 +888,12 @@ pub fn up(
             rendered_template,
         )?;
     }
+
+    if config.inventory_management.pyats {
+        let pyats_inventory = PyatsInventory::from_manifest(&manifest, &config)?;
+        let pyats_yaml = pyats_inventory.to_yaml()?;
+        create_file(".tmp/testbed.yaml", pyats_yaml)?;
+    }
+
     Ok(())
 }
