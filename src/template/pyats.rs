@@ -4,13 +4,13 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::Config;
+use crate::data::DeviceIp;
 use crate::topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Credentials {
     pub password: String,
     pub username: String,
-    pub ssh_config: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -18,6 +18,7 @@ pub struct Connection {
     pub ip: String,
     pub protocol: String,
     pub port: u16,
+    pub ssh_options: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -55,10 +56,21 @@ impl PyatsInventory {
           ip: test-mgmt.talesoftechnology.com
           port: 8080
       */
-    pub fn from_manifest(manifest: &Manifest, config: &Config) -> Result<PyatsInventory> {
+    pub fn from_manifest(
+        manifest: &Manifest,
+        config: &Config,
+        device_ips: &[DeviceIp],
+    ) -> Result<PyatsInventory> {
         // https://devnet-pubhub-site.s3.amazonaws.com/media/pyats/docs/topology/schema.html#schema
         let mut devices = HashMap::new();
         for device in &manifest.devices {
+            let device_ip_map = device_ips
+                .iter()
+                .find(|d| d.name == device.name)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Device name not found in DeviceIp: {}", device.name)
+                })?;
+
             let device_model = config
                 .device_models
                 .iter()
@@ -72,9 +84,10 @@ impl PyatsInventory {
             connections.insert(
                 "mgmt".to_string(),
                 Connection {
-                    ip: device.name.to_owned(),
+                    ip: device_ip_map.ip_address.to_owned(),
                     protocol: "ssh".to_owned(),
                     port: 22,
+                    ssh_options: "-F .tmp/sherpa_ssh_config".to_owned(),
                 },
             );
 
@@ -85,7 +98,6 @@ impl PyatsInventory {
                 Credentials {
                     username: config.ztp_server.username.to_owned(),
                     password: config.ztp_server.password.to_owned(),
-                    ssh_config: ".tmp/sherpa_ssh_config".to_owned(),
                 },
             );
 

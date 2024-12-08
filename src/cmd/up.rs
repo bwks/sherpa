@@ -878,6 +878,12 @@ pub fn up(
         }
     }
     if !device_ip_map.is_empty() {
+        if config.inventory_management.pyats {
+            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &device_ip_map)?;
+            let pyats_yaml = pyats_inventory.to_yaml()?;
+            create_file(".tmp/testbed.yaml", pyats_yaml)?;
+        }
+
         term_msg_underline("Creating SSH Config File");
         let ssh_config_template = SshConfigTemplate {
             hosts: device_ip_map,
@@ -887,12 +893,6 @@ pub fn up(
             &format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"),
             rendered_template,
         )?;
-    }
-
-    if config.inventory_management.pyats {
-        let pyats_inventory = PyatsInventory::from_manifest(manifest, &config)?;
-        let pyats_yaml = pyats_inventory.to_yaml()?;
-        create_file(".tmp/testbed.yaml", pyats_yaml)?;
     }
 
     Ok(())
