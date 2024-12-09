@@ -281,8 +281,6 @@ pub fn up(
             }
         }
 
-        println!("{:#?}", connections);
-
         let src_boot_disk = format!(
             "{}/{}/{}/virtioa.qcow2",
             sherpa.boxes_dir, device_model.name, device_model.version
@@ -810,7 +808,6 @@ pub fn up(
                 let rendered_xml = domain
                     .render()
                     .with_context(|| format!("Failed to render XML for VM: {}", domain.name))?;
-                println!("{:#?}", rendered_xml);
 
                 println!("Creating VM: {}", domain.name);
                 create_vm(&qemu_conn, &rendered_xml)
@@ -886,6 +883,7 @@ pub fn up(
     }
     if !device_ip_map.is_empty() {
         if config.inventory_management.pyats {
+            term_msg_underline("Creating PyATS Testbed File");
             let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &device_ip_map)?;
             let pyats_yaml = pyats_inventory.to_yaml()?;
             create_file(".tmp/testbed.yaml", pyats_yaml)?;
