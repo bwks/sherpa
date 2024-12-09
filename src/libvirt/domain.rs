@@ -5,7 +5,7 @@ use crate::data::{
     InterfaceTypes, MachineTypes,
 };
 
-#[derive(Template)]
+#[derive(Debug, Template)]
 #[template(
     source = r#"<domain type='kvm' xmlns:qemu='http://libvirt.org/schemas/domain/qemu/1.0'>
   <name>{{ name }}</name>
@@ -117,7 +117,7 @@ use crate::data::{
 
     {%     when ConnectionTypes::Management %}
     <interface type='network'>
-      <alias name='ua-net-{{ name }}-mgmt{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-mgmt-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::SHERPA_MANAGEMENT_NETWORK_NAME }}'/>
@@ -126,7 +126,7 @@ use crate::data::{
 
     {%     when ConnectionTypes::Reserved %}
     <interface type='network'>
-      <alias name='ua-net-{{ name }}-reserved{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-reserved-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
@@ -136,7 +136,7 @@ use crate::data::{
 
     {%     when ConnectionTypes::Disabled %}
     <interface type='network'>
-      <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-disabled-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
@@ -148,7 +148,7 @@ use crate::data::{
     {%       match interface.interface_connection %}
     {%         when Some with (interface_connection) %}
     <interface type='udp'>
-      <alias name='ua-net-{{ name }}-int{{ interface.num }}'/>
+      <alias name='ua-net-{{ name }}-p2p-int{{ interface.num }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source address='{{ interface_connection.source_loopback }}' port='{{ interface_connection.source_port }}'>
         <local address='{{ interface_connection.local_loopback }}' port='{{ interface_connection.local_port }}'/>

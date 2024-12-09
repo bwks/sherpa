@@ -256,14 +256,17 @@ pub fn up(
                         })
                     } else {
                         // Interface not defined in manifest so disable.
-                        interfaces.push(Interface {
-                            name: format!("{}{}", device_model.interface_prefix, i),
-                            num: i,
-                            mtu: device_model.interface_mtu,
-                            mac_address: random_mac(KVM_OUI),
-                            connection_type: ConnectionTypes::Disabled,
-                            interface_connection: None,
-                        })
+                        // Only add disabled interface is not already added
+                        if !interfaces.iter().any(|x| x.num == i) {
+                            interfaces.push(Interface {
+                                name: format!("{}{}", device_model.interface_prefix, i),
+                                num: i,
+                                mtu: device_model.interface_mtu,
+                                mac_address: random_mac(KVM_OUI),
+                                connection_type: ConnectionTypes::Disabled,
+                                interface_connection: None,
+                            })
+                        }
                     }
                 }
             } else {
@@ -277,6 +280,8 @@ pub fn up(
                 })
             }
         }
+
+        println!("{:#?}", connections);
 
         let src_boot_disk = format!(
             "{}/{}/{}/virtioa.qcow2",
@@ -805,6 +810,8 @@ pub fn up(
                 let rendered_xml = domain
                     .render()
                     .with_context(|| format!("Failed to render XML for VM: {}", domain.name))?;
+                println!("{:#?}", rendered_xml);
+
                 println!("Creating VM: {}", domain.name);
                 create_vm(&qemu_conn, &rendered_xml)
                     .with_context(|| format!("Failed to create VM: {}", domain.name))?;
