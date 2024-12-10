@@ -26,7 +26,7 @@ toml_edit = "0.19"
 virt = { version = "0.4.1", features = ["qemu"] }
 
 # Templates
-askama = "0.12.1"
+rinja = "0.3.5"
 
 # Random number generator
 rand = "0.8.5"

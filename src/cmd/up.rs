@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
-use askama::Template;
+use rinja::Template;
 
 use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{

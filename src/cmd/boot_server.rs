@@ -1,5 +1,5 @@
 use anyhow::Result;
-use askama::Template;
+use rinja::Template;
 
 use crate::core::konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,

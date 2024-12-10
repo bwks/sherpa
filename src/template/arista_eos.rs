@@ -1,4 +1,4 @@
-use askama::Template;
+use rinja::Template;
 
 use crate::data::{Dns, User};
 
@@ -75,36 +75,7 @@ exit 0
 }
 
 #[derive(Template)]
-#[template(
-    source = r#"!
-hostname {{ hostname }}
-dns domain {{ dns.domain }}
-{%- for server in dns.name_servers %}
-ip name-server {{ server.ipv4_address }}
-{%- endfor %}
-!
-no aaa root
-!
-service routing protocols model multi-agent
-!
-aaa authorization exec default local
-!
-{%- for user in users %}
-username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
-username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
-{%- endfor %}
-!
-interface Management1
-   ip address dhcp
-!
-management api http-commands
-   no shutdown
-!
-end
-!
-"#,
-    ext = "txt"
-)]
+#[template(path = "arista/arista_veos.jinja", ext = "txt")]
 pub struct AristaVeosZtpTemplate {
     pub hostname: String,
     pub users: Vec<User>,
