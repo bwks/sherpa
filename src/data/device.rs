@@ -516,7 +516,7 @@ impl DeviceModel {
             os_variant: OsVariants::Iosxr,
             manufacturer: Manufacturers::Cisco,
             bios: BiosTypes::SeaBios,
-            interface_count: 16,
+            interface_count: 14,
             interface_prefix: "Gig0/0/0/".to_owned(),
             interface_type: InterfaceTypes::E1000,
             interface_mtu: MTU_JUMBO_INT,

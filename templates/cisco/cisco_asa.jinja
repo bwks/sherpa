@@ -25,6 +25,7 @@ aaa authorization exec LOCAL auto-enable
 no ssh stack ciscossh
 crypto key generate rsa modulus 2048 noconfirm
 ssh 0.0.0.0 0.0.0.0 management
+ssh scopy enable
 http server enable
 http 0.0.0.0 0.0.0.0 management
 domain-name {{ dns.domain }}

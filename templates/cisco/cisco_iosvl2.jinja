@@ -21,6 +21,8 @@ ip ssh pubkey-chain
    key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 {%- endfor %}
 !
+ip scp server enable
+!
 archive
  log config
   logging enable
