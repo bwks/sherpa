@@ -27,6 +27,15 @@ ip ssh pubkey-chain
    key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 {%- endfor %}
 !
+archive
+ log config
+  logging enable
+  logging size 1000
+  notify syslog contenttype plaintext
+ path flash:/archived-config
+ maximum 14
+ write-memory
+ time-period 1440
 !
 interface {{ mgmt_interface }}
  ip address dhcp

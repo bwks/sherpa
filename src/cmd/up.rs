@@ -174,41 +174,46 @@ pub fn up(
                 connection_type: ConnectionTypes::Management,
                 interface_connection: None,
             });
-        } else {
-            interfaces.push(Interface {
-                name: "mgmt".to_owned(),
-                num: device_model.first_interface_index,
-                mtu: device_model.interface_mtu,
-                mac_address: mac_address.to_string(),
-                connection_type: ConnectionTypes::Management,
-                interface_connection: None,
-            });
         }
 
         // Reserved Interfaces
-        if device_model.reserved_interface_count > 0 {
-            for i in device_model.first_interface_index..=device_model.reserved_interface_count {
-                interfaces.push(Interface {
-                    name: "reserved".to_owned(),
-                    num: i,
-                    mtu: device_model.interface_mtu,
-                    mac_address: random_mac(KVM_OUI),
-                    connection_type: ConnectionTypes::Reserved,
-                    interface_connection: None,
-                });
-            }
-        }
+        // if device_model.reserved_interface_count > 0 {
+        //     for i in device_model.first_interface_index..=device_model.reserved_interface_count {
+        //         interfaces.push(Interface {
+        //             name: "reserved".to_owned(),
+        //             num: i,
+        //             mtu: device_model.interface_mtu,
+        //             mac_address: random_mac(KVM_OUI),
+        //             connection_type: ConnectionTypes::Reserved,
+        //             interface_connection: None,
+        //         });
+        //     }
+        // }
 
-        // Device to device connections
-        for i in device_model.first_interface_index..=device_model.interface_count {
+        let end_iface_index = if device_model.first_interface_index == 0 {
+            device_model.interface_count - 1
+        } else {
+            device_model.interface_count
+        };
+        for i in device_model.first_interface_index..=end_iface_index {
             // When device does not have a dedicated management interface the first_interface_index
             // Is assigned as a management interface
             if !device_model.dedicated_management_interface
                 && i == device_model.first_interface_index
             {
+                interfaces.push(Interface {
+                    name: "mgmt".to_owned(),
+                    num: device_model.first_interface_index,
+                    mtu: device_model.interface_mtu,
+                    mac_address: mac_address.to_string(),
+                    connection_type: ConnectionTypes::Management,
+                    interface_connection: None,
+                });
                 continue;
             }
+            // Device to device connections
             if !connections.is_empty() {
+                let mut p2p_connection = false;
                 for c in connections {
                     // Device is source in manifest
                     if c.device_a == device.name && i == c.interface_a {
@@ -231,7 +236,9 @@ pub fn up(
                             mac_address: random_mac(KVM_OUI),
                             connection_type: ConnectionTypes::Peer,
                             interface_connection: Some(interface_connection),
-                        })
+                        });
+                        p2p_connection = true;
+                        break;
                     // Device is destination in manifest
                     } else if c.device_b == device.name && i == c.interface_b {
                         let source_id = dev_id_map.get(&c.device_a).ok_or_else(|| {
@@ -253,21 +260,21 @@ pub fn up(
                             mac_address: random_mac(KVM_OUI),
                             connection_type: ConnectionTypes::Peer,
                             interface_connection: Some(interface_connection),
-                        })
-                    } else {
-                        // Interface not defined in manifest so disable.
-                        // Only add disabled interface is not already added
-                        if !interfaces.iter().any(|x| x.num == i) {
-                            interfaces.push(Interface {
-                                name: format!("{}{}", device_model.interface_prefix, i),
-                                num: i,
-                                mtu: device_model.interface_mtu,
-                                mac_address: random_mac(KVM_OUI),
-                                connection_type: ConnectionTypes::Disabled,
-                                interface_connection: None,
-                            })
-                        }
+                        });
+                        p2p_connection = true;
+                        break;
                     }
+                }
+                if !p2p_connection {
+                    // Interface not defined in manifest so disable.
+                    interfaces.push(Interface {
+                        name: format!("{}{}", device_model.interface_prefix, i),
+                        num: i,
+                        mtu: device_model.interface_mtu,
+                        mac_address: random_mac(KVM_OUI),
+                        connection_type: ConnectionTypes::Disabled,
+                        interface_connection: None,
+                    })
                 }
             } else {
                 interfaces.push(Interface {
@@ -666,7 +673,6 @@ pub fn up(
                 _ => {}
             }
         }
-
         // ISO
         if dst_cdrom_iso.is_some() {
             copy_disks.push(CloneDisk {
