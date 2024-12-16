@@ -145,6 +145,7 @@ pub fn create_boot_server(
     };
     let unit_webdir = IgnitionUnit::webdir();
     let unit_tftp = IgnitionUnit::tftpd();
+    let _srlinux_unit = IgnitionUnit::srlinux();
 
     // files
     let sudo_config_base64 = base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
@@ -207,7 +208,11 @@ pub fn create_boot_server(
             juniper_vjunos_ztp_file,
         ],
         vec![],
-        vec![unit_webdir, unit_tftp],
+        vec![
+            unit_webdir,
+            unit_tftp,
+            // srlinux_unit
+        ],
     );
     let flatcar_config = ignition_config.to_json_pretty()?;
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");

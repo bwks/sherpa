@@ -217,6 +217,29 @@ WantedBy=multi-user.target
 "#).to_owned(),
         }
     }
+    pub fn srlinux() -> Self {
+        Self {
+            name: "srlinux.service".to_owned(),
+            enabled: true,
+            contents: r#"[Unit]
+Description=srlinux
+After=docker.service
+Requires=docker.service
+
+[Service]
+TimeoutStartSec=0
+ExecStartPre=/usr/bin/docker image pull ghcr.io/nokia/srlinux:latest
+ExecStart=sudo /usr/bin/docker container run --rm --privileged --name srlinux -p 2222:22/tcp ghcr.io/nokia/srlinux sudo bash /opt/srlinux/bin/sr_linux
+ExecStop=/usr/bin/docker container stop srlinux
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#.to_owned(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

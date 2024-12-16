@@ -14,6 +14,7 @@ pub enum DeviceModels {
     #[default]
     CustomUnknown,
     AristaVeos,
+    AristaCeos,
     ArubaAoscx,
     CiscoAsav,
     CiscoCsr1000v,
@@ -42,6 +43,7 @@ impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DeviceModels::AristaVeos => write!(f, "arista_veos"),
+            DeviceModels::AristaCeos => write!(f, "arista_ceos"),
             DeviceModels::ArubaAoscx => write!(f, "aruba_aoscx"),
             DeviceModels::CiscoAsav => write!(f, "cisco_asav"),
             DeviceModels::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
@@ -303,6 +305,7 @@ impl DeviceModel {
     pub fn get_model(device_model: DeviceModels) -> DeviceModel {
         match device_model {
             DeviceModels::AristaVeos => DeviceModel::arista_veos(),
+            DeviceModels::AristaCeos => DeviceModel::arista_ceos(),
             DeviceModels::ArubaAoscx => DeviceModel::aruba_aoscx(),
             DeviceModels::CiscoAsav => DeviceModel::cisco_asav(),
             DeviceModels::CiscoCsr1000v => DeviceModel::cisco_csr1000v(),
@@ -356,6 +359,36 @@ impl DeviceModel {
             first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management1,
+            reserved_interface_count: 0,
+        }
+    }
+    pub fn arista_ceos() -> DeviceModel {
+        DeviceModel {
+            version: "latest".to_owned(),
+            name: DeviceModels::AristaCeos,
+            os_variant: OsVariants::Eos,
+            manufacturer: Manufacturers::Arista,
+            bios: BiosTypes::SeaBios,
+            interface_count: 25,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            machine_type: MachineTypes::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Ignition,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }
