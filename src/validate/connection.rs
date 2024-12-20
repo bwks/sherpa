@@ -3,52 +3,44 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{bail, Result};
 
 use crate::data::DeviceModels;
-use crate::topology::{Connection, Device};
+use crate::topology::{Device, Link};
 
 /// Check if a device with a non-dedicated management interface
 /// has the first interface defined in a connection
 pub fn check_mgmt_usage(
     device_name: &str,
     first_interface_index: u8,
-    connections: &Vec<Connection>,
+    links: &Vec<Link>,
 ) -> Result<()> {
-    for connection in connections {
+    for link in links {
         let (device, interface) = // no-fmt 
-        if device_name == connection.device_a {
-            (device_name, connection.interface_a)
-        } else if device_name == connection.device_b {
-            (device_name, connection.interface_b)
+        if device_name == link.dev_a {
+            (device_name, link.int_a)
+        } else if device_name == link.dev_b {
+            (device_name, link.int_b)
         } else {
-            continue; // this will skip to the next loop if device not matched in connection
+            continue; // this will skip to the next loop if device not matched in link
         };
         if device_name == device && first_interface_index == interface {
             bail!(
-                "Manifest connection - '{device}' interface '{interface}' overlaps with management interface",
+                "Manifest link - '{device}' interface '{interface}' overlaps with management interface",
             );
         }
     }
     Ok(())
 }
 
-/// Check for duplicate interface usage in device connections
-pub fn check_duplicate_interface_connection(connections: &Vec<Connection>) -> Result<()> {
+/// Check for duplicate interface usage in device links
+pub fn check_duplicate_interface_link(links: &Vec<Link>) -> Result<()> {
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
-    for connection in connections {
-        check_device_interface(
-            &connection.device_a,
-            connection.interface_a,
-            &mut device_int_map,
-        )?;
-        check_device_interface(
-            &connection.device_b,
-            connection.interface_b,
-            &mut device_int_map,
-        )?;
+    for link in links {
+        check_device_interface(&link.dev_a, link.int_a, &mut device_int_map)?;
+        check_device_interface(&link.dev_b, link.int_b, &mut device_int_map)?;
     }
     Ok(())
 }
-/// Helper function for `check_duplicate_interface_connection` function
+/// Helper function for `check_duplicate_interface_link` function
 fn check_device_interface(
     device: &str,
     interface: u8,
@@ -68,19 +60,17 @@ fn check_device_interface(
     Ok(())
 }
 
-/// Check devices defined in connections are defined as top level devices
-pub fn check_connection_device(devices: &[Device], connections: &Vec<Connection>) -> Result<()> {
+/// Check devices defined in links are defined as top level devices
+pub fn check_link_device(devices: &[Device], links: &Vec<Link>) -> Result<()> {
     let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
-    let mut unique_device_connection: HashSet<String> = HashSet::new();
-    for connection in connections {
-        unique_device_connection.insert(connection.device_a.clone());
-        unique_device_connection.insert(connection.device_b.clone());
+    let mut unique_device_link: HashSet<String> = HashSet::new();
+    for link in links {
+        unique_device_link.insert(link.dev_a.clone());
+        unique_device_link.insert(link.dev_b.clone());
     }
-    for device in &unique_device_connection {
+    for device in &unique_device_link {
         if !unique_devices.contains(device) {
-            bail!(
-                "Manifest connection - '{device}' defined in connections, not defined in devices"
-            );
+            bail!("Manifest link - '{device}' defined in links, not defined in devices");
         }
     }
     Ok(())
@@ -95,22 +85,22 @@ pub fn check_interface_bounds(
     device_model: &DeviceModels,
     first_interface_index: u8,
     interface_count: u8,
-    connections: &Vec<Connection>,
+    links: &Vec<Link>,
 ) -> Result<()> {
-    for connection in connections {
+    for link in links {
         let (device, interface) = // no-fmt 
-        if device_name == connection.device_a {
-            (device_name, connection.interface_a)
-        } else if device_name == connection.device_b {
-            (device_name, connection.interface_b)
+        if device_name == link.dev_a {
+            (device_name, link.int_a)
+        } else if device_name == link.dev_b {
+            (device_name, link.int_b)
         } else {
-            continue; // this will skip to the next loop if device not matched in connection
+            continue; // this will skip to the next loop if device not matched in link
         };
 
         if interface < first_interface_index {
-            bail!("Manifest connection - device '{device}' has interface index '{interface}' defined, which is lower than the '{device_model}' first interface index '{first_interface_index}'")
+            bail!("Manifest link - device '{device}' has interface index '{interface}' defined, which is lower than the '{device_model}' first interface index '{first_interface_index}'")
         } else if interface > interface_count {
-            bail!("Manifest connection - device '{device}' has interface index '{interface}' defined, which is higher than the '{device_model}' configured number of interfaces '{interface_count}'")
+            bail!("Manifest link - device '{device}' has interface index '{interface}' defined, which is higher than the '{device_model}' configured number of interfaces '{interface_count}'")
         }
     }
 

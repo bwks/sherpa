@@ -2,7 +2,6 @@ mod connection;
 mod device;
 
 pub use connection::{
-    check_connection_device, check_duplicate_interface_connection, check_interface_bounds,
-    check_mgmt_usage,
+    check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
 };
 pub use device::check_duplicate_device;

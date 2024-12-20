@@ -5,12 +5,12 @@ use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, Document, InlineTable, Item, Value};
 
 use crate::data::DeviceModels;
-use crate::topology::{Connection, Device};
+use crate::topology::{Device, Link};
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
     pub name: String,
     pub devices: Vec<Device>,
-    pub connections: Option<Vec<Connection>>,
+    pub links: Option<Vec<Link>>,
 }
 
 impl Manifest {
@@ -27,11 +27,11 @@ impl Manifest {
             device_model: DeviceModels::FedoraLinux,
         };
 
-        let connections = vec![Connection {
-            device_a: dev01.name.clone(),
-            interface_a: 1,
-            device_b: dev02.name.clone(),
-            interface_b: 1,
+        let links = vec![Link {
+            dev_a: dev01.name.clone(),
+            int_a: 1,
+            dev_b: dev02.name.clone(),
+            int_b: 1,
         }];
 
         let devices: Vec<Device> = vec![dev01, dev02];
@@ -39,7 +39,7 @@ impl Manifest {
         Ok(Self {
             name,
             devices,
-            connections: Some(connections),
+            links: Some(links),
         })
     }
 }
@@ -73,23 +73,23 @@ impl Manifest {
 
         doc["devices"] = Item::Value(Value::Array(devices_array));
 
-        // Add connections array if present
-        if let Some(connections) = &self.connections {
-            let mut conn_array = Array::new();
-            conn_array.set_trailing_comma(true);
-            conn_array.set_trailing("\n");
-            conn_array.decor_mut().set_suffix("\n");
+        // Add links array if present
+        if let Some(links) = &self.links {
+            let mut link_array = Array::new();
+            link_array.set_trailing_comma(true);
+            link_array.set_trailing("\n");
+            link_array.decor_mut().set_suffix("\n");
 
-            for conn in connections {
-                let mut conn_table = InlineTable::new();
-                conn_table.decor_mut().set_prefix("\n  ");
-                conn_table.insert("device_a", Value::from(conn.device_a.as_str()));
-                conn_table.insert("interface_a", Value::from(conn.interface_a as i64));
-                conn_table.insert("device_b", Value::from(conn.device_b.as_str()));
-                conn_table.insert("interface_b", Value::from(conn.interface_b as i64));
-                conn_array.push_formatted(Value::from(conn_table));
+            for link in links {
+                let mut link_table = InlineTable::new();
+                link_table.decor_mut().set_prefix("\n  ");
+                link_table.insert("dev_a", Value::from(link.dev_a.as_str()));
+                link_table.insert("int_a", Value::from(link.int_a as i64));
+                link_table.insert("dev_b", Value::from(link.dev_b.as_str()));
+                link_table.insert("int_b", Value::from(link.int_b as i64));
+                link_array.push_formatted(Value::from(link_table));
             }
-            doc["connections"] = Item::Value(Value::Array(conn_array));
+            doc["links"] = Item::Value(Value::Array(link_array));
         }
 
         fs::write(file_path, doc.to_string())?;
@@ -132,11 +132,11 @@ mod tests {
                     device_model: DeviceModels::AristaVeos,
                 },
             ],
-            connections: Some(vec![Connection {
-                device_a: "dev01".to_string(),
-                interface_a: 2,
-                device_b: "dev02".to_string(),
-                interface_b: 1,
+            links: Some(vec![Link {
+                dev_a: "dev01".to_string(),
+                int_a: 2,
+                dev_b: "dev02".to_string(),
+                int_b: 1,
             }]),
         };
 
@@ -153,7 +153,7 @@ devices = [
 ]
 
 connections = [
-  { device_a = "dev01", interface_a = 2, device_b = "dev02", interface_b = 1 },
+  { dev_a = "dev01", int_a = 2, dev_b = "dev02", int_b = 1 },
 ]
 
 "#;

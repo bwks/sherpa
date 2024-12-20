@@ -1,10 +1,10 @@
 use serde_derive::{Deserialize, Serialize};
 
-/// Manifest Connection
+/// Manifest Link
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct Connection {
-    pub device_a: String,
-    pub interface_a: u8,
-    pub device_b: String,
-    pub interface_b: u8,
+pub struct Link {
+    pub dev_a: String,
+    pub int_a: u8,
+    pub dev_b: String,
+    pub int_b: u8,
 }
