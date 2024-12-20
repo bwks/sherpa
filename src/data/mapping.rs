@@ -32,26 +32,6 @@ pub struct BootServer {
     pub template: DomainTemplate,
     pub copy_disks: Vec<CloneDisk>,
 }
-
-/*
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='qcow2'/>
-      <source file='{{ boot_disk }}'/>
-      <target dev='vda' bus='virtio'/>
-    </disk>
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='raw'/>
-      <source file='{{ disk2 }}'/>
-      <target dev='sdd' bus='sata'/>
-    </disk>
-    <disk type='file' device='disk'>
-      <driver name='qemu' type='raw'/>
-      <source file='{{ usb_disk }}'/>
-      <target dev='sdd' bus='usb' removable='on'/>
-      <address type='usb' bus='0' port='1'/>
-    </disk>
-*/
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeviceDisk {
     pub disk_device: DiskDevices,
