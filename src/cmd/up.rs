@@ -75,8 +75,8 @@ pub fn up(
         let device_model = config
             .device_models
             .iter()
-            .find(|d| d.name == device.device_model)
-            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.device_model))?;
+            .find(|d| d.name == device.model)
+            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         if !device_model.dedicated_management_interface {
             check_mgmt_usage(&device.name, device_model.first_interface_index, &links)?;
@@ -104,7 +104,7 @@ pub fn up(
         println!("ZTP server is enabled in configuration")
     } else {
         for device in &manifest.devices {
-            if device.device_model.needs_ztp_server() {
+            if device.model.needs_ztp_server() {
                 println!("ZTP server is required");
                 config.ztp_server.enabled = true
             }
@@ -135,13 +135,13 @@ pub fn up(
         let device_model = config
             .device_models
             .iter()
-            .find(|d| d.name == device.device_model)
-            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.device_model))?;
+            .find(|d| d.name == device.model)
+            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         let hdd_bus = device_model.hdd_bus.clone();
         let cdrom_bus = device_model.cdrom_bus.clone();
 
-        let mac_address = match device.device_model {
+        let mac_address = match device.model {
             DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
             DeviceModels::ArubaAoscx => random_mac(ARUBA_OUI),
             DeviceModels::CiscoCat8000v
@@ -321,7 +321,7 @@ pub fn up(
                     // generate the template
                     println!("Creating Cloud-Init config {}", device.name);
                     let dir = format!("{TEMP_DIR}/{vm_name}");
-                    match device.device_model {
+                    match device.model {
                         DeviceModels::CentosLinux
                         | DeviceModels::FedoraLinux
                         | DeviceModels::OpensuseLinux
@@ -362,7 +362,7 @@ pub fn up(
                     let mut user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
-                    match device.device_model {
+                    match device.model {
                         DeviceModels::CiscoCsr1000v
                         | DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v => {
@@ -461,7 +461,7 @@ pub fn up(
                     println!("Creating ZTP config {}", device.name);
                     let mut user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
-                    match device.device_model {
+                    match device.model {
                         DeviceModels::CiscoIosv => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
@@ -656,7 +656,7 @@ pub fn up(
                     println!("Creating ZTP config {}", device.name);
                     let _user = sherpa_user.clone();
                     let _dir = format!("{TEMP_DIR}/{vm_name}");
-                    match device.device_model {
+                    match device.model {
                         DeviceModels::FlatcarLinux => {}
                         _ => {
                             anyhow::bail!(
@@ -829,7 +829,7 @@ pub fn up(
 
     let ztp_server = Device {
         name: BOOT_SERVER_NAME.to_owned(),
-        device_model: DeviceModels::FlatcarLinux,
+        model: DeviceModels::FlatcarLinux,
     };
     if config.ztp_server.enabled {
         ztp_devices.push(&ztp_server);

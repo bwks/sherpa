@@ -20,11 +20,11 @@ impl Manifest {
 
         let dev01 = Device {
             name: "dev01".to_owned(),
-            device_model: DeviceModels::FedoraLinux,
+            model: DeviceModels::FedoraLinux,
         };
         let dev02 = Device {
             name: "dev02".to_owned(),
-            device_model: DeviceModels::FedoraLinux,
+            model: DeviceModels::FedoraLinux,
         };
 
         let links = vec![Link {
@@ -67,7 +67,7 @@ impl Manifest {
             let mut device_table = InlineTable::new();
             device_table.decor_mut().set_prefix("\n  ");
             device_table.insert("name", Value::from(device.name.as_str()));
-            device_table.insert("device_model", Value::from(device.device_model.to_string()));
+            device_table.insert("model", Value::from(device.model.to_string()));
             devices_array.push_formatted(Value::from(device_table));
         }
 
@@ -125,11 +125,11 @@ mod tests {
             devices: vec![
                 Device {
                     name: "dev01".to_string(),
-                    device_model: DeviceModels::CiscoCat8000v,
+                    model: DeviceModels::CiscoCat8000v,
                 },
                 Device {
                     name: "dev02".to_string(),
-                    device_model: DeviceModels::AristaVeos,
+                    model: DeviceModels::AristaVeos,
                 },
             ],
             links: Some(vec![Link {
@@ -148,8 +148,8 @@ mod tests {
         let expected = r#"name = "blah"
 
 devices = [
-  { name = "dev01", device_model = "cisco_cat8000v" },
-  { name = "dev02", device_model = "arista_veos" },
+  { name = "dev01", model = "cisco_cat8000v" },
+  { name = "dev02", model = "arista_veos" },
 ]
 
 connections = [

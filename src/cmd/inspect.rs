@@ -18,7 +18,7 @@ pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) ->
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
     devices.push(Device {
         name: BOOT_SERVER_NAME.to_owned(),
-        device_model: DeviceModels::FlatcarLinux,
+        model: DeviceModels::FlatcarLinux,
     });
     let mut inactive_devices = vec![];
     for device in devices {
@@ -29,7 +29,7 @@ pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) ->
         {
             term_msg_underline(&device.name);
             println!("Domain: {}", device_name);
-            println!("Model: {}", device.device_model);
+            println!("Model: {}", device.model);
             println!("Active: {:#?}", domain.is_active()?);
             if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &device_name)? {
                 println!("Mgmt IP: {vm_ip}");

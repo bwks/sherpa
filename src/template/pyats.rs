@@ -71,13 +71,11 @@ impl PyatsInventory {
                     anyhow::anyhow!("Device name not found in DeviceIp: {}", device.name)
                 })?;
 
-            let device_model = config
+            let model = config
                 .device_models
                 .iter()
-                .find(|d| d.name == device.device_model)
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Device model not found: {}", device.device_model)
-                })?;
+                .find(|d| d.name == device.model)
+                .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
             // Create connections map
             let mut connections = HashMap::new();
@@ -106,9 +104,9 @@ impl PyatsInventory {
                 alias: device.name.clone(),
                 connections,
                 credentials,
-                os: device_model.os_variant.to_string(),
-                platform: device_model.os_variant.to_string(),
-                device_type: device_model.name.to_string(),
+                os: model.os_variant.to_string(),
+                platform: model.os_variant.to_string(),
+                device_type: model.name.to_string(),
             };
 
             devices.insert(device.name.clone(), device_entry);
