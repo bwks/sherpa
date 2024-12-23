@@ -2,7 +2,7 @@
 hostname {{ hostname }}
 dns domain {{ dns.domain }}
 {%- for server in dns.name_servers %}
-ip name-server {{ server.ipv4_address }}
+ip name-server vrf mgmt {{ server.ipv4_address }}
 {%- endfor %}
 !
 vrf instance mgmt

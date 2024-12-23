@@ -2,7 +2,7 @@
 hostname {{ hostname }}
 ip domain name {{ dns.domain }}
 {%- for server in dns.name_servers %}
-ip name-server {{ server.ipv4_address }}
+ip name-server vrf mgmt {{ server.ipv4_address }}
 {%- endfor %}
 crypto key generate rsa modulus 2048
 ip ssh version 2
@@ -33,7 +33,14 @@ archive
  write-memory
  time-period 1440
 !
+vrf definition mgmt
+ description Management interface
+ !
+ address-family ipv4
+ exit-address-family
+!
 interface {{ mgmt_interface }}
+ vrf forwarding mgmt
  ip address dhcp
  no shutdown
  exit
