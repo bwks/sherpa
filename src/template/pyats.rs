@@ -38,24 +38,6 @@ pub struct PyatsInventory {
 }
 
 impl PyatsInventory {
-    /*
-      devices:
-    iosxr1:
-      # Step 1: OS and Type
-      type: iosxr-Prod
-      os: iosxr
-      # Step 2: credentials
-      credentials:
-        default:
-          username: admin
-          password: Hacker@204k
-      # Step 3: connection parameters
-      connections:
-        vty:
-          protocol: ssh
-          ip: test-mgmt.talesoftechnology.com
-          port: 8080
-      */
     pub fn from_manifest(
         manifest: &Manifest,
         config: &Config,
