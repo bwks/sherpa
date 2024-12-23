@@ -5,6 +5,8 @@ dns domain {{ dns.domain }}
 ip name-server {{ server.ipv4_address }}
 {%- endfor %}
 !
+vrf instance mgmt
+!
 no aaa root
 !
 service routing protocols model multi-agent
@@ -16,11 +18,38 @@ username {{ user.username }} privilege 15{% if let Some(password) = user.passwor
 username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 {%- endfor %}
 !
+no ip routing
+no ip routing vrf management
+!
+security pki key generate rsa 2048 default
+security pki certificate generate self-signed default key default param common-name Arista
+!
 interface Management1
+   vrf mgmt
    ip address dhcp
+   dhcp client accept default-route
 !
 management api http-commands
    no shutdown
+   !
+   vrf management
+      no shutdown
+!
+management api netconf
+ transport ssh default
+!
+management api restconf
+ transport https default
+  ssl profile default
+  port 6040
+!
+management security
+ ssl profile default
+  certificate default key default
+!
+management ssh
+   vrf management
+      no shutdown
 !
 end
 !
