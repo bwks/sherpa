@@ -108,10 +108,6 @@ impl Cli {
         let cli = Cli::parse();
         let qemu = Qemu::default();
         let sherpa = Sherpa::default();
-        let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-
-        let lab_id = get_id()?;
-        let lab_name = manifest.name.clone();
 
         match &cli.commands {
             Commands::Init {
@@ -123,18 +119,30 @@ impl Cli {
             }
 
             Commands::Up { config_file } => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id()?;
+                let lab_name = manifest.name.clone();
+
                 up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest)?;
             }
             Commands::Down => {
+                let lab_id = get_id()?;
                 down(&qemu, &lab_id)?;
             }
             Commands::Resume => {
+                let lab_id = get_id()?;
                 resume(&qemu, &lab_id)?;
             }
             Commands::Destroy => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id()?;
+                let lab_name = manifest.name.clone();
                 destroy(&qemu, &lab_name, &lab_id)?;
             }
             Commands::Inspect => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id()?;
+                let lab_name = manifest.name.clone();
                 inspect(&qemu, &lab_name, &lab_id, &manifest.devices)?;
             }
             Commands::Import {
@@ -153,12 +161,17 @@ impl Cli {
                 disks,
                 networks,
             } => {
+                let lab_id = get_id()?;
                 clean(&qemu, *all, *disks, *networks, &lab_id)?;
             }
             Commands::Console { name } => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id()?;
+                let lab_name = manifest.name.clone();
                 ssh(&qemu, name, &lab_name, &lab_id)?;
             }
         }
