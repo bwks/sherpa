@@ -6,7 +6,7 @@ pub use crate::data::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats};
 
 use super::DiskTargets;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 // Device name to IP address mapping
 pub struct DeviceIp {
     pub name: String,
