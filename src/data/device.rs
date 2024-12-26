@@ -153,9 +153,9 @@ impl fmt::Display for CpuArchitecture {
 pub enum MachineTypes {
     #[default]
     #[serde(rename(serialize = "pc", deserialize = "pc"))]
-    Pc, // alias of pc-q35-X.Y - Qemu version dependent
+    Pc, // alias of pc-i440fx-X.Y - Qemu version dependent
     #[serde(rename(serialize = "q35", deserialize = "q35"))]
-    Q35, // alias of pc-i440fx-X.Y - Qemu version dependent
+    Q35, // alias of pc-q35-X.Y - Qemu version dependent
     #[serde(rename(serialize = "pc-q35-5.0", deserialize = "pc-q35-5.0"))]
     PcQ35_5_0,
     #[serde(rename(serialize = "pc-q35-5.2", deserialize = "pc-q35-5.2"))]
