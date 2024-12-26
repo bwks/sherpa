@@ -67,9 +67,9 @@ sudo systemctl restart libvirtd.service
 
 ### AppArmour
 ```
-sudo mkdir /var/lib/libvirt/flatcar-linux/
+sudo mkdir /var/lib/libvirt/sherpa/
 sudo sh -c 'echo "  # For ignition files" >> /etc/apparmor.d/abstractions/libvirt-qemu'
-sudo sh -c 'echo "  /var/lib/libvirt/flatcar-linux/** r," >> /etc/apparmor.d/abstractions/libvirt-qemu'
+sudo sh -c 'echo "  /var/lib/libvirt/sherpa/** r," >> /etc/apparmor.d/abstractions/libvirt-qemu'
 sudo systemctl restart libvirtd.service
 ```
 
