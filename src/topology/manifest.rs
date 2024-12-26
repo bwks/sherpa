@@ -152,7 +152,7 @@ devices = [
   { name = "dev02", model = "arista_veos" },
 ]
 
-connections = [
+links = [
   { dev_a = "dev01", int_a = 2, dev_b = "dev02", int_b = 1 },
 ]
 

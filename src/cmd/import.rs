@@ -2,7 +2,8 @@ use anyhow::Result;
 
 use crate::data::DeviceModels;
 use crate::util::{
-    copy_file, create_dir, file_exists, fix_permissions_recursive, term_msg_surround,
+    copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
+    term_msg_surround,
 };
 
 pub fn import(
@@ -37,9 +38,9 @@ pub fn import(
 
     if latest {
         let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
-        println!("Copying file from: {} to: {}", src, dst_latest_disk);
-        copy_file(src, &dst_latest_disk)?;
-        println!("Copied file from: {} to: {}", src, dst_latest_disk);
+        println!("Symlinking file from: {} to: {}", src, dst_latest_disk);
+        create_symlink(&dst_version_disk, &dst_latest_disk)?;
+        println!("Symlinked file from: {} to: {}", src, dst_latest_disk);
     }
 
     println!("Setting base box files to read-only");
