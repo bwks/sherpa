@@ -114,6 +114,9 @@ pub fn up(
         }
     }
 
+    // Create Temp DIR
+    create_dir(TEMP_DIR)?;
+
     // Create a mapping of device name to device id.
     // Devices have an id based on their order in the list of devices
     // from the manifest file.
@@ -173,18 +176,18 @@ pub fn up(
         }
 
         // Reserved Interfaces
-        // if device_model.reserved_interface_count > 0 {
-        //     for i in device_model.first_interface_index..=device_model.reserved_interface_count {
-        //         interfaces.push(Interface {
-        //             name: "reserved".to_owned(),
-        //             num: i,
-        //             mtu: device_model.interface_mtu,
-        //             mac_address: random_mac(KVM_OUI),
-        //             connection_type: ConnectionTypes::Reserved,
-        //             interface_connection: None,
-        //         });
-        //     }
-        // }
+        if device_model.reserved_interface_count > 0 {
+            for i in device_model.first_interface_index..=device_model.reserved_interface_count {
+                interfaces.push(Interface {
+                    name: "reserved".to_owned(),
+                    num: i,
+                    mtu: device_model.interface_mtu,
+                    mac_address: random_mac(KVM_OUI),
+                    connection_type: ConnectionTypes::Reserved,
+                    interface_connection: None,
+                });
+            }
+        }
 
         let end_iface_index = if device_model.first_interface_index == 0 {
             device_model.interface_count - 1
