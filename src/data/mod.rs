@@ -1,3 +1,4 @@
+mod cpu;
 mod device;
 mod disk;
 mod dns;
@@ -7,6 +8,7 @@ mod provider;
 mod ssh;
 mod user;
 
+pub use crate::data::cpu::CpuModels;
 pub use crate::data::device::{
     BiosTypes, CpuArchitecture, DeviceModel, DeviceModels, InterfaceTypes, MachineTypes,
     OsVariants, ZtpMethods,

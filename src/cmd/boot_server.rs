@@ -9,9 +9,9 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, DeviceDisk, DeviceModels,
-    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceTypes,
-    MachineTypes, MgmtInterfaces, User, ZtpTemplates,
+    BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
+    DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
+    InterfaceTypes, MachineTypes, MgmtInterfaces, User, ZtpTemplates,
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
@@ -254,6 +254,7 @@ pub fn create_boot_server(
         name: boot_server_name.to_owned(),
         memory: 512,
         cpu_architecture: CpuArchitecture::default(),
+        cpu_model: CpuModels::default(),
         machine_type: MachineTypes::default(),
         cpu_count: 1,
         vmx_enabled: false,

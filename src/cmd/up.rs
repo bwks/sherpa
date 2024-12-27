@@ -747,6 +747,7 @@ pub fn up(
             name: vm_name,
             memory: device_model.memory,
             cpu_architecture: device_model.cpu_architecture.clone(),
+            cpu_model: device_model.cpu_model.clone(),
             machine_type: device_model.machine_type.clone(),
             cpu_count: device_model.cpu_count,
             vmx_enabled: device_model.vmx_enabled,

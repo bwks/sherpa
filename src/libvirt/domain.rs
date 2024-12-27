@@ -1,8 +1,8 @@
 use rinja::Template;
 
 use crate::data::{
-    BiosTypes, ConnectionTypes, CpuArchitecture, DeviceDisk, DiskBuses, DiskDevices, Interface,
-    InterfaceTypes, MachineTypes,
+    BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk, DiskBuses, DiskDevices,
+    Interface, InterfaceTypes, MachineTypes,
 };
 
 #[derive(Debug, Template)]
@@ -11,6 +11,7 @@ pub struct DomainTemplate {
     pub name: String,
     pub memory: u16,
     pub cpu_architecture: CpuArchitecture,
+    pub cpu_model: CpuModels,
     pub machine_type: MachineTypes,
     pub cpu_count: u8,
     pub vmx_enabled: bool,
