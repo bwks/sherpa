@@ -100,7 +100,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
 
     let juniper_vjunos_template = JunipervJunosZtpTemplate {
         hostname: "vjunos-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
+        user: sherpa_user.clone(),
     };
     let juniper_vjunos_rendered_template = juniper_vjunos_template.render()?;
     let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");

@@ -14,7 +14,6 @@ pub struct User {
     pub ssh_public_key: SshPublicKey,
     pub sudo: bool,
 }
-
 impl User {
     /// Returns the default sherpa user and set sudo to True.
     pub fn default() -> Result<User> {

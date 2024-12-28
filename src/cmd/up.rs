@@ -422,10 +422,12 @@ pub fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::JuniperVsrxv3 => {
+                        DeviceModels::JuniperVsrxv3
+                        | DeviceModels::JuniperVrouter
+                        | DeviceModels::JuniperVswitch => {
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
@@ -576,6 +578,33 @@ pub fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, rendered_template)?;
+                            // clone USB disk
+                            let src_usb = format!(
+                                "{}/{}/{}",
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
+                            );
+
+                            let dst_usb = format!("{dir}/cfg.img");
+
+                            // Create a copy of the usb base image
+                            copy_file(&src_usb, &dst_usb)?;
+                            // copy file to USB disk
+                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
+
+                            src_usb_disk = Some(dst_usb.to_owned());
+                            dst_usb_disk =
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
+                        }
+                        OsVariants::Junos => {
+                            let t = JunipervJunosZtpTemplate {
+                                hostname: device.name.clone(),
+                                user,
+                                // dns: dns.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
                             // clone USB disk

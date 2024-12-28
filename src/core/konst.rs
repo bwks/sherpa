@@ -73,7 +73,7 @@ pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
 pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
 pub const JUNIPER_ZTP_DIR: &str = "juniper";
-pub const JUNIPER_ZTP_CONFIG: &str = "juniper-config.txt";
+pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
 
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;
