@@ -70,6 +70,12 @@ impl QemuCommand {
             value: "type=1,product=VM-VMX,family=lab".to_owned(),
         }
     }
+    pub fn juniper_vswitch() -> Self {
+        Self {
+            param: "-smbios".to_owned(),
+            value: "type=1,product=VM-VEX".to_owned(),
+        }
+    }
     pub fn ignition_config(path: &str) -> Self {
         Self {
             param: "-fw_cfg".to_owned(),

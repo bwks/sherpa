@@ -4,7 +4,7 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::MTU_JUMBO_INT;
+use crate::core::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 use crate::data::{CpuModels, DiskBuses, MgmtInterfaces};
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
@@ -359,7 +359,7 @@ impl DeviceModel {
             interface_count: 24,
             interface_prefix: "Eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
+            interface_mtu: MTU_STD,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
@@ -390,7 +390,7 @@ impl DeviceModel {
             interface_count: 25,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
+            interface_mtu: MTU_STD,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
@@ -697,10 +697,10 @@ impl DeviceModel {
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
             bios: BiosTypes::SeaBios,
-            interface_count: 16,
+            interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
             interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
+            interface_mtu: MTU_JUMBO_NET,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::IvyBridge,
@@ -709,7 +709,7 @@ impl DeviceModel {
             memory: 5120,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
-            cdrom_bus: DiskBuses::Virtio,
+            cdrom_bus: DiskBuses::Sata,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
@@ -728,10 +728,10 @@ impl DeviceModel {
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
             bios: BiosTypes::SeaBios,
-            interface_count: 24,
+            interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
             interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
+            interface_mtu: MTU_JUMBO_NET,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::IvyBridge,

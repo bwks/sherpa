@@ -50,8 +50,8 @@ pub const _USER_SSH_DIR: &str = "~/.ssh";
 pub const _USER_SSH_PUBLIC_KEY_FILE: &str = "id_rsa.pub";
 pub const TEMP_DIR: &str = ".tmp";
 
-pub const _MTU_STD: u16 = 1500;
-pub const MTU_JUMBO_INT: u16 = 9126;
+pub const MTU_STD: u16 = 1500;
+pub const MTU_JUMBO_INT: u16 = 9216;
 pub const MTU_JUMBO_NET: u16 = 9600;
 
 pub const ZTP_DIR: &str = "ztp";

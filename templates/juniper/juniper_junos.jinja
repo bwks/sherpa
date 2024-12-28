@@ -11,9 +11,7 @@ system {
         }
     }
     root-authentication {
-        {%- if let Some(password) = user.password %}
-        plain-text-password-value "{{ password }}"; 
-        {%- endif %}
+        plain-text-password-value "{{ crate::core::konst::SHERPA_PASSWORD }}"; 
         {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
     }
     host-name {{ hostname }};

@@ -766,8 +766,14 @@ pub fn up(
         }
 
         let mut qemu_commands: Vec<QemuCommand> = vec![];
-        if device_model.name == DeviceModels::JuniperVrouter {
-            qemu_commands.push(QemuCommand::juniper_vrouter());
+        match device_model.name {
+            DeviceModels::JuniperVrouter => {
+                qemu_commands.push(QemuCommand::juniper_vrouter());
+            }
+            DeviceModels::JuniperVswitch => {
+                qemu_commands.push(QemuCommand::juniper_vswitch());
+            }
+            _ => {}
         }
 
         let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
