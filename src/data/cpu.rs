@@ -8,12 +8,14 @@ pub enum CpuModels {
     #[default]
     HostModel,
     IvyBridge,
+    SandyBridge,
 }
 impl fmt::Display for CpuModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CpuModels::HostModel => write!(f, "host-model"),
             CpuModels::IvyBridge => write!(f, "IvyBridge"),
+            CpuModels::SandyBridge => write!(f, "SandyBridge"),
         }
     }
 }

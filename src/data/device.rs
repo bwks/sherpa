@@ -166,10 +166,20 @@ pub enum MachineTypes {
     PcQ35_6_0,
     #[serde(rename(serialize = "pc-q35-8.0", deserialize = "pc-q35-8.0"))]
     PcQ35_8_0,
-    #[serde(rename(serialize = "pc-i440fx-5.1", deserialize = "pc-i440fx-5.1"))]
-    PcI440Fx_5_1,
+    #[serde(rename(serialize = "pc-q35-8.1", deserialize = "pc-q35-8.1"))]
+    PcQ35_8_1,
+    #[serde(rename(serialize = "pc-q35-8.2", deserialize = "pc-q35-8.2"))]
+    PcQ35_8_2,
     #[serde(rename(serialize = "pc-i440fx-4.2", deserialize = "pc-i440fx-4.2"))]
     PcI440Fx_4_2,
+    #[serde(rename(serialize = "pc-i440fx-5.1", deserialize = "pc-i440fx-5.1"))]
+    PcI440Fx_5_1,
+    #[serde(rename(serialize = "pc-i440fx-8.0", deserialize = "pc-i440fx-8.0"))]
+    PcI440Fx_8_0,
+    #[serde(rename(serialize = "pc-i440fx-8.1", deserialize = "pc-i440fx-8.1"))]
+    PcI440Fx_8_1,
+    #[serde(rename(serialize = "pc-i440fx-8.2", deserialize = "pc-i440fx-8.2"))]
+    PcI440Fx_8_2,
 }
 impl fmt::Display for MachineTypes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -181,8 +191,13 @@ impl fmt::Display for MachineTypes {
             MachineTypes::PcQ35_6_0 => write!(f, "pc-q35-6.0"),
             MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
             MachineTypes::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
+            MachineTypes::PcQ35_8_1 => write!(f, "pc-q35-8.1"),
+            MachineTypes::PcQ35_8_2 => write!(f, "pc-q35-8.2"),
             MachineTypes::PcI440Fx_5_1 => write!(f, "pc-i440fx-5.1"),
             MachineTypes::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
+            MachineTypes::PcI440Fx_8_0 => write!(f, "pc-i440fx-8.0"),
+            MachineTypes::PcI440Fx_8_1 => write!(f, "pc-i440fx-8.1"),
+            MachineTypes::PcI440Fx_8_2 => write!(f, "pc-i440fx-8.2"),
         }
     }
 }
@@ -750,13 +765,13 @@ impl DeviceModel {
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineTypes::Q35,
+            cpu_model: CpuModels::SandyBridge,
+            machine_type: MachineTypes::PcI440Fx_8_0,
             vmx_enabled: true,
             memory: 4096,
-            hdd_bus: DiskBuses::Sata,
+            hdd_bus: DiskBuses::Ide,
             cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            cdrom_bus: DiskBuses::Ide,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
@@ -781,13 +796,13 @@ impl DeviceModel {
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineTypes::Q35,
+            cpu_model: CpuModels::SandyBridge,
+            machine_type: MachineTypes::PcI440Fx_8_0,
             vmx_enabled: true,
             memory: 4096,
-            hdd_bus: DiskBuses::Sata,
+            hdd_bus: DiskBuses::Ide,
             cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
+            cdrom_bus: DiskBuses::Ide,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
