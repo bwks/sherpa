@@ -22,8 +22,8 @@ use crate::core::konst::{
 use crate::core::{Config, Sherpa};
 use crate::data::{
     CloneDisk, ConnectionTypes, DeviceDisk, DeviceIp, DeviceModels, DiskBuses, DiskDevices,
-    DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection, OsVariants, User,
-    ZtpMethods,
+    DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection, OsVariants,
+    QemuCommand, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -736,10 +736,10 @@ pub fn up(
             });
         }
 
-        let ignition_config = match device_model.name {
-            DeviceModels::FlatcarLinux => Some(true),
-            _ => None,
-        };
+        let mut qemu_commands: Vec<QemuCommand> = vec![];
+        if device_model.name == DeviceModels::JuniperVrouter {
+            qemu_commands.push(QemuCommand::juniper_vrouter());
+        }
 
         let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
         let domain = DomainTemplate {
@@ -753,11 +753,11 @@ pub fn up(
             vmx_enabled: device_model.vmx_enabled,
             bios: device_model.bios.clone(),
             disks,
-            ignition_config,
             interfaces,
             interface_type: device_model.interface_type.clone(),
             loopback_ipv4: get_ip(device_id).to_string(),
             telnet_port: TELNET_PORT,
+            qemu_commands,
         };
 
         domains.push(domain);

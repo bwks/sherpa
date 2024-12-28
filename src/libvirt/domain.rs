@@ -2,7 +2,7 @@ use rinja::Template;
 
 use crate::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk, DiskBuses, DiskDevices,
-    Interface, InterfaceTypes, MachineTypes,
+    Interface, InterfaceTypes, MachineTypes, QemuCommand,
 };
 
 #[derive(Debug, Template)]
@@ -18,9 +18,9 @@ pub struct DomainTemplate {
     pub qemu_bin: String,
     pub bios: BiosTypes,
     pub disks: Vec<DeviceDisk>,
-    pub ignition_config: Option<bool>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceTypes,
     pub loopback_ipv4: String,
     pub telnet_port: u16,
+    pub qemu_commands: Vec<QemuCommand>,
 }

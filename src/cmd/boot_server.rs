@@ -11,7 +11,7 @@ use crate::core::{Config, Sherpa};
 use crate::data::{
     BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
     DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
-    InterfaceTypes, MachineTypes, MgmtInterfaces, User, ZtpTemplates,
+    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, User, ZtpTemplates,
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
@@ -260,7 +260,6 @@ pub fn create_boot_server(
         vmx_enabled: false,
         bios: BiosTypes::default(),
         disks: device_disks,
-        ignition_config: Some(true),
         interfaces: vec![Interface {
             name: "mgmt".to_owned(),
             num: 0,
@@ -272,6 +271,7 @@ pub fn create_boot_server(
         interface_type: InterfaceTypes::Virtio,
         loopback_ipv4: get_ip(255).to_string(),
         telnet_port: TELNET_PORT,
+        qemu_commands: vec![QemuCommand::ignition_config(&dst_ztp_file)],
     };
 
     Ok(BootServer {

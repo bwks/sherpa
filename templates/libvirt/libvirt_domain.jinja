@@ -61,18 +61,13 @@
     <suspend-to-disk enabled='no'/>
   </pm>
   
-  {% if let Some(ignition_config) = ignition_config %}
+  {% for cmd in qemu_commands %}
   <ns0:commandline>
-    <ns0:arg value='-fw_cfg'/>
-    <ns0:arg value='name=opt/org.flatcar-linux/config,file={{ crate::core::konst::SHERPA_STORAGE_POOL_PATH }}/{{ name }}-cfg.ign'/>
+    <ns0:arg value='{{ cmd.param }}'/>
+    <ns0:arg value='{{ cmd.value }}'/>
   </ns0:commandline>
-  {% endif %}
+  {% endfor %}
 
-  <ns0:commandline>
-    <ns0:arg value="-smbios"/>
-    <ns0:arg value="type=1,product=VM-VMX,family=lab"/>
-  </ns0:commandline>
-  
   <devices>
 
     <emulator>{{ qemu_bin }}</emulator>

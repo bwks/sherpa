@@ -56,3 +56,24 @@ pub struct InterfaceConnection {
     pub source_port: u16,
     pub source_loopback: String,
 }
+
+#[derive(Clone, Debug)]
+// Qemu commamnd-line arguments mapping
+pub struct QemuCommand {
+    pub param: String,
+    pub value: String,
+}
+impl QemuCommand {
+    pub fn juniper_vrouter() -> Self {
+        Self {
+            param: "-smbios".to_owned(),
+            value: "type=1,product=VM-VMX,family=lab".to_owned(),
+        }
+    }
+    pub fn ignition_config(path: &str) -> Self {
+        Self {
+            param: "-fw_cfg".to_owned(),
+            value: format!("name=opt/org.flatcar-linux/config,file={path}"),
+        }
+    }
+}
