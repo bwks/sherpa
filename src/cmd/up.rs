@@ -643,6 +643,8 @@ pub fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+                            // let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
+
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
                             // clone USB disk
@@ -655,7 +657,12 @@ pub fn up(
 
                             // Create a copy of the usb base image
                             copy_file(&src_usb, &dst_usb)?;
+
+                            // Create tar.gz config file
+                            // create_config_archive(&ztp_config, &ztp_config_tgz)?;
+
                             // copy file to USB disk
+                            // copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
                             copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());

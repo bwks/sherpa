@@ -76,7 +76,7 @@ impl DeviceModels {
     pub fn needs_ztp_server(&self) -> bool {
         matches!(
             self,
-            DeviceModels::AristaVeos | DeviceModels::ArubaAoscx // | DeviceModels::JuniperVevolved
+            DeviceModels::AristaVeos | DeviceModels::ArubaAoscx | DeviceModels::JuniperVevolved
         )
     }
 }

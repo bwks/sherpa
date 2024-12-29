@@ -15,9 +15,9 @@ use crate::data::{
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
-    arista_veos_ztp_script, ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, File as IgnitionFile,
-    IgnitionConfig, JunipervJunosZtpTemplate, Unit as IgnitionUnit, User as IgnitionUser,
+    arista_veos_ztp_script, juniper_vevolved_ztp_script, ArubaAoscxTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosvZtpTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
+    File as IgnitionFile, IgnitionConfig, Unit as IgnitionUnit, User as IgnitionUser,
 };
 use crate::util::{
     base64_encode, create_dir, create_file, get_ip, pub_ssh_key_to_md5_hash, term_msg_underline,
@@ -94,21 +94,13 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
     create_file(&cisco_iosv_ztp_config, iosv_rendered_template.clone())?;
 
-    // Juniper vrouter
+    // Juniper vevolved
     let juniper_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{JUNIPER_ZTP_DIR}");
     create_dir(&juniper_dir)?;
 
-    let juniper_vjunos_template = JunipervJunosZtpTemplate {
-        hostname: "vjunos-ztp".to_owned(),
-        user: sherpa_user.clone(),
-        mgmt_interface: MgmtInterfaces::Re0Mgmt0.to_string(),
-    };
-    let juniper_vjunos_rendered_template = juniper_vjunos_template.render()?;
+    let juniper_vjunos_script = juniper_vevolved_ztp_script();
     let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");
-    create_file(
-        &juniper_vjunos_ztp_config,
-        juniper_vjunos_rendered_template.clone(),
-    )?;
+    create_file(&juniper_vjunos_ztp_config, juniper_vjunos_script.clone())?;
 
     Ok(ZtpTemplates {
         arista_eos: arista_ztp_script,
@@ -117,7 +109,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
         cumulus_linux: cumulus_rendered_template,
         cisco_iosv: iosv_rendered_template,
         cisco_iosxe: iosxe_rendered_template,
-        juniper_vjunos: juniper_vjunos_rendered_template,
+        juniper_vjunos: juniper_vjunos_script,
     })
 }
 
