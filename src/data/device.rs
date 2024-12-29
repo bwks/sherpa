@@ -74,7 +74,10 @@ impl fmt::Display for DeviceModels {
 
 impl DeviceModels {
     pub fn needs_ztp_server(&self) -> bool {
-        matches!(self, DeviceModels::AristaVeos | DeviceModels::ArubaAoscx)
+        matches!(
+            self,
+            DeviceModels::AristaVeos | DeviceModels::ArubaAoscx // | DeviceModels::JuniperVevolved
+        )
     }
 }
 

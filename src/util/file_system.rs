@@ -149,6 +149,17 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
     Ok(())
 }
 
+/// Create a config archive using the `tar` command.
+///
+/// `tar` must be installed on the system.
+pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
+    Command::new("tar")
+        .args(["cvzf", dst_path, src_path])
+        .status()?;
+    println!("Archive created: {dst_path}");
+    Ok(())
+}
+
 /// Convert an ISO file to a Qcow2 disk image.
 pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
     Command::new("qemu-img")

@@ -14,11 +14,11 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR,
-    ZTP_ISO,
+    CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH,
+    SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -35,9 +35,9 @@ use crate::template::{
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
-    copy_file, copy_to_dos_image, create_dir, create_file, create_ztp_iso, get_ip, id_to_port,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, tcp_connect,
-    term_msg_surround, term_msg_underline,
+    copy_file, copy_to_dos_image, create_config_archive, create_dir, create_file, create_ztp_iso,
+    get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
+    tcp_connect, term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -540,6 +540,7 @@ pub fn up(
                             let juniper_rendered_template = juniper_template.render()?;
 
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+                            let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
 
                             create_dir(&dir)?;
                             create_file(&ztp_config, juniper_rendered_template)?;
@@ -548,12 +549,16 @@ pub fn up(
                                 "{}/{}/{}",
                                 &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
+                            let dst_disk = format!("{dir}/junos-cfg.img");
 
-                            // Create a copy of the usb base image
+                            // Create a copy of the disk base image
                             copy_file(&src_disk, &dst_disk)?;
-                            // copy file to USB disk
-                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            // Create tar.gz config file
+                            create_config_archive(&ztp_config, &ztp_config_tgz)?;
+
+                            // copy file to disk
+                            copy_to_dos_image(&ztp_config_tgz, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
@@ -643,7 +648,7 @@ pub fn up(
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
                             );
 
                             let dst_usb = format!("{dir}/cfg.img");
