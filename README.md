@@ -86,7 +86,7 @@ sudo systemctl restart libvirtd.service
 | Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: | CDROM              |
 | Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: | CDROM              |
 | Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: | CDROM              |
-| Cisco         | Catalyst XRv 9000 | 7.11.1                 | :white_check_mark: | CDROM              |
+| Cisco         | XRv 9000          | 7.11.1                 | :white_check_mark: | CDROM              |
 | Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
 | Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | Disk               |
 | Cisco         | IOSv L2           | 20200920               | :white_check_mark: | Disk               |
