@@ -12,12 +12,10 @@ hostname {{ hostname }}
 !
 username enable_1 privilege 15
 enable password {{ crate::core::konst::SHERPA_PASSWORD }}
-{%- for user in users %}
 username {{ user.username }} privilege 15
-{%-   if let Some(password) = user.password %} 
+{%- if let Some(password) = user.password %} 
 username {{ user.username }} password {{ password }}
-{%-   endif %}
-{%- endfor %}
+{%- endif %}
 !
 aaa authentication ssh console LOCAL
 aaa authentication http console LOCAL
@@ -30,16 +28,11 @@ http server enable
 http 0.0.0.0 0.0.0.0 management
 domain-name {{ dns.domain }}
 !
-{%- for user in users %}
-{%-   if let Some(password) = user.password %}
-username {{ user.username }} password {{ password }} 
-{%-   endif %}
 username {{ user.username }} attributes
-{%-   if user.sudo %}
-  service-type admin
-{%-   endif %}
   ssh authentication publickey {{ user.ssh_public_key.key }} hashed
-{%- endfor %}
+  {%- if user.sudo %}
+  service-type admin
+  {%- endif %}
 !
 names
 dns domain-lookup management

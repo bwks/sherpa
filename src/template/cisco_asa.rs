@@ -6,6 +6,6 @@ use crate::data::{Dns, User};
 #[template(path = "cisco/cisco_asa.jinja", ext = "txt")]
 pub struct CiscoAsavZtpTemplate {
     pub hostname: String,
-    pub users: Vec<User>,
+    pub user: User,
     pub dns: Dns,
 }

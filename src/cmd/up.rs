@@ -391,7 +391,7 @@ pub fn up(
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoAsavZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
