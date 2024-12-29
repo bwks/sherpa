@@ -86,7 +86,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     // IOSv
     let cisco_iosv_template = CiscoIosvZtpTemplate {
         hostname: "iosv-ztp".to_owned(),
-        users: vec![cisco_user.clone()],
+        user: cisco_user.clone(),
         mgmt_interface: MgmtInterfaces::GigabitEthernet0_0.to_string(),
         dns: dns.clone(),
     };
