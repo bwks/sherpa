@@ -5,16 +5,11 @@ domain-name {{ dns.domain }}
 ip dns server-address {{ server.ipv4_address }}
 {%- endfor %}
 user admin group administrators password plaintext {{ SHERPA_PASSWORD }}
-{%- for user in users %}
 user {{ user.username }} {% if user.sudo %} group administrators{% endif %}{% if let Some(password) = user.password %} password plaintext {{ password }}{% endif %}
-{%- endfor %}
+user {{ user.username }} authorized-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 !
 ntp server pool.ntp.org minpoll 4 maxpoll 4 iburst
 ntp enable
-!
-{%- for user in users %}
-user {{ user.username }} authorized-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
-{%- endfor %}
 !
 ssh server vrf mgmt
 vlan 1

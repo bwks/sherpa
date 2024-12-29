@@ -562,7 +562,7 @@ pub fn up(
                         DeviceModels::ArubaAoscx => {
                             let aruba_template = ArubaAoscxShTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![sherpa_user.clone()],
+                                user: sherpa_user.clone(),
                                 dns: dns.clone(),
                             };
                             let aruba_rendered_template = aruba_template.render()?;
@@ -686,7 +686,7 @@ pub fn up(
                         OsVariants::Aos => {
                             let aruba_template = ArubaAoscxTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![sherpa_user.clone()],
+                                user: sherpa_user.clone(),
                                 dns: dns.clone(),
                             };
                             let aruba_rendered_template = aruba_template.render()?;

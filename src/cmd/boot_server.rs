@@ -46,7 +46,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
 
     let aruba_template = ArubaAoscxTemplate {
         hostname: "aos-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
+        user: sherpa_user.clone(),
         dns: dns.clone(),
     };
     let aruba_rendered_template = aruba_template.render()?;

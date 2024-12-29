@@ -20,7 +20,7 @@ sudo mount /dev/sdb /mnt/config/
 #[template(path = "aruba/aruba_aoscx.jinja", ext = "txt")]
 pub struct ArubaAoscxTemplate {
     pub hostname: String,
-    pub users: Vec<User>,
+    pub user: User,
     pub dns: Dns,
 }
 
@@ -28,6 +28,6 @@ pub struct ArubaAoscxTemplate {
 #[template(path = "aruba/aruba_aoscx_sh.jinja", ext = "txt")]
 pub struct ArubaAoscxShTemplate {
     pub hostname: String,
-    pub users: Vec<User>,
+    pub user: User,
     pub dns: Dns,
 }
