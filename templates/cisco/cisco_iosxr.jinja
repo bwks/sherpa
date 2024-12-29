@@ -9,15 +9,13 @@ username admin
  group cisco-support
  secret 0 {{ crate::core::konst::SHERPA_PASSWORD }}
 !
-{%- for user in users %}
 username {{ user.username }}
-{%-   if user.sudo %}
+{%- if user.sudo %}
  group netadmin
-{%-   endif %}
-{%-   if let Some(password) = user.password %}
+{%- endif %}
+{%- if let Some(password) = user.password %}
  password 0 {{ password }} 
-{%-   endif %}
-{%- endfor %}
+{%- endif %}
 !
 aaa authorization exec default local
 aaa authentication login default local
@@ -34,10 +32,8 @@ netconf agent tty
 !
 ssh server logging
 !
-{%- for user in users %}
 ssh server username {{ user.username }}
  keystring {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
-{%- endfor %}
 !
 ssh server v2
 ssh server vrf default

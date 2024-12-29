@@ -415,7 +415,7 @@ pub fn up(
                         DeviceModels::CiscoIosxrv9000 => {
                             let t = CiscoIosxrZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;

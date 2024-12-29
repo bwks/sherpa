@@ -6,6 +6,6 @@ use crate::data::{Dns, User};
 #[template(path = "cisco/cisco_iosxr.jinja", ext = "txt")]
 pub struct CiscoIosxrZtpTemplate {
     pub hostname: String,
-    pub users: Vec<User>,
+    pub user: User,
     pub dns: Dns,
 }
