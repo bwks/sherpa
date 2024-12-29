@@ -6,15 +6,13 @@ feature scp-server
 hostname {{ hostname }}
 !
 username admin password 0 {{ crate::core::konst::SHERPA_PASSWORD }} role network-admin
-{%- for user in users %}
-{%-   if let Some(password) = user.password %}
+{%- if let Some(password) = user.password %}
 username {{ user.username }} password 0 {{ password }} 
-{%-   endif %}
-{%-   if user.sudo %}
+{%- endif %}
+{%- if user.sudo %}
 username {{ user.username }} role network-admin
-{%-   endif %}
+{%- endif %}
 username {{ user.username }} sshkey {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
-{%- endfor %}
 !
 ip domain-name {{ dns.domain }}
 {%- for server in dns.name_servers %}

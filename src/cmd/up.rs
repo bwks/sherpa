@@ -403,7 +403,7 @@ pub fn up(
                         DeviceModels::CiscoNexus9300v => {
                             let t = CiscoNxosZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
