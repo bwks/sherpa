@@ -375,7 +375,7 @@ pub fn up(
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoIosXeZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
                             };

@@ -75,7 +75,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     // IOSXE
     let cisco_iosxe_template = CiscoIosXeZtpTemplate {
         hostname: "iosxe-ztp".to_owned(),
-        users: vec![cisco_user.clone()],
+        user: cisco_user.clone(),
         mgmt_interface: MgmtInterfaces::GigabitEthernet1.to_string(),
         dns: dns.clone(),
     };
