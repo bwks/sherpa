@@ -79,7 +79,7 @@ sudo systemctl restart libvirtd.service
 - Partially Working - :warning:
 
 | Vendor        | Model             | Minimum Tested Version | Status             | ZTP Method         |
-| ------------- | ----------------- | ---------------------- | :----------------: | :----------------: |
+| ------------- | ----------------- | ---------------------- | ------------------ | ------------------ |
 | Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP+USB           |
 | Aruba         | AOS-CX            | 10.07                  | :white_check_mark: | TFTP               |
 | Cisco         | ASAv              | 9.20.2                 | :white_check_mark: | CDROM              |
@@ -92,8 +92,8 @@ sudo systemctl restart libvirtd.service
 | Cisco         | IOSv L2           | 20200920               | :white_check_mark: | Disk               |
 | Juniper       | vRouter           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
 | Juniper       | vSwitch           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
-| Juniper       | vEvolved          | TBA                    | :construction:     | CDROM              |
 | Juniper       | vSRXv3            | 23.2R2.21              | :white_check_mark: | CDROM              |
+| Juniper       | vEvolved          | 23.4R2-S2.1            | :white_check_mark: | HTTP+USB           |
 | Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | Cloud-Init         |
