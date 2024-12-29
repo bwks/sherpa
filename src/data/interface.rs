@@ -27,6 +27,10 @@ pub enum MgmtInterfaces {
     GigabitEthernet0_0, // GigabitEthernet0/0 - cat9k, iosv/l2
     #[serde(rename(serialize = "GigabitEthernet1", deserialize = "GigabitEthernet1"))]
     GigabitEthernet1, // GigabitEthernet1 - cat1/8k
+    #[serde(rename(serialize = "re0:mgmt-0", deserialize = "re0:mgmt-0"))]
+    Re0Mgmt0, // fxp0 - Junos
+    #[serde(rename(serialize = "fxp0", deserialize = "fxp0"))]
+    Fxp0, // fxp0 - Junos
     #[serde(rename(serialize = "fxp0.0", deserialize = "fxp0.0"))]
     Fxp0_0, // fxp0.0 - Junos
     #[serde(rename(serialize = "mgmt", deserialize = "mgmt"))]
@@ -48,6 +52,8 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::Eth0 => write!(f, "eth0"),
             MgmtInterfaces::GigabitEthernet1 => write!(f, "GigabitEthernet1"),
             MgmtInterfaces::GigabitEthernet0_0 => write!(f, "GigabitEthernet0/0"),
+            MgmtInterfaces::Re0Mgmt0 => write!(f, "re0:mgmt-0"),
+            MgmtInterfaces::Fxp0 => write!(f, "fxp0"),
             MgmtInterfaces::Fxp0_0 => write!(f, "fxp0.0"),
             MgmtInterfaces::Mgmt => write!(f, "mgmt"),
             MgmtInterfaces::Mgmt0 => write!(f, "mgmt0"),
@@ -151,7 +157,23 @@ mod tests {
                 variant: "MgmtEth0/RP0/CPU0/0",
             }],
         );
+        // Test re0:mgmt-0 variant
+        assert_tokens(
+            &MgmtInterfaces::Re0Mgmt0,
+            &[Token::UnitVariant {
+                name: "MgmtInterfaces",
+                variant: "re0:mgmt-0",
+            }],
+        );
         // Test fxp0 variant
+        assert_tokens(
+            &MgmtInterfaces::Fxp0,
+            &[Token::UnitVariant {
+                name: "MgmtInterfaces",
+                variant: "fxp0",
+            }],
+        );
+        // Test fxp0.0 variant
         assert_tokens(
             &MgmtInterfaces::Fxp0_0,
             &[Token::UnitVariant {
@@ -208,8 +230,14 @@ mod tests {
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0
         ));
 
-        let fxp0: MgmtInterfaces = serde_json::from_str(r#""fxp0.0""#).unwrap();
-        assert!(matches!(fxp0, MgmtInterfaces::Fxp0_0));
+        let re0mgmt0: MgmtInterfaces = serde_json::from_str(r#""re0:mgmt-0""#).unwrap();
+        assert!(matches!(re0mgmt0, MgmtInterfaces::Re0Mgmt0));
+
+        let fxp0: MgmtInterfaces = serde_json::from_str(r#""fxp0""#).unwrap();
+        assert!(matches!(fxp0, MgmtInterfaces::Fxp0));
+
+        let fxp0_0: MgmtInterfaces = serde_json::from_str(r#""fxp0.0""#).unwrap();
+        assert!(matches!(fxp0_0, MgmtInterfaces::Fxp0_0));
 
         let vlan1: MgmtInterfaces = serde_json::from_str(r#""Vlan1""#).unwrap();
         assert!(matches!(vlan1, MgmtInterfaces::Vlan1));

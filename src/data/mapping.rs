@@ -64,22 +64,38 @@ pub struct QemuCommand {
     pub value: String,
 }
 impl QemuCommand {
-    pub fn juniper_vrouter() -> Self {
-        Self {
+    pub fn juniper_vrouter() -> Vec<Self> {
+        vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VMX,family=lab".to_owned(),
-        }
+        }]
     }
-    pub fn juniper_vswitch() -> Self {
-        Self {
+    pub fn juniper_vswitch() -> Vec<Self> {
+        vec![Self {
             param: "-smbios".to_owned(),
             value: "type=1,product=VM-VEX".to_owned(),
-        }
+        }]
     }
-    pub fn ignition_config(path: &str) -> Self {
-        Self {
+    pub fn juniper_vevolved() -> Vec<Self> {
+        vec![
+            Self {
+            param: "-smbios".to_owned(),
+            value: "type=0,vendor=Bochs,version=Bochs".to_owned(),
+        },
+            Self {
+            param: "-smbios".to_owned(),
+            value: "type=3,manufacturer=Bochs".to_owned(),
+        },
+            Self {
+            param: "-smbios".to_owned(),
+            value: "type=1,manufacturer=Bochs,product=Bochs,serial=chassis_no=0:slot=0:type=1:assembly_id=0x0D20:platform=251:master=0:channelized=no".to_owned(),
+        },
+        ]
+    }
+    pub fn ignition_config(path: &str) -> Vec<Self> {
+        vec![Self {
             param: "-fw_cfg".to_owned(),
             value: format!("name=opt/org.flatcar-linux/config,file={path}"),
-        }
+        }]
     }
 }

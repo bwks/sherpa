@@ -63,7 +63,7 @@ impl Default for Config {
             DeviceModel::cisco_iosvl2(),
             DeviceModel::juniper_vrouter(),
             DeviceModel::juniper_vswitch(),
-            DeviceModel::juniper_vsrx(),
+            DeviceModel::juniper_vevolved(),
             DeviceModel::juniper_vsrxv3(),
             DeviceModel::nokia_vsr(),
             DeviceModel::cumulus_linux(),

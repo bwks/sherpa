@@ -7,6 +7,7 @@ pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
+pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/sherpa";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";

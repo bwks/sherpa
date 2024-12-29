@@ -25,7 +25,7 @@ system {
     }
 }
 interfaces {
-    fxp0 {
+    {{ mgmt_interface }} {
         unit 0 {
             family inet {
                 dhcp;

@@ -9,4 +9,5 @@ use crate::data::User;
 pub struct JunipervJunosZtpTemplate {
     pub hostname: String,
     pub user: User,
+    pub mgmt_interface: String,
 }

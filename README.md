@@ -90,10 +90,10 @@ sudo systemctl restart libvirtd.service
 | Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
 | Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | Disk               |
 | Cisco         | IOSv L2           | 20200920               | :white_check_mark: | Disk               |
-| Juniper       | vRouter           | TBA                    | :white_check_mark: | USB                |
-| Juniper       | vSwitch           | TBA                    | :white_check_mark: | USB                |
-| Juniper       | vSRX              | TBA                    | :construction:     | USB                |
-| Juniper       | vSRXv3            | TBA                    | :construction:     | USB                |
+| Juniper       | vRouter           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
+| Juniper       | vSwitch           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
+| Juniper       | vEvolved          | TBA                    | :construction:     | CDROM              |
+| Juniper       | vSRXv3            | 23.2R2.21              | :white_check_mark: | CDROM              |
 | Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | Cloud-Init         |

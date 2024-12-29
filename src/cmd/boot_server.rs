@@ -101,6 +101,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     let juniper_vjunos_template = JunipervJunosZtpTemplate {
         hostname: "vjunos-ztp".to_owned(),
         user: sherpa_user.clone(),
+        mgmt_interface: MgmtInterfaces::Re0Mgmt0.to_string(),
     };
     let juniper_vjunos_rendered_template = juniper_vjunos_template.render()?;
     let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");
@@ -271,7 +272,7 @@ pub fn create_boot_server(
         interface_type: InterfaceTypes::Virtio,
         loopback_ipv4: get_ip(255).to_string(),
         telnet_port: TELNET_PORT,
-        qemu_commands: vec![QemuCommand::ignition_config(&dst_ztp_file)],
+        qemu_commands: QemuCommand::ignition_config(&dst_ztp_file),
     };
 
     Ok(BootServer {

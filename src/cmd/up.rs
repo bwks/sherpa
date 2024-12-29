@@ -16,8 +16,9 @@ use crate::core::konst::{
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
     CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG, KVM_OUI,
     READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR,
+    ZTP_ISO,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -153,7 +154,8 @@ pub fn up(
             DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => random_mac(CISCO_IOSV_OUI),
             DeviceModels::CiscoNexus9300v => random_mac(CISCO_NXOS_OUI),
             DeviceModels::CiscoIosxrv9000 => random_mac(CISCO_IOSXR_OUI),
-            DeviceModels::JuniperVrouter
+            DeviceModels::JuniperVevolved
+            | DeviceModels::JuniperVrouter
             | DeviceModels::JuniperVswitch
             | DeviceModels::JuniperVsrxv3 => random_mac(JUNIPER_OUI),
             DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
@@ -422,12 +424,14 @@ pub fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::JuniperVsrxv3
+                        DeviceModels::JuniperVevolved
+                        | DeviceModels::JuniperVsrxv3
                         | DeviceModels::JuniperVrouter
                         | DeviceModels::JuniperVswitch => {
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
+                                mgmt_interface: device_model.management_interface.to_string(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
@@ -527,6 +531,34 @@ pub fn up(
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
+                        DeviceModels::JuniperVevolved => {
+                            let juniper_template = JunipervJunosZtpTemplate {
+                                hostname: device.name.clone(),
+                                user: sherpa_user.clone(),
+                                mgmt_interface: device_model.management_interface.to_string(),
+                            };
+                            let juniper_rendered_template = juniper_template.render()?;
+
+                            let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, juniper_rendered_template)?;
+                            // clone HDD disk
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
+                            );
+                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
+
+                            // Create a copy of the usb base image
+                            copy_file(&src_disk, &dst_disk)?;
+                            // copy file to USB disk
+                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.to_owned());
+                            dst_config_disk =
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
+                        }
                         DeviceModels::ArubaAoscx => {
                             let aruba_template = ArubaAoscxShTemplate {
                                 hostname: device.name.clone(),
@@ -601,6 +633,7 @@ pub fn up(
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
+                                mgmt_interface: device_model.management_interface.to_string(),
                                 // dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
@@ -765,16 +798,14 @@ pub fn up(
             });
         }
 
-        let mut qemu_commands: Vec<QemuCommand> = vec![];
-        match device_model.name {
-            DeviceModels::JuniperVrouter => {
-                qemu_commands.push(QemuCommand::juniper_vrouter());
+        let qemu_commands = match device_model.name {
+            DeviceModels::JuniperVrouter => QemuCommand::juniper_vrouter(),
+            DeviceModels::JuniperVswitch => QemuCommand::juniper_vswitch(),
+            DeviceModels::JuniperVevolved => QemuCommand::juniper_vevolved(),
+            _ => {
+                vec![]
             }
-            DeviceModels::JuniperVswitch => {
-                qemu_commands.push(QemuCommand::juniper_vswitch());
-            }
-            _ => {}
-        }
+        };
 
         let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
         let domain = DomainTemplate {
