@@ -59,7 +59,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
 
     let cumulus_template = CumulusLinuxZtpTemplate {
         hostname: "cumulus-ztp".to_owned(),
-        users: vec![sherpa_user.clone()],
+        user: sherpa_user.clone(),
         dns: dns.clone(),
     };
     let cumulus_rendered_template = cumulus_template.render()?;

@@ -605,7 +605,7 @@ pub fn up(
                         OsVariants::CumulusLinux => {
                             let t = CumulusLinuxZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
