@@ -78,6 +78,6 @@ exit 0
 #[template(path = "arista/arista_veos.jinja", ext = "txt")]
 pub struct AristaVeosZtpTemplate {
     pub hostname: String,
-    pub users: Vec<User>,
+    pub user: User,
     pub dns: Dns,
 }

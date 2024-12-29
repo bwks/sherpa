@@ -660,7 +660,7 @@ pub fn up(
                         OsVariants::Eos => {
                             let t = AristaVeosZtpTemplate {
                                 hostname: device.name.clone(),
-                                users: vec![user],
+                                user,
                                 dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
