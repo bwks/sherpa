@@ -2,13 +2,15 @@
 
 use rinja::Template;
 
+use crate::core::konst::JUNIPER_ZTP_CONFIG;
 use crate::data::User;
 
 pub fn juniper_vevolved_ztp_script() -> String {
-    r#"#!/bin/sh
+    format!(
+        r#"#!/bin/sh
 
 # Define the path to the configuration file
-CONFIG_FILE="/tmp/vmmusb/juniper.conf"
+CONFIG_FILE="/tmp/vmmusb/{JUNIPER_ZTP_CONFIG}"
 
 # Check if the configuration file exists
 if [ ! -f "$CONFIG_FILE" ]; then
@@ -27,7 +29,7 @@ else
     exit 1
 fi
 "#
-    .to_owned()
+    )
 }
 
 #[derive(Template)]

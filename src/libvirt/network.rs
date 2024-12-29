@@ -10,7 +10,7 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_IOSV_OUI, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI,
     CISCO_NXOS_ZTP_CONFIG, CISCO_ZTP_DIR, CUMULUS_OUI, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
-    JUNIPER_OUI, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_NET, SHERPA_DOMAIN_NAME,
+    JUNIPER_OUI, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, MTU_JUMBO_NET, SHERPA_DOMAIN_NAME,
 };
 
 pub struct IsolatedNetwork {
@@ -88,7 +88,7 @@ impl ManagementNetwork {
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxr,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXR_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{ztp_server_ipv4}:{ztp_http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"/>
+            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{ztp_server_ipv4}:{ztp_http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{ztp_server_ipv4}:{ztp_http_port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:aruba,66,{ztp_server_ipv4}:{ztp_tftp_port}"/>
             <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"/>

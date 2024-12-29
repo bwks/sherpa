@@ -4,7 +4,7 @@ use rinja::Template;
 use crate::core::konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_DIR, MTU_JUMBO_INT,
+    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, MTU_JUMBO_INT,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
@@ -99,7 +99,7 @@ pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
     create_dir(&juniper_dir)?;
 
     let juniper_vjunos_script = juniper_vevolved_ztp_script();
-    let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_CONFIG}");
+    let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_SCRIPT}");
     create_file(&juniper_vjunos_ztp_config, juniper_vjunos_script.clone())?;
 
     Ok(ZtpTemplates {
@@ -183,7 +183,7 @@ pub fn create_boot_server(
 
     let juniper_vjunos_ztp_base64 = base64_encode(&ztp_templates.juniper_vjunos);
     let juniper_vjunos_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_CONFIG}"),
+        path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{juniper_vjunos_ztp_base64}")),
     };
