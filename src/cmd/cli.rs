@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
+use super::container::{parse_container_commands, ContainerCommands};
 use crate::cmd::{clean, console, destroy, doctor, down, import, init, inspect, resume, ssh, up};
 use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::core::Sherpa;
@@ -92,6 +93,12 @@ enum Commands {
 
     /// SSH to a device.
     Ssh { name: String },
+
+    /// Container management commands
+    Container {
+        #[command(subcommand)]
+        commands: ContainerCommands,
+    },
 }
 impl Default for Commands {
     fn default() -> Self {
@@ -173,6 +180,9 @@ impl Cli {
                 let lab_id = get_id()?;
                 let lab_name = manifest.name.clone();
                 ssh(&qemu, name, &lab_name, &lab_id)?;
+            }
+            Commands::Container { commands } => {
+                parse_container_commands(commands, &sherpa)?;
             }
         }
         Ok(())

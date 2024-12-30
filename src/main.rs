@@ -11,7 +11,8 @@ use std::process::ExitCode;
 
 use cmd::Cli;
 
-fn main() -> ExitCode {
+#[tokio::main]
+async fn main() -> ExitCode {
     match Cli::run() {
         Ok(()) => ExitCode::from(0),
         Err(e) => {

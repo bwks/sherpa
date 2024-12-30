@@ -65,7 +65,7 @@ impl Default for Config {
             DeviceModel::juniper_vswitch(),
             DeviceModel::juniper_vevolved(),
             DeviceModel::juniper_vsrxv3(),
-            DeviceModel::nokia_vsr(),
+            DeviceModel::nokia_srlinux(),
             DeviceModel::cumulus_linux(),
             DeviceModel::centos_linux(),
             DeviceModel::fedora_linux(),

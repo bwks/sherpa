@@ -2,6 +2,7 @@ mod boot_server;
 mod clean;
 mod cli;
 mod console;
+mod container;
 mod destroy;
 mod doctor;
 mod down;

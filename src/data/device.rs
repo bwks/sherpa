@@ -28,7 +28,7 @@ pub enum DeviceModels {
     JuniperVswitch,
     JuniperVevolved,
     JuniperVsrxv3,
-    NokiaVsr,
+    NokiaSrlinux,
     CumulusLinux,
     CentosLinux,
     FedoraLinux,
@@ -57,7 +57,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::JuniperVswitch => write!(f, "juniper_vswitch"),
             DeviceModels::JuniperVevolved => write!(f, "juniper_vevolved"),
             DeviceModels::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
-            DeviceModels::NokiaVsr => write!(f, "nokia_vsr"),
+            DeviceModels::NokiaSrlinux => write!(f, "nokia_srlinux"),
             DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
             DeviceModels::CentosLinux => write!(f, "centos_linux"),
             DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
@@ -339,7 +339,7 @@ impl DeviceModel {
             DeviceModels::JuniperVswitch => DeviceModel::juniper_vswitch(),
             DeviceModels::JuniperVevolved => DeviceModel::juniper_vevolved(),
             DeviceModels::JuniperVsrxv3 => DeviceModel::juniper_vsrxv3(),
-            DeviceModels::NokiaVsr => DeviceModel::nokia_vsr(),
+            DeviceModels::NokiaSrlinux => DeviceModel::nokia_srlinux(),
             DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
             DeviceModels::CentosLinux => DeviceModel::centos_linux(),
             DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
@@ -848,10 +848,10 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn nokia_vsr() -> DeviceModel {
+    pub fn nokia_srlinux() -> DeviceModel {
         DeviceModel {
             version: "latest".to_owned(),
-            name: DeviceModels::NokiaVsr,
+            name: DeviceModels::NokiaSrlinux,
             os_variant: OsVariants::Sros,
             manufacturer: Manufacturers::Nokia,
             bios: BiosTypes::SeaBios,

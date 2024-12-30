@@ -48,6 +48,16 @@ pub fn expand_path(path: &str) -> String {
     full_path.display().to_string()
 }
 
+/// Delete a file, expanding ~ if it's passed
+pub fn delete_file(file_path: &str) -> Result<()> {
+    let path = expand_path(file_path);
+    if file_exists(&path) {
+        std::fs::remove_file(&path)?;
+        println!("File deleted: {path}");
+    }
+    Ok(())
+}
+
 /// Copy a file from a source to a destination.
 /// This will overwrite the destination file if it exists.
 pub fn copy_file(src: &str, dst: &str) -> Result<()> {
