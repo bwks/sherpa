@@ -255,12 +255,21 @@ pub enum ZtpMethods {
     None,
 }
 
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceKind {
+    #[default]
+    VirtualMachine,
+    Container,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DeviceModel {
-    pub version: String,
     pub name: DeviceModels,
+    pub version: String,
     pub os_variant: OsVariants,
     pub manufacturer: Manufacturers,
+    pub kind: DeviceKind,
     pub bios: BiosTypes,
     pub cpu_count: u8,
     pub cpu_architecture: CpuArchitecture,
@@ -289,10 +298,11 @@ pub struct DeviceModel {
 impl Default for DeviceModel {
     fn default() -> Self {
         Self {
-            version: "0.0.0".to_owned(),
             name: DeviceModels::default(),
+            version: "0.0.0".to_owned(),
             os_variant: OsVariants::default(),
             manufacturer: Manufacturers::default(),
+            kind: DeviceKind::default(),
             bios: BiosTypes::default(),
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::default(),
@@ -354,10 +364,11 @@ impl DeviceModel {
     }
     pub fn arista_veos() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::AristaVeos,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Eos,
             manufacturer: Manufacturers::Arista,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 24,
             interface_prefix: "Eth".to_owned(),
@@ -385,10 +396,11 @@ impl DeviceModel {
     }
     pub fn arista_ceos() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::AristaCeos,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Eos,
             manufacturer: Manufacturers::Arista,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 25,
             interface_prefix: "eth".to_owned(),
@@ -416,10 +428,11 @@ impl DeviceModel {
     }
     pub fn aruba_aoscx() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::ArubaAoscx,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Aos,
             manufacturer: Manufacturers::Arista,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 24,
             interface_prefix: "1/1/".to_owned(),
@@ -447,10 +460,11 @@ impl DeviceModel {
     }
     pub fn cisco_asav() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoAsav,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Asa,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "GigabitEthernet0".to_owned(),
@@ -478,10 +492,11 @@ impl DeviceModel {
     }
     pub fn cisco_csr1000v() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoCsr1000v,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig".to_owned(),
@@ -509,10 +524,11 @@ impl DeviceModel {
     }
     pub fn cisco_cat8000v() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoCat8000v,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig".to_owned(),
@@ -540,10 +556,11 @@ impl DeviceModel {
     }
     pub fn cisco_cat9000v() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoCat9000v,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Iosxe,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "Gig0/0/".to_owned(),
@@ -571,10 +588,11 @@ impl DeviceModel {
     }
     pub fn cisco_iosxrv9000() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosxrv9000,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Iosxr,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 14,
             interface_prefix: "Gig0/0/0/".to_owned(),
@@ -602,10 +620,11 @@ impl DeviceModel {
     }
     pub fn cisco_nexus9300v() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoNexus9300v,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Nxos,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::Uefi,
             interface_count: 64,
             interface_prefix: "Eth1/".to_owned(),
@@ -633,10 +652,11 @@ impl DeviceModel {
     }
     pub fn cisco_iosv() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosv,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Ios,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig0/".to_owned(),
@@ -664,10 +684,11 @@ impl DeviceModel {
     }
     pub fn cisco_iosvl2() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CiscoIosvl2,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Ios,
             manufacturer: Manufacturers::Cisco,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16, // Crashes if more than 16 interfaces are defined
             interface_prefix: "Gig".to_owned(),
@@ -695,10 +716,11 @@ impl DeviceModel {
     }
     pub fn juniper_vrouter() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::JuniperVrouter,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
@@ -726,10 +748,11 @@ impl DeviceModel {
     }
     pub fn juniper_vswitch() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::JuniperVswitch,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
@@ -757,10 +780,11 @@ impl DeviceModel {
     }
     pub fn juniper_vevolved() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::JuniperVevolved,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 12,
             interface_prefix: "et-0/0/".to_owned(),
@@ -778,7 +802,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethods::Usb,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -788,10 +812,11 @@ impl DeviceModel {
     }
     pub fn juniper_vsrxv3() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::JuniperVsrxv3,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Junos,
             manufacturer: Manufacturers::Juniper,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "ge-0/0/".to_owned(),
@@ -819,10 +844,11 @@ impl DeviceModel {
     }
     pub fn cumulus_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CumulusLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::CumulusLinux,
             manufacturer: Manufacturers::Nvidia,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 24,
             interface_prefix: "swp".to_owned(),
@@ -850,10 +876,11 @@ impl DeviceModel {
     }
     pub fn nokia_srlinux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::NokiaSrlinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Sros,
             manufacturer: Manufacturers::Nokia,
+            kind: DeviceKind::Container,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Eth".to_owned(),
@@ -881,10 +908,11 @@ impl DeviceModel {
     }
     pub fn centos_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::CentosLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -912,10 +940,11 @@ impl DeviceModel {
     }
     pub fn fedora_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::FedoraLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -943,10 +972,11 @@ impl DeviceModel {
     }
     pub fn redhat_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::RedhatLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Redhat,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -974,10 +1004,11 @@ impl DeviceModel {
     }
     pub fn suse_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::SuseLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Suse,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1005,10 +1036,11 @@ impl DeviceModel {
     }
     pub fn opensuse_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::OpensuseLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Suse,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1036,10 +1068,11 @@ impl DeviceModel {
     }
     pub fn ubuntu_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::UbuntuLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Canonical,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1067,10 +1100,11 @@ impl DeviceModel {
     }
     pub fn flatcar_linux() -> DeviceModel {
         DeviceModel {
-            version: "latest".to_owned(),
             name: DeviceModels::FlatcarLinux,
+            version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Microsoft,
+            kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
