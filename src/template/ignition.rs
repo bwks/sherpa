@@ -19,6 +19,7 @@ impl IgnitionConfig {
         files: Vec<File>,
         links: Vec<Link>,
         units: Vec<Unit>,
+        filesystems: Vec<FileSystem>,
     ) -> IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
@@ -29,6 +30,7 @@ impl IgnitionConfig {
                 files,
                 links,
                 directories,
+                filesystems,
             },
             systemd: Systemd { units },
         }
@@ -98,6 +100,25 @@ pub struct Storage {
     pub files: Vec<File>,
     pub links: Vec<Link>,
     pub directories: Vec<Directory>,
+    pub filesystems: Vec<FileSystem>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FileSystem {
+    pub device: String,
+    pub format: String,
+    pub wipe_filesystem: bool,
+    pub label: String,
+}
+impl Default for FileSystem {
+    fn default() -> Self {
+        Self {
+            device: "/dev/sdb".to_owned(),
+            format: "ext4".to_owned(),
+            wipe_filesystem: false,
+            label: "data-disk".to_owned(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -223,12 +244,12 @@ WantedBy=multi-user.target
             enabled: true,
             contents: r#"[Unit]
 Description=srlinux
-After=docker.service
-Requires=docker.service
+After=docker.service media-container.mount
+Requires=docker.service media-container.mount
 
 [Service]
 TimeoutStartSec=0
-ExecStartPre=/usr/bin/docker image pull ghcr.io/nokia/srlinux:latest
+ExecStartPre=/usr/bin/docker load -i /media/container/image.tar.gz
 ExecStart=sudo /usr/bin/docker container run --rm --privileged --name srlinux -p 2222:22/tcp ghcr.io/nokia/srlinux sudo bash /opt/srlinux/bin/sr_linux
 ExecStop=/usr/bin/docker container stop srlinux
 
@@ -238,6 +259,24 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 "#.to_owned(),
+        }
+    }
+    pub fn mount_container_disk() -> Self {
+        Self {
+            name: "media-container.mount".to_owned(),
+            enabled: true,
+            contents: r#"[Unit]
+Before=local-fs.target
+
+[Mount]
+What=/dev/disk/by-label/data-disk
+Where=/media/container
+Type=ext4
+
+[Install]
+WantedBy=local-fs.target   
+"#
+            .to_owned(),
         }
     }
 }

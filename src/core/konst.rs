@@ -8,6 +8,9 @@ pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
 pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
+pub const SHERPA_BLANK_DISK_SRLINUX: &str = "srlinux.img";
+pub const _SHERPA_BLANK_DISK_EXT4_1G: &str = "ext4-1g.img";
+pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/sherpa";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
@@ -83,3 +86,4 @@ pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.4.0";
 
 pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
+pub const CONTAINER_DISK_NAME: &str = "disk.img";

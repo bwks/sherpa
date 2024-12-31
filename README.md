@@ -43,7 +43,8 @@ Ensure that you have the required packages installed. There is the list of packa
   - telnet # Connect to VM serial consoles
   - ssh # connect to VM via SSH
   - virt-manager # Optional, gui view of VMs
-  - mtools # Copy files to fat formatted drives
+  - mtools # Copy files to fat formatted disk images
+  - e2tools # Copy files to EXT4 formatted disk images
 ```
 
 ```
@@ -95,6 +96,7 @@ sudo systemctl restart libvirtd.service
 | Juniper       | vSRXv3            | 23.2R2.21              | :white_check_mark: | CDROM              |
 | Juniper       | vEvolved          | 23.4R2-S2.1            | :white_check_mark: | HTTP+USB           |
 | Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
+| Nokia         | SR Linux          | 24.10.1                | :white_check_mark: | TBA                |
 | Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
 | Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | Cloud-Init         |
 | RedHat        | Fedora Linux      | 40-1.14                | :white_check_mark: | Cloud-Init         |

@@ -14,11 +14,12 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH,
-    SSH_PORT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO,
+    CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI,
+    JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
+    TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -30,14 +31,16 @@ use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
-    CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, CumulusLinuxZtpTemplate,
-    JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate,
+    CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
+    CumulusLinuxZtpTemplate, File as IgnitionFile, FileSystem as IgnitionFileSystem,
+    IgnitionConfig, JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
-    copy_file, copy_to_dos_image, create_config_archive, create_dir, create_file, create_ztp_iso,
-    get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
-    tcp_connect, term_msg_surround, term_msg_underline,
+    base64_encode, copy_file, copy_to_dos_image, create_config_archive, create_dir, create_file,
+    create_ztp_iso, get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
+    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -289,10 +292,24 @@ pub fn up(
             }
         }
 
-        let src_boot_disk = format!(
-            "{}/{}/{}/virtioa.qcow2",
-            sherpa.boxes_dir, device_model.name, device_model.version
-        );
+        // Container based image run in FlatCar linux.
+        // Set the source disk to the latests FlatCar image.
+        let src_boot_disk = match device_model.name {
+            DeviceModels::NokiaSrlinux => {
+                format!(
+                    "{}/{}/{}/virtioa.qcow2",
+                    sherpa.boxes_dir,
+                    DeviceModels::FlatcarLinux,
+                    "latest"
+                )
+            }
+            _ => {
+                format!(
+                    "{}/{}/{}/virtioa.qcow2",
+                    sherpa.boxes_dir, device_model.name, device_model.version
+                )
+            }
+        };
         let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-hdd.qcow2");
         copy_disks.push(CloneDisk {
             src: src_boot_disk,
@@ -317,6 +334,9 @@ pub fn up(
 
         // Config drive
         let (mut src_config_disk, mut dst_config_disk) = (None::<String>, None::<String>);
+
+        // Ignition Config
+        let (mut src_ignition_disk, mut dst_ignition_disk) = (None::<String>, None::<String>);
 
         if device_model.ztp_enable {
             ztp_devices.push(device);
@@ -650,7 +670,7 @@ pub fn up(
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_SRLINUX
                             );
 
                             let dst_usb = format!("{dir}/cfg.img");
@@ -731,9 +751,71 @@ pub fn up(
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let _user = sherpa_user.clone();
-                    let _dir = format!("{TEMP_DIR}/{vm_name}");
+                    let user = sherpa_user.clone();
+                    let dir = format!("{TEMP_DIR}/{vm_name}");
+
+                    let dev_name = device.name.clone();
+                    // Add the ignition config
+                    let ignition_user = IgnitionUser {
+                        name: user.username.clone(),
+                        ssh_authorized_keys: vec![format!(
+                            "{} {}",
+                            user.ssh_public_key.algorithm, user.ssh_public_key.key
+                        )],
+                        groups: vec!["wheel".to_owned(), "docker".to_owned()],
+                    };
+                    let hostname_file = IgnitionFile {
+                        path: "/etc/hostname".to_owned(),
+                        mode: 644,
+                        contents: IgnitionFileContents::new(&format!("data:,{dev_name}",)),
+                    };
+                    // files
+                    let sudo_config_base64 =
+                        base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
+                    let sudo_config_file = IgnitionFile {
+                        path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
+                        mode: 440,
+                        contents: IgnitionFileContents::new(&format!(
+                            "data:;base64,{sudo_config_base64}"
+                        )),
+                    };
                     match device.model {
+                        DeviceModels::NokiaSrlinux => {
+                            let srlinux_unit = IgnitionUnit::srlinux();
+                            let container_disk_unit = IgnitionUnit::mount_container_disk();
+
+                            let container_disk = IgnitionFileSystem::default();
+                            let ignition_config = IgnitionConfig::new(
+                                vec![ignition_user],
+                                vec![sudo_config_file, hostname_file],
+                                vec![],
+                                vec![container_disk_unit, srlinux_unit],
+                                vec![container_disk],
+                            );
+                            let flatcar_config = ignition_config.to_json_pretty()?;
+                            let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                            let dst_ztp_file =
+                                format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.ign");
+
+                            create_dir(&dir)?;
+                            create_file(&src_ztp_file, flatcar_config)?;
+
+                            let src_container_disk = format!(
+                                "{}/{}/{}/{}",
+                                &sherpa.boxes_dir,
+                                device_model.name,
+                                device_model.version,
+                                CONTAINER_DISK_NAME,
+                            );
+
+                            src_config_disk = Some(src_container_disk.to_owned());
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{vm_name}-{CONTAINER_DISK_NAME}"
+                            ));
+
+                            src_ignition_disk = Some(src_ztp_file.to_owned());
+                            dst_ignition_disk = Some(dst_ztp_file.to_owned());
+                        }
                         DeviceModels::FlatcarLinux => {}
                         _ => {
                             anyhow::bail!(
@@ -810,10 +892,31 @@ pub fn up(
             });
         }
 
+        // Ignition
+        if dst_ignition_disk.is_some() {
+            copy_disks.push(CloneDisk {
+                // These should always have a value.
+                src: src_ignition_disk.unwrap(),
+                dst: dst_ignition_disk.clone().unwrap(),
+            });
+            disks.push(DeviceDisk {
+                disk_device: DiskDevices::File,
+                driver_name: DiskDrivers::Qemu,
+                driver_format: DiskFormats::Raw,
+                // These should always have a value.
+                src_file: dst_ignition_disk.clone().unwrap(),
+                target_dev: DiskTargets::target(&DiskBuses::Sata, disks.len() as u8)?,
+                target_bus: DiskBuses::Sata,
+            });
+        }
+
         let qemu_commands = match device_model.name {
             DeviceModels::JuniperVrouter => QemuCommand::juniper_vrouter(),
             DeviceModels::JuniperVswitch => QemuCommand::juniper_vswitch(),
             DeviceModels::JuniperVevolved => QemuCommand::juniper_vevolved(),
+            DeviceModels::NokiaSrlinux => {
+                QemuCommand::ignition_config(&dst_ignition_disk.clone().unwrap())
+            }
             _ => {
                 vec![]
             }

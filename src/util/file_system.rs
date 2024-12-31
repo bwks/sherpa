@@ -49,11 +49,21 @@ pub fn expand_path(path: &str) -> String {
 }
 
 /// Delete a file, expanding ~ if it's passed
+#[allow(dead_code)]
 pub fn delete_file(file_path: &str) -> Result<()> {
     let path = expand_path(file_path);
     if file_exists(&path) {
         std::fs::remove_file(&path)?;
         println!("File deleted: {path}");
+    }
+    Ok(())
+}
+
+/// Recursively delete a directory
+pub fn delete_dirs(dir_path: &str) -> Result<()> {
+    if dir_exists(dir_path) {
+        fs::remove_dir_all(dir_path)?;
+        println!("Deleted path: {dir_path}");
     }
     Ok(())
 }
@@ -155,6 +165,18 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
         .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
         .status()?;
     println!("File copied to DOS image: {dst_image}");
+
+    Ok(())
+}
+
+/// Copy a file to a virtual EXT4 disk image using the `e2cp` command.
+///
+/// `e2cp` must be installed on the system.
+pub fn copy_to_ext4_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
+    Command::new("e2cp")
+        .args([src_file, &format!("{dst_image}:{dst_dir}")])
+        .status()?;
+    println!("File copied to EXT4 image: {dst_image}");
 
     Ok(())
 }

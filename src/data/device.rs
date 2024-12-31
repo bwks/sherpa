@@ -113,7 +113,7 @@ pub enum OsVariants {
     Linux,
     Nxos,
     Server2012,
-    Sros,
+    Srlinux,
     #[default]
     Unknown,
 }
@@ -131,7 +131,7 @@ impl fmt::Display for OsVariants {
             OsVariants::Linux => write!(f, "linux"),
             OsVariants::Nxos => write!(f, "nxos"),
             OsVariants::Server2012 => write!(f, "server_2012"),
-            OsVariants::Sros => write!(f, "sros"),
+            OsVariants::Srlinux => write!(f, "srlinux"),
             OsVariants::Unknown => write!(f, "unknown"),
         }
     }
@@ -878,7 +878,7 @@ impl DeviceModel {
         DeviceModel {
             name: DeviceModels::NokiaSrlinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Sros,
+            os_variant: OsVariants::Srlinux,
             manufacturer: Manufacturers::Nokia,
             kind: DeviceKind::Container,
             bios: BiosTypes::SeaBios,
@@ -895,10 +895,10 @@ impl DeviceModel {
             hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Ide,
-            ztp_enable: false,
+            ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::default(),
+            ztp_method: ZtpMethods::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,

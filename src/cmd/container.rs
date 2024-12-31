@@ -1,23 +1,27 @@
 use anyhow::Result;
 use clap::Subcommand;
 
-use crate::core::konst::CONTAINER_IMAGE_NAME;
+use crate::core::konst::{
+    CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_3G,
+    TEMP_DIR,
+};
 use crate::core::Sherpa;
 use crate::data::DeviceModels;
 use crate::util::{
-    copy_file, create_dir, create_symlink, delete_file, file_exists, fix_permissions_recursive,
-    pull_container_image, save_container_image, term_msg_surround,
+    copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs, dir_exists,
+    file_exists, fix_permissions_recursive, pull_container_image, save_container_image,
+    term_msg_surround,
 };
 
 #[derive(Debug, Subcommand)]
 pub enum ContainerCommands {
-    /// Pull a container image
+    /// Pull a container image from an image hosting service.
     Pull {
-        /// Container image reference (e.g., alpine:latest)
+        /// Container image reference (e.g., alpine:latest, ghcr.io/nokia/srlinux:latest, etc.. )
         #[arg(short, long)]
         image: String,
     },
-    /// Import a container image
+    /// Import a local container image as a Sherpa box.
     Import {
         /// Source container image
         #[arg(short, long)]
@@ -47,11 +51,29 @@ pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -
         } => {
             term_msg_surround("Importing container image");
 
+            if !dir_exists(TEMP_DIR) {
+                create_dir(TEMP_DIR)?;
+            }
+
             save_container_image(image, version)?;
 
-            if !file_exists(CONTAINER_IMAGE_NAME) {
-                anyhow::bail!("File does not exist: {}", CONTAINER_IMAGE_NAME);
+            let container_path = format!("{TEMP_DIR}/{CONTAINER_IMAGE_NAME}");
+
+            if !file_exists(&container_path) {
+                anyhow::bail!("File does not exist: {}", container_path);
             }
+
+            // Copy a blank disk to to .tmp directory
+            let src_data_disk = format!(
+                "{}/{}/{}",
+                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_3G
+            );
+            let dst_data_disk = format!("{TEMP_DIR}/{CONTAINER_DISK_NAME}");
+
+            copy_file(&src_data_disk, &dst_data_disk)?;
+
+            // Copy to container image into the container disk
+            copy_to_ext4_image(&container_path, &dst_data_disk, "/")?;
 
             let dst_path = format!("{}/{}", &sherpa.boxes_dir, model);
             let dst_version_dir = format!("{dst_path}/{version}");
@@ -60,24 +82,24 @@ pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -
             create_dir(&dst_version_dir)?;
             create_dir(&dst_latest_dir)?;
 
-            let dst_version_disk = format!("{dst_version_dir}/{CONTAINER_IMAGE_NAME}");
+            let dst_version_disk = format!("{dst_version_dir}/{CONTAINER_DISK_NAME}");
 
             if !file_exists(&dst_version_disk) {
                 println!(
                     "Copying file from: {} to: {}",
-                    CONTAINER_IMAGE_NAME, dst_version_disk
+                    &dst_data_disk, dst_version_disk
                 );
-                copy_file(CONTAINER_IMAGE_NAME, &dst_version_disk)?;
+                copy_file(&dst_data_disk, &dst_version_disk)?;
                 println!(
                     "Copied file from: {} to: {}",
-                    CONTAINER_IMAGE_NAME, dst_version_disk
+                    &dst_data_disk, dst_version_disk
                 );
             } else {
                 println!("File already exists: {}", dst_version_disk);
             }
 
             if *latest {
-                let dst_latest_disk = format!("{dst_latest_dir}/{CONTAINER_IMAGE_NAME}");
+                let dst_latest_disk = format!("{dst_latest_dir}/{CONTAINER_DISK_NAME}");
                 println!(
                     "Symlinking file from: {} to: {}",
                     dst_version_disk, dst_latest_disk
@@ -94,8 +116,8 @@ pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -
             // Update box permissions
             fix_permissions_recursive(&sherpa.boxes_dir)?;
 
-            // Delete the local image.tar.gz
-            delete_file(CONTAINER_IMAGE_NAME)?;
+            // Delete the local .tmp directory
+            delete_dirs(TEMP_DIR)?;
         }
     }
     Ok(())

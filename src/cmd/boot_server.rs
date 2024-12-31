@@ -206,6 +206,7 @@ pub fn create_boot_server(
             unit_tftp,
             // srlinux_unit
         ],
+        vec![],
     );
     let flatcar_config = ignition_config.to_json_pretty()?;
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
