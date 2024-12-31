@@ -1,15 +1,16 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use clap::Subcommand;
 
 use crate::core::konst::{
-    CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_3G,
-    TEMP_DIR,
+    CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
+    SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
+    SHERPA_BLANK_DISK_EXT4_5G, TEMP_DIR,
 };
 use crate::core::Sherpa;
 use crate::data::DeviceModels;
 use crate::util::{
-    copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs, dir_exists,
-    file_exists, fix_permissions_recursive, pull_container_image, save_container_image,
+    check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
+    dir_exists, file_exists, fix_permissions_recursive, pull_container_image, save_container_image,
     term_msg_surround,
 };
 
@@ -63,10 +64,19 @@ pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -
                 anyhow::bail!("File does not exist: {}", container_path);
             }
 
+            let data_disk_base = match check_file_size(&container_path)? {
+                1 => SHERPA_BLANK_DISK_EXT4_1G,
+                2 => SHERPA_BLANK_DISK_EXT4_2G,
+                3 => SHERPA_BLANK_DISK_EXT4_3G,
+                4 => SHERPA_BLANK_DISK_EXT4_4G,
+                5 => SHERPA_BLANK_DISK_EXT4_5G,
+                _ => bail!("Container image is larger than 5GB and not supported."),
+            };
+
             // Copy a blank disk to to .tmp directory
             let src_data_disk = format!(
                 "{}/{}/{}",
-                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_3G
+                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, data_disk_base
             );
             let dst_data_disk = format!("{TEMP_DIR}/{CONTAINER_DISK_NAME}");
 

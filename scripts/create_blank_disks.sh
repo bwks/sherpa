@@ -17,4 +17,4 @@ mkfs.vfat  -v -n "vmm-data"
 
 # EXT4 3GB
 qemu-img create -f raw ext4-3g.img 3G
-mkfs.ext4 -L "EXT4-3G" ext4-3g.img
+mkfs.ext4 -L "data-disk" ext4-3g.img

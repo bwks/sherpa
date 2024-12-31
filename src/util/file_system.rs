@@ -48,6 +48,25 @@ pub fn expand_path(path: &str) -> String {
     full_path.display().to_string()
 }
 
+/// Check if a file is between a certain size
+pub fn check_file_size(path: &str) -> Result<u8> {
+    let expanded_path = shellexpand::tilde(path);
+    let metadata = fs::metadata(Path::new(expanded_path.as_ref()))?;
+    let size_in_bytes = metadata.len();
+    let size_in_gb = size_in_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    let result = match size_in_gb {
+        s if s >= 0.0 && s < 1.0 => 1,
+        s if s >= 1.0 && s < 2.0 => 2,
+        s if s >= 2.0 && s < 3.0 => 3,
+        s if s >= 3.0 && s < 4.0 => 4,
+        s if s >= 4.0 && s < 5.0 => 5,
+        _ => 0,
+    };
+
+    Ok(result as u8)
+}
+
 /// Delete a file, expanding ~ if it's passed
 #[allow(dead_code)]
 pub fn delete_file(file_path: &str) -> Result<()> {
