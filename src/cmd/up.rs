@@ -23,9 +23,9 @@ use crate::core::konst::{
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    CloneDisk, ConnectionTypes, DeviceDisk, DeviceIp, DeviceModels, DiskBuses, DiskDevices,
-    DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection, OsVariants,
-    QemuCommand, User, ZtpMethods,
+    CloneDisk, ConnectionTypes, DeviceDisk, DeviceIp, DeviceKind, DeviceModels, DiskBuses,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
+    OsVariants, QemuCommand, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -294,21 +294,18 @@ pub fn up(
 
         // Container based image run in FlatCar linux.
         // Set the source disk to the latests FlatCar image.
-        let src_boot_disk = match device_model.name {
-            DeviceModels::NokiaSrlinux => {
-                format!(
-                    "{}/{}/{}/virtioa.qcow2",
-                    sherpa.boxes_dir,
-                    DeviceModels::FlatcarLinux,
-                    "latest"
-                )
-            }
-            _ => {
-                format!(
-                    "{}/{}/{}/virtioa.qcow2",
-                    sherpa.boxes_dir, device_model.name, device_model.version
-                )
-            }
+        let src_boot_disk = if device_model.kind == DeviceKind::Container {
+            format!(
+                "{}/{}/{}/virtioa.qcow2",
+                sherpa.boxes_dir,
+                DeviceModels::FlatcarLinux,
+                "latest"
+            )
+        } else {
+            format!(
+                "{}/{}/{}/virtioa.qcow2",
+                sherpa.boxes_dir, device_model.name, device_model.version
+            )
         };
         let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-hdd.qcow2");
         copy_disks.push(CloneDisk {
@@ -816,6 +813,43 @@ pub fn up(
                             src_ignition_disk = Some(src_ztp_file.to_owned());
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
+
+                        DeviceModels::AristaCeos => {
+                            let ceos_unit = IgnitionUnit::ceos();
+                            let container_disk_unit = IgnitionUnit::mount_container_disk();
+
+                            let container_disk = IgnitionFileSystem::default();
+                            let ignition_config = IgnitionConfig::new(
+                                vec![ignition_user],
+                                vec![sudo_config_file, hostname_file],
+                                vec![],
+                                vec![container_disk_unit, ceos_unit],
+                                vec![container_disk],
+                            );
+                            let flatcar_config = ignition_config.to_json_pretty()?;
+                            let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                            let dst_ztp_file =
+                                format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.ign");
+
+                            create_dir(&dir)?;
+                            create_file(&src_ztp_file, flatcar_config)?;
+
+                            let src_container_disk = format!(
+                                "{}/{}/{}/{}",
+                                &sherpa.boxes_dir,
+                                device_model.name,
+                                device_model.version,
+                                CONTAINER_DISK_NAME,
+                            );
+
+                            src_config_disk = Some(src_container_disk.to_owned());
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{vm_name}-{CONTAINER_DISK_NAME}"
+                            ));
+
+                            src_ignition_disk = Some(src_ztp_file.to_owned());
+                            dst_ignition_disk = Some(dst_ztp_file.to_owned());
+                        }
                         DeviceModels::FlatcarLinux => {}
                         _ => {
                             anyhow::bail!(
@@ -914,7 +948,7 @@ pub fn up(
             DeviceModels::JuniperVrouter => QemuCommand::juniper_vrouter(),
             DeviceModels::JuniperVswitch => QemuCommand::juniper_vswitch(),
             DeviceModels::JuniperVevolved => QemuCommand::juniper_vevolved(),
-            DeviceModels::NokiaSrlinux => {
+            DeviceModels::NokiaSrlinux | DeviceModels::AristaCeos => {
                 QemuCommand::ignition_config(&dst_ignition_disk.clone().unwrap())
             }
             _ => {
@@ -960,7 +994,6 @@ pub fn up(
         domains.push(boot_server.template);
         copy_disks.extend(boot_server.copy_disks);
     }
-
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");
     let disk_handles: Vec<_> = copy_disks

@@ -10,8 +10,8 @@ mod user;
 
 pub use crate::data::cpu::CpuModels;
 pub use crate::data::device::{
-    BiosTypes, CpuArchitecture, DeviceModel, DeviceModels, InterfaceTypes, MachineTypes,
-    OsVariants, ZtpMethods,
+    BiosTypes, CpuArchitecture, DeviceKind, DeviceModel, DeviceModels, InterfaceTypes,
+    MachineTypes, OsVariants, ZtpMethods,
 };
 pub use crate::data::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use crate::data::dns::Dns;

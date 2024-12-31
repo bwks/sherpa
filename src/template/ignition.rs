@@ -192,6 +192,24 @@ pub struct Unit {
 }
 
 impl Unit {
+    pub fn mount_container_disk() -> Self {
+        Self {
+            name: "media-container.mount".to_owned(),
+            enabled: true,
+            contents: r#"[Unit]
+Before=local-fs.target
+
+[Mount]
+What=/dev/disk/by-label/data-disk
+Where=/media/container
+Type=ext4
+
+[Install]
+WantedBy=local-fs.target   
+"#
+            .to_owned(),
+        }
+    }
     pub fn webdir() -> Self {
         Self {
             name: "webdir.service".to_owned(),
@@ -244,8 +262,8 @@ WantedBy=multi-user.target
             enabled: true,
             contents: r#"[Unit]
 Description=srlinux
-After=docker.service media-container.mount
-Requires=docker.service media-container.mount
+After=media-container.mount docker.service
+Requires=media-container.mount docker.service
 
 [Service]
 TimeoutStartSec=0
@@ -261,20 +279,26 @@ WantedBy=multi-user.target
 "#.to_owned(),
         }
     }
-    pub fn mount_container_disk() -> Self {
+    pub fn ceos() -> Self {
         Self {
-            name: "media-container.mount".to_owned(),
+            name: "ceos.service".to_owned(),
             enabled: true,
             contents: r#"[Unit]
-Before=local-fs.target
+Description=ceos
+After=media-container.mount docker.service
+Requires=media-container.mount docker.service
 
-[Mount]
-What=/dev/disk/by-label/data-disk
-Where=/media/container
-Type=ext4
+[Service]
+TimeoutStartSec=0
+ExecStartPre=/usr/bin/docker import /media/container/image.tar.gz ceos:4.33.0f
+ExecStart=sudo /usr/bin/docker container run --rm --privileged --name ceos -p 2222:22/tcp ceos
+ExecStop=/usr/bin/docker container stop ceos
+
+Restart=always
+RestartSec=5s
 
 [Install]
-WantedBy=local-fs.target   
+WantedBy=multi-user.target
 "#
             .to_owned(),
         }
