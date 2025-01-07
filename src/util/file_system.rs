@@ -48,7 +48,8 @@ pub fn expand_path(path: &str) -> String {
     full_path.display().to_string()
 }
 
-/// Check if a file is between a certain size
+/// Check if a file is between a certain size.
+/// Currently only supports file sizes up to 5GB
 pub fn check_file_size(path: &str) -> Result<u8> {
     let expanded_path = shellexpand::tilde(path);
     let metadata = fs::metadata(Path::new(expanded_path.as_ref()))?;
@@ -56,11 +57,11 @@ pub fn check_file_size(path: &str) -> Result<u8> {
     let size_in_gb = size_in_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
     let result = match size_in_gb {
-        s if s >= 0.0 && s < 1.0 => 1,
-        s if s >= 1.0 && s < 2.0 => 2,
-        s if s >= 2.0 && s < 3.0 => 3,
-        s if s >= 3.0 && s < 4.0 => 4,
-        s if s >= 4.0 && s < 5.0 => 5,
+        s if (0.1..1.0).contains(&s) => 1,
+        s if (1.0..2.0).contains(&s) => 2,
+        s if (2.0..3.0).contains(&s) => 3,
+        s if (3.0..4.0).contains(&s) => 4,
+        s if (4.0..5.0).contains(&s) => 5,
         _ => 0,
     };
 
