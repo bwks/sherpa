@@ -57,11 +57,11 @@ pub fn check_file_size(path: &str) -> Result<u8> {
     let size_in_gb = size_in_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
     let result = match size_in_gb {
-        s if (0.1..1.0).contains(&s) => 1,
-        s if (1.0..2.0).contains(&s) => 2,
-        s if (2.0..3.0).contains(&s) => 3,
-        s if (3.0..4.0).contains(&s) => 4,
-        s if (4.0..5.0).contains(&s) => 5,
+        0.1..1.0 => 1,
+        1.0..2.0 => 2,
+        2.0..3.0 => 3,
+        3.0..4.0 => 4,
+        4.0..5.0 => 5,
         _ => 0,
     };
 
