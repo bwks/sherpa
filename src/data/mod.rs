@@ -17,7 +17,8 @@ pub use crate::data::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, Di
 pub use crate::data::dns::Dns;
 pub use crate::data::interface::{ConnectionTypes, Interface, MgmtInterfaces};
 pub use crate::data::mapping::{
-    BootServer, CloneDisk, DeviceDisk, DeviceIp, InterfaceConnection, QemuCommand, ZtpTemplates,
+    BootServer, CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand,
+    ZtpTemplates,
 };
 pub use crate::data::provider::VmProviders;
 pub use crate::data::ssh::{SshKeyAlgorithms, SshPublicKey};

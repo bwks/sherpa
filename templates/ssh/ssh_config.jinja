@@ -10,4 +10,5 @@ Host *
 {%- for host in hosts %}
 Host {{ host.name }}
     HostName {{ host.ip_address }}
+    Port {{ host.ssh_port }}
 {%- endfor %}

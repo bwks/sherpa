@@ -18,12 +18,12 @@ use crate::core::konst::{
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
-    TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
+    TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
-    CloneDisk, ConnectionTypes, DeviceDisk, DeviceIp, DeviceKind, DeviceModels, DiskBuses,
+    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
     OsVariants, QemuCommand, User, ZtpMethods,
 };
@@ -1066,15 +1066,25 @@ pub fn up(
             }
 
             let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
+            let device_model = config
+                .device_models
+                .iter()
+                .find(|d| d.name == device.model)
+                .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
+            let ssh_port = match device_model.name {
+                DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
+                _ => SSH_PORT,
+            };
             if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
-                match tcp_connect(&vm_ip, SSH_PORT)? {
+                match tcp_connect(&vm_ip, ssh_port)? {
                     true => {
                         println!("{} is ready", &device.name);
                         let ip = vm_ip;
                         connected_devices.insert(device.name.clone());
-                        device_ip_map.push(DeviceIp {
+                        device_ip_map.push(DeviceConnection {
                             name: device.name.clone(),
                             ip_address: ip,
+                            ssh_port,
                         });
                     }
                     false => {

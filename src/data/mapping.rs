@@ -8,9 +8,10 @@ use super::DiskTargets;
 
 #[derive(Clone, Debug)]
 // Device name to IP address mapping
-pub struct DeviceIp {
+pub struct DeviceConnection {
     pub name: String,
     pub ip_address: String,
+    pub ssh_port: u16,
 }
 
 // Data used to clone disk for VM creation

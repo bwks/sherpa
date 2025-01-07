@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::Config;
-use crate::data::DeviceIp;
+use crate::data::DeviceConnection;
 use crate::topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -41,7 +41,7 @@ impl PyatsInventory {
     pub fn from_manifest(
         manifest: &Manifest,
         config: &Config,
-        device_ips: &[DeviceIp],
+        device_ips: &[DeviceConnection],
     ) -> Result<PyatsInventory> {
         // https://devnet-pubhub-site.s3.amazonaws.com/media/pyats/docs/topology/schema.html#schema
         let mut devices = HashMap::new();
@@ -50,7 +50,7 @@ impl PyatsInventory {
                 .iter()
                 .find(|d| d.name == device.name)
                 .ok_or_else(|| {
-                    anyhow::anyhow!("Device name not found in DeviceIp: {}", device.name)
+                    anyhow::anyhow!("Device name not found in DeviceConnection: {}", device.name)
                 })?;
 
             let model = config

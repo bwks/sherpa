@@ -33,6 +33,7 @@ pub const QEMU_URI: &str = "qemu:///system";
 pub const _DEFAULT_STORAGE_POOL: &str = "default";
 pub const _DEFAULT_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/images";
 pub const SSH_PORT: u16 = 22;
+pub const SSH_PORT_ALT: u16 = 2222;
 pub const TELNET_PORT: u16 = 2323;
 pub const BASE_PORT: u16 = 10000;
 pub const HTTP_PORT: u16 = 8080;
