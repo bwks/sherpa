@@ -222,7 +222,7 @@ Requires=docker.service
 [Service]
 TimeoutStartSec=0
 ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/westart ceos
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -290,8 +290,8 @@ Requires=media-container.mount docker.service
 
 [Service]
 TimeoutStartSec=0
-ExecStartPre=/usr/bin/docker import /media/container/image.tar.gz ceos:4.33.0f
-ExecStart=sudo /usr/bin/docker container run --rm --privileged --name ceos -p 2222:22/tcp ceos
+ExecStartPre=/usr/bin/docker load -i /media/container/image.tar.gz
+ExecStart=sudo /usr/bin/docker container run --rm --privileged --name ceos -p 2222:22/tcp -e INTFTYPE=eth -e ETBA=1 -e SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 -e CEOS=1 -e EOS_PLATFORM=ceoslab -e container=docker -e MAPETH0=1 -e MGMT_INTF=eth0 ceos:4.33.0f /sbin/init systemd.setenv=INTFTYPE=eth systemd.setenv=ETBA=1 systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 systemd.setenv=CEOS=1 systemd.setenv=EOS_PLATFORM=ceoslab systemd.setenv=container=docker systemd.setenv=MGMT_INTF=eth0
 ExecStop=/usr/bin/docker container stop ceos
 
 Restart=always
