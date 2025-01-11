@@ -37,7 +37,7 @@ Ensure that you have the required packages installed. There is the list of packa
   - bridge-utils
   - virtinst
   - libosinfo-bin # Guest OS KVM info
-  - libguestfs-tools # disk images
+  - libguestfs-tools # qcow2 disk manipulation
   - ovmf # UEFI Firmware
   - genisoimage # ISO Creation
   - telnet # Connect to VM serial consoles
