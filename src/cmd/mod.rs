@@ -1,4 +1,5 @@
 mod boot_server;
+mod boxx;
 mod clean;
 mod cli;
 mod console;
@@ -13,9 +14,11 @@ mod resume;
 mod ssh;
 mod up;
 
+pub use crate::cmd::boxx::{parse_box_commands, BoxCommands};
 pub use crate::cmd::clean::clean;
 pub use crate::cmd::cli::Cli;
 pub use crate::cmd::console::console;
+pub use crate::cmd::container::{parse_container_commands, ContainerCommands};
 pub use crate::cmd::destroy::destroy;
 pub use crate::cmd::doctor::doctor;
 pub use crate::cmd::down::down;

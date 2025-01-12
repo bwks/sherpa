@@ -2,8 +2,10 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
-use super::container::{parse_container_commands, ContainerCommands};
-use crate::cmd::{clean, console, destroy, doctor, down, import, init, inspect, resume, ssh, up};
+use crate::cmd::{
+    clean, console, destroy, doctor, down, import, init, inspect, parse_box_commands,
+    parse_container_commands, resume, ssh, up, BoxCommands, ContainerCommands,
+};
 use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::core::Sherpa;
 use crate::data::DeviceModels;
@@ -99,6 +101,11 @@ enum Commands {
         #[command(subcommand)]
         commands: ContainerCommands,
     },
+    /// Box management commands
+    Box {
+        #[command(subcommand)]
+        commands: BoxCommands,
+    },
 }
 impl Default for Commands {
     fn default() -> Self {
@@ -183,6 +190,9 @@ impl Cli {
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa)?;
+            }
+            Commands::Box { commands } => {
+                parse_box_commands(commands, &sherpa)?;
             }
         }
         Ok(())
