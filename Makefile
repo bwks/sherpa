@@ -7,6 +7,7 @@ TARGET = target/release/$(BINARY)
 all: check install
 
 check:
+	cargo update -v --dry-run
 	cargo fmt -- --check
 	cargo clippy -- -D warnings
 	cargo test

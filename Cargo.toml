@@ -14,13 +14,13 @@ anyhow = "1.0.86"
 # CLI
 clap = { version = "4.5.16", features = ["derive"] }
 
-# Serialization
+# Serialization/Deserialization
 serde = "1.0.208"
 serde_derive = "1.0.208"
 serde_json = "1.0.128"
 serde_yaml = "0.9.34"
 toml = "0.8.19"
-toml_edit = "0.19"
+toml_edit = "0.22.22"
 
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }
@@ -54,7 +54,7 @@ twox-hash = "2.0.0"
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
 
 # IP Addressing
-ipnetwork = "0.20.0"
+ipnetwork = { version = "0.21.1", features = ["serde"] }
 
 [dev-dependencies]
 regex = "1.10.6"

@@ -2,7 +2,7 @@ use std::fs;
 
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
-use toml_edit::{Array, Document, InlineTable, Item, Value};
+use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use crate::data::DeviceModels;
 use crate::topology::{Device, Link};
@@ -46,7 +46,7 @@ impl Manifest {
 
 impl Manifest {
     pub fn write_file(&self, file_path: &str) -> Result<()> {
-        let mut doc = Document::new();
+        let mut doc = DocumentMut::new();
 
         doc["name"] = Item::Value(Value::from(self.name.to_string()));
         if let Some(table) = doc
