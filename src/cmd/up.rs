@@ -162,7 +162,7 @@ pub fn up(
             | DeviceModels::JuniperVswitch
             | DeviceModels::JuniperVsrxv3 => random_mac(JUNIPER_OUI),
             DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
-            DeviceModels::FlatcarLinux => BOOT_SERVER_MAC.to_owned(),
+            // DeviceModels::FlatcarLinux => BOOT_SERVER_MAC.to_owned(),
             _ => random_mac(KVM_OUI),
         };
 
@@ -850,7 +850,44 @@ pub fn up(
                             src_ignition_disk = Some(src_ztp_file.to_owned());
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
-                        DeviceModels::FlatcarLinux => {}
+                        DeviceModels::FlatcarLinux => {
+                            // let srlinux_unit = IgnitionUnit::srlinux();
+                            // let container_disk_unit = IgnitionUnit::mount_container_disk();
+
+                            // let container_disk = IgnitionFileSystem::default();
+                            let ignition_config = IgnitionConfig::new(
+                                vec![ignition_user],
+                                vec![sudo_config_file, hostname_file],
+                                vec![],
+                                vec![],
+                                vec![],
+                                // vec![container_disk_unit, srlinux_unit],
+                                // vec![container_disk],
+                            );
+                            let flatcar_config = ignition_config.to_json_pretty()?;
+                            let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                            let dst_ztp_file =
+                                format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.ign");
+
+                            create_dir(&dir)?;
+                            create_file(&src_ztp_file, flatcar_config)?;
+
+                            // let src_container_disk = format!(
+                            //     "{}/{}/{}/{}",
+                            //     &sherpa.boxes_dir,
+                            //     device_model.name,
+                            //     device_model.version,
+                            //     CONTAINER_DISK_NAME,
+                            // );
+
+                            // src_config_disk = Some(src_container_disk.to_owned());
+                            // dst_config_disk = Some(format!(
+                            //     "{SHERPA_STORAGE_POOL_PATH}/{vm_name}-{CONTAINER_DISK_NAME}"
+                            // ));
+
+                            src_ignition_disk = Some(src_ztp_file.to_owned());
+                            dst_ignition_disk = Some(dst_ztp_file.to_owned());
+                        }
                         _ => {
                             anyhow::bail!(
                                 "Ignition ZTP method not supported for {}",
@@ -948,7 +985,7 @@ pub fn up(
             DeviceModels::JuniperVrouter => QemuCommand::juniper_vrouter(),
             DeviceModels::JuniperVswitch => QemuCommand::juniper_vswitch(),
             DeviceModels::JuniperVevolved => QemuCommand::juniper_vevolved(),
-            DeviceModels::NokiaSrlinux | DeviceModels::AristaCeos => {
+            DeviceModels::FlatcarLinux | DeviceModels::NokiaSrlinux | DeviceModels::AristaCeos => {
                 QemuCommand::ignition_config(&dst_ignition_disk.clone().unwrap())
             }
             _ => {

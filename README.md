@@ -209,6 +209,11 @@ Fedora provides ready built cloud images setup to work with cloud-init.
 
 [Fedora Cloud Images](https://fedoraproject.org/cloud/download)
 
+### Flatcar Linux
+
+[Flatcar Images](https://www.flatcar.org/docs/latest/installing/vms/libvirt/)
+wget https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_qemu_image.img
+
 ### CentOS
 Centos provides ready built cloud images setup to work with cloud-init.
 [CentOS Cloud Images](https://cloud.centos.org/)
@@ -266,6 +271,11 @@ This will bring up the virtual devices and stitch the interfaces together.
 When done, tear down the environment.
 ```
 sherpa destroy
+```
+
+### Import Image
+```
+sherpa import -s flatcar_production_qemu_image.img -v 4230.2.3 -m flatcar_linux --latest
 ```
 
 ## Troubleshooting

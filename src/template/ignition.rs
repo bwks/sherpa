@@ -7,7 +7,7 @@ use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
     pub ignition: Ignition,
-    pub networkd: Networkd,
+    // pub networkd: Networkd,
     pub passwd: Passwd,
     pub storage: Storage,
     pub systemd: Systemd,
@@ -24,7 +24,7 @@ impl IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
-            networkd: Networkd::default(),
+            // networkd: Networkd::default(),
             passwd: Passwd { users },
             storage: Storage {
                 files,
