@@ -21,10 +21,12 @@ impl Manifest {
         let dev01 = Device {
             name: "dev01".to_owned(),
             model: DeviceModels::FedoraLinux,
+            ..Default::default()
         };
         let dev02 = Device {
             name: "dev02".to_owned(),
             model: DeviceModels::FedoraLinux,
+            ..Default::default()
         };
 
         let links = vec![Link {
@@ -126,10 +128,12 @@ mod tests {
                 Device {
                     name: "dev01".to_string(),
                     model: DeviceModels::CiscoCat8000v,
+                    ..Default::default()
                 },
                 Device {
                     name: "dev02".to_string(),
                     model: DeviceModels::AristaVeos,
+                    ..Default::default()
                 },
             ],
             links: Some(vec![Link {

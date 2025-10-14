@@ -1,9 +1,8 @@
-use anyhow::Result;
-
 use crate::core::konst::{
     HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
 };
 use crate::core::{Config, Sherpa};
 use crate::libvirt::{IsolatedNetwork, ManagementNetwork, Qemu, SherpaStoragePool};
@@ -12,6 +11,8 @@ use crate::util::{
     create_dir, dir_exists, file_exists, generate_ssh_keypair, term_msg_highlight,
     term_msg_surround, term_msg_underline,
 };
+use anyhow::Result;
+use ssh_key::Algorithm;
 
 pub fn init(
     sherpa: &Sherpa,
@@ -71,7 +72,11 @@ pub fn init(
         println!("SSH keys already exists: {ssh_pub_key_file}");
     } else {
         term_msg_underline("Creating SSH Keypair");
-        generate_ssh_keypair(&sherpa.config_dir)?;
+        generate_ssh_keypair(
+            &sherpa.config_dir,
+            SHERPA_SSH_PRIVATE_KEY_FILE,
+            Algorithm::Rsa { hash: None }, // An RSA256 key will be generated.
+        )?;
     }
 
     term_msg_highlight("Creating Networks");

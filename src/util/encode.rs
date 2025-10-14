@@ -1,7 +1,16 @@
+use anyhow::Result;
+
 use base64::{engine::general_purpose, Engine};
+
+use crate::util::load_file;
 
 pub fn base64_encode(input: &str) -> String {
     general_purpose::STANDARD.encode(input)
+}
+
+pub fn base64_encode_file(filename: &str) -> Result<String> {
+    let file_content = load_file(filename)?;
+    Ok(base64_encode(&file_content))
 }
 
 #[cfg(test)]

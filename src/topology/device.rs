@@ -6,4 +6,6 @@ use crate::data::DeviceModels;
 pub struct Device {
     pub name: String,
     pub model: DeviceModels,
+    pub cpu_count: Option<u8>,
+    pub memory: Option<u16>,
 }

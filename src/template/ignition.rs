@@ -7,7 +7,7 @@ use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
     pub ignition: Ignition,
-    // pub networkd: Networkd,
+    pub networkd: Networkd,
     pub passwd: Passwd,
     pub storage: Storage,
     pub systemd: Systemd,
@@ -24,7 +24,7 @@ impl IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
-            // networkd: Networkd::default(),
+            networkd: Networkd::default(),
             passwd: Passwd { users },
             storage: Storage {
                 files,
@@ -90,6 +90,8 @@ pub struct Passwd {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct User {
     pub name: String,
+    #[serde(rename = "passwordHash")]
+    pub password_hash: String,
     #[serde(rename = "sshAuthorizedKeys")]
     pub ssh_authorized_keys: Vec<String>,
     pub groups: Vec<String>,
@@ -205,7 +207,7 @@ Where=/media/container
 Type=ext4
 
 [Install]
-WantedBy=local-fs.target   
+WantedBy=local-fs.target
 "#
             .to_owned(),
         }
@@ -254,6 +256,28 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 "#).to_owned(),
+        }
+    }
+    pub fn kubectl() -> Self {
+        Self {
+            name: "kubectl-install.service".to_owned(),
+            enabled: true,
+            contents: format!(
+                r#"[Unit]
+Description=Download and Install kubectl binary
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/curl -L -o /opt/bin/kubectl https://dl.k8s.io/release/v1.33.2/bin/linux/amd64/kubectl
+ExecStartPost=/usr/bin/chmod +x /opt/bin/kubectl
+
+[Install]
+WantedBy=multi-user.target
+"#
+            )
+            .to_owned(),
         }
     }
     pub fn srlinux() -> Self {

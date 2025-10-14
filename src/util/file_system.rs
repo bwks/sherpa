@@ -7,6 +7,12 @@ use std::process::Command;
 
 use anyhow::Result;
 
+// Load a file
+pub fn load_file(file_path: &str) -> Result<String> {
+    let file_contents = fs::read_to_string(file_path)?;
+    Ok(file_contents)
+}
+
 /// Get the current working directory path
 pub fn get_cwd() -> Result<String> {
     let path = env::current_dir()?;

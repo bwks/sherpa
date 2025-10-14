@@ -5,8 +5,8 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-
 use rinja::Template;
+use ssh_key::Algorithm;
 
 use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{
@@ -18,8 +18,8 @@ use crate::core::konst::{
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
-    TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
+    SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -38,9 +38,10 @@ use crate::template::{
 };
 use crate::topology::{Device, Manifest};
 use crate::util::{
-    base64_encode, copy_file, copy_to_dos_image, create_config_archive, create_dir, create_file,
-    create_ztp_iso, get_ip, id_to_port, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
-    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
+    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, create_config_archive,
+    create_dir, create_file, create_ztp_iso, generate_ssh_keypair, get_ip, get_ssh_public_key,
+    id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
+    tcp_connect, term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -120,6 +121,9 @@ pub fn up(
 
     // Create Temp DIR
     create_dir(TEMP_DIR)?;
+
+    term_msg_underline("Creating SSH Keypair");
+    generate_ssh_keypair(TEMP_DIR, "k8s_ssh_key", Algorithm::Ed25519)?;
 
     // Create a mapping of device name to device id.
     // Devices have an id based on their order in the list of devices
@@ -753,12 +757,18 @@ pub fn up(
 
                     let dev_name = device.name.clone();
                     // Add the ignition config
+                    let k8s_ssh_key = get_ssh_public_key(".tmp/k8s_ssh_key.pub")?;
+
                     let ignition_user = IgnitionUser {
                         name: user.username.clone(),
-                        ssh_authorized_keys: vec![format!(
-                            "{} {}",
-                            user.ssh_public_key.algorithm, user.ssh_public_key.key
-                        )],
+                        password_hash: SHERPA_PASSWORD_HASH.to_owned(),
+                        ssh_authorized_keys: vec![
+                            format!(
+                                "{} {}",
+                                user.ssh_public_key.algorithm, user.ssh_public_key.key
+                            ),
+                            format!("{} {}", k8s_ssh_key.algorithm, k8s_ssh_key.key),
+                        ],
                         groups: vec!["wheel".to_owned(), "docker".to_owned()],
                     };
                     let hostname_file = IgnitionFile {
@@ -851,15 +861,63 @@ pub fn up(
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
                         DeviceModels::FlatcarLinux => {
-                            // let srlinux_unit = IgnitionUnit::srlinux();
+                            let kubectl_unit = IgnitionUnit::kubectl();
                             // let container_disk_unit = IgnitionUnit::mount_container_disk();
 
                             // let container_disk = IgnitionFileSystem::default();
+                            // let kubectl_file = IgnitionFile {
+                            //     path: "/usr/local/bin/kubectl".to_string(),
+                            //     mode: 0755,
+                            //     contents: IgnitionFileContents::new(
+                            //         "https://dl.k8s.io/release/v1.33.2/bin/linux/amd64/kubectl",
+                            //     ),
+                            // };
+
+                            let ca_config_file = base64_encode_file("files/ca.conf")?;
+                            let ssl_file = base64_encode_file("files/ssl.sh")?;
+                            let ssh_pub_file = base64_encode_file(".tmp/k8s_ssh_key.pub")?;
+                            let ssh_priv_file = base64_encode_file(".tmp/k8s_ssh_key")?;
+                            let ca_config_encoded = IgnitionFile {
+                                path: format!("/opt/ca.conf"),
+                                mode: 440,
+                                contents: IgnitionFileContents::new(&format!(
+                                    "data:;base64,{ca_config_file}"
+                                )),
+                            };
+                            let ssl_file_encoded = IgnitionFile {
+                                path: format!("/opt/ssl.sh"),
+                                mode: 440,
+                                contents: IgnitionFileContents::new(&format!(
+                                    "data:;base64,{ssl_file}"
+                                )),
+                            };
+                            let ssh_pub_file_encoded = IgnitionFile {
+                                path: format!("/opt/k8s_ssh_key.pub"),
+                                mode: 440,
+                                contents: IgnitionFileContents::new(&format!(
+                                    "data:;base64,{ssh_pub_file}"
+                                )),
+                            };
+                            let ssh_priv_file_encoded = IgnitionFile {
+                                path: format!("/opt/k8s_ssh_key"),
+                                mode: 440,
+                                contents: IgnitionFileContents::new(&format!(
+                                    "data:;base64,{ssh_priv_file}"
+                                )),
+                            };
+
                             let ignition_config = IgnitionConfig::new(
                                 vec![ignition_user],
-                                vec![sudo_config_file, hostname_file],
+                                vec![
+                                    sudo_config_file,
+                                    hostname_file,
+                                    ca_config_encoded,
+                                    ssl_file_encoded,
+                                    ssh_pub_file_encoded,
+                                    ssh_priv_file_encoded,
+                                ],
                                 vec![],
-                                vec![],
+                                vec![kubectl_unit],
                                 vec![],
                                 // vec![container_disk_unit, srlinux_unit],
                                 // vec![container_disk],
@@ -997,11 +1055,11 @@ pub fn up(
         let domain = DomainTemplate {
             qemu_bin: config.qemu_bin.clone(),
             name: vm_name,
-            memory: device_model.memory,
+            memory: device.memory.unwrap_or(device_model.memory),
             cpu_architecture: device_model.cpu_architecture.clone(),
             cpu_model: device_model.cpu_model.clone(),
             machine_type: device_model.machine_type.clone(),
-            cpu_count: device_model.cpu_count,
+            cpu_count: device.cpu_count.unwrap_or(device_model.cpu_count),
             vmx_enabled: device_model.vmx_enabled,
             bios: device_model.bios.clone(),
             disks,
@@ -1085,6 +1143,7 @@ pub fn up(
     let ztp_server = Device {
         name: BOOT_SERVER_NAME.to_owned(),
         model: DeviceModels::FlatcarLinux,
+        ..Default::default()
     };
     if config.ztp_server.enabled {
         ztp_devices.push(&ztp_server);

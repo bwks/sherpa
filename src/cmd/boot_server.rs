@@ -5,7 +5,8 @@ use crate::core::konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
     CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, MTU_JUMBO_INT,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
+    SHERPA_PASSWORD_HASH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -125,6 +126,7 @@ pub fn create_boot_server(
     let dir = format!("{TEMP_DIR}/{boot_server_name}");
     let ignition_user = IgnitionUser {
         name: user.username.clone(),
+        password_hash: SHERPA_PASSWORD_HASH.to_owned(),
         ssh_authorized_keys: vec![format!(
             "{} {}",
             user.ssh_public_key.algorithm, user.ssh_public_key.key
