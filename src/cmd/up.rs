@@ -796,6 +796,7 @@ pub fn up(
                         ..Default::default()
                     };
                     // files
+                    let disable_update = IgnitionFile::disable_updates();
                     let sudo_config_base64 =
                         base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
                     let sudo_config_file = IgnitionFile {
@@ -816,6 +817,7 @@ pub fn up(
                             Ok(IgnitionFile {
                                 path: file.destination.clone(),
                                 mode: file.permissions,
+                                overwrite: None,
                                 contents: IgnitionFileContents::new(&format!(
                                     "data:;base64,{encoded_file}"
                                 )),
@@ -926,7 +928,7 @@ pub fn up(
 
                             let container_disk = IgnitionFileSystem::default();
 
-                            let mut files = vec![sudo_config_file, hostname_file];
+                            let mut files = vec![sudo_config_file, hostname_file, disable_update];
                             files.extend(manifest_text_files);
 
                             let ignition_config = IgnitionConfig::new(

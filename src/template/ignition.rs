@@ -149,11 +149,25 @@ pub struct File {
     pub path: String,
     #[serde(serialize_with = "serialize_mode_as_decimal")]
     pub mode: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overwrite: Option<bool>,
     pub contents: Contents,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<FileParams>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<FileParams>,
+}
+
+impl File {
+    pub fn disable_updates() -> Self {
+        Self {
+            path: "/etc/flatcar/update.conf".to_owned(),
+            mode: 272,
+            overwrite: Some(true),
+            contents: Contents::new("data:,REBOOT_STRATEGY%3Doff%0A"),
+            ..Default::default()
+        }
+    }
 }
 
 fn serialize_mode_as_decimal<S>(mode: &u32, serializer: S) -> Result<S::Ok, S::Error>
