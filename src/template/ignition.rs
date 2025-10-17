@@ -1,5 +1,5 @@
 use anyhow::Result;
-
+use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
@@ -115,7 +115,7 @@ pub struct FileSystem {
 impl Default for FileSystem {
     fn default() -> Self {
         Self {
-            device: "/dev/sdb".to_owned(),
+            device: "/dev/disk/by-label/data-disk".to_owned(),
             format: "ext4".to_owned(),
             wipe_filesystem: false,
             label: "data-disk".to_owned(),
@@ -141,11 +141,30 @@ impl Default for Directory {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct FileParams {
+    pub name: String,
+}
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct File {
-    // pub filesystem: String,
     pub path: String,
-    pub mode: u16,
+    #[serde(serialize_with = "serialize_mode_as_decimal")]
+    pub mode: u32,
     pub contents: Contents,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<FileParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<FileParams>,
+}
+
+fn serialize_mode_as_decimal<S>(mode: &u32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // Convert octal-like decimal directly to decimal
+    let mode_str = mode.to_string();
+    let decimal_mode = u32::from_str_radix(&mode_str, 8).unwrap_or(*mode); // fallback to original value if parsing fails
+
+    serializer.serialize_u32(decimal_mode)
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -166,7 +185,7 @@ impl Default for Link {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Contents {
     pub source: String,
     pub compression: Option<String>,
@@ -186,7 +205,7 @@ impl Contents {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Verification {}
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Unit {
     pub name: String,
     pub enabled: bool,

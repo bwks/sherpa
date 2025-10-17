@@ -15,9 +15,9 @@ mkfs.fat -F 32 fat32.img
 cp base.img junos.img
 mkfs.vfat  -v -n "vmm-data"
 
-# EXT4 3GB
+# EXT4
 qemu-img create -f raw ext4-1g.img 1G
-mkfs.ext4 -L "data-disk" ext4-1g.img
+mkfs.ext4 -L "data-diskg" ext4-1g.img
 
 qemu-img create -f raw ext4-2g.img 2G
 mkfs.ext4 -L "data-disk" ext4-2g.img

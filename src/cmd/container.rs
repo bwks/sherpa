@@ -83,7 +83,7 @@ pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -
             copy_file(&src_data_disk, &dst_data_disk)?;
 
             // Copy to container image into the container disk
-            copy_to_ext4_image(&container_path, &dst_data_disk, "/")?;
+            copy_to_ext4_image(vec![&container_path], &dst_data_disk, "/")?;
 
             let dst_path = format!("{}/{}", &sherpa.boxes_dir, model);
             let dst_version_dir = format!("{dst_path}/{version}");

@@ -1,12 +1,10 @@
+use anyhow::{Context, Result};
+use rinja::Template;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
-
-use anyhow::{Context, Result};
-use rinja::Template;
-use ssh_key::Algorithm;
 
 use super::boot_server::{create_boot_server, create_ztp_files};
 use crate::core::konst::{
@@ -16,32 +14,33 @@ use crate::core::konst::{
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
     CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI,
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
-    SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
-    SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
+    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
-    OsVariants, QemuCommand, User, ZtpMethods,
+    OsVariants, QemuCommand, SshPublicKey, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, File as IgnitionFile, FileSystem as IgnitionFileSystem,
-    IgnitionConfig, JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    CumulusLinuxZtpTemplate, File as IgnitionFile, FileParams as IgnitionFileParams,
+    FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, PyatsInventory,
+    SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
-use crate::topology::{Device, Manifest};
+use crate::topology::{AuthorizedKeyFile, BinaryFile, Device, Manifest, SystemdUnit, TextFile};
 use crate::util::{
-    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, create_config_archive,
-    create_dir, create_file, create_ztp_iso, generate_ssh_keypair, get_ip, get_ssh_public_key,
-    id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
-    tcp_connect, term_msg_surround, term_msg_underline,
+    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
+    create_config_archive, create_dir, create_file, create_ztp_iso, generate_ssh_keypair, get_ip,
+    get_ssh_public_key, id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
+    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -121,9 +120,6 @@ pub fn up(
 
     // Create Temp DIR
     create_dir(TEMP_DIR)?;
-
-    term_msg_underline("Creating SSH Keypair");
-    generate_ssh_keypair(TEMP_DIR, "k8s_ssh_key", Algorithm::Ed25519)?;
 
     // Create a mapping of device name to device id.
     // Devices have an id based on their order in the list of devices
@@ -757,24 +753,47 @@ pub fn up(
 
                     let dev_name = device.name.clone();
                     // Add the ignition config
-                    let k8s_ssh_key = get_ssh_public_key(".tmp/k8s_ssh_key.pub")?;
+
+                    let mut authorized_keys = vec![format!(
+                        "{} {} {}",
+                        user.ssh_public_key.algorithm,
+                        user.ssh_public_key.key,
+                        user.ssh_public_key.comment.unwrap_or("".to_owned())
+                    )];
+
+                    let manifest_authorized_keys: Vec<String> =
+                        device.ssh_authorized_keys.clone().unwrap_or(vec![]);
+
+                    let manifest_authorized_key_files: Vec<String> = device
+                        .ssh_authorized_key_files
+                        .iter() // Iterator over Option<Vec<File>>
+                        .flatten() // Flattens Option<Vec<File>> to individual &File items
+                        .map(|file| -> Result<String> {
+                            // file is now &File
+                            let ssh_key = get_ssh_public_key(&file.source)?;
+                            Ok(format!(
+                                "{} {} {}",
+                                ssh_key.algorithm,
+                                ssh_key.key,
+                                ssh_key.comment.unwrap_or("".to_owned())
+                            ))
+                        })
+                        .collect::<Result<Vec<String>>>()?;
+
+                    authorized_keys.extend(manifest_authorized_keys);
+                    authorized_keys.extend(manifest_authorized_key_files);
 
                     let ignition_user = IgnitionUser {
                         name: user.username.clone(),
                         password_hash: SHERPA_PASSWORD_HASH.to_owned(),
-                        ssh_authorized_keys: vec![
-                            format!(
-                                "{} {}",
-                                user.ssh_public_key.algorithm, user.ssh_public_key.key
-                            ),
-                            format!("{} {}", k8s_ssh_key.algorithm, k8s_ssh_key.key),
-                        ],
+                        ssh_authorized_keys: authorized_keys,
                         groups: vec!["wheel".to_owned(), "docker".to_owned()],
                     };
                     let hostname_file = IgnitionFile {
                         path: "/etc/hostname".to_owned(),
                         mode: 644,
                         contents: IgnitionFileContents::new(&format!("data:,{dev_name}",)),
+                        ..Default::default()
                     };
                     // files
                     let sudo_config_base64 =
@@ -785,7 +804,47 @@ pub fn up(
                         contents: IgnitionFileContents::new(&format!(
                             "data:;base64,{sudo_config_base64}"
                         )),
+                        ..Default::default()
                     };
+                    let manifest_text_files: Vec<IgnitionFile> = device
+                        .text_files
+                        .iter() // Iterator over Option<Vec<File>>
+                        .flatten() // Flattens Option<Vec<File>> to individual &File items
+                        .map(|file| {
+                            let encoded_file = base64_encode_file(&file.source)?;
+
+                            Ok(IgnitionFile {
+                                path: file.destination.clone(),
+                                mode: file.permissions,
+                                contents: IgnitionFileContents::new(&format!(
+                                    "data:;base64,{encoded_file}"
+                                )),
+                                user: Some(IgnitionFileParams {
+                                    name: file.user.clone(),
+                                }),
+                                group: Some(IgnitionFileParams {
+                                    name: file.group.clone(),
+                                }),
+                            })
+                        })
+                        .collect::<Result<Vec<IgnitionFile>>>()?;
+
+                    let manifest_binary_disk_files = device.binary_files.clone().unwrap_or(vec![]);
+
+                    let manifest_systemd_units: Vec<IgnitionUnit> = device
+                        .systemd_units
+                        .iter() // Iterator over Option<Vec<File>>
+                        .flatten() // Flattens Option<Vec<File>> to individual &File items
+                        .map(|file| {
+                            let file_contents = load_file(file.source.as_str())?;
+                            Ok(IgnitionUnit {
+                                name: file.name.clone(),
+                                enabled: file.enabled,
+                                contents: file_contents,
+                            })
+                        })
+                        .collect::<Result<Vec<IgnitionUnit>>>()?;
+
                     match device.model {
                         DeviceModels::NokiaSrlinux => {
                             let srlinux_unit = IgnitionUnit::srlinux();
@@ -861,66 +920,21 @@ pub fn up(
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
                         DeviceModels::FlatcarLinux => {
-                            let kubectl_unit = IgnitionUnit::kubectl();
-                            // let container_disk_unit = IgnitionUnit::mount_container_disk();
+                            let mut units = vec![];
+                            units.push(IgnitionUnit::mount_container_disk());
+                            units.extend(manifest_systemd_units);
 
-                            // let container_disk = IgnitionFileSystem::default();
-                            // let kubectl_file = IgnitionFile {
-                            //     path: "/usr/local/bin/kubectl".to_string(),
-                            //     mode: 0755,
-                            //     contents: IgnitionFileContents::new(
-                            //         "https://dl.k8s.io/release/v1.33.2/bin/linux/amd64/kubectl",
-                            //     ),
-                            // };
+                            let container_disk = IgnitionFileSystem::default();
 
-                            let ca_config_file = base64_encode_file("files/ca.conf")?;
-                            let ssl_file = base64_encode_file("files/ssl.sh")?;
-                            let ssh_pub_file = base64_encode_file(".tmp/k8s_ssh_key.pub")?;
-                            let ssh_priv_file = base64_encode_file(".tmp/k8s_ssh_key")?;
-                            let ca_config_encoded = IgnitionFile {
-                                path: format!("/opt/ca.conf"),
-                                mode: 440,
-                                contents: IgnitionFileContents::new(&format!(
-                                    "data:;base64,{ca_config_file}"
-                                )),
-                            };
-                            let ssl_file_encoded = IgnitionFile {
-                                path: format!("/opt/ssl.sh"),
-                                mode: 440,
-                                contents: IgnitionFileContents::new(&format!(
-                                    "data:;base64,{ssl_file}"
-                                )),
-                            };
-                            let ssh_pub_file_encoded = IgnitionFile {
-                                path: format!("/opt/k8s_ssh_key.pub"),
-                                mode: 440,
-                                contents: IgnitionFileContents::new(&format!(
-                                    "data:;base64,{ssh_pub_file}"
-                                )),
-                            };
-                            let ssh_priv_file_encoded = IgnitionFile {
-                                path: format!("/opt/k8s_ssh_key"),
-                                mode: 440,
-                                contents: IgnitionFileContents::new(&format!(
-                                    "data:;base64,{ssh_priv_file}"
-                                )),
-                            };
+                            let mut files = vec![sudo_config_file, hostname_file];
+                            files.extend(manifest_text_files);
 
                             let ignition_config = IgnitionConfig::new(
                                 vec![ignition_user],
-                                vec![
-                                    sudo_config_file,
-                                    hostname_file,
-                                    ca_config_encoded,
-                                    ssl_file_encoded,
-                                    ssh_pub_file_encoded,
-                                    ssh_priv_file_encoded,
-                                ],
+                                files,
                                 vec![],
-                                vec![kubectl_unit],
-                                vec![],
-                                // vec![container_disk_unit, srlinux_unit],
-                                // vec![container_disk],
+                                units,
+                                vec![container_disk],
                             );
                             let flatcar_config = ignition_config.to_json_pretty()?;
                             let src_ztp_file = format!("{dir}/{ZTP_JSON}");
@@ -930,18 +944,29 @@ pub fn up(
                             create_dir(&dir)?;
                             create_file(&src_ztp_file, flatcar_config)?;
 
-                            // let src_container_disk = format!(
-                            //     "{}/{}/{}/{}",
-                            //     &sherpa.boxes_dir,
-                            //     device_model.name,
-                            //     device_model.version,
-                            //     CONTAINER_DISK_NAME,
-                            // );
+                            // Copy a blank disk to to .tmp directory
+                            let src_data_disk = format!(
+                                "{}/{}/{}",
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G
+                            );
+                            let dst_disk = format!("{dir}/{vm_name}-{CONTAINER_DISK_NAME}");
 
-                            // src_config_disk = Some(src_container_disk.to_owned());
-                            // dst_config_disk = Some(format!(
-                            //     "{SHERPA_STORAGE_POOL_PATH}/{vm_name}-{CONTAINER_DISK_NAME}"
-                            // ));
+                            copy_file(&src_data_disk, &dst_disk)?;
+
+                            let disk_files: Vec<&str> = manifest_binary_disk_files
+                                .iter()
+                                .map(|x| x.source.as_str())
+                                .collect();
+
+                            // Copy to container image into the container disk
+                            if !disk_files.is_empty() {
+                                copy_to_ext4_image(disk_files, &dst_disk, "/")?;
+                            }
+
+                            src_config_disk = Some(dst_disk.to_owned());
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{vm_name}-{CONTAINER_DISK_NAME}"
+                            ));
 
                             src_ignition_disk = Some(src_ztp_file.to_owned());
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
