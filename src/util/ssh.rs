@@ -9,7 +9,6 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 
-use crate::core::konst::{SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE};
 use crate::data::{SshKeyAlgorithms, SshPublicKey};
 use crate::util::{create_file, expand_path};
 
@@ -82,17 +81,23 @@ pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
 }
 
 /// Generate an SSH RSA keypair.
-pub fn generate_ssh_keypair(directory: &str) -> Result<()> {
+pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm) -> Result<()> {
     let mut rng = OsRng;
 
-    // Generate a new private key
-    let private_key = PrivateKey::random(
-        &mut rng,
-        Algorithm::Rsa {
-            hash: Some(HashAlg::Sha256),
-        },
-        // Algorithm::Ed25519,
-    )?;
+    // Generate a new private key based on the algorithm
+    let private_key = match algorithm {
+        Algorithm::Rsa { hash } => PrivateKey::random(
+            &mut rng,
+            Algorithm::Rsa {
+                hash: Some(hash.unwrap_or(HashAlg::Sha256)),
+            },
+        )?,
+        Algorithm::Ed25519 => PrivateKey::random(&mut rng, Algorithm::Ed25519)?,
+        Algorithm::Ecdsa { curve } => PrivateKey::random(&mut rng, Algorithm::Ecdsa { curve })?,
+        _ => {
+            return Err(anyhow!("Unsupported SSH key algorithm: {:?}", algorithm));
+        }
+    };
 
     // Serialize the private key to the OpenSSH format
     let private_key_pem = private_key.to_openssh(LineEnding::LF)?;
@@ -101,8 +106,8 @@ pub fn generate_ssh_keypair(directory: &str) -> Result<()> {
     let public_key = private_key.public_key();
     let public_key_ssh = public_key.to_openssh()?;
 
-    let private_key_path = &format!("{directory}/{SHERPA_SSH_PRIVATE_KEY_FILE}");
-    let public_key_path = &format!("{directory}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
+    let private_key_path = &format!("{directory}/{keyname}");
+    let public_key_path = &format!("{directory}/{keyname}.pub");
 
     // Create the SSH Public/Private keypair
     create_file(public_key_path, public_key_ssh.to_string())?;

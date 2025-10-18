@@ -7,6 +7,12 @@ use std::process::Command;
 
 use anyhow::Result;
 
+// Load a file
+pub fn load_file(file_path: &str) -> Result<String> {
+    let file_contents = fs::read_to_string(file_path)?;
+    Ok(file_contents)
+}
+
 /// Get the current working directory path
 pub fn get_cwd() -> Result<String> {
     let path = env::current_dir()?;
@@ -192,11 +198,12 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
 /// Copy a file to a virtual EXT4 disk image using the `e2cp` command.
 ///
 /// `e2cp` must be installed on the system.
-pub fn copy_to_ext4_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
-    Command::new("e2cp")
-        .args([src_file, &format!("{dst_image}:{dst_dir}")])
-        .status()?;
-    println!("File copied to EXT4 image: {dst_image}");
+pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) -> Result<()> {
+    let dst = format!("{}:{}", &dst_image, &dst_dir);
+    let mut cmd = src_files.clone();
+    cmd.push(&dst);
+    Command::new("e2cp").args(cmd).status()?;
+    println!("File(s) copied to EXT4 image: {dst_image}");
 
     Ok(())
 }

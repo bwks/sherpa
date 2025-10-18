@@ -19,6 +19,7 @@ pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) ->
     devices.push(Device {
         name: BOOT_SERVER_NAME.to_owned(),
         model: DeviceModels::FlatcarLinux,
+        ..Default::default()
     });
     let mut inactive_devices = vec![];
     for device in devices {

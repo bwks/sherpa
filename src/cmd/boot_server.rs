@@ -5,7 +5,8 @@ use crate::core::konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
     CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, MTU_JUMBO_INT,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
+    SHERPA_PASSWORD_HASH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -125,6 +126,7 @@ pub fn create_boot_server(
     let dir = format!("{TEMP_DIR}/{boot_server_name}");
     let ignition_user = IgnitionUser {
         name: user.username.clone(),
+        password_hash: SHERPA_PASSWORD_HASH.to_owned(),
         ssh_authorized_keys: vec![format!(
             "{} {}",
             user.ssh_public_key.algorithm, user.ssh_public_key.key
@@ -135,6 +137,7 @@ pub fn create_boot_server(
         path: "/etc/hostname".to_owned(),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
+        ..Default::default()
     };
     let unit_webdir = IgnitionUnit::webdir();
     let unit_tftp = IgnitionUnit::tftpd();
@@ -146,6 +149,7 @@ pub fn create_boot_server(
         path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
         mode: 440,
         contents: IgnitionFileContents::new(&format!("data:;base64,{sudo_config_base64}")),
+        ..Default::default()
     };
 
     let arista_ztp_base64 = base64_encode(&ztp_templates.arista_eos);
@@ -153,6 +157,7 @@ pub fn create_boot_server(
         path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{arista_ztp_base64}")),
+        ..Default::default()
     };
 
     let aruba_ztp_base64 = base64_encode(&ztp_templates.aruba_aos);
@@ -160,6 +165,7 @@ pub fn create_boot_server(
         path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{aruba_ztp_base64}")),
+        ..Default::default()
     };
 
     let cumulus_ztp_base64 = base64_encode(&ztp_templates.cumulus_linux);
@@ -167,27 +173,29 @@ pub fn create_boot_server(
         path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{cumulus_ztp_base64}")),
+        ..Default::default()
     };
     let iosxe_ztp_base64 = base64_encode(&ztp_templates.cisco_iosxe);
     let iosxe_ztp_file = IgnitionFile {
         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosxe_ztp_base64}")),
+        ..Default::default()
     };
     let iosv_ztp_base64 = base64_encode(&ztp_templates.cisco_iosv);
     let iosv_ztp_file = IgnitionFile {
         path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosv_ztp_base64}")),
+        ..Default::default()
     };
-
     let juniper_vjunos_ztp_base64 = base64_encode(&ztp_templates.juniper_vjunos);
     let juniper_vjunos_ztp_file = IgnitionFile {
         path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{juniper_vjunos_ztp_base64}")),
+        ..Default::default()
     };
-
     let ignition_config = IgnitionConfig::new(
         vec![ignition_user],
         vec![

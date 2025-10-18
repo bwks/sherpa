@@ -23,6 +23,7 @@ pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-blackhole";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
+pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
 pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
@@ -87,7 +88,7 @@ pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;
-pub const IGNITION_VERSION: &str = "3.4.0";
+pub const IGNITION_VERSION: &str = "3.3.0";
 
 pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
