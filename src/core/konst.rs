@@ -9,6 +9,7 @@ pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
 pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
 pub const SHERPA_BLANK_DISK_SRLINUX: &str = "srlinux.img";
+pub const SHERPA_BLANK_DISK_EXT4_500M: &str = "ext4-500m.img";
 pub const SHERPA_BLANK_DISK_EXT4_1G: &str = "ext4-1g.img";
 pub const SHERPA_BLANK_DISK_EXT4_2G: &str = "ext4-2g.img";
 pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";

@@ -16,6 +16,15 @@ cp base.img junos.img
 mkfs.vfat  -v -n "vmm-data"
 
 # EXT4
+qemu-img create -f raw ext4-100mb.img 100M
+mkfs.ext4 -L "data-disk" ext4-100mb.img
+
+qemu-img create -f raw ext4-200mb.img 200MB
+mkfs.ext4 -L "data-disk" ext4-200mb.img
+
+qemu-img create -f raw ext4-500mb.img 500MB
+mkfs.ext4 -L "data-disk" ext4-500mb.img
+
 qemu-img create -f raw ext4-1g.img 1G
 mkfs.ext4 -L "data-disk" ext4-1g.img
 

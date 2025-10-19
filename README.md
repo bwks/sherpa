@@ -3,16 +3,18 @@
 Vagrant re-imagined.
 
 ## Why?
-I love the workflow of Vagrant. Define an environment in a config file and build/destroy it with a few commands. 
-This also made sharing labs with peers much easier. 
 
-Docker came along and it's great when you can get by with only using Containers. 
+I love the workflow of Vagrant. Define an environment in a config file and build/destroy it with a few commands.
+This also made sharing labs with peers much easier.
+
+Docker came along and it's great when you can get by with only using Containers.
 I am from a networking background and in that space, VM's are mostly still king.
 
-I am learning Rust and what better way to learn than to build something that you can use. 
-So that is why I am building Sherpa. To help me learn Rust and build a tool that I can use to make my life easier while im at it. 
+I am learning Rust and what better way to learn than to build something that you can use.
+So that is why I am building Sherpa. To help me learn Rust and build a tool that I can use to make my life easier while im at it.
 
 ## Project Goals
+
 - Multi-threaded/Asynchronous.
 - VM network <--> Docker image stitching.
 - No need for pre-built Vagrant style boxes.
@@ -21,13 +23,16 @@ So that is why I am building Sherpa. To help me learn Rust and build a tool that
 - Support for large topology scenarios.
 
 ## Hypervisor Support
+
 - Initially only KVM/QEMU will be supported via [libvirt](https://libvirt.org/)
 - Potential future [Cloud Hypervisor](https://github.com/cloud-hypervisor/cloud-hypervisor) support.
 
 ## Requiremets
+
 Sherpa uses the [Rust Libvirt](https://gitlab.com/libvirt/libvirt-rust) crate which provides bindings to the Libvert C API.
 
 Ensure that you have the required packages installed. There is the list of packages for Ubuntu.
+
 ```
   - cpu-checker
   - qemu-kvm
@@ -59,6 +64,7 @@ file usb_config.img
 ```
 
 ### SELINUX
+
 ```
 sudo mkdir /var/lib/libvirt/flatcar-linux/
 sudo semanage fcontext -a -t virt_content_t "/var/lib/libvirt/flatcar-linux/flatcar-linux1"
@@ -67,6 +73,7 @@ sudo systemctl restart libvirtd.service
 ```
 
 ### AppArmour
+
 ```
 sudo mkdir /var/lib/libvirt/sherpa/
 sudo sh -c 'echo "  # For ignition files" >> /etc/apparmor.d/abstractions/libvirt-qemu'
@@ -75,40 +82,43 @@ sudo systemctl restart libvirtd.service
 ```
 
 ## Device Support Matrix
+
 - Working - :white_check_mark:
 - Planned - :construction:
 - Partially Working - :warning:
 
-| Vendor        | Model             | Minimum Tested Version | Status             | ZTP Method         |
-| ------------- | ----------------- | ---------------------- | ------------------ | ------------------ |
-| Arista        | vEOS              | 4.32.2f                | :white_check_mark: | HTTP+USB           |
-| Aruba         | AOS-CX            | 10.07                  | :white_check_mark: | TFTP               |
-| Cisco         | ASAv              | 9.20.2                 | :white_check_mark: | CDROM              |
-| Cisco         | CSR 1000v         | 17.03.08a              | :white_check_mark: | CDROM              |
-| Cisco         | Catalyst 8000v    | 17.13.01a              | :white_check_mark: | CDROM              |
-| Cisco         | Catalyst 9000v    | 17.12.01               | :white_check_mark: | CDROM              |
-| Cisco         | XRv 9000          | 7.11.1                 | :white_check_mark: | CDROM              |
-| Cisco         | Nexus 9300v       | 10.4.2.f               | :white_check_mark: | CDROM              |
-| Cisco         | IOSv              | 159-3.m8               | :white_check_mark: | Disk               |
-| Cisco         | IOSv L2           | 20200920               | :white_check_mark: | Disk               |
-| Juniper       | vRouter           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
-| Juniper       | vSwitch           | 23.4R2-S2.1            | :white_check_mark: | CDROM              |
-| Juniper       | vSRXv3            | 23.2R2.21              | :white_check_mark: | CDROM              |
-| Juniper       | vEvolved          | 23.4R2-S2.1            | :white_check_mark: | HTTP+USB           |
-| Nvidia        | Cumulus Linux     | 5.9.2                  | :white_check_mark: | USB                |
-| Nokia         | SR Linux          | 24.10.1                | :white_check_mark: | TBA                |
-| Microsoft     | FlatCar Linux     | 3975.2.2               | :white_check_mark: | Ignition           |
-| Canonical     | Ubuntu Linux      | 24.04                  | :white_check_mark: | Cloud-Init         |
-| RedHat        | Fedora Linux      | 40-1.14                | :white_check_mark: | Cloud-Init         |
-
+| Vendor    | Model          | Minimum Tested Version | Status             | ZTP Method |
+| --------- | -------------- | ---------------------- | ------------------ | ---------- |
+| Arista    | vEOS           | 4.32.2f                | :white_check_mark: | HTTP+USB   |
+| Aruba     | AOS-CX         | 10.07                  | :white_check_mark: | TFTP       |
+| Cisco     | ASAv           | 9.20.2                 | :white_check_mark: | CDROM      |
+| Cisco     | CSR 1000v      | 17.03.08a              | :white_check_mark: | CDROM      |
+| Cisco     | Catalyst 8000v | 17.13.01a              | :white_check_mark: | CDROM      |
+| Cisco     | Catalyst 9000v | 17.12.01               | :white_check_mark: | CDROM      |
+| Cisco     | XRv 9000       | 7.11.1                 | :white_check_mark: | CDROM      |
+| Cisco     | Nexus 9300v    | 10.4.2.f               | :white_check_mark: | CDROM      |
+| Cisco     | IOSv           | 159-3.m8               | :white_check_mark: | Disk       |
+| Cisco     | IOSv L2        | 20200920               | :white_check_mark: | Disk       |
+| Juniper   | vRouter        | 23.4R2-S2.1            | :white_check_mark: | CDROM      |
+| Juniper   | vSwitch        | 23.4R2-S2.1            | :white_check_mark: | CDROM      |
+| Juniper   | vSRXv3         | 23.2R2.21              | :white_check_mark: | CDROM      |
+| Juniper   | vEvolved       | 23.4R2-S2.1            | :white_check_mark: | HTTP+USB   |
+| Nvidia    | Cumulus Linux  | 5.9.2                  | :white_check_mark: | USB        |
+| Nokia     | SR Linux       | 24.10.1                | :white_check_mark: | TBA        |
+| Microsoft | FlatCar Linux  | 3975.2.2               | :white_check_mark: | Ignition   |
+| Canonical | Ubuntu Linux   | 24.04                  | :white_check_mark: | Cloud-Init |
+| RedHat    | Fedora Linux   | 40-1.14                | :white_check_mark: | Cloud-Init |
 
 ## Obtain Boxes
+
 Boxes are provided by vendors. Links TBU.
 
 ### Box location
+
 Base boxes are stored in the `$HOME/.sherpa/boxes` directory. Base boxes are cloned when building an environment.
 
 #### Example Boxes
+
 ```
 $HOME/.sherpa/boxes
 ├── arista_veos
@@ -164,22 +174,26 @@ $HOME/.sherpa/boxes
 ```
 
 ### Arista
+
 Arista allows you to download images, you just need to sign up for an account.
 
 #### vEOS
+
 [Arista vEOS](https://www.arista.com/en/support/software-download)
 
 #### ZTP
 
-
 Notes:
- - vEOS requires an IOS boot disk (Aboot).
- - vEOS is tested with `Aboot-veos-serial-8.0.2.iso`
+
+- vEOS requires an IOS boot disk (Aboot).
+- vEOS is tested with `Aboot-veos-serial-8.0.2.iso`
 
 #### cEOS
+
 [Arista cEOS](https://www.arista.com/en/support/software-download)
 
 ### Cisco
+
 These images are extracted from Cisco Modeling Labs ISO.
 
 - vIOS
@@ -187,6 +201,7 @@ These images are extracted from Cisco Modeling Labs ISO.
 - ETC... UPDATE
 
 ### Juniper
+
 Juniper allows you to download images, you just need to sign up for an account.
 [vJunos Router](https://support.juniper.net/support/downloads/?p=vjunos-router)
 
@@ -195,16 +210,19 @@ Juniper allows you to download images, you just need to sign up for an account.
 ### Nokia
 
 ### Nvidia
+
 Nvidia allows you to download images, you just need to sign up for an account.
 
 [Cumulus VX](https://www.nvidia.com/en-us/networking/ethernet-switching/cumulus-vx/download/)
 
 ### Ubuntu
+
 Ubuntu provides ready built cloud images setup to work with cloud-init.
 
 [Ubuntu Cloud Images](https://cloud-images.ubuntu.com/)
 
 ### Fedora
+
 Fedora provides ready built cloud images setup to work with cloud-init.
 
 [Fedora Cloud Images](https://fedoraproject.org/cloud/download)
@@ -215,10 +233,12 @@ Fedora provides ready built cloud images setup to work with cloud-init.
 wget https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_qemu_image.img
 
 ### CentOS
+
 Centos provides ready built cloud images setup to work with cloud-init.
 [CentOS Cloud Images](https://cloud.centos.org/)
 
 ### RedHat
+
 Redhat provides ready built cloud images setup to work with cloud-init.
 RedHat also requires a subscription. A trial or developer subscriptions are available.
 
@@ -227,6 +247,7 @@ RedHat also requires a subscription. A trial or developer subscriptions are avai
 [RHEL 9](https://access.redhat.com/downloads/content/479/ver=/rhel---9/9.4/x86_64/product-software)
 
 ### SUSE
+
 [OpenSUSE](https://get.opensuse.org/)
 
 [OpenSUSE Leap Micro](https://get.opensuse.org/leapmicro/6.0/)
@@ -234,20 +255,25 @@ RedHat also requires a subscription. A trial or developer subscriptions are avai
 [SUSE Enterprise](https://www.suse.com/download/sles/)
 
 #### Windows
+
 [Windows Server](https://cloudbase.it/windows-cloud-images/)
 
-
 ## Usage
+
 ### Initialise Sherpa
+
 Setup Sherpa configurations, boxes directory structure and required Libvirt parameters.
+
 ```
 Sherpa init
 ```
 
-###  
+###
+
 A manifest defines the device parameters and connection between them.
 
 #### manifest.toml
+
 ```toml
 devices = [
   { name = "dev01", device_model = "cisco_cat8000v" },
@@ -260,7 +286,9 @@ connections = [
 ```
 
 ### Build Environment
+
 Bring up the environment.
+
 ```
 sherpa up
 ```
@@ -268,19 +296,22 @@ sherpa up
 This will bring up the virtual devices and stitch the interfaces together.
 
 ### Kill Environment
+
 When done, tear down the environment.
+
 ```
 sherpa destroy
 ```
 
 ### Import Image
+
 ```
 sherpa import -s flatcar_production_qemu_image.img -v 4230.2.3 -m flatcar_linux --latest
 ```
 
 ## Troubleshooting
 
-1) qcow2: Image is corrupt; cannot be opened read/write
+1. qcow2: Image is corrupt; cannot be opened read/write
 
 Run the following command to fix the image
 
