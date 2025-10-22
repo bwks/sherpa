@@ -118,7 +118,7 @@ impl Default for Commands {
 }
 
 impl Cli {
-    pub fn run() -> Result<()> {
+    pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let qemu = Qemu::default();
         let sherpa = Sherpa::default();
@@ -190,7 +190,7 @@ impl Cli {
                 ssh2(name)?;
             }
             Commands::Container { commands } => {
-                parse_container_commands(commands, &sherpa)?;
+                parse_container_commands(commands, &sherpa).await?;
             }
             Commands::Box { commands } => {
                 parse_box_commands(commands, &sherpa)?;

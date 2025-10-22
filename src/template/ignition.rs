@@ -202,16 +202,16 @@ pub struct Link {
     pub hard: bool,
     pub overwrite: bool,
 }
-impl Default for Link {
-    fn default() -> Self {
-        Self {
-            path: "/etc/systemd/system/multi-user.target.wants/docker.service".to_owned(),
-            target: "/usr/lib/systemd/system/docker.service".to_owned(),
-            hard: false,
-            overwrite: true,
-        }
-    }
-}
+// impl Default for Link {
+//     fn default() -> Self {
+//         Self {
+//             path: "/etc/systemd/system/multi-user.target.wants/docker.service".to_owned(),
+//             target: "/usr/lib/systemd/system/docker.service".to_owned(),
+//             hard: false,
+//             overwrite: true,
+//         }
+//     }
+// }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Contents {

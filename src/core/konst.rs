@@ -93,3 +93,16 @@ pub const IGNITION_VERSION: &str = "3.3.0";
 
 pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
+
+pub const CONTAINER_WEBDIR_NAME: &str = "webdir";
+pub const CONTAINER_WEBDIR_REPO: &str = "ghcr.io/bwks/webdir";
+pub const CONTAINER_WEBDIR_VERSION: &str = "0.1.5";
+pub const CONTAINER_TFTPD_NAME: &str = "tftpd";
+pub const CONTAINER_TFTPD_REPO: &str = "ghcr.io/bwks/tftpd";
+pub const CONTAINER_TFTPD_VERSION: &str = "0.5.0";
+pub const CONTAINER_DNS_NAME: &str = "dns-server";
+pub const CONTAINER_DNS_REPO: &str = "docker.io/technitium/dns-server";
+pub const CONTAINER_DNS_VERSION: &str = "13.6.0";
+pub const CONTAINER_DHCP4_NAME: &str = "kea-dhcp4";
+pub const CONTAINER_DHCP4_REPO: &str = "docker.cloudsmith.io/isc/docker/kea-dhcp4";
+pub const CONTAINER_DHCP4_VERSION: &str = "3.1.2";

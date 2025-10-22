@@ -1,13 +1,22 @@
 use anyhow::{bail, Result};
 use clap::Subcommand;
 
+use flate2::{write::GzEncoder, Compression};
+use oci_client::{
+    client::{Client, ClientConfig, ClientProtocol},
+    secrets::RegistryAuth,
+    Reference,
+};
+use std::{fs::File, io::Write};
+
 use crate::core::konst::{
-    CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
+    CONTAINER_DHCP4_REPO, CONTAINER_DISK_NAME, CONTAINER_DNS_REPO, CONTAINER_IMAGE_NAME,
+    CONTAINER_TFTPD_REPO, CONTAINER_WEBDIR_REPO, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
     SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
     SHERPA_BLANK_DISK_EXT4_5G, TEMP_DIR,
 };
 use crate::core::Sherpa;
-use crate::data::DeviceModels;
+use crate::data::{ContainerImage, DeviceModels};
 use crate::util::{
     check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
     dir_exists, file_exists, fix_permissions_recursive, pull_container_image, save_container_image,
@@ -18,9 +27,15 @@ use crate::util::{
 pub enum ContainerCommands {
     /// Pull a container image from an image hosting service.
     Pull {
-        /// Container image reference (e.g., alpine:latest, ghcr.io/nokia/srlinux:latest, etc.. )
+        /// Image name - srlinux
         #[arg(short, long)]
-        image: String,
+        name: String,
+        //// Image Repository - ghcr.io/nokia/srlinux
+        #[arg(short, long)]
+        repo: String,
+        /// Image version - 1.2.3
+        #[arg(short, long)]
+        version: String,
     },
     /// Import a local container image as a Sherpa box.
     Import {
@@ -39,10 +54,19 @@ pub enum ContainerCommands {
     },
 }
 
-pub fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -> Result<()> {
+pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -> Result<()> {
     match commands {
-        ContainerCommands::Pull { image } => {
-            pull_container_image(image)?;
+        ContainerCommands::Pull {
+            name,
+            repo,
+            version,
+        } => {
+            let image = ContainerImage {
+                name: name.to_owned(),
+                repo: repo.to_owned(),
+                version: version.to_owned(),
+            };
+            pull_container_image(&image).await?;
         }
         ContainerCommands::Import {
             image,
