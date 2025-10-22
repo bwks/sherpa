@@ -46,7 +46,10 @@ impl IsolatedNetwork {
     }
 }
 
-pub struct ManagementNetwork {
+// TODO
+pub struct BridgeNetwork {}
+
+pub struct NatNetwork {
     pub network_name: String,
     pub bridge_name: String,
     pub ipv4_address: Ipv4Addr,
@@ -58,7 +61,7 @@ pub struct ManagementNetwork {
     pub ztp_tftp_port: u16,
     pub ztp_server_ipv4: Ipv4Addr,
 }
-impl ManagementNetwork {
+impl NatNetwork {
     // Using network namespaces to push config down to dnsmasq.
     // This is required because the DHCP option that can be set
     // via libvirt are limited to only a couple of options
@@ -105,9 +108,9 @@ impl ManagementNetwork {
           </dnsmasq:options>
 
           <name>{network_name}</name>
-          
+
           <mtu size="{MTU_JUMBO_NET}"/>
-          
+
           <forward mode='nat'>
             <nat>
               <port start='1024' end='65535'/>
@@ -115,11 +118,11 @@ impl ManagementNetwork {
           </forward>
 
           <bridge name='{bridge_name}' stp='on' delay='0'/>
-          
+
           <domain name='{SHERPA_DOMAIN_NAME}' localOnly='yes'/>
-          
+
           <dns enable='yes'/>
-          
+
           <ip address='{ipv4_address}' netmask='{ipv4_netmask}'>
             <dhcp>
               <range start='{dhcp_start}' end='{dhcp_end}'>
@@ -128,7 +131,7 @@ impl ManagementNetwork {
               <host mac='{BOOT_SERVER_MAC}' name='{BOOT_SERVER_NAME}' ip='{ztp_server_ipv4}'/>
             </dhcp>
           </ip>
-        
+
         </network>
         "#
         );

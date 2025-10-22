@@ -4,7 +4,7 @@ use clap::{Parser, Subcommand};
 
 use crate::cmd::{
     clean, console, destroy, doctor, down, import, init, inspect, parse_box_commands,
-    parse_container_commands, resume, ssh, up, BoxCommands, ContainerCommands,
+    parse_container_commands, resume, ssh2, up, BoxCommands, ContainerCommands,
 };
 use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::core::Sherpa;
@@ -183,10 +183,11 @@ impl Cli {
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id()?;
-                let lab_name = manifest.name.clone();
-                ssh(&qemu, name, &lab_name, &lab_id)?;
+                // let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                // let lab_id = get_id()?;
+                // let lab_name = manifest.name.clone();
+                // ssh(&qemu, name, &lab_name, &lab_id)?;
+                ssh2(name)?;
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa)?;

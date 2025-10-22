@@ -139,6 +139,7 @@ pub fn create_boot_server(
         contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
         ..Default::default()
     };
+    // let ztp_interface = IgnitionFile::ztp_interface()?;
     let unit_webdir = IgnitionUnit::webdir();
     let unit_tftp = IgnitionUnit::tftpd();
     let _srlinux_unit = IgnitionUnit::srlinux();
@@ -201,6 +202,7 @@ pub fn create_boot_server(
         vec![
             sudo_config_file,
             hostname_file,
+            // ztp_interface,
             arista_ztp_file,
             aruba_ztp_file,
             cumulus_ztp_file,

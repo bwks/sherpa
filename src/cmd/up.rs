@@ -24,7 +24,7 @@ use crate::core::{Config, Sherpa};
 use crate::data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
-    OsVariants, QemuCommand, SshPublicKey, User, ZtpMethods,
+    ManagementNetwork, OsVariants, QemuCommand, SshPublicKey, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -68,6 +68,12 @@ pub fn up(
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = Config::load(&sherpa.config_path)?;
 
+    let mgmt_net = ManagementNetwork::from_str(&format!(
+        "{}/{}",
+        &config.management_prefix_ipv4.network(),
+        &config.management_prefix_ipv4.prefix()
+    ))?;
+
     term_msg_underline("Validating Manifest");
 
     let links = manifest.links.clone().unwrap_or_default();
@@ -104,16 +110,19 @@ pub fn up(
     println!("Manifest Ok");
 
     term_msg_underline("ZTP");
-    if config.ztp_server.enabled {
+    if manifest.ztp_server.is_some() {
+        config.ztp_server.enable = manifest.ztp_server.clone().unwrap().enable
+    }
+    if config.ztp_server.enable {
         println!("ZTP server is enabled in configuration")
     } else {
         for device in &manifest.devices {
             if device.model.needs_ztp_server() {
                 println!("ZTP server is required");
-                config.ztp_server.enabled = true
+                config.ztp_server.enable = true
             }
         }
-        if !config.ztp_server.enabled {
+        if !config.ztp_server.enable {
             println!("ZTP server is not required")
         }
     }
@@ -162,7 +171,13 @@ pub fn up(
             | DeviceModels::JuniperVswitch
             | DeviceModels::JuniperVsrxv3 => random_mac(JUNIPER_OUI),
             DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
-            // DeviceModels::FlatcarLinux => BOOT_SERVER_MAC.to_owned(),
+            DeviceModels::FlatcarLinux => {
+                if &device.name == BOOT_SERVER_NAME {
+                    BOOT_SERVER_MAC.to_owned()
+                } else {
+                    random_mac(KVM_OUI)
+                }
+            }
             _ => random_mac(KVM_OUI),
         };
 
@@ -1103,7 +1118,7 @@ pub fn up(
     }
 
     // Boot Server
-    if config.ztp_server.enabled {
+    if config.ztp_server.enable {
         let ztp_templates = create_ztp_files(&sherpa_user, &dns)?;
         let boot_server = create_boot_server(
             //
@@ -1174,7 +1189,7 @@ pub fn up(
         model: DeviceModels::FlatcarLinux,
         ..Default::default()
     };
-    if config.ztp_server.enabled {
+    if config.ztp_server.enable {
         ztp_devices.push(&ztp_server);
     }
 
@@ -1184,6 +1199,7 @@ pub fn up(
     let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
     let mut connected_devices = std::collections::HashSet::new();
     let mut device_ip_map = vec![];
+
     while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
         for device in &ztp_devices {
             if connected_devices.contains(&device.name) {
@@ -1200,6 +1216,7 @@ pub fn up(
                 DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
                 _ => SSH_PORT,
             };
+
             if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
                 match tcp_connect(&vm_ip, ssh_port)? {
                     true => {

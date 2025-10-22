@@ -13,12 +13,22 @@ use crate::core::konst::{
 use crate::data::{DeviceModel, VmProviders};
 use crate::util::{create_file, expand_path};
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {
-    pub enabled: bool,
-    pub username: String,
-    pub password: String,
+    pub enable: bool,
+    pub username: Option<String>,
+    pub password: Option<String>,
 }
+impl Default for ZtpServer {
+    fn default() -> Self {
+        Self {
+            enable: false,
+            username: Some(SHERPA_USERNAME.to_owned()),
+            password: Some(SHERPA_PASSWORD.to_owned()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct InventoryManagement {
     pub pyats: bool,
@@ -79,9 +89,9 @@ impl Default for Config {
             .expect("Failed to parse IPv4 network");
 
         let ztp_server = ZtpServer {
-            enabled: false,
-            username: SHERPA_USERNAME.to_owned(),
-            password: SHERPA_PASSWORD.to_owned(),
+            enable: false,
+            username: Some(SHERPA_USERNAME.to_owned()),
+            password: Some(SHERPA_PASSWORD.to_owned()),
         };
 
         Config {

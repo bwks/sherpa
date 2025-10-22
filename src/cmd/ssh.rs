@@ -30,3 +30,21 @@ pub fn ssh(qemu: &Qemu, name: &str, lab_name: &str, lab_id: &str) -> Result<()> 
     }
     Ok(())
 }
+
+pub fn ssh2(name: &str) -> Result<()> {
+    term_msg_surround(&format!("Connecting to: {name}"));
+
+    let status = Command::new("ssh")
+        .arg(&name)
+        .arg("-F")
+        .arg(format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
+        .status()?;
+
+    if !status.success() {
+        eprintln!("SSH connection failed");
+        if let Some(code) = status.code() {
+            eprintln!("Exit code: {}", code);
+        }
+    }
+    Ok(())
+}

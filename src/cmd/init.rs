@@ -5,7 +5,7 @@ use crate::core::konst::{
     SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
 };
 use crate::core::{Config, Sherpa};
-use crate::libvirt::{IsolatedNetwork, ManagementNetwork, Qemu, SherpaStoragePool};
+use crate::libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
 use crate::topology::Manifest;
 use crate::util::{
     create_dir, dir_exists, file_exists, generate_ssh_keypair, term_msg_highlight,
@@ -90,7 +90,7 @@ pub fn init(
     } else {
         println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
         let ipv4_network_size = config.management_prefix_ipv4.size();
-        let management_network = ManagementNetwork {
+        let management_network = NatNetwork {
             network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
             bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
             ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),

@@ -4,13 +4,18 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
+use crate::core::config::ZtpServer;
 use crate::data::DeviceModels;
 use crate::topology::{Device, Link};
-#[derive(Debug, Deserialize, Serialize)]
+
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
     pub name: String,
     pub devices: Vec<Device>,
     pub links: Option<Vec<Link>>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ztp_server: Option<ZtpServer>,
 }
 
 impl Manifest {
@@ -42,6 +47,7 @@ impl Manifest {
             name,
             devices,
             links: Some(links),
+            ..Default::default()
         })
     }
 }
@@ -142,6 +148,7 @@ mod tests {
                 dev_b: "dev02".to_string(),
                 int_b: 1,
             }]),
+            ..Default::default()
         };
 
         // Write manifest

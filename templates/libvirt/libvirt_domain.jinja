@@ -60,7 +60,7 @@
     <suspend-to-mem enabled='no'/>
     <suspend-to-disk enabled='no'/>
   </pm>
-  
+
   {% for cmd in qemu_commands %}
   <ns0:commandline>
     <ns0:arg value='{{ cmd.param }}'/>
@@ -180,7 +180,7 @@
 
     <input type='mouse' bus='ps2'/>
     <input type='keyboard' bus='ps2'/>
-  
+
     <memballoon model='virtio'>
     </memballoon>
 

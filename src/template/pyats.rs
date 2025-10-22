@@ -76,8 +76,8 @@ impl PyatsInventory {
             credentials.insert(
                 "default".to_string(),
                 Credentials {
-                    username: config.ztp_server.username.to_owned(),
-                    password: config.ztp_server.password.to_owned(),
+                    username: config.ztp_server.username.to_owned().unwrap_or_default(),
+                    password: config.ztp_server.password.to_owned().unwrap_or_default(),
                 },
             );
 

@@ -1,13 +1,15 @@
 use anyhow::Result;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
+use serde_json;
 
-use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
+use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4, TFTP_PORT};
+use crate::data::ManagementNetwork;
+use crate::util::{base64_encode, get_ipv4_network};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
     pub ignition: Ignition,
-    pub networkd: Networkd,
     pub passwd: Passwd,
     pub storage: Storage,
     pub systemd: Systemd,
@@ -24,7 +26,6 @@ impl IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
-            networkd: Networkd::default(),
             passwd: Passwd { users },
             storage: Storage {
                 files,
@@ -78,9 +79,6 @@ pub struct Tls {}
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Timeouts {}
-
-#[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Networkd {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Passwd {
@@ -168,17 +166,33 @@ impl File {
             ..Default::default()
         }
     }
-}
+    pub fn ztp_interface() -> Result<Self> {
+        let mgmt_net = ManagementNetwork::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
+        let contents = format!(
+            r#"[Match]
+Name=eth0
 
-fn serialize_mode_as_decimal<S>(mode: &u32, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    // Convert octal-like decimal directly to decimal
-    let mode_str = mode.to_string();
-    let decimal_mode = u32::from_str_radix(&mode_str, 8).unwrap_or(*mode); // fallback to original value if parsing fails
-
-    serializer.serialize_u32(decimal_mode)
+[Network]
+Address={}/{}
+Gateway={}"#,
+            mgmt_net.get_ip(5)?,
+            mgmt_net.prefix_length,
+            mgmt_net.gateway_ip
+        );
+        let encoded_contents = base64_encode(&contents);
+        Ok(Self {
+            path: "/etc/systemd/network/00-eth0.network".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
+            user: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+            group: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+        })
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -227,6 +241,25 @@ pub struct Unit {
 }
 
 impl Unit {
+    pub fn ztp_interface() -> Result<Self> {
+        let ztp_netowrk = get_ipv4_network(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
+        let ip = format!("{}/{}", ztp_netowrk.nth(5).unwrap(), ztp_netowrk.prefix());
+        let gateway = ztp_netowrk.nth(1).unwrap();
+        let contents = format!(
+            r#"[Match]
+Name=eth0
+
+[Network]
+Address={ip}
+Gateway={gateway}"#
+        );
+        Ok(Self {
+            name: "00-eth0.network".to_owned(),
+            enabled: true,
+            contents: contents,
+        })
+    }
+
     pub fn mount_container_disk() -> Self {
         Self {
             name: "media-container.mount".to_owned(),
@@ -374,4 +407,17 @@ impl Default for Systemd {
             units: vec![Unit::webdir(), Unit::tftpd()],
         }
     }
+}
+
+/// Convert a unix octal permission mode (base 8) to it'd decimal equivalent (base 10).
+/// EG: 644 -> 420
+fn serialize_mode_as_decimal<S>(mode: &u32, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    // Convert octal-like decimal directly to decimal
+    let mode_str = mode.to_string();
+    let decimal_mode = u32::from_str_radix(&mode_str, 8).unwrap_or(*mode); // fallback to original value if parsing fails
+
+    serializer.serialize_u32(decimal_mode)
 }

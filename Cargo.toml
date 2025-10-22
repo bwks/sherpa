@@ -34,17 +34,14 @@ rand = "0.8.5"
 # Random names
 petname = "2.0.2"
 
-# Docker Integration
-# bollard = "0.17.1"
-
 # Async
 tokio = { version = "1.40.0", features = ["full"] }
 futures = "0.3.30"
 
-# file system
+# File system
 shellexpand = "3.1.0"
 
-# encoder/decoders
+# Encoding/decoding
 base64 = "0.22.1"
 md5 = "0.7.0"
 sha2 = "0.10.8"
