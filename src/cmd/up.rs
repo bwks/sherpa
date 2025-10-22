@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rinja::Template;
+use askama::Template;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;

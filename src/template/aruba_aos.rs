@@ -1,4 +1,4 @@
-use rinja::Template;
+use askama::Template;
 
 use crate::core::konst::ARUBA_ZTP_SCRIPT;
 use crate::core::konst::SHERPA_PASSWORD;

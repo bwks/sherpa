@@ -1,6 +1,6 @@
 // use std::net::Ipv4Addr;
 
-use rinja::Template;
+use askama::Template;
 
 use crate::core::konst::JUNIPER_ZTP_CONFIG;
 use crate::data::User;

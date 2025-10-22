@@ -1,4 +1,4 @@
-use rinja::Template;
+use askama::Template;
 
 use crate::core::konst::{SHERPA_CONFIG_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME};
 use crate::data::DeviceConnection;

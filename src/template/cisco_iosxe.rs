@@ -1,4 +1,4 @@
-use rinja::Template;
+use askama::Template;
 
 use crate::data::{Dns, User};
 

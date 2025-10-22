@@ -1,7 +1,8 @@
-use rinja::Template;
+use askama::Template;
 
 use crate::data::{Dns, User};
 
+/// If I find a way in the future, this can probably go away.
 /// ZTP script for an Arista vEOS device.
 /// This script will run on a ZTP server and instructs the
 /// EOS device to load a bootstrap configuration from an attached USB.
