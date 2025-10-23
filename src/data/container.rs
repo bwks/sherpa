@@ -1,9 +1,23 @@
+use clap::ValueEnum;
+
+use serde_derive::{Deserialize, Serialize};
+
 use crate::core::konst::{
     CONTAINER_DHCP4_NAME, CONTAINER_DHCP4_REPO, CONTAINER_DHCP4_VERSION, CONTAINER_DNS_NAME,
     CONTAINER_DNS_REPO, CONTAINER_DNS_VERSION, CONTAINER_TFTPD_NAME, CONTAINER_TFTPD_REPO,
     CONTAINER_TFTPD_VERSION, CONTAINER_WEBDIR_NAME, CONTAINER_WEBDIR_REPO,
     CONTAINER_WEBDIR_VERSION,
 };
+
+#[derive(PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[serde(rename_all = "snake_case")]
+#[clap(rename_all = "snake_case")]
+pub enum ContainerModel {
+    Tftpd,
+    Webdir,
+    Dns,
+    Dhcp4,
+}
 
 pub struct ContainerImage {
     pub name: String,

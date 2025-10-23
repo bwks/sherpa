@@ -7,8 +7,8 @@ use ipnetwork::Ipv4Network;
 use serde_derive::{Deserialize, Serialize};
 
 use crate::core::konst::{
-    QEMU_BIN, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
+    QEMU_BIN, SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_CONTAINERS_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 use crate::data::{DeviceModel, VmProviders};
 use crate::util::{create_file, expand_path};
@@ -52,6 +52,9 @@ pub struct Config {
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub management_prefix_ipv4: Ipv4Network,
+    pub boxes_dir: String,
+    pub containers_dir: String,
+    pub bins_dir: String,
     pub ztp_server: ZtpServer,
     pub inventory_management: InventoryManagement,
     pub device_models: Vec<DeviceModel>,
@@ -94,10 +97,17 @@ impl Default for Config {
             password: Some(SHERPA_PASSWORD.to_owned()),
         };
 
+        let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"));
+        let containers_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
+        let bins_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}"));
+
         Config {
             name: SHERPA_CONFIG_FILE.to_owned(),
             vm_provider: VmProviders::default(),
             qemu_bin: QEMU_BIN.to_owned(),
+            boxes_dir,
+            containers_dir,
+            bins_dir,
             device_models,
             management_prefix_ipv4: mgmt_prefix_ipv4,
             inventory_management: InventoryManagement::default(),
@@ -127,6 +137,8 @@ pub struct Sherpa {
     pub config_dir: String,
     pub config_path: String,
     pub boxes_dir: String,
+    pub container_dir: String,
+    pub bins_dir: String,
 }
 
 impl Default for Sherpa {
@@ -134,10 +146,14 @@ impl Default for Sherpa {
         let config_dir = expand_path(SHERPA_CONFIG_DIR);
         let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"));
         let config_path = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}"));
+        let container_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
+        let bins_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}"));
         Self {
             config_dir,
             config_path,
             boxes_dir,
+            container_dir,
+            bins_dir,
         }
     }
 }

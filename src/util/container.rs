@@ -10,12 +10,13 @@ use oci_client::{
 };
 use std::{fs::File, io::Write};
 
-use super::file_system::{create_dir, dir_exists};
 use crate::core::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
+use crate::core::Config;
 use crate::data::ContainerImage;
+use crate::util::{create_dir, dir_exists};
 
 /// Pull down a container image from an OCI compliant Repository.
-pub async fn pull_container_image(image: &ContainerImage) -> Result<()> {
+pub async fn pull_container_image(config: &Config, image: &ContainerImage) -> Result<()> {
     let client = Client::new(ClientConfig {
         protocol: ClientProtocol::Https,
         ..Default::default()
@@ -55,7 +56,7 @@ pub async fn pull_container_image(image: &ContainerImage) -> Result<()> {
     );
 
     // Save all layers into one compressed tarball
-    let tar_path = &format!("{}.tar.gz", image.name);
+    let tar_path = &format!("{}/{}.tar.gz", config.containers_dir, image.name);
     let file = File::create(tar_path)?;
     let mut encoder = GzEncoder::new(file, Compression::default());
 

@@ -1,22 +1,14 @@
 use anyhow::{bail, Result};
 use clap::Subcommand;
 
-use flate2::{write::GzEncoder, Compression};
-use oci_client::{
-    client::{Client, ClientConfig, ClientProtocol},
-    secrets::RegistryAuth,
-    Reference,
-};
-use std::{fs::File, io::Write};
-
 use crate::core::konst::{
     CONTAINER_DHCP4_REPO, CONTAINER_DISK_NAME, CONTAINER_DNS_REPO, CONTAINER_IMAGE_NAME,
     CONTAINER_TFTPD_REPO, CONTAINER_WEBDIR_REPO, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
     SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
     SHERPA_BLANK_DISK_EXT4_5G, TEMP_DIR,
 };
-use crate::core::Sherpa;
-use crate::data::{ContainerImage, DeviceModels};
+use crate::core::{Config, Sherpa};
+use crate::data::{ContainerImage, ContainerModel, DeviceModels};
 use crate::util::{
     check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
     dir_exists, file_exists, fix_permissions_recursive, pull_container_image, save_container_image,
@@ -24,18 +16,26 @@ use crate::util::{
 };
 
 #[derive(Debug, Subcommand)]
+#[group(
+    id = "image_selector",
+    args = ["name", "model"],
+    required = true
+)]
 pub enum ContainerCommands {
     /// Pull a container image from an image hosting service.
     Pull {
         /// Image name - srlinux
+        #[arg(short, long, requires_all = ["repo", "version"])]
+        name: Option<String>,
+        /// Image Repository - ghcr.io/nokia/srlinux
         #[arg(short, long)]
-        name: String,
-        //// Image Repository - ghcr.io/nokia/srlinux
-        #[arg(short, long)]
-        repo: String,
+        repo: Option<String>,
         /// Image version - 1.2.3
         #[arg(short, long)]
-        version: String,
+        version: Option<String>,
+        #[arg(short, long)]
+        /// Container Model
+        model: Option<ContainerModel>,
     },
     /// Import a local container image as a Sherpa box.
     Import {
@@ -55,18 +55,31 @@ pub enum ContainerCommands {
 }
 
 pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -> Result<()> {
+    let config = Config::load(&sherpa.config_path)?;
     match commands {
         ContainerCommands::Pull {
             name,
             repo,
             version,
+            model,
         } => {
-            let image = ContainerImage {
-                name: name.to_owned(),
-                repo: repo.to_owned(),
-                version: version.to_owned(),
+            let container_image = match model {
+                Some(model) => match model {
+                    ContainerModel::Tftpd => ContainerImage::tftpd(),
+                    ContainerModel::Webdir => ContainerImage::webdir(),
+                    ContainerModel::Dns => ContainerImage::dns(),
+                    ContainerModel::Dhcp4 => ContainerImage::dhcp4(),
+                },
+                None => ContainerImage {
+                    // These values should always be set if
+                    // model was not provided as an argument.
+                    name: name.clone().unwrap().to_owned(),
+                    repo: repo.clone().unwrap().to_owned(),
+                    version: version.clone().unwrap().to_owned(),
+                },
             };
-            pull_container_image(&image).await?;
+
+            pull_container_image(&config, &container_image).await?;
         }
         ContainerCommands::Import {
             image,

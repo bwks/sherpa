@@ -35,6 +35,8 @@ pub fn init(
         Config::load(&sherpa.config_path)?
     } else {
         create_dir(&sherpa.config_dir)?;
+        create_dir(&format!("{}", sherpa.container_dir,))?;
+        create_dir(&format!("{}", sherpa.bins_dir,))?;
         create_dir(&sherpa.boxes_dir)?;
         // box directories
         let config = Config::default();
@@ -44,6 +46,7 @@ pub fn init(
                 sherpa.boxes_dir, device_model.name
             ))?;
         }
+
         config
     };
 
