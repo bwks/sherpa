@@ -856,8 +856,9 @@ pub fn up(
                             let file_contents = load_file(file.source.as_str())?;
                             Ok(IgnitionUnit {
                                 name: file.name.clone(),
-                                enabled: file.enabled,
-                                contents: file_contents,
+                                enabled: Some(file.enabled),
+                                contents: Some(file_contents),
+                                ..Default::default()
                             })
                         })
                         .collect::<Result<Vec<IgnitionUnit>>>()?;

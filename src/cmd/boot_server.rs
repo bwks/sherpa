@@ -18,7 +18,8 @@ use crate::libvirt::DomainTemplate;
 use crate::template::{
     arista_veos_ztp_script, juniper_vevolved_ztp_script, ArubaAoscxTemplate, CiscoIosXeZtpTemplate,
     CiscoIosvZtpTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    File as IgnitionFile, IgnitionConfig, Unit as IgnitionUnit, User as IgnitionUser,
+    File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, Unit as IgnitionUnit,
+    User as IgnitionUser,
 };
 use crate::util::{
     base64_encode, create_dir, create_file, get_ip, pub_ssh_key_to_md5_hash, term_msg_underline,
@@ -203,6 +204,10 @@ pub fn create_boot_server(
             sudo_config_file,
             hostname_file,
             // ztp_interface,
+            IgnitionFile::disable_updates(),
+            IgnitionFile::docker_compose_raw(),
+            IgnitionFile::docker_compose_conf(),
+            IgnitionFile::systemd_noop(),
             arista_ztp_file,
             aruba_ztp_file,
             cumulus_ztp_file,
@@ -210,8 +215,10 @@ pub fn create_boot_server(
             iosv_ztp_file,
             juniper_vjunos_ztp_file,
         ],
-        vec![],
+        vec![IgnitionLink::docker_compose_raw()],
         vec![
+            IgnitionUnit::systemd_update_timer(),
+            IgnitionUnit::systemd_update_service(),
             unit_webdir,
             unit_tftp,
             // srlinux_unit

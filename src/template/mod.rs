@@ -22,7 +22,7 @@ pub use crate::template::cisco_nxos::CiscoNxosZtpTemplate;
 pub use crate::template::cloud_init::{CloudInitConfig, CloudInitUser};
 pub use crate::template::cumulus_linux::CumulusLinuxZtpTemplate;
 pub use crate::template::ignition::{
-    Contents, File, FileParams, FileSystem, IgnitionConfig, Unit, User,
+    Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User,
 };
 pub use crate::template::juniper_junos::{juniper_vevolved_ztp_script, JunipervJunosZtpTemplate};
 pub use crate::template::pyats::PyatsInventory;

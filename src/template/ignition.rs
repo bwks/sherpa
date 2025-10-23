@@ -3,9 +3,12 @@ use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
-use crate::core::konst::{HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4, TFTP_PORT};
+use crate::core::konst::{
+    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    SHERPA_MANAGEMENT_VM_IPV4_INDEX, TFTP_PORT,
+};
 use crate::data::ManagementNetwork;
-use crate::util::{base64_encode, get_ipv4_network};
+use crate::util::base64_encode;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -160,9 +163,40 @@ impl File {
     pub fn disable_updates() -> Self {
         Self {
             path: "/etc/flatcar/update.conf".to_owned(),
-            mode: 272,
+            mode: 644,
             overwrite: Some(true),
             contents: Contents::new("data:,REBOOT_STRATEGY%3Doff%0A"),
+            ..Default::default()
+        }
+    }
+    pub fn docker_compose_raw() -> Self {
+        Self {
+            path: format!("/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new(
+                &format!("https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"),
+            ),
+            ..Default::default()
+        }
+    }
+    pub fn docker_compose_conf() -> Self {
+        Self {
+            path: "/etc/sysupdate.docker-compose.d/docker-compose.conf".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new(
+                "https://extensions.flatcar.org/extensions/docker-compose.conf",
+            ),
+            ..Default::default()
+        }
+    }
+    pub fn systemd_noop() -> Self {
+        Self {
+            path: "/etc/sysupdate.d/noop.conf".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new("https://extensions.flatcar.org/extensions/noop.conf"),
             ..Default::default()
         }
     }
@@ -175,7 +209,7 @@ Name=eth0
 [Network]
 Address={}/{}
 Gateway={}"#,
-            mgmt_net.get_ip(5)?,
+            mgmt_net.get_ip(SHERPA_MANAGEMENT_VM_IPV4_INDEX)?,
             mgmt_net.prefix_length,
             mgmt_net.gateway_ip
         );
@@ -202,16 +236,18 @@ pub struct Link {
     pub hard: bool,
     pub overwrite: bool,
 }
-// impl Default for Link {
-//     fn default() -> Self {
-//         Self {
-//             path: "/etc/systemd/system/multi-user.target.wants/docker.service".to_owned(),
-//             target: "/usr/lib/systemd/system/docker.service".to_owned(),
-//             hard: false,
-//             overwrite: true,
-//         }
-//     }
-// }
+impl Link {
+    pub fn docker_compose_raw() -> Self {
+        Self {
+            path: "/etc/extensions/docker-compose.raw".to_owned(),
+            target: format!(
+                "/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
+            ),
+            hard: false,
+            overwrite: true,
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Contents {
@@ -233,38 +269,54 @@ impl Contents {
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Verification {}
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Clone, Deserialize, Debug, Default)]
+pub struct Dropin {
+    name: String,
+    contents: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct Unit {
     pub name: String,
-    pub enabled: bool,
-    pub contents: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contents: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dropins: Option<Vec<Dropin>>,
 }
 
 impl Unit {
-    pub fn ztp_interface() -> Result<Self> {
-        let ztp_netowrk = get_ipv4_network(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
-        let ip = format!("{}/{}", ztp_netowrk.nth(5).unwrap(), ztp_netowrk.prefix());
-        let gateway = ztp_netowrk.nth(1).unwrap();
-        let contents = format!(
-            r#"[Match]
-Name=eth0
-
-[Network]
-Address={ip}
-Gateway={gateway}"#
-        );
-        Ok(Self {
-            name: "00-eth0.network".to_owned(),
-            enabled: true,
-            contents: contents,
-        })
+    pub fn systemd_update_timer() -> Self {
+        Self {
+            name: "systemd-sysupdate.timer".to_owned(),
+            enabled: Some(true),
+            ..Default::default()
+        }
     }
-
+    pub fn systemd_update_service() -> Self {
+        Self {
+            name: "systemd-sysupdate.service".to_owned(),
+            dropins: Some(vec![
+                Dropin {
+                    name: "docker-compose.conf".to_owned(),
+                    contents: r#"[Service]
+ExecStartPre=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/docker-compose.raw > /tmp/docker-compose"
+ExecStartPre=/usr/lib/systemd/systemd-sysupdate -C docker-compose update
+ExecStartPost=/usr/bin/sh -c "readlink --canonicalize /etc/extensions/docker-compose.raw > /tmp/docker-compose-new"
+ExecStartPost=/usr/bin/sh -c "if ! cmp --silent /tmp/docker-compose /tmp/docker-compose-new; then touch /run/reboot-required; fi"
+"#.to_owned(),
+                }
+            ]),
+            ..Default::default()
+        }
+    }
     pub fn mount_container_disk() -> Self {
         Self {
             name: "media-container.mount".to_owned(),
-            enabled: true,
-            contents: r#"[Unit]
+            enabled: Some(true),
+            contents: Some(
+                r#"[Unit]
 Before=local-fs.target
 
 [Mount]
@@ -275,22 +327,24 @@ Type=ext4
 [Install]
 WantedBy=local-fs.target
 "#
-            .to_owned(),
+                .to_owned(),
+            ),
+            ..Default::default()
         }
     }
     pub fn webdir() -> Self {
         Self {
             name: "webdir.service".to_owned(),
-            enabled: true,
-            contents: format!(r#"[Unit]
+            enabled: Some(true),
+            contents: Some(format!(r#"[Unit]
 Description=WebDir
-After=docker.service
-Requires=docker.service
+After=containerd.service
+Requires=containerd.service
 
 [Service]
 TimeoutStartSec=infinity
 ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/westart ceos
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -298,17 +352,18 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-"#).to_owned(),
+"#).to_owned()),
+            ..Default::default()
         }
     }
     pub fn tftpd() -> Self {
         Self {
             name: "tftpd.service".to_owned(),
-            enabled: true,
-            contents: format!(r#"[Unit]
+            enabled: Some(true),
+            contents: Some(format!(r#"[Unit]
 Description=TFTPd
-After=docker.service
-Requires=docker.service
+After=containerd.service
+Requires=containerd.service
 
 [Service]
 TimeoutStartSec=infinity
@@ -321,39 +376,18 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-"#).to_owned(),
-        }
-    }
-    pub fn kubectl() -> Self {
-        Self {
-            name: "kubectl-install.service".to_owned(),
-            enabled: true,
-            contents: format!(
-                r#"[Unit]
-Description=Download and Install kubectl binary
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/bin/curl -L -o /opt/bin/kubectl https://dl.k8s.io/release/v1.33.2/bin/linux/amd64/kubectl
-ExecStartPost=/usr/bin/chmod +x /opt/bin/kubectl
-
-[Install]
-WantedBy=multi-user.target
-"#
-            )
-            .to_owned(),
+"#).to_owned()),
+            ..Default::default()
         }
     }
     pub fn srlinux() -> Self {
         Self {
             name: "srlinux.service".to_owned(),
-            enabled: true,
-            contents: r#"[Unit]
+            enabled: Some(true),
+            contents: Some(r#"[Unit]
 Description=srlinux
-After=media-container.mount docker.service
-Requires=media-container.mount docker.service
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
@@ -366,17 +400,18 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-"#.to_owned(),
+"#.to_owned()),
+            ..Default::default()
         }
     }
     pub fn ceos() -> Self {
         Self {
             name: "ceos.service".to_owned(),
-            enabled: true,
-            contents: r#"[Unit]
+            enabled: Some(true),
+            contents: Some(r#"[Unit]
 Description=ceos
-After=media-container.mount docker.service
-Requires=media-container.mount docker.service
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
@@ -391,22 +426,15 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 "#
-            .to_owned(),
+            .to_owned()),
+            ..Default::default()
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Systemd {
     units: Vec<Unit>,
-}
-
-impl Default for Systemd {
-    fn default() -> Self {
-        Self {
-            units: vec![Unit::webdir(), Unit::tftpd()],
-        }
-    }
 }
 
 /// Convert a unix octal permission mode (base 8) to it'd decimal equivalent (base 10).

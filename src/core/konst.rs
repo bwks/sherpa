@@ -20,6 +20,7 @@ pub const SHERPA_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/sherpa";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE: &str = "sherpa-br0";
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: &str = "192.168.128.0/22";
+pub const SHERPA_MANAGEMENT_VM_IPV4_INDEX: u32 = 5;
 pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-blackhole";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
 pub const SHERPA_USERNAME: &str = "sherpa";
@@ -90,6 +91,8 @@ pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
+
+pub const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
 
 pub const CONTAINER_IMAGE_NAME: &str = "image.tar.gz";
 pub const CONTAINER_DISK_NAME: &str = "disk.img";
