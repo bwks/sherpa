@@ -10,7 +10,7 @@ use crate::core::konst::{
     QEMU_BIN, SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
     SHERPA_CONTAINERS_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
-use crate::data::{DeviceModel, VmProviders};
+use crate::data::{ContainerImage, DeviceModel, VmProviders};
 use crate::util::{create_file, expand_path};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -58,10 +58,18 @@ pub struct Config {
     pub ztp_server: ZtpServer,
     pub inventory_management: InventoryManagement,
     pub device_models: Vec<DeviceModel>,
+    pub container_images: Vec<ContainerImage>,
 }
 
 impl Default for Config {
     fn default() -> Self {
+        let container_images: Vec<ContainerImage> = vec![
+            ContainerImage::dhcp4(),
+            ContainerImage::dns(),
+            ContainerImage::tftpd(),
+            ContainerImage::webdir(),
+            ContainerImage::srlinux(),
+        ];
         let device_models: Vec<DeviceModel> = vec![
             DeviceModel::arista_veos(),
             DeviceModel::arista_ceos(),
@@ -109,6 +117,7 @@ impl Default for Config {
             containers_dir,
             bins_dir,
             device_models,
+            container_images,
             management_prefix_ipv4: mgmt_prefix_ipv4,
             inventory_management: InventoryManagement::default(),
             ztp_server,
@@ -137,7 +146,7 @@ pub struct Sherpa {
     pub config_dir: String,
     pub config_path: String,
     pub boxes_dir: String,
-    pub container_dir: String,
+    pub containers_dir: String,
     pub bins_dir: String,
 }
 
@@ -146,13 +155,13 @@ impl Default for Sherpa {
         let config_dir = expand_path(SHERPA_CONFIG_DIR);
         let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"));
         let config_path = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}"));
-        let container_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
+        let containers_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
         let bins_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}"));
         Self {
             config_dir,
             config_path,
             boxes_dir,
-            container_dir,
+            containers_dir,
             bins_dir,
         }
     }

@@ -111,3 +111,6 @@ pub const CONTAINER_DNS_VERSION: &str = "13.6.0";
 pub const CONTAINER_DHCP4_NAME: &str = "kea-dhcp4";
 pub const CONTAINER_DHCP4_REPO: &str = "docker.cloudsmith.io/isc/docker/kea-dhcp4";
 pub const CONTAINER_DHCP4_VERSION: &str = "3.1.2";
+pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
+pub const CONTAINER_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
+pub const CONTAINER_SRLINUX_VERSION: &str = "23.10.8";

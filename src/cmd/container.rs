@@ -69,6 +69,7 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
                     ContainerModel::Webdir => ContainerImage::webdir(),
                     ContainerModel::Dns => ContainerImage::dns(),
                     ContainerModel::Dhcp4 => ContainerImage::dhcp4(),
+                    ContainerModel::Srlinux => ContainerImage::srlinux(),
                 },
                 None => ContainerImage {
                     // These values should always be set if
