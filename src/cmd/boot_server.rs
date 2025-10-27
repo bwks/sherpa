@@ -4,9 +4,9 @@ use askama::Template;
 use crate::core::konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, MTU_JUMBO_INT,
-    SHERPA_PASSWORD_HASH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_JSON,
+    CONTAINER_DISK_NAME, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT,
+    MTU_JUMBO_INT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_PASSWORD_HASH,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
@@ -18,11 +18,13 @@ use crate::libvirt::DomainTemplate;
 use crate::template::{
     arista_veos_ztp_script, juniper_vevolved_ztp_script, ArubaAoscxTemplate, CiscoIosXeZtpTemplate,
     CiscoIosvZtpTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    File as IgnitionFile, IgnitionConfig, Link as IgnitionLink, Unit as IgnitionUnit,
-    User as IgnitionUser,
+    File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
+use crate::topology::BinaryFile;
 use crate::util::{
-    base64_encode, create_dir, create_file, get_ip, pub_ssh_key_to_md5_hash, term_msg_underline,
+    base64_encode, copy_file, copy_to_ext4_image, create_dir, create_file, get_ip,
+    pub_ssh_key_to_md5_hash, term_msg_underline,
 };
 
 pub fn create_ztp_files(sherpa_user: &User, dns: &Dns) -> Result<ZtpTemplates> {
@@ -140,11 +142,13 @@ pub fn create_boot_server(
         contents: IgnitionFileContents::new(&format!("data:,{BOOT_SERVER_NAME}")),
         ..Default::default()
     };
+    let container_disk = IgnitionFileSystem::default();
+
     // let ztp_interface = IgnitionFile::ztp_interface()?;
     let unit_webdir = IgnitionUnit::webdir();
     let unit_tftp = IgnitionUnit::tftpd();
     let _srlinux_unit = IgnitionUnit::srlinux();
-
+    let container_disk_mount = IgnitionUnit::mount_container_disk();
     // files
     let sudo_config_base64 = base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
     let sudo_config_file = IgnitionFile {
@@ -221,9 +225,10 @@ pub fn create_boot_server(
             IgnitionUnit::systemd_update_service(),
             unit_webdir,
             unit_tftp,
+            container_disk_mount,
             // srlinux_unit
         ],
-        vec![],
+        vec![container_disk],
     );
     let flatcar_config = ignition_config.to_json_pretty()?;
     let src_ztp_file = format!("{dir}/{ZTP_JSON}");
@@ -250,15 +255,57 @@ pub fn create_boot_server(
         src: src_boot_disk,
         dst: dst_boot_disk.clone(),
     });
+    // Copy a blank disk to to .tmp directory
+    let src_data_disk = format!(
+        "{}/{}/{}",
+        &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M
+    );
+    let dst_disk = format!("{dir}/{boot_server_name}-{CONTAINER_DISK_NAME}");
 
-    let device_disks: Vec<DeviceDisk> = vec![DeviceDisk {
-        disk_device: DiskDevices::File,
-        driver_name: DiskDrivers::Qemu,
-        driver_format: DiskFormats::Qcow2,
-        src_file: dst_boot_disk.clone(),
-        target_dev: DiskTargets::target(&DiskBuses::Sata, 0)?,
-        target_bus: DiskBuses::Sata,
-    }];
+    copy_file(&src_data_disk, &dst_disk)?;
+
+    // let disk_files: Vec<&str> = manifest_binary_disk_files
+    //     .iter()
+    //     .map(|x| x.source.as_str())
+    //     .collect();
+
+    let disk_files = vec![
+        "/home/bradmin/.sherpa/containers/kea-dhcp4.tar.gz",
+        "/home/bradmin/.sherpa/containers/dns-server.tar.gz",
+        "/home/bradmin/.sherpa/containers/tftpd.tar.gz",
+        "/home/bradmin/.sherpa/containers/webdir.tar.gz",
+    ];
+    // Copy to container image into the container disk
+    copy_to_ext4_image(disk_files, &dst_disk, "/")?;
+
+    let src_config_disk = Some(dst_disk.to_owned());
+    let dst_config_disk = Some(format!(
+        "{SHERPA_STORAGE_POOL_PATH}/{boot_server_name}-{CONTAINER_DISK_NAME}"
+    ));
+
+    copy_disks.push(CloneDisk {
+        src: src_config_disk.unwrap(),
+        dst: dst_config_disk.clone().unwrap(),
+    });
+
+    let device_disks: Vec<DeviceDisk> = vec![
+        DeviceDisk {
+            disk_device: DiskDevices::File,
+            driver_name: DiskDrivers::Qemu,
+            driver_format: DiskFormats::Qcow2,
+            src_file: dst_boot_disk.clone(),
+            target_dev: DiskTargets::target(&DiskBuses::Sata, 0)?,
+            target_bus: DiskBuses::Sata,
+        },
+        DeviceDisk {
+            disk_device: DiskDevices::File,
+            driver_name: DiskDrivers::Qemu,
+            driver_format: DiskFormats::Raw,
+            src_file: dst_config_disk.unwrap(),
+            target_dev: DiskTargets::target(&DiskBuses::Sata, 1)?,
+            target_bus: DiskBuses::Sata,
+        },
+    ];
 
     let domain = DomainTemplate {
         qemu_bin: config.qemu_bin.clone(),

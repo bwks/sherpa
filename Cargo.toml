@@ -26,10 +26,11 @@ toml_edit = "0.22.22"
 virt = { version = "0.4.1", features = ["qemu"] }
 
 # Containers
-oci-client = "0.15"
+# oci-client = "0.15"
+bollard = "0.19.3"
 
 # De/Compression
-flate2 = "1.0"
+async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 
 # Templates
 askama = "0.14.0"
@@ -42,7 +43,8 @@ petname = "2.0.2"
 
 # Async
 tokio = { version = "1.40.0", features = ["full"] }
-futures = "0.3.30"
+futures = "0.3.31"
+futures-util = "0.3.31"
 
 # File system
 shellexpand = "3.1.0"
