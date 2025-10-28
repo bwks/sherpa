@@ -147,6 +147,8 @@ pub fn create_boot_server(
     // let ztp_interface = IgnitionFile::ztp_interface()?;
     let unit_webdir = IgnitionUnit::webdir();
     let unit_tftp = IgnitionUnit::tftpd();
+    let unit_dhcp4 = IgnitionUnit::dhcp4();
+    let unit_dns = IgnitionUnit::dns();
     let _srlinux_unit = IgnitionUnit::srlinux();
     let container_disk_mount = IgnitionUnit::mount_container_disk();
     // files
@@ -225,6 +227,8 @@ pub fn create_boot_server(
             IgnitionUnit::systemd_update_service(),
             unit_webdir,
             unit_tftp,
+            unit_dhcp4,
+            unit_dns,
             container_disk_mount,
             // srlinux_unit
         ],

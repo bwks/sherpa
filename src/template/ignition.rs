@@ -332,19 +332,77 @@ WantedBy=local-fs.target
             ..Default::default()
         }
     }
+    pub fn dhcp4() -> Self {
+        Self {
+            name: "dhcp4.service".to_owned(),
+            enabled: Some(true),
+            contents: Some(
+                format!(
+                    r#"[Unit]
+Description=WebDir
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
+
+[Service]
+TimeoutStartSec=infinity
+ExecStartPre=/usr/bin/docker load -i /media/container/kea-dhcp4.tar.gz
+ExecStart=/usr/bin/docker container run --rm --name dhcp4-app docker.cloudsmith.io/isc/docker/kea-dhcp4
+ExecStop=/usr/bin/docker container stop dhcp4-app
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#
+                )
+                .to_owned(),
+            ),
+            ..Default::default()
+        }
+    }
+    pub fn dns() -> Self {
+        Self {
+            name: "dns.service".to_owned(),
+            enabled: Some(true),
+            contents: Some(
+                format!(
+                    r#"[Unit]
+Description=WebDir
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
+
+[Service]
+TimeoutStartSec=infinity
+ExecStartPre=/usr/bin/docker load -i /media/container/dns-server.tar.gz
+ExecStart=/usr/bin/docker container run --rm --name dns-app -p 5353:5353 technitium/dns-server
+ExecStop=/usr/bin/docker container stop dns-app
+
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+"#
+                )
+                .to_owned(),
+            ),
+            ..Default::default()
+        }
+    }
     pub fn webdir() -> Self {
         Self {
             name: "webdir.service".to_owned(),
             enabled: Some(true),
             contents: Some(format!(r#"[Unit]
 Description=WebDir
-After=containerd.service
-Requires=containerd.service
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/webdir:latest
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStartPre=/usr/bin/docker load -i /media/container/webdir.tar.gz
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -362,12 +420,12 @@ WantedBy=multi-user.target
             enabled: Some(true),
             contents: Some(format!(r#"[Unit]
 Description=TFTPd
-After=containerd.service
-Requires=containerd.service
+After=media-container.mount containerd.service
+Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker image pull ghcr.io/bwks/tftpd:latest
+ExecStartPre=/usr/bin/docker load -i /media/container/tftpd.tar.gz
 ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p {TFTP_PORT}:{TFTP_PORT}/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
 ExecStop=/usr/bin/docker container stop tftpd-app
 
