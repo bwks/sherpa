@@ -160,6 +160,15 @@ pub struct File {
 }
 
 impl File {
+    pub fn disable_resolved() -> Self {
+        Self {
+            path: "/etc/systemd/resolved.conf".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new("data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg=="),
+            ..Default::default()
+        }
+    }
     pub fn disable_updates() -> Self {
         Self {
             path: "/etc/flatcar/update.conf".to_owned(),
@@ -281,12 +290,22 @@ pub struct Unit {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub mask: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub contents: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dropins: Option<Vec<Dropin>>,
 }
 
 impl Unit {
+    pub fn systemd_resolved() -> Self {
+        Self {
+            name: "systemd-resolved.service".to_owned(),
+            enabled: Some(false),
+            mask: Some(true),
+            ..Default::default()
+        }
+    }
     pub fn systemd_update_timer() -> Self {
         Self {
             name: "systemd-sysupdate.timer".to_owned(),
@@ -339,7 +358,7 @@ WantedBy=local-fs.target
             contents: Some(
                 format!(
                     r#"[Unit]
-Description=WebDir
+Description=DHCP4
 After=media-container.mount containerd.service
 Requires=media-container.mount containerd.service
 
@@ -368,14 +387,16 @@ WantedBy=multi-user.target
             contents: Some(
                 format!(
                     r#"[Unit]
-Description=WebDir
+Description=DNS
 After=media-container.mount containerd.service
 Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
+ExecStartPre=/usr/bin/bash -c 'mkdir /opt/coredns/'
+ExecStartPre=/usr/bin/bash -c 'echo ".:53 {{ hosts {{ 192.168.128.10 arista01.arista.local 192.168.128.20 cisco01.cisco.local fallthrough }} forward . 1.1.1.1 8.8.8.8 log errors }}" > /opt/coredns/Corefile'
 ExecStartPre=/usr/bin/docker load -i /media/container/dns-server.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name dns-app -p 5353:5353 technitium/dns-server
+ExecStart=/usr/bin/docker container run --rm --name dns-app -p 53:53/tcp -p 53:53/udp -v /opt/coredns/Corefile:/Corefile coredns/coredns -conf /Corefile
 ExecStop=/usr/bin/docker container stop dns-app
 
 Restart=always
@@ -401,8 +422,9 @@ Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
+ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
 ExecStartPre=/usr/bin/docker load -i /media/container/webdir.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -420,8 +442,8 @@ WantedBy=multi-user.target
             enabled: Some(true),
             contents: Some(format!(r#"[Unit]
 Description=TFTPd
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
+After=media-container.mount containerd.service webdir.service
+Requires=media-container.mount containerd.service webdir.service
 
 [Service]
 TimeoutStartSec=infinity
