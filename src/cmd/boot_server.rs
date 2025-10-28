@@ -214,6 +214,7 @@ pub fn create_boot_server(
             IgnitionFile::disable_updates(),
             IgnitionFile::docker_compose_raw(),
             IgnitionFile::docker_compose_conf(),
+            IgnitionFile::coredns_corefile(),
             IgnitionFile::systemd_noop(),
             arista_ztp_file,
             aruba_ztp_file,

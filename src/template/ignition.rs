@@ -169,6 +169,7 @@ impl File {
             ..Default::default()
         }
     }
+
     pub fn disable_updates() -> Self {
         Self {
             path: "/etc/flatcar/update.conf".to_owned(),
@@ -235,6 +236,15 @@ Gateway={}"#,
                 name: "root".to_owned(),
             }),
         })
+    }
+    pub fn coredns_corefile() -> Self {
+        Self {
+            path: "/opt/coredns/Corefile".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new("data:text/plain;base64,Ljo1MyB7CiAgICBob3N0cyB7CiAgICAgICAgMTkyLjE2OC4xMjguMTAgYXJpc3RhMDEuYXJpc3RhLmxvY2FsCiAgICAgICAgMTkyLjE2OC4xMjguMjAgY2lzY28wMS5jaXNjby5sb2NhbAogICAgICAgIGZhbGx0aHJvdWdoCiAgICB9CiAgICBmb3J3YXJkIC4gMTkyLjE2OC4xMjguMQogICAgbG9nCiAgICBlcnJvcnMKfQo="),
+            ..Default::default()
+        }
     }
 }
 
@@ -393,8 +403,6 @@ Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/bash -c 'mkdir /opt/coredns/'
-ExecStartPre=/usr/bin/bash -c 'echo ".:53 {{ hosts {{ 192.168.128.10 arista01.arista.local 192.168.128.20 cisco01.cisco.local fallthrough }} forward . 1.1.1.1 8.8.8.8 log errors }}" > /opt/coredns/Corefile'
 ExecStartPre=/usr/bin/docker load -i /media/container/dns-server.tar.gz
 ExecStart=/usr/bin/docker container run --rm --name dns-app -p 53:53/tcp -p 53:53/udp -v /opt/coredns/Corefile:/Corefile coredns/coredns -conf /Corefile
 ExecStop=/usr/bin/docker container stop dns-app
