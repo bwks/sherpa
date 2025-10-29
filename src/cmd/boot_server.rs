@@ -21,7 +21,6 @@ use crate::template::{
     File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
     Unit as IgnitionUnit, User as IgnitionUser,
 };
-use crate::topology::BinaryFile;
 use crate::util::{
     base64_encode, copy_file, copy_to_ext4_image, create_dir, create_file, get_ip,
     pub_ssh_key_to_md5_hash, term_msg_underline,

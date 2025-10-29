@@ -26,5 +26,5 @@ pub use crate::cmd::import::import;
 pub use crate::cmd::init::init;
 pub use crate::cmd::inspect::inspect;
 pub use crate::cmd::resume::resume;
-pub use crate::cmd::ssh::ssh2;
+pub use crate::cmd::ssh::ssh;
 pub use crate::cmd::up::up;

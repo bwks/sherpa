@@ -5,7 +5,6 @@ mod disk;
 mod dns;
 mod interface;
 mod mapping;
-mod network;
 mod provider;
 mod ssh;
 mod user;
@@ -23,7 +22,6 @@ pub use crate::data::mapping::{
     BootServer, CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand,
     ZtpTemplates,
 };
-pub use crate::data::network::ManagementNetwork;
 pub use crate::data::provider::VmProviders;
 pub use crate::data::ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use crate::data::user::User;

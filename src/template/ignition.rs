@@ -3,12 +3,7 @@ use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
-use crate::core::konst::{
-    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_MANAGEMENT_VM_IPV4_INDEX, TFTP_PORT,
-};
-use crate::data::ManagementNetwork;
-use crate::util::base64_encode;
+use crate::core::konst::{DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -210,33 +205,33 @@ impl File {
             ..Default::default()
         }
     }
-    pub fn ztp_interface() -> Result<Self> {
-        let mgmt_net = ManagementNetwork::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
-        let contents = format!(
-            r#"[Match]
-Name=eth0
+    //     pub fn ztp_interface() -> Result<Self> {
+    //         let mgmt_net = ManagementNetwork::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
+    //         let contents = format!(
+    //             r#"[Match]
+    // Name=eth0
 
-[Network]
-Address={}/{}
-Gateway={}"#,
-            mgmt_net.get_ip(SHERPA_MANAGEMENT_VM_IPV4_INDEX)?,
-            mgmt_net.prefix_length,
-            mgmt_net.gateway_ip
-        );
-        let encoded_contents = base64_encode(&contents);
-        Ok(Self {
-            path: "/etc/systemd/network/00-eth0.network".to_owned(),
-            mode: 644,
-            overwrite: Some(true),
-            contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
-            user: Some(FileParams {
-                name: "root".to_owned(),
-            }),
-            group: Some(FileParams {
-                name: "root".to_owned(),
-            }),
-        })
-    }
+    // [Network]
+    // Address={}/{}
+    // Gateway={}"#,
+    //             mgmt_net.get_ip(SHERPA_MANAGEMENT_VM_IPV4_INDEX)?,
+    //             mgmt_net.prefix_length,
+    //             mgmt_net.gateway_ip
+    //         );
+    //     let encoded_contents = base64_encode(&contents);
+    //     Ok(Self {
+    //         path: "/etc/systemd/network/00-eth0.network".to_owned(),
+    //         mode: 644,
+    //         overwrite: Some(true),
+    //         contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
+    //         user: Some(FileParams {
+    //             name: "root".to_owned(),
+    //         }),
+    //         group: Some(FileParams {
+    //             name: "root".to_owned(),
+    //         }),
+    //     })
+    // }
     pub fn coredns_corefile() -> Self {
         Self {
             path: "/opt/coredns/Corefile".to_owned(),

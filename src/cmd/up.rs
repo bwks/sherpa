@@ -24,7 +24,7 @@ use crate::core::{Config, Sherpa};
 use crate::data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
-    ManagementNetwork, OsVariants, QemuCommand, SshPublicKey, User, ZtpMethods,
+    OsVariants, QemuCommand, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -35,12 +35,12 @@ use crate::template::{
     FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, PyatsInventory,
     SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
-use crate::topology::{AuthorizedKeyFile, BinaryFile, Device, Manifest, SystemdUnit, TextFile};
+use crate::topology::{Device, Manifest};
 use crate::util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, generate_ssh_keypair, get_ip,
-    get_ssh_public_key, id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
-    random_mac, tcp_connect, term_msg_surround, term_msg_underline,
+    create_config_archive, create_dir, create_file, create_ztp_iso, get_ip, get_ssh_public_key,
+    id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
+    tcp_connect, term_msg_surround, term_msg_underline,
 };
 use crate::validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -67,12 +67,6 @@ pub fn up(
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = Config::load(&sherpa.config_path)?;
-
-    let mgmt_net = ManagementNetwork::from_str(&format!(
-        "{}/{}",
-        &config.management_prefix_ipv4.network(),
-        &config.management_prefix_ipv4.prefix()
-    ))?;
 
     term_msg_underline("Validating Manifest");
 

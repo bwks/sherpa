@@ -3,7 +3,7 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 
 use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
-use crate::data::{DeviceModels, ManagementNetwork};
+use crate::data::DeviceModels;
 use crate::libvirt::{get_mgmt_ip, Qemu};
 use crate::topology::Device;
 use crate::util::{term_msg_surround, term_msg_underline};
