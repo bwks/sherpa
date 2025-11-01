@@ -125,7 +125,7 @@ impl NatNetwork {
 
           <ip address='{ipv4_address}' netmask='{ipv4_netmask}'>
             <dhcp>
-              <range start='{dhcp_start}' end='{dhcp_end}'>
+              <range start='{ztp_server_ipv4}' end='{ztp_server_ipv4}'>
                 <lease expiry='2' unit='minutes'/>
               </range>
               <host mac='{BOOT_SERVER_MAC}' name='{BOOT_SERVER_NAME}' ip='{ztp_server_ipv4}'/>

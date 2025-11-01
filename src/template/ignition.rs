@@ -1,9 +1,15 @@
 use anyhow::Result;
+use ipnetwork::Ipv4Network;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
-use crate::core::konst::{DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, TFTP_PORT};
+use crate::core::konst::{
+    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+};
+use crate::core::Config as SherpaConfig;
+use crate::util::base64_encode;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -205,39 +211,39 @@ impl File {
             ..Default::default()
         }
     }
-    //     pub fn ztp_interface() -> Result<Self> {
-    //         let mgmt_net = ManagementNetwork::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)?;
-    //         let contents = format!(
-    //             r#"[Match]
-    // Name=eth0
+    pub fn ztp_interface(config: &SherpaConfig) -> Result<Self> {
+        let mgmt_net = config.management_prefix_ipv4;
+        let contents = format!(
+            r#"[Match]
+Name=eth0
 
-    // [Network]
-    // Address={}/{}
-    // Gateway={}"#,
-    //             mgmt_net.get_ip(SHERPA_MANAGEMENT_VM_IPV4_INDEX)?,
-    //             mgmt_net.prefix_length,
-    //             mgmt_net.gateway_ip
-    //         );
-    //     let encoded_contents = base64_encode(&contents);
-    //     Ok(Self {
-    //         path: "/etc/systemd/network/00-eth0.network".to_owned(),
-    //         mode: 644,
-    //         overwrite: Some(true),
-    //         contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
-    //         user: Some(FileParams {
-    //             name: "root".to_owned(),
-    //         }),
-    //         group: Some(FileParams {
-    //             name: "root".to_owned(),
-    //         }),
-    //     })
-    // }
-    pub fn coredns_corefile() -> Self {
-        Self {
-            path: "/opt/coredns/Corefile".to_owned(),
+[Network]
+Address={}/{}
+Gateway={}"#,
+            mgmt_net.nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX).unwrap(),
+            mgmt_net.prefix(),
+            mgmt_net.nth(1).unwrap(),
+        );
+        let encoded_contents = base64_encode(&contents);
+        Ok(Self {
+            path: "/etc/systemd/network/00-eth0.network".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new("data:text/plain;base64,Ljo1MyB7CiAgICBob3N0cyB7CiAgICAgICAgMTkyLjE2OC4xMjguMTAgYXJpc3RhMDEuYXJpc3RhLmxvY2FsCiAgICAgICAgMTkyLjE2OC4xMjguMjAgY2lzY28wMS5jaXNjby5sb2NhbAogICAgICAgIGZhbGx0aHJvdWdoCiAgICB9CiAgICBmb3J3YXJkIC4gMTkyLjE2OC4xMjguMQogICAgbG9nCiAgICBlcnJvcnMKfQo="),
+            contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
+            user: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+            group: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+        })
+    }
+    pub fn dnsmasq_config() -> Self {
+        Self {
+            path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new("data:text/plain;base64,IyBMb2dnaW5nCmxvZy1xdWVyaWVzCmxvZy1kaGNwCmxvZy1mYWNpbGl0eT0vdmFyL2xvZy9kbnNtYXNxLmxvZwoKIyBESENQIHJhbmdlIGZvciB0aGUgc3VibmV0IChjdXN0b21pemUgdG8geW91ciBuZXR3b3JrKQpkaGNwLXJhbmdlPTE5Mi4xNjguMTI4LjEwLDE5Mi4xNjguMTI4LjI1NCwxbQoKIyBTZXQgZGVmYXVsdCBnYXRld2F5IChPcHRpb24gMykgYW5kIG9wdGlvbiAxNTAgKFRGVFAgc2VydmVyIElQKQpkaGNwLW9wdGlvbj0zLDE5Mi4xNjguMTI4LjEKZGhjcC1vcHRpb249MTUwLDE5Mi4xNjguMTI4LjUKCiMgSWdub3JlIGNsaWVudCBpZGVudGlmaWVyCmRoY3AtaWdub3JlLWNsaWQKCiMgRW5hYmxlIFRGVFAKZW5hYmxlLXRmdHAKdGZ0cC1yb290PS9vcHQvenRwCgojIERldmljZSAxIChNQUM6IEFBOkJCOkNDOkREOkVFOjAxKQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMSw2NiwxOTIuMTY4LjEyOC41CmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDY3LGh0dHA6Ly8xOTIuMTY4LjEyOC41OjgwODAvZGV2aWNlMV9ib290LnNoCmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDIzOSxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTFfY29uZmlnLnR4dAoKIyBEZXZpY2UgMiAoTUFDOiBBQTpCQjpDQzpERDpFRTowMikKZGhjcC1vcHRpb249QUE6QkI6Q0M6REQ6RUU6MDIsNjYsMTkyLjE2OC4xMjguNTo2OQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiw2NyxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTJfYm9vdC5zaApkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiwyMzksaHR0cDovLzE5Mi4xNjguMTI4LjU6ODA4MC9kZXZpY2UyX2NvbmZpZy50eHQ="),
             ..Default::default()
         }
     }
@@ -356,51 +362,26 @@ WantedBy=local-fs.target
             ..Default::default()
         }
     }
-    pub fn dhcp4() -> Self {
+    pub fn dnsmasq() -> Self {
         Self {
-            name: "dhcp4.service".to_owned(),
+            name: "dnsmasq.service".to_owned(),
             enabled: Some(true),
             contents: Some(
                 format!(
                     r#"[Unit]
-Description=DHCP4
+Description=dnsmasq
 After=media-container.mount containerd.service
 Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker load -i /media/container/kea-dhcp4.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name dhcp4-app docker.cloudsmith.io/isc/docker/kea-dhcp4
-ExecStop=/usr/bin/docker container stop dhcp4-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#
-                )
-                .to_owned(),
-            ),
-            ..Default::default()
-        }
-    }
-    pub fn dns() -> Self {
-        Self {
-            name: "dns.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(
-                format!(
-                    r#"[Unit]
-Description=DNS
-After=media-container.mount containerd.service
-Requires=media-container.mount containerd.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker load -i /media/container/dns-server.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name dns-app -p 53:53/tcp -p 53:53/udp -v /opt/coredns/Corefile:/Corefile coredns/coredns -conf /Corefile
-ExecStop=/usr/bin/docker container stop dns-app
+ExecStartPre=/usr/bin/mkdir -p /opt/ztp/dnsmasq
+ExecStartPre=/usr/bin/mkdir -p /opt/ztp/configs
+ExecStartPre=/usr/bin/mkdir -p /opt/ztp/images
+ExecStartPre=/usr/bin/touch /opt/ztp/dnsmasq/leases.txt
+ExecStartPre=/usr/bin/docker load -i /media/container/dnsmasq.tar.gz
+ExecStart=/usr/bin/docker container run --rm --name dnsmasq-app --network host -v /opt/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf -v /opt/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases -v /opt/ztp/configs:/opt/ztp --cap-add=NET_ADMIN dockurr/dnsmasq
+ExecStop=/usr/bin/docker container stop dnsmasq-app
 
 Restart=always
 RestartSec=5s
@@ -427,32 +408,8 @@ Requires=media-container.mount containerd.service
 TimeoutStartSec=infinity
 ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
 ExecStartPre=/usr/bin/docker load -i /media/container/webdir.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name webdir-app -p {HTTP_PORT}:{HTTP_PORT} -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app --network host -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
-
-Restart=always
-RestartSec=5s
-
-[Install]
-WantedBy=multi-user.target
-"#).to_owned()),
-            ..Default::default()
-        }
-    }
-    pub fn tftpd() -> Self {
-        Self {
-            name: "tftpd.service".to_owned(),
-            enabled: Some(true),
-            contents: Some(format!(r#"[Unit]
-Description=TFTPd
-After=media-container.mount containerd.service webdir.service
-Requires=media-container.mount containerd.service webdir.service
-
-[Service]
-TimeoutStartSec=infinity
-ExecStartPre=/usr/bin/docker load -i /media/container/tftpd.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name tftpd-app -p {TFTP_PORT}:{TFTP_PORT}/udp -v /opt/ztp:/opt/ztp ghcr.io/bwks/tftpd
-ExecStop=/usr/bin/docker container stop tftpd-app
 
 Restart=always
 RestartSec=5s

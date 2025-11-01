@@ -46,6 +46,9 @@ tokio = { version = "1.40.0", features = ["full"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
 
+# http client
+reqwest = "0.11.27"
+
 # File system
 shellexpand = "3.1.0"
 

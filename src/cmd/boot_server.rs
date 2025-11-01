@@ -143,11 +143,9 @@ pub fn create_boot_server(
     };
     let container_disk = IgnitionFileSystem::default();
 
-    // let ztp_interface = IgnitionFile::ztp_interface()?;
+    let ztp_interface = IgnitionFile::ztp_interface(&config)?;
     let unit_webdir = IgnitionUnit::webdir();
-    let unit_tftp = IgnitionUnit::tftpd();
-    let unit_dhcp4 = IgnitionUnit::dhcp4();
-    let unit_dns = IgnitionUnit::dns();
+    let unit_dnsmasq = IgnitionUnit::dnsmasq();
     let _srlinux_unit = IgnitionUnit::srlinux();
     let container_disk_mount = IgnitionUnit::mount_container_disk();
     // files
@@ -213,7 +211,7 @@ pub fn create_boot_server(
             IgnitionFile::disable_updates(),
             IgnitionFile::docker_compose_raw(),
             IgnitionFile::docker_compose_conf(),
-            IgnitionFile::coredns_corefile(),
+            IgnitionFile::dnsmasq_config(),
             IgnitionFile::systemd_noop(),
             arista_ztp_file,
             aruba_ztp_file,
@@ -228,9 +226,7 @@ pub fn create_boot_server(
             IgnitionUnit::systemd_update_timer(),
             IgnitionUnit::systemd_update_service(),
             unit_webdir,
-            unit_tftp,
-            unit_dhcp4,
-            unit_dns,
+            unit_dnsmasq,
             container_disk_mount,
             // srlinux_unit
         ],
@@ -277,8 +273,7 @@ pub fn create_boot_server(
 
     let disk_files = vec![
         "/home/bradmin/.sherpa/containers/kea-dhcp4.tar.gz",
-        "/home/bradmin/.sherpa/containers/dns-server.tar.gz",
-        "/home/bradmin/.sherpa/containers/tftpd.tar.gz",
+        "/home/bradmin/.sherpa/containers/dnsmasq.tar.gz",
         "/home/bradmin/.sherpa/containers/webdir.tar.gz",
     ];
     // Copy to container image into the container disk

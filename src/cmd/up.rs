@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use askama::Template;
+use reqwest;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -47,7 +48,7 @@ use crate::validate::{
     check_link_device, check_mgmt_usage,
 };
 
-pub fn up(
+pub async fn up(
     sherpa: &Sherpa,
     config_file: &str,
     qemu: &Qemu,
@@ -1188,6 +1189,15 @@ pub fn up(
         ztp_devices.push(&ztp_server);
     }
 
+    #[derive(Debug)]
+    struct Lease {
+        expiry: u64,
+        mac: String,
+        ip: String,
+        hostname: String,
+        client_id: String,
+    }
+
     // Check if VMs are ready
     term_msg_underline("Checking VM Readiness");
     let start_time = Instant::now();
@@ -1197,40 +1207,87 @@ pub fn up(
 
     while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
         for device in &ztp_devices {
+            let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
             if connected_devices.contains(&device.name) {
                 continue;
-            }
-
-            let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
-            let device_model = config
-                .device_models
-                .iter()
-                .find(|d| d.name == device.model)
-                .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
-            let ssh_port = match device_model.name {
-                DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
-                _ => SSH_PORT,
-            };
-
-            if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
-                match tcp_connect(&vm_ip, ssh_port)? {
-                    true => {
-                        println!("{} is ready", &device.name);
-                        let ip = vm_ip;
-                        connected_devices.insert(device.name.clone());
-                        device_ip_map.push(DeviceConnection {
-                            name: device.name.clone(),
-                            ip_address: ip,
-                            ssh_port,
-                        });
+            } else if device.name.contains("boot") {
+                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
+                    match tcp_connect(&vm_ip, 22)? {
+                        true => {
+                            println!("{} - Ready", &device.name);
+                            let ip = vm_ip;
+                            connected_devices.insert(device.name.clone());
+                            device_ip_map.push(DeviceConnection {
+                                name: device.name.clone(),
+                                ip_address: ip,
+                                ssh_port: 22,
+                            });
+                        }
+                        false => {
+                            println!("{} - Waiting for SSH", device.name);
+                        }
                     }
-                    false => {
-                        println!("Waiting for {}", device.name);
+                } else {
+                    println!("{} - Still booting.", device.name);
+                }
+            }
+            let url = "http://192.168.128.5:8080/dnsmasq/leases.txt";
+            // Attempt to fetch; if it fails, supply empty string instead
+            match reqwest::get(url).await {
+                Ok(response) => {
+                    let body = response.text().await.unwrap_or_default();
+                    let leases: Vec<Lease> = body
+                        .lines()
+                        .filter_map(|line| {
+                            let fields: Vec<&str> = line.split_whitespace().collect();
+                            if fields.len() == 5 {
+                                Some(Lease {
+                                    expiry: fields[0].parse().unwrap_or(0),
+                                    mac: fields[1].into(),
+                                    ip: fields[2].into(),
+                                    hostname: fields[3].into(),
+                                    client_id: fields[4].into(),
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+
+                    // println!("{:#?}", leases);
+
+                    let device_model = config
+                        .device_models
+                        .iter()
+                        .find(|d| d.name == device.model)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!("Device model not found: {}", device.model)
+                        })?;
+                    let ssh_port = match device_model.name {
+                        DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
+                        _ => SSH_PORT,
+                    };
+                    if let Some(vm_data) = leases.iter().find(|x| &x.hostname == &device.name) {
+                        match tcp_connect(&vm_data.ip, ssh_port)? {
+                            true => {
+                                println!("{} - Ready", &device.name);
+                                connected_devices.insert(device.name.clone());
+                                device_ip_map.push(DeviceConnection {
+                                    name: device.name.clone(),
+                                    ip_address: vm_data.ip.clone(),
+                                    ssh_port,
+                                });
+                            }
+                            false => {
+                                println!("{} - Waiting for SSH", device.name);
+                            }
+                        }
+                    } else {
+                        println!("{} - Still booting.", device.name);
                     }
                 }
-            } else {
-                println!("Waiting for {}", device.name);
-            }
+                Err(_) => println!("DHCP server not ready yet"), // Ignore error, fallback to empty string (or default content)
+            };
         }
 
         if connected_devices.len() < ztp_devices.len() {

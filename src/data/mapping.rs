@@ -11,6 +11,7 @@ use super::DiskTargets;
 pub struct DeviceConnection {
     pub name: String,
     pub ip_address: String,
+    // pub mac_address: String,
     pub ssh_port: u16,
 }
 

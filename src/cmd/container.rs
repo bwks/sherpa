@@ -64,10 +64,8 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
         } => {
             let container_image = match model {
                 Some(model) => match model {
-                    ContainerModel::Tftpd => ContainerImage::tftpd(),
                     ContainerModel::Webdir => ContainerImage::webdir(),
-                    ContainerModel::Dns => ContainerImage::dns(),
-                    ContainerModel::Dhcp4 => ContainerImage::dhcp4(),
+                    ContainerModel::Dnsmasq => ContainerImage::dnsmasq(),
                     ContainerModel::Srlinux => ContainerImage::srlinux(),
                 },
                 None => ContainerImage {

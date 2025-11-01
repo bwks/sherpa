@@ -137,7 +137,7 @@ impl Cli {
                 let lab_id = get_id()?;
                 let lab_name = manifest.name.clone();
 
-                up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest)?;
+                up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest).await?;
             }
             Commands::Down => {
                 let lab_id = get_id()?;

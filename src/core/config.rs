@@ -64,9 +64,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         let container_images: Vec<ContainerImage> = vec![
-            ContainerImage::dhcp4(),
-            ContainerImage::dns(),
-            ContainerImage::tftpd(),
+            ContainerImage::dnsmasq(),
             ContainerImage::webdir(),
             ContainerImage::srlinux(),
         ];
