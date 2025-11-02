@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use anyhow::Result;
 
-use crate::core::konst::{BOOT_SERVER_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4};
+use crate::core::{BOOT_SERVER_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4};
 use crate::util::{get_ipv4_addr, get_ipv4_network};
 
 #[derive(Clone)]

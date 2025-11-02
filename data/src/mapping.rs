@@ -1,10 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 
-pub use crate::libvirt::DomainTemplate;
+use crate::libvirt::DomainTemplate;
 
-pub use crate::data::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats};
-
-use super::DiskTargets;
+use super::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 
 #[derive(Clone, Debug)]
 // Device name to IP address mapping

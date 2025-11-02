@@ -4,11 +4,10 @@ use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
-use crate::core::konst::{
-    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+use crate::core::{
+    Config as SherpaConfig, DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_MANAGEMENT_VM_IPV4_INDEX,
 };
-use crate::core::Config as SherpaConfig;
 use crate::util::base64_encode;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -182,12 +181,14 @@ impl File {
     }
     pub fn docker_compose_raw() -> Self {
         Self {
-            path: format!("/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"),
+            path: format!(
+                "/opt/extensions/docker-compose/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
+            ),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new(
-                &format!("https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"),
-            ),
+            contents: Contents::new(&format!(
+                "https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
+            )),
             ..Default::default()
         }
     }
@@ -243,7 +244,9 @@ Gateway={}"#,
             path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new("data:text/plain;base64,IyBMb2dnaW5nCmxvZy1xdWVyaWVzCmxvZy1kaGNwCmxvZy1mYWNpbGl0eT0vdmFyL2xvZy9kbnNtYXNxLmxvZwoKIyBESENQIHJhbmdlIGZvciB0aGUgc3VibmV0IChjdXN0b21pemUgdG8geW91ciBuZXR3b3JrKQpkaGNwLXJhbmdlPTE5Mi4xNjguMTI4LjEwLDE5Mi4xNjguMTI4LjI1NCwxbQoKIyBTZXQgZGVmYXVsdCBnYXRld2F5IChPcHRpb24gMykgYW5kIG9wdGlvbiAxNTAgKFRGVFAgc2VydmVyIElQKQpkaGNwLW9wdGlvbj0zLDE5Mi4xNjguMTI4LjEKZGhjcC1vcHRpb249MTUwLDE5Mi4xNjguMTI4LjUKCiMgSWdub3JlIGNsaWVudCBpZGVudGlmaWVyCmRoY3AtaWdub3JlLWNsaWQKCiMgRW5hYmxlIFRGVFAKZW5hYmxlLXRmdHAKdGZ0cC1yb290PS9vcHQvenRwCgojIERldmljZSAxIChNQUM6IEFBOkJCOkNDOkREOkVFOjAxKQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMSw2NiwxOTIuMTY4LjEyOC41CmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDY3LGh0dHA6Ly8xOTIuMTY4LjEyOC41OjgwODAvZGV2aWNlMV9ib290LnNoCmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDIzOSxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTFfY29uZmlnLnR4dAoKIyBEZXZpY2UgMiAoTUFDOiBBQTpCQjpDQzpERDpFRTowMikKZGhjcC1vcHRpb249QUE6QkI6Q0M6REQ6RUU6MDIsNjYsMTkyLjE2OC4xMjguNTo2OQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiw2NyxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTJfYm9vdC5zaApkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiwyMzksaHR0cDovLzE5Mi4xNjguMTI4LjU6ODA4MC9kZXZpY2UyX2NvbmZpZy50eHQ="),
+            contents: Contents::new(
+                "data:text/plain;base64,IyBMb2dnaW5nCmxvZy1xdWVyaWVzCmxvZy1kaGNwCmxvZy1mYWNpbGl0eT0vdmFyL2xvZy9kbnNtYXNxLmxvZwoKIyBESENQIHJhbmdlIGZvciB0aGUgc3VibmV0IChjdXN0b21pemUgdG8geW91ciBuZXR3b3JrKQpkaGNwLXJhbmdlPTE5Mi4xNjguMTI4LjEwLDE5Mi4xNjguMTI4LjI1NCwxbQoKIyBTZXQgZGVmYXVsdCBnYXRld2F5IChPcHRpb24gMykgYW5kIG9wdGlvbiAxNTAgKFRGVFAgc2VydmVyIElQKQpkaGNwLW9wdGlvbj0zLDE5Mi4xNjguMTI4LjEKZGhjcC1vcHRpb249MTUwLDE5Mi4xNjguMTI4LjUKCiMgSWdub3JlIGNsaWVudCBpZGVudGlmaWVyCmRoY3AtaWdub3JlLWNsaWQKCiMgRW5hYmxlIFRGVFAKZW5hYmxlLXRmdHAKdGZ0cC1yb290PS9vcHQvenRwCgojIERldmljZSAxIChNQUM6IEFBOkJCOkNDOkREOkVFOjAxKQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMSw2NiwxOTIuMTY4LjEyOC41CmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDY3LGh0dHA6Ly8xOTIuMTY4LjEyOC41OjgwODAvZGV2aWNlMV9ib290LnNoCmRoY3Atb3B0aW9uPUFBOkJCOkNDOkREOkVFOjAxLDIzOSxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTFfY29uZmlnLnR4dAoKIyBEZXZpY2UgMiAoTUFDOiBBQTpCQjpDQzpERDpFRTowMikKZGhjcC1vcHRpb249QUE6QkI6Q0M6REQ6RUU6MDIsNjYsMTkyLjE2OC4xMjguNTo2OQpkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiw2NyxodHRwOi8vMTkyLjE2OC4xMjguNTo4MDgwL2RldmljZTJfYm9vdC5zaApkaGNwLW9wdGlvbj1BQTpCQjpDQzpERDpFRTowMiwyMzksaHR0cDovLzE5Mi4xNjguMTI4LjU6ODA4MC9kZXZpY2UyX2NvbmZpZy50eHQ=",
+            ),
             ..Default::default()
         }
     }

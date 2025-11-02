@@ -1,7 +1,6 @@
 use askama::Template;
 
-use crate::core::konst::ARUBA_ZTP_SCRIPT;
-use crate::core::konst::SHERPA_PASSWORD;
+use crate::core::{ARUBA_ZTP_SCRIPT, SHERPA_PASSWORD};
 use crate::data::{Dns, User};
 
 #[allow(dead_code)]

@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::core::konst::{SHERPA_CONFIG_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME};
+use crate::core::{SHERPA_CONFIG_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME};
 use crate::data::DeviceConnection;
 
 #[derive(Template)]

@@ -4,8 +4,8 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
-use crate::data::{CpuModels, DiskBuses, MgmtInterfaces};
+use super::{CpuModels, DiskBuses, MgmtInterfaces};
+use crate::core::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]

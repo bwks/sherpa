@@ -2,7 +2,7 @@
 
 use askama::Template;
 
-use crate::core::konst::JUNIPER_ZTP_CONFIG;
+use crate::core::JUNIPER_ZTP_CONFIG;
 use crate::data::User;
 
 pub fn juniper_vevolved_ztp_script() -> String {

@@ -9,8 +9,7 @@ use bollard::Docker;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use crate::core::Config;
-use crate::core::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
+use crate::core::{CONTAINER_IMAGE_NAME, Config, TEMP_DIR};
 use crate::data::ContainerImage;
 use crate::util::{create_dir, dir_exists};
 
