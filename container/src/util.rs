@@ -3,14 +3,14 @@ use std::process::Command;
 use anyhow::Result;
 use bollard::query_parameters::CreateImageOptionsBuilder;
 
-use async_compression::tokio::write::GzipEncoder;
 use async_compression::Level;
+use async_compression::tokio::write::GzipEncoder;
 use bollard::Docker;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use crate::core::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use crate::core::Config;
+use crate::core::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use crate::data::ContainerImage;
 use crate::util::{create_dir, dir_exists};
 
@@ -47,24 +47,5 @@ pub async fn pull_container_image(config: &Config, image: &ContainerImage) -> Re
 
     println!("Image saved to: {}", image_save_location);
 
-    Ok(())
-}
-
-/// Save a local container image the ".tmp/" directory.
-pub fn save_container_image(image: &str, version: &str) -> Result<()> {
-    let image_name = format!("{image}:{version}");
-    println!("Exporting container image: {image_name}");
-    if !dir_exists(TEMP_DIR) {
-        create_dir(TEMP_DIR)?;
-    }
-    Command::new("docker")
-        .args([
-            "image",
-            "save",
-            "-o",
-            &format!("{TEMP_DIR}/{CONTAINER_IMAGE_NAME}"),
-            &image_name,
-        ])
-        .status()?;
     Ok(())
 }

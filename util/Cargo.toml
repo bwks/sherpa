@@ -4,3 +4,23 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# File system
+shellexpand = "3.1.0"
+
+# Errors
+anyhow = "1.0.100"
+
+# Encoding/decoding
+base64 = "0.22.1"
+md5 = "0.7.0"
+sha2 = "0.10.8"
+twox-hash = "2.0.0"
+
+# Generate SSH keys
+ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+
+# Random number generator
+rand = "0.8.5"
+
+# IP Addressing
+ipnetwork = { version = "0.21.1", features = ["serde"] }

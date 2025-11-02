@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
-use base64::{engine::general_purpose, Engine as _};
+use anyhow::{Result, anyhow};
+use base64::{Engine as _, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
@@ -9,8 +9,8 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 
+use super::file_system::{create_file, expand_path};
 use crate::data::{SshKeyAlgorithms, SshPublicKey};
-use crate::util::{create_file, expand_path};
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {

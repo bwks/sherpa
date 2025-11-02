@@ -1,8 +1,9 @@
 use anyhow::Result;
 
-use base64::{engine::general_purpose, Engine};
+use base64::Engine;
+use base64::engine::general_purpose;
 
-use crate::util::load_file;
+use super::file_system::load_file;
 
 pub fn base64_encode(input: &str) -> String {
     general_purpose::STANDARD.encode(input)

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use twox_hash::XxHash32;
 
-use crate::util::{get_cwd, get_username};
+use super::file_system::{get_cwd, get_username};
 
 /// Get the xxHash of a username and current working directory
 pub fn get_id() -> Result<String> {

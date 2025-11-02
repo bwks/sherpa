@@ -391,6 +391,20 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 [[package]]
 name = "container"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-compression",
+ "bollard",
+ "core",
+ "futures",
+ "futures-util",
+ "tokio",
+ "util",
+]
+
+[[package]]
+name = "core"
+version = "0.1.0"
 
 [[package]]
 name = "core-foundation"
@@ -1305,6 +1319,8 @@ name = "libvirt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "core",
+ "util",
  "virt",
 ]
 
@@ -2401,7 +2417,6 @@ name = "template"
 version = "0.1.0"
 dependencies = [
  "askama",
- "libvirt",
 ]
 
 [[package]]
@@ -2646,6 +2661,17 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 [[package]]
 name = "util"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "ipnetwork",
+ "md5",
+ "rand 0.8.5",
+ "sha2",
+ "shellexpand",
+ "ssh-key",
+ "twox-hash",
+]
 
 [[package]]
 name = "uuid"
