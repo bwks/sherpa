@@ -4,3 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# Errors
+anyhow = "1.0.100"
+
+# Se/Deserialzation
+serde_derive = "1.0.208"
+toml = "0.8.19"
+toml_edit = "0.22.22"
+
+# Random names
+petname = "2.0.2"

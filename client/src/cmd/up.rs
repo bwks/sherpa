@@ -8,7 +8,12 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use super::boot_server::{create_boot_server, create_ztp_files};
-use crate::core::konst::{
+use crate::data::{
+    CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
+    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
+    InterfaceConnection, OsVariants, QemuCommand, Sherpa, SherpaNetwork, User, ZtpMethods,
+};
+use crate::konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT,
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
@@ -21,13 +26,7 @@ use crate::core::konst::{
     SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
     SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use crate::core::{Config, Sherpa};
-use crate::data::{
-    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
-    OsVariants, QemuCommand, SherpaNetwork, User, ZtpMethods,
-};
-use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
+use crate::libvirt::{DomainTemplate, Qemu, clone_disk, create_vm, get_mgmt_ip};
 use crate::template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,

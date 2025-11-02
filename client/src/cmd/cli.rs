@@ -2,12 +2,12 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
-use crate::cmd::{
-    clean, console, destroy, doctor, down, import, init, inspect, parse_box_commands,
-    parse_container_commands, resume, ssh, up, BoxCommands, ContainerCommands,
+use super::cmd::{
+    BoxCommands, ContainerCommands, clean, console, destroy, doctor, down, import, init, inspect,
+    parse_box_commands, parse_container_commands, resume, ssh, up,
 };
-use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::core::Sherpa;
+use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
 use crate::data::DeviceModels;
 use crate::libvirt::Qemu;
 use crate::topology::Manifest;

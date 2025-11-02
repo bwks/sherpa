@@ -3,7 +3,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::core::konst::{BOOT_SERVER_NAME, TELNET_PORT};
+use crate::konst::{BOOT_SERVER_NAME, TELNET_PORT};
 use crate::topology::Manifest;
 use crate::util::{get_ip, term_msg_surround};
 

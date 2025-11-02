@@ -16,10 +16,10 @@ use crate::data::{
 };
 use crate::libvirt::DomainTemplate;
 use crate::template::{
-    arista_veos_ztp_script, juniper_vevolved_ztp_script, ArubaAoscxTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
+    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, File as IgnitionFile,
+    FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink, Unit as IgnitionUnit,
+    User as IgnitionUser, arista_veos_ztp_script, juniper_vevolved_ztp_script,
 };
 use crate::util::{
     base64_encode, copy_file, copy_to_ext4_image, create_dir, create_file, get_ip,

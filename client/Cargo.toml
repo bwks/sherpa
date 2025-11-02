@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+konst = {path = "../konst" }
+data = {path = "../data" }
+util = {path = "../util" }
+topology = {path = "../topology" }
+template = {path = "../template" }
+libvirt = {path = "../libvirt" }
+
 # Errors
 anyhow = "1.0.100"
 

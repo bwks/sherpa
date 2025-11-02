@@ -4,8 +4,10 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
-use super::{CpuModels, DiskBuses, MgmtInterfaces};
-use crate::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
+use super::cpu::CpuModels;
+use super::disk::DiskBuses;
+use super::interface::MgmtInterfaces;
+use konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]

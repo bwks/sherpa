@@ -4,8 +4,8 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use crate::core::konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
-use crate::libvirt::{delete_disk, Qemu};
+use crate::konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
+use crate::libvirt::{Qemu, delete_disk};
 use crate::util::{dir_exists, file_exists, term_msg_surround};
 
 pub fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {

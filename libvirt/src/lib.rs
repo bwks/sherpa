@@ -1,10 +1,8 @@
-mod domain;
 mod network;
 mod qemu;
 mod storage;
 mod vm;
 
-pub use crate::libvirt::domain::DomainTemplate;
 pub use crate::libvirt::network::{IsolatedNetwork, NatNetwork};
 pub use crate::libvirt::qemu::Qemu;
 pub use crate::libvirt::storage::SherpaStoragePool;

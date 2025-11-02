@@ -1,10 +1,10 @@
-use crate::core::konst::{
+use crate::data::{Config, Sherpa};
+use crate::konst::{
     HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
 };
-use crate::core::{Config, Sherpa};
 use crate::libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
 use crate::topology::Manifest;
 use crate::util::{

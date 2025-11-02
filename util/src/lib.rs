@@ -1,3 +1,4 @@
+mod config;
 mod encode;
 mod file_system;
 mod ip;
@@ -9,6 +10,7 @@ mod ssh;
 mod user;
 mod validate;
 
+pub use crate::config::create_config;
 pub use crate::util::container::{pull_container_image, save_container_image};
 pub use crate::util::encode::{base64_encode, base64_encode_file};
 pub use crate::util::file_system::{

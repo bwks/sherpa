@@ -10,7 +10,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
 
-use crate::core::konst::SHERPA_STORAGE_POOL;
+use crate::konst::SHERPA_STORAGE_POOL;
 
 /// Clone a disk image.
 pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {
@@ -38,7 +38,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
             return Err(anyhow::anyhow!(
                 "Unsupported file extension: {}",
                 file_extension
-            ))
+            ));
         }
     };
 

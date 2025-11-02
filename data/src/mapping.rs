@@ -1,8 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
-use crate::libvirt::DomainTemplate;
-
-use super::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
+use super::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 
 #[derive(Clone, Debug)]
 // Device name to IP address mapping
@@ -28,10 +26,6 @@ pub struct ZtpTemplates {
     pub juniper_vjunos: String,
 }
 
-pub struct BootServer {
-    pub template: DomainTemplate,
-    pub copy_disks: Vec<CloneDisk>,
-}
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeviceDisk {
     pub disk_device: DiskDevices,

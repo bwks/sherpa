@@ -2,7 +2,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::core::konst::{SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
+use crate::konst::{SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
 use crate::util::term_msg_surround;
 
 pub fn ssh(name: &str) -> Result<()> {

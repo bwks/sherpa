@@ -1,13 +1,12 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use clap::Subcommand;
 
-use crate::core::konst::{
+use crate::data::{Config, ContainerImage, ContainerModel, DeviceModels, Sherpa};
+use crate::konst::{
     CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
     SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
     SHERPA_BLANK_DISK_EXT4_5G, TEMP_DIR,
 };
-use crate::core::{Config, Sherpa};
-use crate::data::{ContainerImage, ContainerModel, DeviceModels};
 use crate::util::{
     check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
     dir_exists, file_exists, fix_permissions_recursive, pull_container_image, save_container_image,

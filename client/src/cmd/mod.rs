@@ -1,4 +1,4 @@
-// mod boot_server;
+mod boot_server;
 mod boxx;
 mod clean;
 mod cli;
@@ -14,7 +14,7 @@ mod resume;
 mod ssh;
 mod up;
 
-// pub use crate::cmd::boot_server;
+pub use crate::cmd::boot_server;
 pub use crate::cmd::boxx::{BoxCommands, parse_box_commands};
 pub use crate::cmd::clean::clean;
 pub use crate::cmd::cli::Cli;
