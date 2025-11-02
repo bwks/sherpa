@@ -13,19 +13,19 @@ use crate::core::konst::{
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
     CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_OUI, CUMULUS_ZTP, JUNIPER_OUI,
+    CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_OUI, CUMULUS_ZTP, HTTP_PORT, JUNIPER_OUI,
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
     SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
-    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+    SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
+    SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use crate::core::{Config, Sherpa};
 use crate::data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface, InterfaceConnection,
-    OsVariants, QemuCommand, User, ZtpMethods,
+    OsVariants, QemuCommand, SherpaNetwork, User, ZtpMethods,
 };
 use crate::libvirt::{clone_disk, create_vm, get_mgmt_ip, DomainTemplate, Qemu};
 use crate::template::{
@@ -68,9 +68,8 @@ pub async fn up(
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = Config::load(&sherpa.config_path)?;
-
+    let mgmt_net = SherpaNetwork::new(Some(&config.management_prefix_ipv4.to_string()), None)?;
     term_msg_underline("Validating Manifest");
-
     let links = manifest.links.clone().unwrap_or_default();
 
     // Device Validators
@@ -1231,7 +1230,14 @@ pub async fn up(
                     println!("{} - Still booting.", device.name);
                 }
             }
-            let url = "http://192.168.128.5:8080/dnsmasq/leases.txt";
+            let url = format!(
+                "http://{}:{}/dnsmasq/leases.txt",
+                &config
+                    .management_prefix_ipv4
+                    .nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX)
+                    .unwrap(),
+                HTTP_PORT,
+            );
             // Attempt to fetch; if it fails, supply empty string instead
             match reqwest::get(url).await {
                 Ok(response) => {
