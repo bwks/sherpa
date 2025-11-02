@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use anyhow::{Result, anyhow};
 use ipnetwork::Ipv4Network;
 
-use crate::core::{SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
+use crate::konst::{SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
 
 pub struct NetworkV4 {
     pub prefix: Ipv4Network,

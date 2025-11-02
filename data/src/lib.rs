@@ -1,3 +1,4 @@
+mod config;
 mod container;
 mod cpu;
 mod device;
@@ -10,6 +11,7 @@ mod provider;
 mod ssh;
 mod user;
 
+pub use crate::config::{Config, Sherpa};
 pub use crate::data::container::{ContainerImage, ContainerModel};
 pub use crate::data::cpu::CpuModels;
 pub use crate::data::device::{

@@ -4,4 +4,4 @@ opt-level = 2
 
 [workspace]
 resolver = "3"
-members = ["client", "core", "container", "data", "libvirt", "main", "server", "template", "topology", "util"]
+members = ["client", "konst", "container", "data", "libvirt", "main", "server", "template", "topology", "util"]

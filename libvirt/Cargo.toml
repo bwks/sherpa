@@ -5,7 +5,6 @@ edition = "2024"
 
 [dependencies]
 util = { path = "../util" }
-core = { path = "../core" }
 
 # Errors
 anyhow = "1.0.100"

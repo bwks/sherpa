@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use super::SshPublicKey;
-use crate::core::{
+use crate::konst::{
     SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
 };
 use crate::util::get_ssh_public_key;

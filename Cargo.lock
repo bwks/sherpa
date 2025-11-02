@@ -395,16 +395,13 @@ dependencies = [
  "anyhow",
  "async-compression",
  "bollard",
- "core",
+ "data",
  "futures",
  "futures-util",
+ "konst",
  "tokio",
  "util",
 ]
-
-[[package]]
-name = "core"
-version = "0.1.0"
 
 [[package]]
 name = "core-foundation"
@@ -491,6 +488,10 @@ dependencies = [
 [[package]]
 name = "data"
 version = "0.1.0"
+dependencies = [
+ "konst",
+ "util",
+]
 
 [[package]]
 name = "der"
@@ -1284,6 +1285,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "konst"
+version = "0.1.0"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1319,7 +1324,6 @@ name = "libvirt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "core",
  "util",
  "virt",
 ]
@@ -2417,6 +2421,7 @@ name = "template"
 version = "0.1.0"
 dependencies = [
  "askama",
+ "konst",
 ]
 
 [[package]]
