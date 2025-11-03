@@ -8,7 +8,6 @@ mod port;
 mod random;
 mod ssh;
 mod user;
-mod validate;
 
 pub use config::{create_config, default_config, load_config};
 pub use encode::{base64_encode, base64_encode_file};
@@ -26,4 +25,3 @@ pub use ssh::{
     generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
 pub use user::get_username;
-pub use validate::tcp_connect;

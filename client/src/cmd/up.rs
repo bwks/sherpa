@@ -37,15 +37,15 @@ use template::{
     User as IgnitionUser,
 };
 use topology::{Device, Manifest};
-use util::validate::{
-    check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
-    check_link_device, check_mgmt_usage,
-};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_config_archive, create_dir, create_file, create_ztp_iso, get_ip, get_ssh_public_key,
     id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
-    tcp_connect, term_msg_surround, term_msg_underline,
+    term_msg_surround, term_msg_underline,
+};
+use validate::{
+    check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
+    check_link_device, check_mgmt_usage, tcp_connect,
 };
 
 pub async fn up(

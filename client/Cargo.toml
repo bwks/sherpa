@@ -11,6 +11,7 @@ util = { path = "../util" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
+validate = { path = "../validate" }
 
 # Errors
 anyhow = "1.0.100"

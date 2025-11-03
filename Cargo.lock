@@ -357,6 +357,7 @@ dependencies = [
  "toml_edit",
  "topology",
  "util",
+ "validate",
  "virt",
 ]
 
@@ -2643,6 +2644,15 @@ checksum = "2f87b8aa10b915a06587d0dec516c282ff295b475d94abf425d62b57710070a2"
 dependencies = [
  "js-sys",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "validate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "data",
+ "topology",
 ]
 
 [[package]]
