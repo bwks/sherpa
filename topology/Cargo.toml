@@ -8,6 +8,7 @@ edition = "2024"
 anyhow = "1.0.100"
 
 # Se/Deserialzation
+serde = "1.0.208"
 serde_derive = "1.0.208"
 toml = "0.8.19"
 toml_edit = "0.22.22"
