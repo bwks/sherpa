@@ -1,4 +1,4 @@
-use crate::core::BASE_PORT;
+use konst::BASE_PORT;
 
 /// Returns a high port number based from id
 pub fn id_to_port(id: u8) -> u16 {

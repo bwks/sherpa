@@ -10,7 +10,7 @@ use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 
 use super::file_system::{create_file, expand_path};
-use crate::data::{SshKeyAlgorithms, SshPublicKey};
+use data::{SshKeyAlgorithms, SshPublicKey};
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {

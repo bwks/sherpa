@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::data::{Dns, User};
+use data::{Dns, User};
 
 /// If I find a way in the future, this can probably go away.
 /// ZTP script for an Arista vEOS device.

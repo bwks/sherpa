@@ -7,6 +7,8 @@ edition = "2024"
 data = { path = "../data" }
 konst = { path = "../konst" }
 
+toml = "0.8.19"
+
 # File system
 shellexpand = "3.1.0"
 

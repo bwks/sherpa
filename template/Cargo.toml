@@ -6,6 +6,13 @@ edition = "2024"
 [dependencies]
 data = { path = "../data" }
 konst = { path = "../konst" }
+topology = { path = "../topology" }
 
 # Templates
-askama = "0.14.0"
+anyhow = "1.0.100"
+askama = { version = "0.14.0" }
+serde = "1.0.208"
+serde_derive = "1.0.208"
+serde_yaml = "0.9.34"
+serde_json = "1.0.128"
+ipnetwork = { version = "0.21.1", features = ["serde"] }

@@ -3,9 +3,8 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::Config;
-use crate::data::DeviceConnection;
-use crate::topology::Manifest;
+use data::{Config, DeviceConnection};
+use topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Credentials {

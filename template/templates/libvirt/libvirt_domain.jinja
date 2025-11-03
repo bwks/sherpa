@@ -1,0 +1,192 @@
+<?xml version="1.0"?>
+
+<domain xmlns:ns0="http://libvirt.org/schemas/domain/qemu/1.0" type="kvm">
+  <name>{{ name }}</name>
+
+  <vcpu placement='static'>{{ cpu_count }}</vcpu>
+
+  <memory unit='MiB'>{{ memory }}</memory>
+
+  <resource>
+    <partition>/machine</partition>
+  </resource>
+
+  <features>
+    <acpi/>
+    <apic/>
+    <pae/>
+  </features>
+
+  {% match cpu_model %}
+  {%   when CpuModels::HostModel %}
+  <cpu mode='{{ cpu_model }}'>
+  {%   else %}
+  <!-- Match any other cpu model -->
+  <cpu>
+    <model>{{ cpu_model }}</model>
+  {% endmatch %}
+    <arch>{{ cpu_architecture }}</arch>
+    {% if vmx_enabled %}
+    <feature name="vmx" policy="require"/>
+    {% endif %}
+  </cpu>
+
+  <clock offset='utc'>
+    <timer name='rtc' tickpolicy='catchup'/>
+    <timer name='pit' tickpolicy='delay'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+
+  <on_poweroff>destroy</on_poweroff>
+  <on_reboot>restart</on_reboot>
+  <on_crash>destroy</on_crash>
+
+  <os>
+    <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
+    <bootmenu enable='no'/>
+    <smbios mode='host'/>
+    <boot dev='cdrom'/>
+    <boot dev='hd'/>
+    {% match bios %}
+    {%   when BiosTypes::Uefi %}
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
+    {%   when BiosTypes::SeaBios %}
+    <!-- SeaBios - No stanza required -->
+    {% endmatch %}
+  </os>
+
+  <pm>
+    <suspend-to-mem enabled='no'/>
+    <suspend-to-disk enabled='no'/>
+  </pm>
+
+  {% for cmd in qemu_commands %}
+  <ns0:commandline>
+    <ns0:arg value='{{ cmd.param }}'/>
+    <ns0:arg value='{{ cmd.value }}'/>
+  </ns0:commandline>
+  {% endfor %}
+
+  <devices>
+
+    <emulator>{{ qemu_bin }}</emulator>
+
+    {% for disk in disks %}
+    {%   match disk.target_bus %}
+    {%     when DiskBuses::Usb %}
+    <disk type='file' device='disk'>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}' removable='on'/>
+      <address type='usb'/>
+    </disk>
+    {%     else %}
+    {%       match disk.disk_device %}
+    {%         when DiskDevices::Cdrom %}
+
+    <disk type='file' device='cdrom'>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
+      <readonly/>
+    </disk>
+    {%         else %}
+    <disk type='file' device='disk'>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <source file='{{ disk.src_file }}'/>
+      <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
+    </disk>
+    {%      endmatch %}
+    {%   endmatch %}
+    {% endfor %}
+
+    <controller type='usb' index='0' model='qemu-xhci'>
+      <alias name='usb'/>
+    </controller>
+
+    <graphics type='vnc' port='-1' autoport='yes'/>
+    <video>
+      <model type='cirrus' vram='16384' heads='1'/>
+    </video>
+
+    {% for interface in interfaces %}
+    {%   match interface.connection_type %}
+
+    {%     when ConnectionTypes::Management %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-mgmt-int{{ interface.num }}'/>
+      <mtu size='{{ interface.mtu }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='{{ crate::core::konst::SHERPA_MANAGEMENT_NETWORK_NAME }}'/>
+      <model type='{{ interface_type }}'/>
+    </interface>
+
+    {%     when ConnectionTypes::Reserved %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-reserved-int{{ interface.num }}'/>
+      <mtu size='{{ interface.mtu }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
+      <model type='{{ interface_type }}'/>
+      <link state='up'/>
+    </interface>
+
+    {%     when ConnectionTypes::Disabled %}
+    <interface type='network'>
+      <alias name='ua-net-{{ name }}-disabled-int{{ interface.num }}'/>
+      <mtu size='{{ interface.mtu }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
+      <model type='{{ interface_type }}'/>
+      <link state='down'/>
+    </interface>
+
+    {%     when ConnectionTypes::Peer %}
+    {%       match interface.interface_connection %}
+    {%         when Some with (interface_connection) %}
+    <interface type='udp'>
+      <alias name='ua-net-{{ name }}-p2p-int{{ interface.num }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source address='{{ interface_connection.source_loopback }}' port='{{ interface_connection.source_port }}'>
+        <local address='{{ interface_connection.local_loopback }}' port='{{ interface_connection.local_port }}'/>
+      </source>
+      <model type='{{ interface_type }}'/>
+    </interface>
+    {%         when None %}
+    {%       endmatch %}
+    {%   endmatch %}
+    {% endfor %}
+
+    <serial type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
+      <target type='isa-serial' port='0'>
+        <model name='isa-serial'/>
+      </target>
+      <alias name='serial0'/>
+    </serial>
+
+    <console type='tcp'>
+      <source mode='bind' host='{{ loopback_ipv4 }}' service='{{ telnet_port }}'/>
+      <protocol type='telnet'/>
+      <target type='serial' port='0'/>
+      <alias name='serial0'/>
+    </console>
+
+    <channel type='unix'>
+      <target type='virtio' name='org.qemu.guest_agent.0'/>
+    </channel>
+
+    <input type='mouse' bus='ps2'/>
+    <input type='keyboard' bus='ps2'/>
+
+    <memballoon model='virtio'>
+    </memballoon>
+
+    {# <watchdog model='i6300esb' action='reset'>
+      <alias name='watchdog0'/>
+    </watchdog> #}
+
+  </devices>
+</domain>

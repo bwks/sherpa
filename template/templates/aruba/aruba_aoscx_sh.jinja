@@ -1,0 +1,23 @@
+/usr/bin/vtysh \
+-c 'configure' \
+-c '!' \
+-c 'hostname {{ hostname }}' \
+-c 'domain-name {{ dns.domain }}' \
+{%- for server in dns.name_servers %}
+-c 'ip dns server-address {{ server.ipv4_address }}' \
+{%- endfor %}
+-c 'user admin group administrators password plaintext {{ SHERPA_PASSWORD }}' \
+-c 'user {{ user.username }} {% if user.sudo %} group administrators{% endif %}{% if let Some(password) = user.password %} password plaintext {{ password }}{% endif %}' \
+-c 'user {{ user.username }} authorized-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' \
+-c '!' \
+-c 'ntp server pool.ntp.org minpoll 4 maxpoll 4 iburst' \
+-c 'ntp enable' \
+-c '!' \
+-c '!' \
+-c 'ssh server vrf mgmt' \
+-c 'vlan 1' \
+-c 'interface mgmt' \
+-c '    no shutdown' \
+-c '    ip dhcp' \
+-c '!' \
+-c 'https-server vrf mgmt'

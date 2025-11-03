@@ -1,0 +1,48 @@
+!
+hostname {{ hostname }}
+ip domain name {{ dns.domain }}
+{%- for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{%- endfor %}
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+!
+ip ssh pubkey-chain
+  username {{ user.username }}
+   key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+!
+ip scp server enable
+!
+archive
+ log config
+  logging enable
+  logging size 1000
+  notify syslog contenttype plaintext
+ path flash:/archived-config
+ maximum 14
+ write-memory
+ time-period 1440
+!
+interface {{ mgmt_interface }}
+ ip address dhcp
+ negotiation auto
+ no shutdown
+ exit
+!
+line con 0
+ logging synchronous
+ stopbits 1
+ exit
+!
+line vty 0 4
+ logging synchronous
+ transport input ssh
+ exit
+!
+exit

@@ -10,7 +10,7 @@ mod provider;
 mod ssh;
 mod user;
 
-pub use crate::config::{Config, Sherpa};
+pub use crate::config::{Config, InventoryManagement, Sherpa};
 pub use crate::container::{ContainerImage, ContainerModel};
 pub use crate::cpu::CpuModels;
 pub use crate::device::{

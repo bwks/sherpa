@@ -1,9 +1,7 @@
-// use std::net::Ipv4Addr;
-
 use askama::Template;
 
-use crate::core::JUNIPER_ZTP_CONFIG;
-use crate::data::User;
+use data::User;
+use konst::JUNIPER_ZTP_CONFIG;
 
 pub fn juniper_vevolved_ztp_script() -> String {
     format!(

@@ -13,18 +13,16 @@ mod juniper_junos;
 mod pyats;
 mod ssh;
 
-pub use crate::template::arista_eos::{AristaVeosZtpTemplate, arista_veos_ztp_script};
-pub use crate::template::aruba_aos::{ArubaAoscxShTemplate, ArubaAoscxTemplate};
-pub use crate::template::cisco_asa::CiscoAsavZtpTemplate;
-pub use crate::template::cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
-pub use crate::template::cisco_iosxe::CiscoIosXeZtpTemplate;
-pub use crate::template::cisco_iosxr::CiscoIosxrZtpTemplate;
-pub use crate::template::cisco_nxos::CiscoNxosZtpTemplate;
-pub use crate::template::cloud_init::{CloudInitConfig, CloudInitUser};
-pub use crate::template::cumulus_linux::CumulusLinuxZtpTemplate;
-pub use crate::template::ignition::{
-    Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User,
-};
-pub use crate::template::juniper_junos::{JunipervJunosZtpTemplate, juniper_vevolved_ztp_script};
-pub use crate::template::pyats::PyatsInventory;
-pub use crate::template::ssh::SshConfigTemplate;
+pub use arista_eos::{AristaVeosZtpTemplate, arista_veos_ztp_script};
+pub use aruba_aos::{ArubaAoscxShTemplate, ArubaAoscxTemplate};
+pub use cisco_asa::CiscoAsavZtpTemplate;
+pub use cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
+pub use cisco_iosxe::CiscoIosXeZtpTemplate;
+pub use cisco_iosxr::CiscoIosxrZtpTemplate;
+pub use cisco_nxos::CiscoNxosZtpTemplate;
+pub use cloud_init::{CloudInitConfig, CloudInitUser};
+pub use cumulus_linux::CumulusLinuxZtpTemplate;
+pub use ignition::{Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User};
+pub use juniper_junos::{JunipervJunosZtpTemplate, juniper_vevolved_ztp_script};
+pub use pyats::PyatsInventory;
+pub use ssh::SshConfigTemplate;

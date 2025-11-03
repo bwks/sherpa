@@ -4,9 +4,10 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
+use super::device::Device;
+use super::link::Link;
 use crate::core::config::ZtpServer;
 use crate::data::DeviceModels;
-use crate::topology::{Device, Link};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
