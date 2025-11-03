@@ -2,11 +2,11 @@ use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use crate::data::DeviceModels;
-use crate::konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
-use crate::libvirt::{Qemu, get_mgmt_ip};
-use crate::topology::Device;
-use crate::util::{term_msg_surround, term_msg_underline};
+use data::DeviceModels;
+use konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
+use libvirt::{Qemu, get_mgmt_ip};
+use topology::Device;
+use util::{term_msg_surround, term_msg_underline};
 
 pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));

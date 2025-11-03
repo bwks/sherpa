@@ -2,11 +2,9 @@ mod cmd;
 
 use std::process::ExitCode;
 
-use cmd::Cli;
-
 #[tokio::main]
 async fn main() -> ExitCode {
-    match Cli::run().await {
+    match cmd::Cli::run().await {
         Ok(()) => ExitCode::from(0),
         Err(e) => {
             match e.source() {

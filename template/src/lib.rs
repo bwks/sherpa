@@ -22,6 +22,7 @@ pub use cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use cisco_nxos::CiscoNxosZtpTemplate;
 pub use cloud_init::{CloudInitConfig, CloudInitUser};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
+pub use domain::{BootServer, DomainTemplate};
 pub use ignition::{Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User};
 pub use juniper_junos::{JunipervJunosZtpTemplate, juniper_vevolved_ztp_script};
 pub use pyats::PyatsInventory;

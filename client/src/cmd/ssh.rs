@@ -2,8 +2,8 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::konst::{SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
-use crate::util::term_msg_surround;
+use konst::{SHERPA_SSH_CONFIG_FILE, TEMP_DIR};
+use util::term_msg_surround;
 
 pub fn ssh(name: &str) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));

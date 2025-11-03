@@ -1,10 +1,8 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use crate::core::{
-    SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
-};
-use crate::util::get_ssh_public_key;
+use konst::{SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME};
+use util::get_ssh_public_key;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CloudInitConfig {

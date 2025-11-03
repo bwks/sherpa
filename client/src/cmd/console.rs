@@ -3,9 +3,9 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use crate::konst::{BOOT_SERVER_NAME, TELNET_PORT};
-use crate::topology::Manifest;
-use crate::util::{get_ip, term_msg_surround};
+use konst::{BOOT_SERVER_NAME, TELNET_PORT};
+use topology::Manifest;
+use util::{get_ip, term_msg_surround};
 
 pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));

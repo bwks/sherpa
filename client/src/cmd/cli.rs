@@ -2,16 +2,25 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
-use super::cmd::{
-    BoxCommands, ContainerCommands, clean, console, destroy, doctor, down, import, init, inspect,
-    parse_box_commands, parse_container_commands, resume, ssh, up,
-};
-use crate::core::Sherpa;
-use crate::core::konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
-use crate::data::DeviceModels;
-use crate::libvirt::Qemu;
-use crate::topology::Manifest;
-use crate::util::get_id;
+use super::boxx::{BoxCommands, parse_box_commands};
+use super::clean::clean;
+use super::console::console;
+use super::container::{ContainerCommands, parse_container_commands};
+use super::destroy::destroy;
+use super::doctor::doctor;
+use super::down::down;
+use super::import::import;
+use super::init::init;
+use super::inspect::inspect;
+use super::resume::resume;
+use super::ssh::ssh;
+use super::up::up;
+
+use data::{DeviceModels, Sherpa};
+use konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
+use libvirt::Qemu;
+use topology::Manifest;
+use util::get_id;
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]

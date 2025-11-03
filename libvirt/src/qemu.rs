@@ -1,7 +1,7 @@
 use anyhow::Result;
 use virt::connect::Connect;
 
-use crate::core::konst::QEMU_URI;
+use konst::QEMU_URI;
 
 pub struct Qemu {
     pub uri: String,

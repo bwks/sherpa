@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::data::{Dns, User};
+use data::{Dns, User};
 
 #[derive(Template)]
 #[template(path = "cumulus/cumulus_linux.jinja", ext = "txt")]

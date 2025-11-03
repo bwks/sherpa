@@ -9,9 +9,9 @@ use bollard::Docker;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use crate::data::{Config, ContainerImage};
-use crate::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
-use crate::util::{create_dir, dir_exists};
+use data::{Config, ContainerImage};
+use konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
+use util::{create_dir, dir_exists};
 
 /// Pull down a container image from an OCI compliant Repository.
 pub async fn pull_container_image(config: &Config, image: &ContainerImage) -> Result<()> {

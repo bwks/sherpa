@@ -7,14 +7,14 @@ domain name-server {{ server.ipv4_address }}
 username admin
  group root-lr
  group cisco-support
- secret 0 {{ crate::core::konst::SHERPA_PASSWORD }}
+ secret 0 {{ konst::SHERPA_PASSWORD }}
 !
 username {{ user.username }}
 {%- if user.sudo %}
  group netadmin
 {%- endif %}
 {%- if let Some(password) = user.password %}
- password 0 {{ password }} 
+ password 0 {{ password }}
 {%- endif %}
 !
 aaa authorization exec default local

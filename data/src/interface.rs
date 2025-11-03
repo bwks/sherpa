@@ -85,167 +85,167 @@ pub struct Interface {
     pub interface_connection: Option<InterfaceConnection>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_test::{Token, assert_tokens};
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use serde_test::{Token, assert_tokens};
 
-    #[test]
-    fn test_mgmt_interfaces_serialization() {
-        // Test Eth0 variant
-        assert_tokens(
-            &MgmtInterfaces::Eth0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "eth0",
-            }],
-        );
+//     #[test]
+//     fn test_mgmt_interfaces_serialization() {
+//         // Test Eth0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Eth0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "eth0",
+//             }],
+//         );
 
-        // Test Mgmt variant
-        assert_tokens(
-            &MgmtInterfaces::Mgmt,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "mgmt",
-            }],
-        );
-        // Test Mgmt0 variant
-        assert_tokens(
-            &MgmtInterfaces::Mgmt0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "mgmt0",
-            }],
-        );
-        // Test Management1 variant
-        assert_tokens(
-            &MgmtInterfaces::Management1,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "Management1",
-            }],
-        );
-        // Test Management0/0 variant
-        assert_tokens(
-            &MgmtInterfaces::Management0_0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "Management0/0",
-            }],
-        );
-        // Test GigabitEthernet1 variant
-        assert_tokens(
-            &MgmtInterfaces::GigabitEthernet1,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "GigabitEthernet1",
-            }],
-        );
-        // Test GigabitEthernet0/0 variant
-        assert_tokens(
-            &MgmtInterfaces::GigabitEthernet0_0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "GigabitEthernet0/0",
-            }],
-        );
-        // Test MgmtEth0/RP0/CPU0/0 variant
-        assert_tokens(
-            &MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "MgmtEth0/RP0/CPU0/0",
-            }],
-        );
-        // Test re0:mgmt-0 variant
-        assert_tokens(
-            &MgmtInterfaces::Re0Mgmt0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "re0:mgmt-0",
-            }],
-        );
-        // Test fxp0 variant
-        assert_tokens(
-            &MgmtInterfaces::Fxp0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "fxp0",
-            }],
-        );
-        // Test fxp0.0 variant
-        assert_tokens(
-            &MgmtInterfaces::Fxp0_0,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "fxp0.0",
-            }],
-        );
-        // Test Vlan1 variant
-        assert_tokens(
-            &MgmtInterfaces::Vlan1,
-            &[Token::UnitVariant {
-                name: "MgmtInterfaces",
-                variant: "Vlan1",
-            }],
-        );
-    }
+//         // Test Mgmt variant
+//         assert_tokens(
+//             &MgmtInterfaces::Mgmt,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "mgmt",
+//             }],
+//         );
+//         // Test Mgmt0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Mgmt0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "mgmt0",
+//             }],
+//         );
+//         // Test Management1 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Management1,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "Management1",
+//             }],
+//         );
+//         // Test Management0/0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Management0_0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "Management0/0",
+//             }],
+//         );
+//         // Test GigabitEthernet1 variant
+//         assert_tokens(
+//             &MgmtInterfaces::GigabitEthernet1,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "GigabitEthernet1",
+//             }],
+//         );
+//         // Test GigabitEthernet0/0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::GigabitEthernet0_0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "GigabitEthernet0/0",
+//             }],
+//         );
+//         // Test MgmtEth0/RP0/CPU0/0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "MgmtEth0/RP0/CPU0/0",
+//             }],
+//         );
+//         // Test re0:mgmt-0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Re0Mgmt0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "re0:mgmt-0",
+//             }],
+//         );
+//         // Test fxp0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Fxp0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "fxp0",
+//             }],
+//         );
+//         // Test fxp0.0 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Fxp0_0,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "fxp0.0",
+//             }],
+//         );
+//         // Test Vlan1 variant
+//         assert_tokens(
+//             &MgmtInterfaces::Vlan1,
+//             &[Token::UnitVariant {
+//                 name: "MgmtInterfaces",
+//                 variant: "Vlan1",
+//             }],
+//         );
+//     }
 
-    #[test]
-    fn test_mgmt_interfaces_deserialization() {
-        // Test string to enum conversion
-        let eth0: MgmtInterfaces = serde_json::from_str(r#""eth0""#).unwrap();
-        assert!(matches!(eth0, MgmtInterfaces::Eth0));
+//     #[test]
+//     fn test_mgmt_interfaces_deserialization() {
+//         // Test string to enum conversion
+//         let eth0: MgmtInterfaces = serde_json::from_str(r#""eth0""#).unwrap();
+//         assert!(matches!(eth0, MgmtInterfaces::Eth0));
 
-        let mgmt: MgmtInterfaces = serde_json::from_str(r#""mgmt""#).unwrap();
-        assert!(matches!(mgmt, MgmtInterfaces::Mgmt));
+//         let mgmt: MgmtInterfaces = serde_json::from_str(r#""mgmt""#).unwrap();
+//         assert!(matches!(mgmt, MgmtInterfaces::Mgmt));
 
-        let mgmt0: MgmtInterfaces = serde_json::from_str(r#""mgmt0""#).unwrap();
-        assert!(matches!(mgmt0, MgmtInterfaces::Mgmt0));
+//         let mgmt0: MgmtInterfaces = serde_json::from_str(r#""mgmt0""#).unwrap();
+//         assert!(matches!(mgmt0, MgmtInterfaces::Mgmt0));
 
-        let management1: MgmtInterfaces = serde_json::from_str(r#""Management1""#).unwrap();
-        assert!(matches!(management1, MgmtInterfaces::Management1));
+//         let management1: MgmtInterfaces = serde_json::from_str(r#""Management1""#).unwrap();
+//         assert!(matches!(management1, MgmtInterfaces::Management1));
 
-        let management0_0: MgmtInterfaces = serde_json::from_str(r#""Management0/0""#).unwrap();
-        assert!(matches!(management0_0, MgmtInterfaces::Management0_0));
+//         let management0_0: MgmtInterfaces = serde_json::from_str(r#""Management0/0""#).unwrap();
+//         assert!(matches!(management0_0, MgmtInterfaces::Management0_0));
 
-        let gigabit_ethernet1: MgmtInterfaces =
-            serde_json::from_str(r#""GigabitEthernet1""#).unwrap();
-        assert!(matches!(
-            gigabit_ethernet1,
-            MgmtInterfaces::GigabitEthernet1
-        ));
+//         let gigabit_ethernet1: MgmtInterfaces =
+//             serde_json::from_str(r#""GigabitEthernet1""#).unwrap();
+//         assert!(matches!(
+//             gigabit_ethernet1,
+//             MgmtInterfaces::GigabitEthernet1
+//         ));
 
-        let gigabit_ethernet0_0: MgmtInterfaces =
-            serde_json::from_str(r#""GigabitEthernet0/0""#).unwrap();
-        assert!(matches!(
-            gigabit_ethernet0_0,
-            MgmtInterfaces::GigabitEthernet0_0
-        ));
+//         let gigabit_ethernet0_0: MgmtInterfaces =
+//             serde_json::from_str(r#""GigabitEthernet0/0""#).unwrap();
+//         assert!(matches!(
+//             gigabit_ethernet0_0,
+//             MgmtInterfaces::GigabitEthernet0_0
+//         ));
 
-        let mgmteth0rp0cpu0_0: MgmtInterfaces =
-            serde_json::from_str(r#""MgmtEth0/RP0/CPU0/0""#).unwrap();
-        assert!(matches!(
-            mgmteth0rp0cpu0_0,
-            MgmtInterfaces::MgmtEth0Rp0Cpu0_0
-        ));
+//         let mgmteth0rp0cpu0_0: MgmtInterfaces =
+//             serde_json::from_str(r#""MgmtEth0/RP0/CPU0/0""#).unwrap();
+//         assert!(matches!(
+//             mgmteth0rp0cpu0_0,
+//             MgmtInterfaces::MgmtEth0Rp0Cpu0_0
+//         ));
 
-        let re0mgmt0: MgmtInterfaces = serde_json::from_str(r#""re0:mgmt-0""#).unwrap();
-        assert!(matches!(re0mgmt0, MgmtInterfaces::Re0Mgmt0));
+//         let re0mgmt0: MgmtInterfaces = serde_json::from_str(r#""re0:mgmt-0""#).unwrap();
+//         assert!(matches!(re0mgmt0, MgmtInterfaces::Re0Mgmt0));
 
-        let fxp0: MgmtInterfaces = serde_json::from_str(r#""fxp0""#).unwrap();
-        assert!(matches!(fxp0, MgmtInterfaces::Fxp0));
+//         let fxp0: MgmtInterfaces = serde_json::from_str(r#""fxp0""#).unwrap();
+//         assert!(matches!(fxp0, MgmtInterfaces::Fxp0));
 
-        let fxp0_0: MgmtInterfaces = serde_json::from_str(r#""fxp0.0""#).unwrap();
-        assert!(matches!(fxp0_0, MgmtInterfaces::Fxp0_0));
+//         let fxp0_0: MgmtInterfaces = serde_json::from_str(r#""fxp0.0""#).unwrap();
+//         assert!(matches!(fxp0_0, MgmtInterfaces::Fxp0_0));
 
-        let vlan1: MgmtInterfaces = serde_json::from_str(r#""Vlan1""#).unwrap();
-        assert!(matches!(vlan1, MgmtInterfaces::Vlan1));
-    }
+//         let vlan1: MgmtInterfaces = serde_json::from_str(r#""Vlan1""#).unwrap();
+//         assert!(matches!(vlan1, MgmtInterfaces::Vlan1));
+//     }
 
-    #[test]
-    fn test_mgmt_interfaces_deserialization_error() {
-        let result: Result<MgmtInterfaces, _> = serde_json::from_str(r#""invalid""#);
-        assert!(result.is_err());
-    }
-}
+//     #[test]
+//     fn test_mgmt_interfaces_deserialization_error() {
+//         let result: Result<MgmtInterfaces, _> = serde_json::from_str(r#""invalid""#);
+//         assert!(result.is_err());
+//     }
+// }

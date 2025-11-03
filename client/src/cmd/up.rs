@@ -8,12 +8,12 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 
 use super::boot_server::{create_boot_server, create_ztp_files};
-use crate::data::{
+use data::{
     CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
     InterfaceConnection, OsVariants, QemuCommand, Sherpa, SherpaNetwork, User, ZtpMethods,
 };
-use crate::konst::{
+use konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT,
     BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
@@ -26,25 +26,26 @@ use crate::konst::{
     SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
     SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use crate::libvirt::{DomainTemplate, Qemu, clone_disk, create_vm, get_mgmt_ip};
-use crate::template::{
+use libvirt::{Qemu, clone_disk, create_vm, get_mgmt_ip};
+use template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, File as IgnitionFile, FileParams as IgnitionFileParams,
-    FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, PyatsInventory,
-    SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
+    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
+    FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
+    JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit,
+    User as IgnitionUser,
 };
-use crate::topology::{Device, Manifest};
-use crate::util::{
+use topology::{Device, Manifest};
+use util::validate::{
+    check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
+    check_link_device, check_mgmt_usage,
+};
+use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_config_archive, create_dir, create_file, create_ztp_iso, get_ip, get_ssh_public_key,
     id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
     tcp_connect, term_msg_surround, term_msg_underline,
-};
-use crate::validate::{
-    check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
-    check_link_device, check_mgmt_usage,
 };
 
 pub async fn up(

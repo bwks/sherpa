@@ -4,8 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use clap::Subcommand;
 
-use crate::core::Sherpa;
-use crate::data::DeviceModels;
+use data::{DeviceModels, Sherpa};
 
 #[derive(Debug, Subcommand)]
 pub enum BoxCommands {

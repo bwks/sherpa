@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-konst = {path = "../konst" }
-data = {path = "../data" }
-util = {path = "../util" }
-topology = {path = "../topology" }
-template = {path = "../template" }
-libvirt = {path = "../libvirt" }
+konst = { path = "../konst" }
+data = { path = "../data" }
+container = { path = "../container" }
+util = { path = "../util" }
+topology = { path = "../topology" }
+template = { path = "../template" }
+libvirt = { path = "../libvirt" }
 
 # Errors
 anyhow = "1.0.100"
@@ -31,6 +32,9 @@ async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 # Random number generator
 rand = "0.8.5"
 
+# Templates
+askama = "0.14.0"
+
 # Random names
 petname = "2.0.2"
 
@@ -41,3 +45,9 @@ futures-util = "0.3.31"
 
 # http client
 reqwest = "0.11.27"
+
+# Libvirt
+virt = { version = "0.4.1", features = ["qemu"] }
+
+# Generate SSH keys
+ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }

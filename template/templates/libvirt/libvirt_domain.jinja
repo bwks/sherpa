@@ -118,7 +118,7 @@
       <alias name='ua-net-{{ name }}-mgmt-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ crate::core::konst::SHERPA_MANAGEMENT_NETWORK_NAME }}'/>
+      <source network='{{ konst::SHERPA_MANAGEMENT_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
     </interface>
 
@@ -127,7 +127,7 @@
       <alias name='ua-net-{{ name }}-reserved-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
+      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
       <link state='up'/>
     </interface>
@@ -137,7 +137,7 @@
       <alias name='ua-net-{{ name }}-disabled-int{{ interface.num }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ crate::core::konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
+      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}'/>
       <model type='{{ interface_type }}'/>
       <link state='down'/>
     </interface>

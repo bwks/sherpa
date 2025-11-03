@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::libvirt::Qemu;
-use crate::util::term_msg_surround;
+use libvirt::Qemu;
+use util::term_msg_surround;
 
 pub fn down(qemu: &Qemu, lab_id: &str) -> Result<()> {
     term_msg_surround("Suspending environment");

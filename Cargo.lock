@@ -9,15 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
-name = "aho-corasick"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
-dependencies = [
- "memchr",
-]
-
-[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -343,8 +334,10 @@ name = "client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askama",
  "async-compression",
  "clap",
+ "container",
  "data",
  "futures",
  "futures-util",
@@ -357,12 +350,14 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "ssh-key",
  "template",
  "tokio",
  "toml",
  "toml_edit",
  "topology",
  "util",
+ "virt",
 ]
 
 [[package]]
@@ -496,11 +491,13 @@ name = "data"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "askama",
  "clap",
  "ipnetwork",
  "konst",
  "serde",
  "serde_derive",
+ "serde_json",
 ]
 
 [[package]]
@@ -1334,6 +1331,7 @@ name = "libvirt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "konst",
  "util",
  "virt",
 ]
@@ -1821,35 +1819,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "regex"
-version = "1.12.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "843bc0191f75f3e22651ae5f1e72939ab2f72a4bc30fa80a066bd66edefc24d4"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-automata",
- "regex-syntax",
-]
-
-[[package]]
-name = "regex-automata"
-version = "0.4.13"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5276caf25ac86c8d810222b3dbb938e512c55c6831a10f3e6ed1c93b84041f1c"
-dependencies = [
- "aho-corasick",
- "memchr",
- "regex-syntax",
-]
-
-[[package]]
-name = "regex-syntax"
-version = "0.8.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a2d987857b319362043e95f5353c0535c1f58eec5336fdfcf626430af7def58"
-
-[[package]]
 name = "reqwest"
 version = "0.11.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2115,15 +2084,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "serde_test"
-version = "1.0.177"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f901ee573cab6b3060453d2d5f0bae4e6d628c23c0a962ff9b5f1d7c8d4f1ed"
-dependencies = [
- "serde",
-]
-
-[[package]]
 name = "serde_urlencoded"
 version = "0.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2188,40 +2148,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b1fdf65dd6331831494dd616b30351c38e96e45921a27745cf98490458b90bb"
 dependencies = [
  "dirs",
-]
-
-[[package]]
-name = "sherpa"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "askama",
- "async-compression",
- "base64 0.22.1",
- "bollard",
- "clap",
- "futures",
- "futures-util",
- "ipnetwork",
- "md5",
- "petname",
- "rand 0.8.5",
- "regex",
- "reqwest",
- "serde",
- "serde_derive",
- "serde_json",
- "serde_test",
- "serde_yaml",
- "sha2",
- "shellexpand",
- "ssh-key",
- "tempfile",
- "tokio",
- "toml",
- "toml_edit",
- "twox-hash",
- "virt",
 ]
 
 [[package]]

@@ -1,6 +1,6 @@
 use askama::Template;
 
-use crate::data::{Dns, User};
+use data::{Dns, User};
 
 #[derive(Template)]
 #[template(path = "cisco/cisco_iosxr.jinja", ext = "txt")]

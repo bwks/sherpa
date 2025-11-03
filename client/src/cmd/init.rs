@@ -1,18 +1,18 @@
-use crate::data::{Config, Sherpa};
-use crate::konst::{
+use anyhow::Result;
+use data::{Config, Sherpa};
+use konst::{
     HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
 };
-use crate::libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
-use crate::topology::Manifest;
-use crate::util::{
+use libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
+use ssh_key::Algorithm;
+use topology::Manifest;
+use util::{
     create_dir, dir_exists, file_exists, generate_ssh_keypair, term_msg_highlight,
     term_msg_surround, term_msg_underline,
 };
-use anyhow::Result;
-use ssh_key::Algorithm;
 
 pub fn init(
     sherpa: &Sherpa,

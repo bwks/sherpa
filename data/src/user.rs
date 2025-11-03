@@ -1,4 +1,5 @@
 use anyhow::Result;
+use askama::Template;
 use serde_derive::{Deserialize, Serialize};
 
 use super::ssh::SshPublicKey;

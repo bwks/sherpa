@@ -1,27 +1,26 @@
 use anyhow::Result;
 use askama::Template;
 
-use crate::core::konst::{
+use data::{
+    BiosTypes, CloneDisk, Config, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
+    DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
+    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, Sherpa, User, ZtpTemplates,
+};
+use konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
     CONTAINER_DISK_NAME, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT,
     MTU_JUMBO_INT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_PASSWORD_HASH,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
 };
-use crate::core::{Config, Sherpa};
-use crate::data::{
-    BiosTypes, BootServer, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
-    DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
-    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, User, ZtpTemplates,
+use template::{
+    ArubaAoscxTemplate, BootServer, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
+    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DomainTemplate,
+    File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
+    Unit as IgnitionUnit, User as IgnitionUser, arista_veos_ztp_script,
+    juniper_vevolved_ztp_script,
 };
-use crate::libvirt::DomainTemplate;
-use crate::template::{
-    ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, File as IgnitionFile,
-    FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink, Unit as IgnitionUnit,
-    User as IgnitionUser, arista_veos_ztp_script, juniper_vevolved_ztp_script,
-};
-use crate::util::{
+use util::{
     base64_encode, copy_file, copy_to_ext4_image, create_dir, create_file, get_ip,
     pub_ssh_key_to_md5_hash, term_msg_underline,
 };

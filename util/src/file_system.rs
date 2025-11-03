@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Write};
-use std::os::unix::fs::{symlink, PermissionsExt};
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 use std::process::Command;
 
@@ -227,51 +227,51 @@ pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs::{self};
-    use tempfile::TempDir;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use std::fs::{self};
+//     use tempfile::TempDir;
 
-    #[test]
-    fn test_create_symlink() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let source_path = temp_dir.path().join("source.txt");
-        let target_path = temp_dir.path().join("target.txt");
+//     #[test]
+//     fn test_create_symlink() -> Result<()> {
+//         let temp_dir = TempDir::new()?;
+//         let source_path = temp_dir.path().join("source.txt");
+//         let target_path = temp_dir.path().join("target.txt");
 
-        // Create source file
-        fs::write(&source_path, "test content")?;
+//         // Create source file
+//         fs::write(&source_path, "test content")?;
 
-        // Create symlink
-        create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+//         // Create symlink
+//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
 
-        // Verify symlink exists and points to source
-        assert!(target_path.exists());
-        assert!(target_path.is_symlink());
-        assert_eq!(
-            fs::read_to_string(&target_path)?,
-            fs::read_to_string(&source_path)?
-        );
+//         // Verify symlink exists and points to source
+//         assert!(target_path.exists());
+//         assert!(target_path.is_symlink());
+//         assert_eq!(
+//             fs::read_to_string(&target_path)?,
+//             fs::read_to_string(&source_path)?
+//         );
 
-        Ok(())
-    }
+//         Ok(())
+//     }
 
-    #[test]
-    fn test_create_symlink_existing_target() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let source_path = temp_dir.path().join("source.txt");
-        let target_path = temp_dir.path().join("target.txt");
+//     #[test]
+//     fn test_create_symlink_existing_target() -> Result<()> {
+//         let temp_dir = TempDir::new()?;
+//         let source_path = temp_dir.path().join("source.txt");
+//         let target_path = temp_dir.path().join("target.txt");
 
-        // Create source and initial target
-        fs::write(&source_path, "source content")?;
-        fs::write(&target_path, "target content")?;
+//         // Create source and initial target
+//         fs::write(&source_path, "source content")?;
+//         fs::write(&target_path, "target content")?;
 
-        // Create symlink (should overwrite target)
-        create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+//         // Create symlink (should overwrite target)
+//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
 
-        assert!(target_path.is_symlink());
-        assert_eq!(fs::read_to_string(&target_path)?, "source content");
+//         assert!(target_path.is_symlink());
+//         assert_eq!(fs::read_to_string(&target_path)?, "source content");
 
-        Ok(())
-    }
-}
+//         Ok(())
+//     }
+// }

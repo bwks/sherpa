@@ -1,7 +1,7 @@
 use askama::Template;
 
-use crate::core::{ARUBA_ZTP_SCRIPT, SHERPA_PASSWORD};
-use crate::data::{Dns, User};
+use data::{Dns, User};
+use konst::{ARUBA_ZTP_SCRIPT, SHERPA_PASSWORD};
 
 #[allow(dead_code)]
 pub fn aruba_aoscx_ztp_script() -> String {

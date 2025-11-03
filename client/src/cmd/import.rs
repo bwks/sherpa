@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::data::DeviceModels;
-use crate::util::{
+use data::DeviceModels;
+use util::{
     copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
     term_msg_surround,
 };
