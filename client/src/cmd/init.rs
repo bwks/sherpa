@@ -10,8 +10,8 @@ use libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
 use topology::Manifest;
 use util::{
-    create_dir, dir_exists, file_exists, generate_ssh_keypair, term_msg_highlight,
-    term_msg_surround, term_msg_underline,
+    create_config, create_dir, default_config, dir_exists, file_exists, generate_ssh_keypair,
+    load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
 pub fn init(
@@ -32,14 +32,14 @@ pub fn init(
     // Create the default config directories
     let config = if dir_exists(&sherpa.config_dir) && !force {
         println!("Directory path already exists: {}", sherpa.config_dir);
-        Config::load(&sherpa.config_path)?
+        load_config(&sherpa.config_path)?
     } else {
         create_dir(&sherpa.config_dir)?;
         create_dir(&format!("{}", sherpa.containers_dir,))?;
         create_dir(&format!("{}", sherpa.bins_dir,))?;
         create_dir(&sherpa.boxes_dir)?;
         // box directories
-        let config = Config::default();
+        let config = default_config();
         for device_model in &config.device_models {
             create_dir(&format!(
                 "{}/{}/latest",
@@ -60,11 +60,9 @@ pub fn init(
     if file_exists(&sherpa.config_path) && !force {
         println!("Config file already exists: {}", sherpa.config_path);
     } else {
-        let config = Config {
-            name: config_file.to_owned(),
-            ..Default::default()
-        };
-        config.create(&sherpa.config_path)?;
+        let mut config = default_config();
+        config.name = config_file.to_owned();
+        create_config(&config, &sherpa.config_path)?;
     }
 
     if file_exists(manifest_file) && !force {

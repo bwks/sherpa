@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 
 use container::pull_container_image;
-use data::{Config, ContainerImage, ContainerModel, DeviceModels, Sherpa};
+use data::{ContainerImage, ContainerModel, DeviceModels, Sherpa};
 use konst::{
     CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
     SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
@@ -10,7 +10,7 @@ use konst::{
 };
 use util::{
     check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
-    dir_exists, file_exists, fix_permissions_recursive, term_msg_surround,
+    dir_exists, file_exists, fix_permissions_recursive, load_config, term_msg_surround,
 };
 
 #[derive(Debug, Subcommand)]
@@ -53,7 +53,7 @@ pub enum ContainerCommands {
 }
 
 pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -> Result<()> {
-    let config = Config::load(&sherpa.config_path)?;
+    let config = load_config(&sherpa.config_path)?;
     match commands {
         ContainerCommands::Pull {
             name,

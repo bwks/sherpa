@@ -10,7 +10,7 @@ mod ssh;
 mod user;
 mod validate;
 
-pub use config::create_config;
+pub use config::{create_config, default_config, load_config};
 pub use encode::{base64_encode, base64_encode_file};
 pub use file_system::{
     check_file_size, copy_file, copy_to_dos_image, copy_to_ext4_image, create_config_archive,

@@ -17,10 +17,13 @@ use super::ssh::ssh;
 use super::up::up;
 
 use data::{DeviceModels, Sherpa};
-use konst::{SHERPA_CONFIG_FILE, SHERPA_MANIFEST_FILE};
+use konst::{
+    SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_CONTAINERS_DIR, SHERPA_MANIFEST_FILE,
+};
 use libvirt::Qemu;
 use topology::Manifest;
-use util::get_id;
+use util::{expand_path, get_id};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -130,8 +133,13 @@ impl Cli {
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let qemu = Qemu::default();
-        let sherpa = Sherpa::default();
-
+        let sherpa = Sherpa {
+            config_dir: expand_path(SHERPA_CONFIG_DIR),
+            boxes_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}")),
+            config_path: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}")),
+            containers_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}")),
+            bins_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}")),
+        };
         match &cli.commands {
             Commands::Init {
                 config_file,
