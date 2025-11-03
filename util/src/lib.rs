@@ -1,4 +1,5 @@
 mod config;
+mod dns;
 mod encode;
 mod file_system;
 mod ip;
@@ -10,6 +11,7 @@ mod ssh;
 mod user;
 
 pub use config::{create_config, default_config, load_config};
+pub use dns::default_dns;
 pub use encode::{base64_encode, base64_encode_file};
 pub use file_system::{
     check_file_size, copy_file, copy_to_dos_image, copy_to_ext4_image, create_config_archive,
@@ -24,4 +26,4 @@ pub use random::get_id;
 pub use ssh::{
     generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
-pub use user::get_username;
+pub use user::{get_username, sherpa_user};

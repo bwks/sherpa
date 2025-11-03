@@ -39,9 +39,9 @@ use template::{
 use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, get_ip, get_ssh_public_key,
-    id_to_port, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac,
-    term_msg_surround, term_msg_underline,
+    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_ip,
+    get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
+    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -58,8 +58,8 @@ pub async fn up(
 ) -> Result<()> {
     // Setup
     let qemu_conn = Arc::new(qemu.connect()?);
-    let sherpa_user = User::default()?;
-    let dns = Dns::default()?;
+    let sherpa_user = sherpa_user()?;
+    let dns = default_dns()?;
 
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
@@ -67,7 +67,7 @@ pub async fn up(
     let mut sherpa = sherpa.clone();
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
-    let mut config = Config::load(&sherpa.config_path)?;
+    let mut config = load_config(&sherpa.config_path)?;
     let mgmt_net = SherpaNetwork::new(Some(&config.management_prefix_ipv4.to_string()), None)?;
     term_msg_underline("Validating Manifest");
     let links = manifest.links.clone().unwrap_or_default();
