@@ -8,7 +8,7 @@ use super::device::Device;
 use super::link::Link;
 use data::{DeviceModels, ZtpServer};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
     pub name: String,
     pub devices: Vec<Device>,

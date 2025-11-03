@@ -4,11 +4,12 @@ use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
-use crate::core::{
-    Config as SherpaConfig, DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION,
-    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+use data::Config as SherpaConfig;
+use konst::{
+    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    SHERPA_MANAGEMENT_VM_IPV4_INDEX,
 };
-use crate::util::base64_encode;
+use util::base64_encode;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {

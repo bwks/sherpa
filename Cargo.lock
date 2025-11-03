@@ -2440,6 +2440,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "topology",
+ "util",
 ]
 
 [[package]]
@@ -2600,7 +2601,9 @@ name = "topology"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "data",
  "petname",
+ "serde",
  "serde_derive",
  "toml",
  "toml_edit",
