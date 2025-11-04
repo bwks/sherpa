@@ -4,7 +4,8 @@ use askama::Template;
 use data::{
     BiosTypes, CloneDisk, Config, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
     DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
-    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, Sherpa, User, ZtpTemplates,
+    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, Sherpa, User, ZtpRecord,
+    ZtpTemplates,
 };
 use konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
@@ -15,7 +16,7 @@ use konst::{
 };
 use template::{
     ArubaAoscxTemplate, BootServer, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DomainTemplate,
+    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DnsmasqTemplate, DomainTemplate,
     File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
     Unit as IgnitionUnit, User as IgnitionUser, arista_veos_ztp_script,
     juniper_vevolved_ztp_script,
@@ -200,6 +201,24 @@ pub fn create_boot_server(
         contents: IgnitionFileContents::new(&format!("data:;base64,{juniper_vjunos_ztp_base64}")),
         ..Default::default()
     };
+
+    let ztp_record = ZtpRecord {
+        device_name: "blah".to_owned(),
+        config_file: "blah.conf".to_owned(),
+        mac_address: "aa:bb:cc:11:22:33".to_owned(),
+    };
+
+    let dnsmaq_template = DnsmasqTemplate {
+        tftp_server_ipv4: "192.168.128.5".to_owned(),
+        gateway_ipv4: "192.168.128.1".to_owned(),
+        dhcp_start: "192.168.128.10".to_owned(),
+        dhcp_end: "192.168.128.254".to_owned(),
+        ztp_records: vec![ztp_record],
+    };
+    let dnsmasq_rendered_template = dnsmaq_template.render()?;
+
+    let dnsmasq_config = base64_encode(&dnsmasq_rendered_template);
+    let dnsmasq_config_file = IgnitionFile::dnsmasq_config(&dnsmasq_config);
     let ignition_config = IgnitionConfig::new(
         vec![ignition_user],
         vec![
@@ -210,7 +229,7 @@ pub fn create_boot_server(
             IgnitionFile::disable_updates(),
             IgnitionFile::docker_compose_raw(),
             IgnitionFile::docker_compose_conf(),
-            IgnitionFile::dnsmasq_config(),
+            dnsmasq_config_file,
             IgnitionFile::systemd_noop(),
             arista_ztp_file,
             aruba_ztp_file,

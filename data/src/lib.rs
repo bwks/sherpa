@@ -11,6 +11,7 @@ mod network;
 mod provider;
 mod ssh;
 mod user;
+mod ztp;
 
 pub use config::{Config, InventoryManagement, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel};
@@ -30,3 +31,4 @@ pub use network::SherpaNetwork;
 pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use user::User;
+pub use ztp::ZtpRecord;
