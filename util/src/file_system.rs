@@ -5,11 +5,12 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 // Load a file
 pub fn load_file(file_path: &str) -> Result<String> {
-    let file_contents = fs::read_to_string(file_path)?;
+    let file_contents = fs::read_to_string(file_path)
+        .with_context(|| format!("Error loading file: {file_path}"))?;
     Ok(file_contents)
 }
 
@@ -21,17 +22,16 @@ pub fn get_cwd() -> Result<String> {
 
 /// Create a directory, expanding ~ if it's passed
 pub fn create_dir(dir_path: &str) -> Result<()> {
-    fs::create_dir_all(dir_path)?;
-    println!("Path created: {dir_path}");
-
+    fs::create_dir_all(dir_path)
+        .with_context(|| format!("Error creating directory: {dir_path}"))?;
+    println!("Directory created: {dir_path}");
     Ok(())
 }
 
 /// Create a file, expanding ~ if it's passed
 pub fn create_file(file_path: &str, contents: String) -> Result<()> {
-    fs::write(file_path, contents)?;
+    fs::write(file_path, contents).with_context(|| format!("Error creating file: {file_path}"))?;
     println!("File created: {file_path}");
-
     Ok(())
 }
 

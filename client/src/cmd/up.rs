@@ -759,7 +759,6 @@ pub async fn up(
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
-
                     let dev_name = device.name.clone();
                     // Add the ignition config
 

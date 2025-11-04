@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use base64::Engine;
 use base64::engine::general_purpose;
@@ -10,7 +10,8 @@ pub fn base64_encode(input: &str) -> String {
 }
 
 pub fn base64_encode_file(filename: &str) -> Result<String> {
-    let file_content = load_file(filename)?;
+    let file_content =
+        load_file(filename).with_context(|| format!("Failed to base64 encode: {filename}"))?;
     Ok(base64_encode(&file_content))
 }
 
