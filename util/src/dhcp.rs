@@ -1,17 +1,18 @@
-use anyhow::Result;
 use reqwest;
 
 use data::{Config, DhcpLease};
-use konst::{HTTP_PORT, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
+use konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
 
 pub async fn get_dhcp_leases(config: &Config) -> Vec<DhcpLease> {
     let url = format!(
-        "http://{}:{}/dnsmasq/leases.txt",
+        "http://{}:{}/{}/{}",
         &config
             .management_prefix_ipv4
             .nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX)
             .unwrap(),
         HTTP_PORT,
+        DHCP_URI_DIR,
+        DHCP_LEASES_FILE,
     );
     // Attempt to fetch; if it fails, supply empty string instead
     match reqwest::get(url).await {

@@ -108,3 +108,6 @@ pub const CONTAINER_DNSMASQ_VERSION: &str = "2.91";
 pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 pub const CONTAINER_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_SRLINUX_VERSION: &str = "23.10.8";
+
+pub const DHCP_URI_DIR: &str = "dnsmasq";
+pub const DHCP_LEASES_FILE: &str = "leases.txt";
