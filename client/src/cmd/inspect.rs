@@ -28,27 +28,27 @@ pub async fn inspect(
         ..Default::default()
     });
 
-    let leases = get_dhcp_leases(&config).await;
+    let leases = get_dhcp_leases(&config).await?;
     let mut inactive_devices = vec![];
     for device in devices {
         let device_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
-        let vm_ip = if device.name == BOOT_SERVER_NAME {
-            match get_mgmt_ip(&qemu_conn, &device_name)? {
-                Some(ip) => ip,
-                None => "".to_owned(),
-            }
-        } else {
-            if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
-                vm_ip.ip.clone()
-            } else {
-                "".to_owned()
-            }
-        };
 
         if let Some(domain) = domains
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name)
         {
+            let vm_ip = if device.name == BOOT_SERVER_NAME {
+                match get_mgmt_ip(&qemu_conn, &device_name)? {
+                    Some(ip) => ip,
+                    None => "".to_owned(),
+                }
+            } else {
+                if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
+                    vm_ip.ip.clone()
+                } else {
+                    "".to_owned()
+                }
+            };
             term_msg_underline(&device.name);
             println!("Domain: {}", device_name);
             println!("Model: {}", device.model);

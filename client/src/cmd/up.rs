@@ -1193,8 +1193,24 @@ pub async fn up(
     let mut connected_devices = std::collections::HashSet::new();
     let mut device_ip_map = vec![];
 
+    println!(
+        "Waiting for VMs: {}",
+        &ztp_devices
+            .iter()
+            .map(|x| x.name.as_str())
+            .collect::<Vec<&str>>()
+            .join(" ")
+    );
+
+    let mut leases = vec![];
+    let mut boot_server_ready = false;
     while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
         for device in &ztp_devices {
+            if boot_server_ready && leases.is_empty() {
+                println!("Waiting for DHCP server");
+                leases = get_dhcp_leases(&config).await?;
+            }
+
             let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
             if connected_devices.contains(&device.name) {
                 continue;
@@ -1210,6 +1226,7 @@ pub async fn up(
                                 ip_address: ip,
                                 ssh_port: 22,
                             });
+                            boot_server_ready = true;
                         }
                         false => {
                             println!("{} - Waiting for SSH", device.name);
@@ -1218,11 +1235,6 @@ pub async fn up(
                 } else {
                     println!("{} - Still booting.", device.name);
                 }
-            }
-
-            let mut leases = vec![];
-            while leases.is_empty() {
-                leases = get_dhcp_leases(&config).await;
             }
 
             let device_model = config

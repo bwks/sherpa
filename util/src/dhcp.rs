@@ -1,9 +1,10 @@
+use anyhow::Result;
 use reqwest;
 
 use data::{Config, DhcpLease};
 use konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
 
-pub async fn get_dhcp_leases(config: &Config) -> Vec<DhcpLease> {
+pub async fn get_dhcp_leases(config: &Config) -> Result<Vec<DhcpLease>> {
     let url = format!(
         "http://{}:{}/{}/{}",
         &config
@@ -14,8 +15,12 @@ pub async fn get_dhcp_leases(config: &Config) -> Vec<DhcpLease> {
         DHCP_URI_DIR,
         DHCP_LEASES_FILE,
     );
+    // Create a client with a timeout
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(1))
+        .build()?;
     // Attempt to fetch; if it fails, supply empty string instead
-    match reqwest::get(url).await {
+    match client.get(url).send().await {
         Ok(response) => {
             let body = response.text().await.unwrap_or_default();
             let leases: Vec<DhcpLease> = body
@@ -35,11 +40,8 @@ pub async fn get_dhcp_leases(config: &Config) -> Vec<DhcpLease> {
                     }
                 })
                 .collect();
-            leases
+            Ok(leases)
         }
-        Err(_) => {
-            println!("DHCP server not ready yet"); // Ignore error, fallback to empty string (or default content)
-            vec![]
-        }
+        Err(_) => Ok(vec![]),
     }
 }
