@@ -1,0 +1,24 @@
+[package]
+name = "container"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+konst = { path = "../konst" }
+data = { path = "../data" }
+util = { path = "../util" }
+
+# Errors
+anyhow = "1.0.100"
+
+# Containers
+# oci-client = "0.15"
+bollard = "0.19.3"
+
+# De/Compression
+async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+
+# Async
+tokio = { version = "1.40.0", features = ["full"] }
+futures = "0.3.31"
+futures-util = "0.3.31"

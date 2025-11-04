@@ -1,0 +1,22 @@
+[package]
+name = "data"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+konst = { path = "../konst" }
+
+# Errors
+anyhow = "1.0.100"
+askama = "0.14.0"
+
+# CLI
+clap = { version = "4.5.16", features = ["derive"] }
+
+# Serialization/Deserialization
+serde = "1.0.208"
+serde_derive = "1.0.208"
+serde_json = "1.0.128"
+
+# IP Addressing
+ipnetwork = { version = "0.21.1", features = ["serde"] }

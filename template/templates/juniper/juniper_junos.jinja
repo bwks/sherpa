@@ -1,0 +1,35 @@
+system {
+    login {
+        user {{ user.username }} {
+            class super-user;
+            authentication {
+                {%- if let Some(password) = user.password %}
+                plain-text-password-value "{{ password }}";
+                {%- endif %}
+                {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
+            }
+        }
+    }
+    root-authentication {
+        plain-text-password-value "{{ konst::SHERPA_PASSWORD }}";
+        {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
+    }
+    host-name {{ hostname }};
+    services {
+        ssh {
+            root-login allow;
+        }
+        netconf {
+            ssh;
+        }
+    }
+}
+interfaces {
+    {{ mgmt_interface }} {
+        unit 0 {
+            family inet {
+                dhcp;
+            }
+        }
+    }
+}
