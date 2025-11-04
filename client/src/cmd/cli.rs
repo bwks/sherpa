@@ -23,7 +23,7 @@ use konst::{
 };
 use libvirt::Qemu;
 use topology::Manifest;
-use util::{expand_path, get_id};
+use util::{expand_path, get_id, load_config, load_file};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -174,7 +174,8 @@ impl Cli {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id()?;
                 let lab_name = manifest.name.clone();
-                inspect(&qemu, &lab_name, &lab_id, &manifest.devices)?;
+                let config = load_config(&sherpa.config_path)?;
+                inspect(&qemu, &lab_name, &lab_id, &config, &manifest.devices).await?;
             }
             Commands::Import {
                 src,

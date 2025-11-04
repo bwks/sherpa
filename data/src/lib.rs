@@ -2,6 +2,7 @@ mod config;
 mod container;
 mod cpu;
 mod device;
+mod dhcp;
 mod disk;
 mod dns;
 mod interface;
@@ -18,6 +19,7 @@ pub use device::{
     BiosTypes, CpuArchitecture, DeviceKind, DeviceModel, DeviceModels, InterfaceTypes,
     MachineTypes, OsVariants, ZtpMethods,
 };
+pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use interface::{ConnectionTypes, Interface, MgmtInterfaces};

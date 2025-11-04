@@ -2629,6 +2629,7 @@ dependencies = [
  "konst",
  "md5",
  "rand 0.8.5",
+ "reqwest",
  "sha2",
  "shellexpand",
  "ssh-key",

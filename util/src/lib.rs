@@ -1,4 +1,5 @@
 mod config;
+mod dhcp;
 mod dns;
 mod encode;
 mod file_system;
@@ -11,6 +12,7 @@ mod ssh;
 mod user;
 
 pub use config::{create_config, default_config, load_config};
+pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;
 pub use encode::{base64_encode, base64_encode_file};
 pub use file_system::{

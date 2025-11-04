@@ -2,13 +2,19 @@ use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use data::DeviceModels;
+use data::{Config, DeviceModels};
 use konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
 use libvirt::{Qemu, get_mgmt_ip};
 use topology::Device;
-use util::{term_msg_surround, term_msg_underline};
+use util::{get_dhcp_leases, term_msg_surround, term_msg_underline};
 
-pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) -> Result<()> {
+pub async fn inspect(
+    qemu: &Qemu,
+    lab_name: &str,
+    lab_id: &str,
+    config: &Config,
+    devices: &[Device],
+) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
@@ -21,9 +27,24 @@ pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) ->
         model: DeviceModels::FlatcarLinux,
         ..Default::default()
     });
+
+    let leases = get_dhcp_leases(&config).await;
     let mut inactive_devices = vec![];
     for device in devices {
         let device_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
+        let vm_ip = if device.name == BOOT_SERVER_NAME {
+            match get_mgmt_ip(&qemu_conn, &device_name)? {
+                Some(ip) => ip,
+                None => "".to_owned(),
+            }
+        } else {
+            if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
+                vm_ip.ip.clone()
+            } else {
+                "".to_owned()
+            }
+        };
+
         if let Some(domain) = domains
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name)
@@ -32,7 +53,7 @@ pub fn inspect(qemu: &Qemu, lab_name: &str, lab_id: &str, devices: &[Device]) ->
             println!("Domain: {}", device_name);
             println!("Model: {}", device.model);
             println!("Active: {:#?}", domain.is_active()?);
-            if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &device_name)? {
+            if !vm_ip.is_empty() {
                 println!("Mgmt IP: {vm_ip}");
             }
             for volume in pool.list_volumes()? {

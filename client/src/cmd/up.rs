@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use askama::Template;
-use reqwest;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -10,7 +9,7 @@ use std::time::{Duration, Instant};
 use super::boot_server::{create_boot_server, create_ztp_files};
 use data::{
     CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
-    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
+    DhcpLease, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
     InterfaceConnection, OsVariants, QemuCommand, Sherpa, SherpaNetwork, User, ZtpMethods,
 };
 use konst::{
@@ -39,8 +38,8 @@ use template::{
 use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_ip,
-    get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
+    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases,
+    get_ip, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
     pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
@@ -1187,15 +1186,6 @@ pub async fn up(
         ztp_devices.push(&ztp_server);
     }
 
-    #[derive(Debug)]
-    struct Lease {
-        expiry: u64,
-        mac: String,
-        ip: String,
-        hostname: String,
-        client_id: String,
-    }
-
     // Check if VMs are ready
     term_msg_underline("Checking VM Readiness");
     let start_time = Instant::now();
@@ -1229,70 +1219,39 @@ pub async fn up(
                     println!("{} - Still booting.", device.name);
                 }
             }
-            let url = format!(
-                "http://{}:{}/dnsmasq/leases.txt",
-                &config
-                    .management_prefix_ipv4
-                    .nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX)
-                    .unwrap(),
-                HTTP_PORT,
-            );
-            // Attempt to fetch; if it fails, supply empty string instead
-            match reqwest::get(url).await {
-                Ok(response) => {
-                    let body = response.text().await.unwrap_or_default();
-                    let leases: Vec<Lease> = body
-                        .lines()
-                        .filter_map(|line| {
-                            let fields: Vec<&str> = line.split_whitespace().collect();
-                            if fields.len() == 5 {
-                                Some(Lease {
-                                    expiry: fields[0].parse().unwrap_or(0),
-                                    mac: fields[1].into(),
-                                    ip: fields[2].into(),
-                                    hostname: fields[3].into(),
-                                    client_id: fields[4].into(),
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
 
-                    // println!("{:#?}", leases);
+            let mut leases = vec![];
+            while leases.is_empty() {
+                leases = get_dhcp_leases(&config).await;
+            }
 
-                    let device_model = config
-                        .device_models
-                        .iter()
-                        .find(|d| d.name == device.model)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!("Device model not found: {}", device.model)
-                        })?;
-                    let ssh_port = match device_model.name {
-                        DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
-                        _ => SSH_PORT,
-                    };
-                    if let Some(vm_data) = leases.iter().find(|x| &x.hostname == &device.name) {
-                        match tcp_connect(&vm_data.ip, ssh_port)? {
-                            true => {
-                                println!("{} - Ready", &device.name);
-                                connected_devices.insert(device.name.clone());
-                                device_ip_map.push(DeviceConnection {
-                                    name: device.name.clone(),
-                                    ip_address: vm_data.ip.clone(),
-                                    ssh_port,
-                                });
-                            }
-                            false => {
-                                println!("{} - Waiting for SSH", device.name);
-                            }
-                        }
-                    } else {
-                        println!("{} - Still booting.", device.name);
+            let device_model = config
+                .device_models
+                .iter()
+                .find(|d| d.name == device.model)
+                .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
+            let ssh_port = match device_model.name {
+                DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
+                _ => SSH_PORT,
+            };
+            if let Some(vm_data) = leases.iter().find(|x| &x.hostname == &device.name) {
+                match tcp_connect(&vm_data.ip, ssh_port)? {
+                    true => {
+                        println!("{} - Ready", &device.name);
+                        connected_devices.insert(device.name.clone());
+                        device_ip_map.push(DeviceConnection {
+                            name: device.name.clone(),
+                            ip_address: vm_data.ip.clone(),
+                            ssh_port,
+                        });
+                    }
+                    false => {
+                        println!("{} - Waiting for SSH", device.name);
                     }
                 }
-                Err(_) => println!("DHCP server not ready yet"), // Ignore error, fallback to empty string (or default content)
-            };
+            } else {
+                println!("{} - Still booting.", device.name);
+            }
         }
 
         if connected_devices.len() < ztp_devices.len() {
