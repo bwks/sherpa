@@ -123,6 +123,7 @@ pub fn create_boot_server(
     lab_id: &str,
     user: &User,
     ztp_templates: &ZtpTemplates,
+    ztp_records: Vec<ZtpRecord>,
 ) -> Result<BootServer> {
     let boot_server_name = format!("{BOOT_SERVER_NAME}-{lab_name}-{lab_id}");
     let dir = format!("{TEMP_DIR}/{boot_server_name}");
@@ -159,7 +160,7 @@ pub fn create_boot_server(
 
     let arista_ztp_base64 = base64_encode(&ztp_templates.arista_eos);
     let arista_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
+        path: format!("/opt/ztp/configs/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{arista_ztp_base64}")),
         ..Default::default()
@@ -167,7 +168,7 @@ pub fn create_boot_server(
 
     let aruba_ztp_base64 = base64_encode(&ztp_templates.aruba_aos);
     let aruba_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
+        path: format!("/opt/ztp/configs/{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{aruba_ztp_base64}")),
         ..Default::default()
@@ -175,37 +176,31 @@ pub fn create_boot_server(
 
     let cumulus_ztp_base64 = base64_encode(&ztp_templates.cumulus_linux);
     let cumulus_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
+        path: format!("/opt/ztp/configs/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{cumulus_ztp_base64}")),
         ..Default::default()
     };
     let iosxe_ztp_base64 = base64_encode(&ztp_templates.cisco_iosxe);
     let iosxe_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
+        path: format!("/opt/ztp/configs/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosxe_ztp_base64}")),
         ..Default::default()
     };
     let iosv_ztp_base64 = base64_encode(&ztp_templates.cisco_iosv);
     let iosv_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
+        path: format!("/opt/ztp/configs/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{iosv_ztp_base64}")),
         ..Default::default()
     };
     let juniper_vjunos_ztp_base64 = base64_encode(&ztp_templates.juniper_vjunos);
     let juniper_vjunos_ztp_file = IgnitionFile {
-        path: format!("/opt/ztp/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"),
+        path: format!("/opt/ztp/configs/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"),
         mode: 644,
         contents: IgnitionFileContents::new(&format!("data:;base64,{juniper_vjunos_ztp_base64}")),
         ..Default::default()
-    };
-
-    let ztp_record = ZtpRecord {
-        device_name: "blah".to_owned(),
-        config_file: "blah.conf".to_owned(),
-        mac_address: "aa:bb:cc:11:22:33".to_owned(),
     };
 
     let dnsmaq_template = DnsmasqTemplate {
@@ -213,9 +208,11 @@ pub fn create_boot_server(
         gateway_ipv4: "192.168.128.1".to_owned(),
         dhcp_start: "192.168.128.10".to_owned(),
         dhcp_end: "192.168.128.254".to_owned(),
-        ztp_records: vec![ztp_record],
+        ztp_records: ztp_records,
     };
     let dnsmasq_rendered_template = dnsmaq_template.render()?;
+
+    println!("DNSMASQ TEMPLATE: {}", dnsmasq_rendered_template);
 
     let dnsmasq_config = base64_encode(&dnsmasq_rendered_template);
     let dnsmasq_config_file = IgnitionFile::dnsmasq_config(&dnsmasq_config);
@@ -224,13 +221,13 @@ pub fn create_boot_server(
         vec![
             sudo_config_file,
             hostname_file,
-            // ztp_interface,
+            ztp_interface,
             IgnitionFile::disable_resolved(),
             IgnitionFile::disable_updates(),
             IgnitionFile::docker_compose_raw(),
             IgnitionFile::docker_compose_conf(),
-            dnsmasq_config_file,
             IgnitionFile::systemd_noop(),
+            dnsmasq_config_file,
             arista_ztp_file,
             aruba_ztp_file,
             cumulus_ztp_file,
@@ -238,7 +235,9 @@ pub fn create_boot_server(
             iosv_ztp_file,
             juniper_vjunos_ztp_file,
         ],
-        vec![IgnitionLink::docker_compose_raw()],
+        vec![
+            // IgnitionLink::docker_compose_raw()
+        ],
         vec![
             IgnitionUnit::systemd_resolved(),
             IgnitionUnit::systemd_update_timer(),
@@ -246,8 +245,9 @@ pub fn create_boot_server(
             unit_webdir,
             unit_dnsmasq,
             container_disk_mount,
-            // srlinux_unit
+            // srlinux_unit,
         ],
+        vec![],
         vec![container_disk],
     );
     let flatcar_config = ignition_config.to_json_pretty()?;

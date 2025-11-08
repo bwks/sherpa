@@ -1,20 +1,160 @@
+use std::collections::HashMap;
 use std::process::Command;
 
-use anyhow::Result;
-use bollard::query_parameters::CreateImageOptionsBuilder;
-
+use anyhow::{Context, Result};
 use async_compression::Level;
 use async_compression::tokio::write::GzipEncoder;
+use bollard::models::{
+    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
+    NetworkingConfig,
+};
+use bollard::query_parameters::{
+    CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
+    KillContainerOptions, RemoveContainerOptions, StartContainerOptions,
+};
+
 use bollard::Docker;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use data::{Config, ContainerImage};
+use data::{Config as SherpaConfig, ContainerImage};
 use konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use util::{create_dir, dir_exists};
 
+pub fn docker_connection() -> Result<Docker> {
+    let docker = Docker::connect_with_local_defaults()?;
+    Ok(docker)
+}
+
+pub async fn run_container(
+    docker: &Docker,
+    name: &str,
+    image: &str,
+    env_vars: Vec<&str>,
+    volumes: Vec<&str>,
+    capabilities: Vec<&str>,
+    network_attachment: &str,
+    ipv4_address: &str,
+) -> Result<()> {
+    // Environment variables
+
+    let env: Vec<String> = env_vars.iter().map(|s| s.to_string()).collect();
+
+    // Volume bindings
+    let binds: Vec<String> = volumes.iter().map(|s| s.to_string()).collect();
+
+    // Capabilities
+    let caps: Vec<String> = capabilities.iter().map(|s| s.to_string()).collect();
+
+    // Endpoint config for static IP on sherpa-management network
+    let mut endpoints_config = HashMap::new();
+    endpoints_config.insert(
+        network_attachment.to_string(),
+        EndpointSettings {
+            ipam_config: Some(EndpointIpamConfig {
+                ipv4_address: Some(ipv4_address.to_string()),
+                ipv6_address: None,
+                link_local_ips: None,
+            }),
+            ..Default::default()
+        },
+    );
+
+    let networking_config = NetworkingConfig {
+        endpoints_config: Some(endpoints_config),
+    };
+
+    let host_config = HostConfig {
+        binds: Some(binds),
+        cap_add: Some(caps),
+        auto_remove: Some(true), // like --rm flag, removes container automatically when stopped
+        ..Default::default()
+    };
+
+    // Full container config
+    let config = ContainerCreateBody {
+        image: Some(image.to_string()),
+        env: Some(env),
+        host_config: Some(host_config),
+        networking_config: Some(networking_config),
+        tty: Some(true),
+        open_stdin: Some(true),
+        ..Default::default()
+    };
+
+    let create_opts = CreateContainerOptions {
+        name: Some(name.to_string()),
+        ..Default::default()
+    };
+
+    // Create the container
+    println!("Creating container: {name}");
+    let ContainerCreateResponse { id, .. } = docker
+        .create_container(Some(create_opts), config)
+        .await
+        .with_context(|| format!("Error creating container: {name}"))?;
+
+    // Start the container
+    println!("Starting container: {name}");
+    docker
+        .start_container(&id, None::<StartContainerOptions>)
+        .await
+        .with_context(|| format!("Error starting container {name}"))?;
+
+    // After starting the container:
+    let inspect_options = Some(InspectContainerOptions { size: false });
+    let details = docker.inspect_container(&id, inspect_options).await?;
+
+    // Get the status
+    if let Some(state) = &details.state {
+        println!(
+            "Container status: {}",
+            if state.status.is_some() {
+                state.status.unwrap().to_string()
+            } else {
+                "unknown".to_string()
+            }
+        );
+        println!(
+            "Exit code: {}",
+            if state.exit_code.is_some() {
+                state.exit_code.unwrap().to_string()
+            } else {
+                "unknown".to_string()
+            }
+        );
+    }
+    Ok(())
+}
+
+pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
+    docker
+        .kill_container(
+            name,
+            Some(KillContainerOptions {
+                signal: "SIGKILL".to_string(),
+            }),
+        )
+        .await?;
+    Ok(())
+}
+
+pub async fn remove_container(docker: &Docker, name: &str) -> Result<()> {
+    // Wait for the container to exit, then remove (emulates --rm)
+    docker
+        .remove_container(
+            &name,
+            Some(RemoveContainerOptions {
+                force: true,
+                ..Default::default()
+            }),
+        )
+        .await?;
+    Ok(())
+}
+
 /// Pull down a container image from an OCI compliant Repository.
-pub async fn pull_container_image(config: &Config, image: &ContainerImage) -> Result<()> {
+pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage) -> Result<()> {
     let image_location = format!("{}:{}", image.repo, image.version);
     let image_save_location = format!("{}/{}.tar.gz", config.containers_dir, image.name);
 

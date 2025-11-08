@@ -4,17 +4,24 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
+use container::{docker_connection, kill_container};
 use konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use libvirt::{Qemu, delete_disk};
 use util::{dir_exists, file_exists, term_msg_surround};
 
-pub fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
+pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     term_msg_surround(&format!("Destroying environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
     let domains = qemu_conn.list_all_domains(0)?;
     let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
     let pool_disks = storage_pool.list_volumes()?;
+
+    let docker = docker_connection()?;
+    kill_container(&docker, "dnsmasq").await?;
+    println!("Destroyed container: {}", "dnsmasq");
+    kill_container(&docker, "webdir").await?;
+    println!("Destroyed container: {}", "webdir");
 
     for domain in domains {
         let vm_name = domain.get_name()?;

@@ -1,6 +1,7 @@
 use askama::Template;
 
 use data::ZtpRecord;
+use konst::SHERPA_DOMAIN_NAME;
 
 #[derive(Template)]
 #[template(path = "dnsmasq/config.jinja", ext = "txt")]

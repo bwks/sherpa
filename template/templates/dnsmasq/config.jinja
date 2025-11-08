@@ -3,24 +3,31 @@ log-queries
 log-dhcp
 log-facility=/var/log/dnsmasq.log
 
+port=53
+server={{ gateway_ipv4 }}
+domain=sherpa.lab.local
+
 # DHCP range for the subnet (customize to your network)
 dhcp-range={{ dhcp_start }},{{ dhcp_end }},1m
 
 # Set default gateway (Option 3) and option 150 (TFTP server IP)
-dhcp-option=3,{{ gateway_ipv4 }}
-dhcp-option=150,{{ tftp_server_ipv4 }}
+dhcp-option=3,{{ gateway_ipv4 }} # Default Gateway
+dhcp-option=150,{{ tftp_server_ipv4 }} # TFTP Server
+dhcp-option=6,{{ tftp_server_ipv4 }} # DNS Server
+dhcp-option=15,{{ SHERPA_DOMAIN_NAME }} # Search Domain
 
 # Ignore client identifier
 dhcp-ignore-clid
 
 # Enable TFTP
 enable-tftp
-tftp-root=/opt/ztp
+tftp-root=/opt/ztp/tftp
 
-{% for record in ztp_records %}
+{%- for record in ztp_records %}
 # {{ record.device_name }}
+dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.device_name }}
 dhcp-option={{ record.mac_address }},66,{{ tftp_server_ipv4 }}:69
 dhcp-option={{ record.mac_address }},67,http://{{ tftp_server_ipv4 }}:8080/{{ record.config_file }}
 dhcp-option={{ record.mac_address }},239,http://{{ tftp_server_ipv4 }}:8080/{{ record.config_file }}
 
-{% endfor %}
+{%- endfor %}

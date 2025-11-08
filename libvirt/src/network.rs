@@ -94,9 +94,9 @@ impl NatNetwork {
             <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{ztp_server_ipv4}:{ztp_http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"/>
             <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{ztp_server_ipv4}:{ztp_http_port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
             <dnsmasq:option value="dhcp-option-force=tag:aruba,66,{ztp_server_ipv4}:{ztp_tftp_port}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}AA:BB:CC:DD:EE:02/{ARUBA_ZTP_CONFIG}"/>
-AA:BB:CC:DD:EE:02
-<dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>AA:BB:CC:DD:EE:02
+            <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"/>
+
+            <dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cisco_iosxe,{CISCO_IOSXE_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cisco_iosv,{CISCO_IOSV_OUI}:*:*:*"/>
             <dnsmasq:option value="dhcp-mac=set:cisco_nxos,{CISCO_NXOS_OUI}:*:*:*"/>
@@ -124,12 +124,6 @@ AA:BB:CC:DD:EE:02
           <dns enable='yes'/>
 
           <ip address='{ipv4_address}' netmask='{ipv4_netmask}'>
-            <dhcp>
-              <range start='{ztp_server_ipv4}' end='{ztp_server_ipv4}'>
-                <lease expiry='2' unit='minutes'/>
-              </range>
-              <host mac='{BOOT_SERVER_MAC}' name='{BOOT_SERVER_NAME}' ip='{ztp_server_ipv4}'/>
-            </dhcp>
           </ip>
 
         </network>

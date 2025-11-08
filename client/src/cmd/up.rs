@@ -1,16 +1,14 @@
+use super::boot_containers::{create_boot_containers, create_ztp_files};
+
 use anyhow::{Context, Result};
 use askama::Template;
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::thread;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
 
-use super::boot_server::{create_boot_server, create_ztp_files};
+use container::{docker_connection, run_container};
 use data::{
     CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
     DhcpLease, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
     InterfaceConnection, OsVariants, QemuCommand, Sherpa, SherpaNetwork, User, ZtpMethods,
+    ZtpRecord,
 };
 use konst::{
     ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT,
@@ -21,16 +19,21 @@ use konst::{
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
     SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
-    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX,
     SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
     SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{Qemu, clone_disk, create_vm, get_mgmt_ip};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::thread;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
 use template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
+    CumulusLinuxZtpTemplate, DnsmasqTemplate, DomainTemplate, File as IgnitionFile,
     FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
     JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit,
     User as IgnitionUser,
@@ -46,7 +49,6 @@ use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
     check_link_device, check_mgmt_usage, tcp_connect,
 };
-
 pub async fn up(
     sherpa: &Sherpa,
     config_file: &str,
@@ -56,6 +58,7 @@ pub async fn up(
     manifest: &Manifest,
 ) -> Result<()> {
     // Setup
+    let docker_conn = docker_connection()?;
     let qemu_conn = Arc::new(qemu.connect()?);
     let sherpa_user = sherpa_user()?;
     let dns = default_dns()?;
@@ -73,6 +76,8 @@ pub async fn up(
 
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
+
+    let mut ztp_records = vec![];
 
     for device in &manifest.devices {
         let device_model = config
@@ -173,6 +178,15 @@ pub async fn up(
             }
             _ => random_mac(KVM_OUI),
         };
+        ztp_records.push(ZtpRecord {
+            device_name: device.name.clone().to_owned(),
+            config_file: format!("{}.conf", &device.name),
+            mac_address: mac_address.to_string(),
+            ipv4_address: format!(
+                "192.168.128.{}",
+                20 + dev_id_map.get(&device.name).unwrap().to_owned()
+            ),
+        });
 
         let mut interfaces: Vec<Interface> = vec![];
 
@@ -866,6 +880,7 @@ pub async fn up(
                                 vec![sudo_config_file, hostname_file],
                                 vec![],
                                 vec![container_disk_unit, srlinux_unit],
+                                vec![],
                                 vec![container_disk],
                             );
                             let flatcar_config = ignition_config.to_json_pretty()?;
@@ -903,6 +918,7 @@ pub async fn up(
                                 vec![sudo_config_file, hostname_file],
                                 vec![],
                                 vec![container_disk_unit, ceos_unit],
+                                vec![],
                                 vec![container_disk],
                             );
                             let flatcar_config = ignition_config.to_json_pretty()?;
@@ -944,6 +960,7 @@ pub async fn up(
                                 files,
                                 vec![],
                                 units,
+                                vec![],
                                 vec![container_disk],
                             );
                             let flatcar_config = ignition_config.to_json_pretty()?;
@@ -1110,22 +1127,9 @@ pub async fn up(
         domains.push(domain);
     }
 
-    // Boot Server
-    if config.ztp_server.enable {
-        let ztp_templates = create_ztp_files(&sherpa_user, &dns)?;
-        let boot_server = create_boot_server(
-            //
-            &sherpa,
-            &config,
-            lab_name,
-            lab_id,
-            &sherpa_user,
-            &ztp_templates,
-        )?;
+    let _ztp_templates = create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
+    create_boot_containers(&docker_conn).await?;
 
-        domains.push(boot_server.template);
-        copy_disks.extend(boot_server.copy_disks);
-    }
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");
     let disk_handles: Vec<_> = copy_disks
@@ -1177,15 +1181,6 @@ pub async fn up(
             .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
     }
 
-    let ztp_server = Device {
-        name: BOOT_SERVER_NAME.to_owned(),
-        model: DeviceModels::FlatcarLinux,
-        ..Default::default()
-    };
-    if config.ztp_server.enable {
-        ztp_devices.push(&ztp_server);
-    }
-
     // Check if VMs are ready
     term_msg_underline("Checking VM Readiness");
     let start_time = Instant::now();
@@ -1202,39 +1197,11 @@ pub async fn up(
             .join(" ")
     );
 
-    let mut leases = vec![];
-    let mut boot_server_ready = false;
     while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
         for device in &ztp_devices {
-            if boot_server_ready && leases.is_empty() {
-                println!("Waiting for DHCP server");
-                leases = get_dhcp_leases(&config).await?;
-            }
-
             let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
             if connected_devices.contains(&device.name) {
                 continue;
-            } else if device.name.contains("boot") {
-                if let Some(vm_ip) = get_mgmt_ip(&qemu_conn, &vm_name)? {
-                    match tcp_connect(&vm_ip, 22)? {
-                        true => {
-                            println!("{} - Ready", &device.name);
-                            let ip = vm_ip;
-                            connected_devices.insert(device.name.clone());
-                            device_ip_map.push(DeviceConnection {
-                                name: device.name.clone(),
-                                ip_address: ip,
-                                ssh_port: 22,
-                            });
-                            boot_server_ready = true;
-                        }
-                        false => {
-                            println!("{} - Waiting for SSH", device.name);
-                        }
-                    }
-                } else {
-                    println!("{} - Still booting.", device.name);
-                }
             }
 
             let device_model = config
@@ -1246,14 +1213,14 @@ pub async fn up(
                 DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
                 _ => SSH_PORT,
             };
-            if let Some(vm_data) = leases.iter().find(|x| &x.hostname == &device.name) {
-                match tcp_connect(&vm_data.ip, ssh_port)? {
+            if let Some(vm_data) = ztp_records.iter().find(|x| &x.device_name == &device.name) {
+                match tcp_connect(&vm_data.ipv4_address, ssh_port)? {
                     true => {
                         println!("{} - Ready", &device.name);
                         connected_devices.insert(device.name.clone());
                         device_ip_map.push(DeviceConnection {
                             name: device.name.clone(),
-                            ip_address: vm_data.ip.clone(),
+                            ip_address: vm_data.ipv4_address.clone(),
                             ssh_port,
                         });
                     }

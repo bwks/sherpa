@@ -2,14 +2,14 @@ use anyhow::Result;
 use reqwest;
 
 use data::{Config, DhcpLease};
-use konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_VM_IPV4_INDEX};
+use konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_WEBDIR_IPV4_INDEX};
 
 pub async fn get_dhcp_leases(config: &Config) -> Result<Vec<DhcpLease>> {
     let url = format!(
         "http://{}:{}/{}/{}",
         &config
             .management_prefix_ipv4
-            .nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX)
+            .nth(SHERPA_MANAGEMENT_WEBDIR_IPV4_INDEX)
             .unwrap(),
         HTTP_PORT,
         DHCP_URI_DIR,

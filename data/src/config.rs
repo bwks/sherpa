@@ -1,8 +1,3 @@
-use std::fs;
-use std::path::Path;
-use std::str::FromStr;
-
-use anyhow::Result;
 use ipnetwork::Ipv4Network;
 use serde_derive::{Deserialize, Serialize};
 
@@ -10,10 +5,7 @@ use super::container::ContainerImage;
 use super::device::DeviceModel;
 use super::provider::VmProviders;
 
-use konst::{
-    QEMU_BIN, SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_CONTAINERS_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
-};
+use konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {

@@ -6,8 +6,8 @@ use serde_json;
 
 use data::Config as SherpaConfig;
 use konst::{
-    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_MANAGEMENT_VM_IPV4_INDEX,
+    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_DOMAIN_NAME,
+    SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX, SHERPA_MANAGEMENT_NETWORK_IPV4,
 };
 use util::base64_encode;
 
@@ -17,6 +17,7 @@ pub struct IgnitionConfig {
     pub passwd: Passwd,
     pub storage: Storage,
     pub systemd: Systemd,
+    pub networkd: Networkd,
 }
 
 impl IgnitionConfig {
@@ -24,7 +25,8 @@ impl IgnitionConfig {
         users: Vec<User>,
         files: Vec<File>,
         links: Vec<Link>,
-        units: Vec<Unit>,
+        systemd_units: Vec<Unit>,
+        networkd_units: Vec<Unit>,
         filesystems: Vec<FileSystem>,
     ) -> IgnitionConfig {
         let directories = vec![Directory::default()];
@@ -37,7 +39,12 @@ impl IgnitionConfig {
                 directories,
                 filesystems,
             },
-            systemd: Systemd { units },
+            systemd: Systemd {
+                units: systemd_units,
+            },
+            networkd: Networkd {
+                units: networkd_units,
+            },
         }
     }
     /// Serialize the IgnitionConfig to a JSON string
@@ -163,7 +170,7 @@ pub struct File {
 impl File {
     pub fn disable_resolved() -> Self {
         Self {
-            path: "/etc/systemd/resolved.conf".to_owned(),
+            path: "/etc/systemd/resolved.conf.d/no-stub.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
             contents: Contents::new("data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg=="),
@@ -220,11 +227,15 @@ impl File {
 Name=eth0
 
 [Network]
-Address={}/{}
-Gateway={}"#,
-            mgmt_net.nth(SHERPA_MANAGEMENT_VM_IPV4_INDEX).unwrap(),
-            mgmt_net.prefix(),
-            mgmt_net.nth(1).unwrap(),
+Address={address}/{prefix}
+Gateway={gateway}
+DNS={gateway}
+Domains={domain}
+"#,
+            address = mgmt_net.nth(SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX).unwrap(),
+            prefix = mgmt_net.prefix(),
+            gateway = mgmt_net.nth(1).unwrap(),
+            domain = SHERPA_DOMAIN_NAME,
         );
         let encoded_contents = base64_encode(&contents);
         Ok(Self {
@@ -232,6 +243,7 @@ Gateway={}"#,
             mode: 644,
             overwrite: Some(true),
             contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
+            // contents: Contents::new(&contents),
             user: Some(FileParams {
                 name: "root".to_owned(),
             }),
@@ -378,11 +390,11 @@ Requires=media-container.mount containerd.service
 [Service]
 TimeoutStartSec=infinity
 ExecStartPre=/usr/bin/mkdir -p /opt/ztp/dnsmasq
-ExecStartPre=/usr/bin/mkdir -p /opt/ztp/configs
 ExecStartPre=/usr/bin/mkdir -p /opt/ztp/images
 ExecStartPre=/usr/bin/touch /opt/ztp/dnsmasq/leases.txt
+ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
 ExecStartPre=/usr/bin/docker load -i /media/container/dnsmasq.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name dnsmasq-app --network host -v /opt/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf -v /opt/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases -v /opt/ztp/configs:/opt/ztp --cap-add=NET_ADMIN dockurr/dnsmasq
+ExecStart=/usr/bin/docker container run --rm --name dnsmasq-app --network host -v /opt/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf -v /opt/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases -v /opt/ztp/tftp:/opt/ztp/tftp --cap-add=NET_ADMIN dockurr/dnsmasq
 ExecStop=/usr/bin/docker container stop dnsmasq-app
 
 Restart=always
@@ -408,9 +420,10 @@ Requires=media-container.mount containerd.service
 
 [Service]
 TimeoutStartSec=infinity
+ExecStartPre=/usr/bin/mkdir -p /opt/ztp/configs
 ExecStartPre=/usr/bin/bash -c 'chmod -R a+r /opt/ztp/'
 ExecStartPre=/usr/bin/docker load -i /media/container/webdir.tar.gz
-ExecStart=/usr/bin/docker container run --rm --name webdir-app --network host -v /opt/ztp:/opt/ztp ghcr.io/bwks/webdir
+ExecStart=/usr/bin/docker container run --rm --name webdir-app --network host -v /opt/ztp:/opt/ztp:ro ghcr.io/bwks/webdir
 ExecStop=/usr/bin/docker container stop webdir-app
 
 Restart=always
@@ -476,6 +489,11 @@ WantedBy=multi-user.target
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Systemd {
+    units: Vec<Unit>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct Networkd {
     units: Vec<Unit>,
 }
 

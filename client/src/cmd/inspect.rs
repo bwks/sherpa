@@ -18,15 +18,10 @@ pub async fn inspect(
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     let qemu_conn = qemu.connect()?;
-    let mut devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
+    let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
 
     let domains = qemu_conn.list_all_domains(0)?;
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-    devices.push(Device {
-        name: BOOT_SERVER_NAME.to_owned(),
-        model: DeviceModels::FlatcarLinux,
-        ..Default::default()
-    });
 
     let leases = get_dhcp_leases(&config).await?;
     let mut inactive_devices = vec![];
@@ -37,17 +32,10 @@ pub async fn inspect(
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name)
         {
-            let vm_ip = if device.name == BOOT_SERVER_NAME {
-                match get_mgmt_ip(&qemu_conn, &device_name)? {
-                    Some(ip) => ip,
-                    None => "".to_owned(),
-                }
+            let vm_ip = if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
+                vm_ip.ip.clone()
             } else {
-                if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
-                    vm_ip.ip.clone()
-                } else {
-                    "".to_owned()
-                }
+                "".to_owned()
             };
             term_msg_underline(&device.name);
             println!("Domain: {}", device_name);
