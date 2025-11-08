@@ -157,12 +157,13 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
     let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
-    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
+    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first.to_string());
+    let dnsmasq_env_dns2 = "DNS2=";
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
     let web_server_ipv4 = mgmt_net.v4.web_server.to_string();
 
     // Dnsmasq
-    let dnsmasq_env_vars = vec![dnsmasq_env_dns1.as_str()];
+    let dnsmasq_env_vars = vec![dnsmasq_env_dns1.as_str(), dnsmasq_env_dns2];
     let dnsmasq_config = format!(
         "{}/{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}",
         project_dir

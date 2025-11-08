@@ -8,7 +8,7 @@ server={{ gateway_ipv4 }}
 domain=sherpa.lab.local
 
 # DHCP range for the subnet (customize to your network)
-dhcp-range={{ dhcp_start }},{{ dhcp_end }},1m
+dhcp-range={{ dhcp_start }},{{ dhcp_end }},2m
 
 # Set default gateway (Option 3) and option 150 (TFTP server IP)
 dhcp-option=3,{{ gateway_ipv4 }} # Default Gateway

@@ -159,7 +159,7 @@ pub async fn up(
         let mac_address = random_mac(KVM_OUI);
         let ipv4_address = get_ipv4_addr(
             mgmt_net.v4.prefix,
-            dev_id_map.get(&device.name).unwrap().to_owned() as u32,
+            20 + dev_id_map.get(&device.name).unwrap().to_owned() as u32,
         )?;
         ztp_records.push(ZtpRecord {
             device_name: device.name.clone().to_owned(),

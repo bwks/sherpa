@@ -90,9 +90,10 @@ impl NatNetwork {
           </forward>
           <bridge name='{bridge_name}' stp='on' delay='0'/>
           <domain name='{SHERPA_DOMAIN_NAME}' localOnly='yes'/>
-          <dns enable='no'/>
+          <dns enable='yes'/>
           <ip address='{ipv4_address}' netmask='{ipv4_netmask}'>
           </ip>
+
         </network>
         "#
         );
