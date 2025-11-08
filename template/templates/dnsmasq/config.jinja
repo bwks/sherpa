@@ -21,7 +21,7 @@ dhcp-ignore-clid
 
 # Enable TFTP
 enable-tftp
-tftp-root=/opt/ztp/tftp
+tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 
 {%- for record in ztp_records %}
 # {{ record.device_name }}

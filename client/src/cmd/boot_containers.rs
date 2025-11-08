@@ -13,9 +13,12 @@ use data::{
 use konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
     BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CONTAINER_DISK_NAME, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT,
-    MTU_JUMBO_INT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_PASSWORD_HASH,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_JSON,
+    CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_WEBDIR_NAME,
+    CONTAINER_WEBDIR_REPO, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DEVICE_CONFIGS_DIR,
+    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT,
+    MTU_JUMBO_INT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_JSON,
 };
 use template::{
     ArubaAoscxTemplate, BootServer, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
@@ -38,18 +41,28 @@ pub fn create_ztp_files(
     // Create ZTP files
     term_msg_underline("Creating ZTP configs");
 
+    let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
+    let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
+    let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+
     let dnsmaq_template = DnsmasqTemplate {
         tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
         gateway_ipv4: mgmt_net.v4.first.to_string(),
         dhcp_start: get_ipv4_addr(mgmt_net.v4.prefix, 20)?.to_string(),
-        dhcp_end: get_ipv4_addr(mgmt_net.v4.prefix, 20)?.to_string(),
+        dhcp_end: get_ipv4_addr(mgmt_net.v4.prefix, 254)?.to_string(),
         ztp_records: ztp_records.clone(),
     };
 
     let dnsmasq_rendered_template = dnsmaq_template.render()?;
-    create_dir(".tmp/ztp/dnsmasq/")?;
-    create_file(".tmp/ztp/dnsmasq/dnsmasq.conf", dnsmasq_rendered_template)?;
-    create_file(".tmp/ztp/dnsmasq/leases.txt", "".to_string())?;
+    create_dir(&dnsmasq_dir)?;
+    create_file(
+        &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
+        dnsmasq_rendered_template,
+    )?;
+    create_file(
+        &format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"),
+        "".to_string(),
+    )?;
 
     // Aristra vEOS
     let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
@@ -137,23 +150,28 @@ pub fn create_ztp_files(
     })
 }
 
-pub async fn create_boot_containers(docker_conn: &Docker) -> Result<()> {
-    let project_dir = path::absolute(".")?;
+pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwork) -> Result<()> {
+    let project_path = path::absolute(".")?;
+    let project_dir = project_path.display();
+    let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
+    let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
+    let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
+    let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
+    let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
+    let web_server_ipv4 = mgmt_net.v4.web_server.to_string();
 
     // Dnsmasq
-    let dnsmasq_env_vars = vec!["DNS1=192.168.128.1"];
-    // "/home/bradmin/code/rust/sherpa/.tmp_dkr/ztp/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf",
-    // "/home/bradmin/code/rust/sherpa/.tmp_dkr/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases",
-    // "/home/bradmin/code/rust/sherpa/.tmp_dkr/ztp/tftp:/opt/ztp/tftp",
+    let dnsmasq_env_vars = vec![dnsmasq_env_dns1.as_str()];
     let dnsmasq_config = format!(
-        "{}/.tmp/ztp/dnsmasq/dnsmasq.conf:/etc/dnsmasq.conf",
-        project_dir.display()
+        "{}/{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}",
+        project_dir
     );
     let dnsmasq_leases = format!(
-        "{}/.tmp/ztp/dnsmasq/leases.txt:/var/lib/misc/dnsmasq.leases",
-        project_dir.display()
+        "{}/{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}:/var/lib/misc/{DNSMASQ_LEASES_FILE}",
+        project_dir
     );
-    let dnsmasq_tftp = format!("{}/.tmp/ztp/tftp:/opt/ztp/tftp", project_dir.display());
+    let dnsmasq_tftp = format!("{}/{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}", project_dir);
 
     let dnsmasq_volumes = vec![
         dnsmasq_config.as_str(),
@@ -161,49 +179,38 @@ pub async fn create_boot_containers(docker_conn: &Docker) -> Result<()> {
         dnsmasq_tftp.as_str(),
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
-    let dnsmasq_network_attachment = "sherpa-management";
-    let dnsmasq_ipv4_address = "192.168.128.5";
-    let dnsmasq_name = "dnsmasq";
-    let dnsmasq_image = "docker.io/dockurr/dnsmasq";
 
     run_container(
         &docker_conn,
-        dnsmasq_name,
-        dnsmasq_image,
+        CONTAINER_DNSMASQ_NAME,
+        CONTAINER_DNSMASQ_REPO,
         dnsmasq_env_vars,
         dnsmasq_volumes,
         dnsmasq_capabilities,
-        dnsmasq_network_attachment,
-        dnsmasq_ipv4_address,
+        SHERPA_MANAGEMENT_NETWORK_NAME,
+        &boot_server_ipv4,
     )
     .await?;
 
     // Webdir
     let webdir_env_vars = vec![];
-    let webdir_config_dir = format!(
-        "{}/.tmp/ztp/configs:/opt/ztp/configs",
-        project_dir.display()
-    );
+    let webdir_config_dir =
+        format!("{project_dir}/{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
     let webdir_leases = format!(
-        "{}/.tmp/ztp/dnsmasq/leases.txt:/opt/ztp/dnsmasq/leases.txt:ro",
-        project_dir.display()
+        "{project_dir}/{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}:/opt/{ZTP_DIR}/{DNSMASQ_DIR}/{DNSMASQ_LEASES_FILE}:ro",
     );
     let webdir_volumes = vec![webdir_config_dir.as_str(), webdir_leases.as_str()];
     let webdir_capabilities = vec![];
-    let webdir_network_attachment = "sherpa-management";
-    let webdir_ipv4_address = "192.168.128.6";
-    let webdir_name = "webdir";
-    let webdir_image = "ghcr.io/bwks/webdir";
 
     run_container(
         &docker_conn,
-        webdir_name,
-        webdir_image,
+        CONTAINER_WEBDIR_NAME,
+        CONTAINER_WEBDIR_REPO,
         webdir_env_vars,
         webdir_volumes,
         webdir_capabilities,
-        webdir_network_attachment,
-        webdir_ipv4_address,
+        SHERPA_MANAGEMENT_NETWORK_NAME,
+        &web_server_ipv4,
     )
     .await?;
 

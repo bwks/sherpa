@@ -128,14 +128,22 @@ pub async fn run_container(
 }
 
 pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
-    docker
+    match docker
         .kill_container(
             name,
             Some(KillContainerOptions {
                 signal: "SIGKILL".to_string(),
             }),
         )
-        .await?;
+        .await
+    {
+        Ok(_) => {
+            println!("Container destroyed: {name}")
+        }
+        Err(_) => {
+            println!("Container not destroyed: {name}")
+        }
+    }
     Ok(())
 }
 

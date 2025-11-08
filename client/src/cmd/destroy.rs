@@ -19,9 +19,7 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
 
     let docker = docker_connection()?;
     kill_container(&docker, "dnsmasq").await?;
-    println!("Destroyed container: {}", "dnsmasq");
     kill_container(&docker, "webdir").await?;
-    println!("Destroyed container: {}", "webdir");
 
     for domain in domains {
         let vm_name = domain.get_name()?;

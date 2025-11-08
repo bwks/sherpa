@@ -1128,7 +1128,7 @@ pub async fn up(
     }
 
     let _ztp_templates = create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
-    create_boot_containers(&docker_conn).await?;
+    create_boot_containers(&docker_conn, &mgmt_net).await?;
 
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");
