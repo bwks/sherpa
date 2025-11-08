@@ -3,7 +3,7 @@ use super::boot_containers::{create_boot_containers, create_ztp_files};
 use anyhow::{Context, Result};
 use askama::Template;
 
-use container::{docker_connection, run_container};
+use container::docker_connection;
 use data::{
     CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
     DhcpLease, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
@@ -42,8 +42,9 @@ use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases,
-    get_ip, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
-    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
+    get_ip, get_ipv4_addr, get_ssh_public_key, id_to_port, load_config, load_file,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
+    term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -155,37 +156,16 @@ pub async fn up(
         let hdd_bus = device_model.hdd_bus.clone();
         let cdrom_bus = device_model.cdrom_bus.clone();
 
-        let mac_address = match device.model {
-            DeviceModels::AristaVeos => random_mac(ARISTA_OUI),
-            DeviceModels::ArubaAoscx => random_mac(ARUBA_OUI),
-            DeviceModels::CiscoCat8000v
-            | DeviceModels::CiscoCat9000v
-            | DeviceModels::CiscoCsr1000v => random_mac(CISCO_IOSXE_OUI),
-            DeviceModels::CiscoIosv | DeviceModels::CiscoIosvl2 => random_mac(CISCO_IOSV_OUI),
-            DeviceModels::CiscoNexus9300v => random_mac(CISCO_NXOS_OUI),
-            DeviceModels::CiscoIosxrv9000 => random_mac(CISCO_IOSXR_OUI),
-            DeviceModels::JuniperVevolved
-            | DeviceModels::JuniperVrouter
-            | DeviceModels::JuniperVswitch
-            | DeviceModels::JuniperVsrxv3 => random_mac(JUNIPER_OUI),
-            DeviceModels::CumulusLinux => random_mac(CUMULUS_OUI),
-            DeviceModels::FlatcarLinux => {
-                if &device.name == BOOT_SERVER_NAME {
-                    BOOT_SERVER_MAC.to_owned()
-                } else {
-                    random_mac(KVM_OUI)
-                }
-            }
-            _ => random_mac(KVM_OUI),
-        };
+        let mac_address = random_mac(KVM_OUI);
+        let ipv4_address = get_ipv4_addr(
+            mgmt_net.v4.prefix,
+            dev_id_map.get(&device.name).unwrap().to_owned() as u32,
+        )?;
         ztp_records.push(ZtpRecord {
             device_name: device.name.clone().to_owned(),
             config_file: format!("{}.conf", &device.name),
             mac_address: mac_address.to_string(),
-            ipv4_address: format!(
-                "192.168.128.{}",
-                20 + dev_id_map.get(&device.name).unwrap().to_owned()
-            ),
+            ipv4_address: ipv4_address.to_string(),
         });
 
         let mut interfaces: Vec<Interface> = vec![];

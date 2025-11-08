@@ -81,51 +81,18 @@ impl NatNetwork {
         let network_xml = format!(
             r#"
         <network connections='1' xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
-          <dnsmasq:options>
-            <dnsmasq:option value="dhcp-option=3,{ipv4_default_gateway}"/>
-            <dnsmasq:option value="dhcp-option=150,{ztp_server_ipv4}"/>
-            <dnsmasq:option value="dhcp-ignore-clid"/>
-
-            <dnsmasq:option value="dhcp-option-force=tag:arista,67,http://{ztp_server_ipv4}:{ztp_http_port}/{ARISTA_ZTP_DIR}/{ARISTA_VEOS_ZTP_SCRIPT}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxe,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXE_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosv,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSV_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_nxos,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_NXOS_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cisco_iosxr,67,http://{ztp_server_ipv4}:{ztp_http_port}/{CISCO_ZTP_DIR}/{CISCO_IOSXR_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:juniper,67,http://{ztp_server_ipv4}:{ztp_http_port}/{JUNIPER_ZTP_DIR}/{JUNIPER_ZTP_SCRIPT}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:cumulus,239,http://{ztp_server_ipv4}:{ztp_http_port}/{CUMULUS_ZTP_DIR}/{CUMULUS_ZTP_CONFIG}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:aruba,66,{ztp_server_ipv4}:{ztp_tftp_port}"/>
-            <dnsmasq:option value="dhcp-option-force=tag:aruba,67,{ARUBA_ZTP_DIR}/{ARUBA_ZTP_CONFIG}"/>
-
-            <dnsmasq:option value="dhcp-mac=set:arista,{ARISTA_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:cisco_iosxe,{CISCO_IOSXE_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:cisco_iosv,{CISCO_IOSV_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:cisco_nxos,{CISCO_NXOS_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:cisco_iosxr,{CISCO_IOSXR_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:juniper,{JUNIPER_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:cumulus,{CUMULUS_OUI}:*:*:*"/>
-            <dnsmasq:option value="dhcp-mac=set:aruba,{ARUBA_OUI}:*:*:*"/>
-
-          </dnsmasq:options>
-
           <name>{network_name}</name>
-
           <mtu size="{MTU_JUMBO_NET}"/>
-
           <forward mode='nat'>
             <nat>
               <port start='1024' end='65535'/>
             </nat>
           </forward>
-
           <bridge name='{bridge_name}' stp='on' delay='0'/>
-
           <domain name='{SHERPA_DOMAIN_NAME}' localOnly='yes'/>
-
-          <dns enable='yes'/>
-
+          <dns enable='no'/>
           <ip address='{ipv4_address}' netmask='{ipv4_netmask}'>
           </ip>
-
         </network>
         "#
         );
