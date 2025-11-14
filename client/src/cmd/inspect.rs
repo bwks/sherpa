@@ -2,9 +2,9 @@ use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use data::{Config, DeviceModels};
-use konst::{BOOT_SERVER_NAME, SHERPA_STORAGE_POOL};
-use libvirt::{Qemu, get_mgmt_ip};
+use data::Config;
+use konst::SHERPA_STORAGE_POOL;
+use libvirt::Qemu;
 use topology::Device;
 use util::{get_dhcp_leases, term_msg_surround, term_msg_underline};
 

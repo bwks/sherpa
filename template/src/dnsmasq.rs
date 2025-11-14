@@ -1,7 +1,7 @@
 use askama::Template;
 
 use data::ZtpRecord;
-use konst::{SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR};
+use konst::{DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR};
 
 #[derive(Template)]
 #[template(path = "dnsmasq/config.jinja", ext = "txt")]

@@ -1,6 +1,9 @@
 # Speed up SSH key generation in debug mode.
 [profile.dev.package.num-bigint-dig]
-opt-level = 2
+opt-level = 3
+# Use once it becomes available in the ssh-key crate release.
+# [profile.dev.package.crypto-bigint]
+# opt-level = 3
 
 [workspace]
 resolver = "3"

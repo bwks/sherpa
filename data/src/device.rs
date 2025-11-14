@@ -39,6 +39,7 @@ pub enum DeviceModels {
     SuseLinux,
     UbuntuLinux,
     FlatcarLinux,
+    SonicLinux,
     WindowsServer2012,
 }
 impl fmt::Display for DeviceModels {
@@ -69,6 +70,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
             DeviceModels::WindowsServer2012 => write!(f, "windows_server"),
             DeviceModels::FlatcarLinux => write!(f, "flatcar_linux"),
+            DeviceModels::SonicLinux => write!(f, "sonic_linux"),
             DeviceModels::CustomUnknown => write!(f, "custom_unknown"),
         }
     }
@@ -97,6 +99,8 @@ pub enum Manufacturers {
     Nvidia,
     Redhat,
     Suse,
+    Sonic,
+    Linux,
     #[default]
     Unknown,
 }
@@ -116,6 +120,7 @@ pub enum OsVariants {
     Nxos,
     Server2012,
     Srlinux,
+    Sonic,
     #[default]
     Unknown,
 }
@@ -132,6 +137,7 @@ impl fmt::Display for OsVariants {
             OsVariants::Iosxr => write!(f, "iosxr"),
             OsVariants::Linux => write!(f, "linux"),
             OsVariants::Nxos => write!(f, "nxos"),
+            OsVariants::Sonic => write!(f, "sonic_linux"),
             OsVariants::Server2012 => write!(f, "server_2012"),
             OsVariants::Srlinux => write!(f, "srlinux"),
             OsVariants::Unknown => write!(f, "unknown"),
@@ -359,6 +365,7 @@ impl DeviceModel {
             DeviceModels::OpensuseLinux => DeviceModel::opensuse_linux(),
             DeviceModels::SuseLinux => DeviceModel::suse_linux(),
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
+            DeviceModels::SonicLinux => DeviceModel::sonic_linux(),
             DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
             DeviceModels::WindowsServer2012 => todo!(),
             DeviceModels::CustomUnknown => DeviceModel::default(),
@@ -1093,6 +1100,38 @@ impl DeviceModel {
             ztp_username: None,
             ztp_password: None,
             ztp_method: ZtpMethods::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+        }
+    }
+    pub fn sonic_linux() -> DeviceModel {
+        DeviceModel {
+            name: DeviceModels::SonicLinux,
+            version: "latest".to_owned(),
+            os_variant: OsVariants::Linux,
+            manufacturer: Manufacturers::Sonic,
+            kind: DeviceKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineTypes::Q35,
+            vmx_enabled: false,
+            memory: 2048,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,

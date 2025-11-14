@@ -23,7 +23,7 @@ use konst::{
 };
 use libvirt::Qemu;
 use topology::Manifest;
-use util::{expand_path, get_id, load_config, load_file};
+use util::{expand_path, get_id, load_config};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]

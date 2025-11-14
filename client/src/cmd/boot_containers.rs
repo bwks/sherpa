@@ -4,33 +4,19 @@ use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{
-    BiosTypes, CloneDisk, Config, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk,
-    DeviceModels, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
-    InterfaceTypes, MachineTypes, MgmtInterfaces, QemuCommand, Sherpa, SherpaNetwork, User,
-    ZtpRecord, ZtpTemplates,
-};
+use data::{Dns, MgmtInterfaces, SherpaNetwork, User, ZtpRecord, ZtpTemplates};
 use konst::{
-    ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, BOOT_SERVER_MAC,
-    BOOT_SERVER_NAME, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR,
-    CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_WEBDIR_NAME,
-    CONTAINER_WEBDIR_REPO, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DEVICE_CONFIGS_DIR,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT,
-    MTU_JUMBO_INT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_JSON,
+    ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, CISCO_IOSV_ZTP_CONFIG,
+    CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
+    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, SHERPA_MANAGEMENT_NETWORK_NAME,
+    TEMP_DIR, TFTP_DIR, ZTP_DIR,
 };
 use template::{
-    ArubaAoscxTemplate, BootServer, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DnsmasqTemplate, DomainTemplate,
-    File as IgnitionFile, FileSystem as IgnitionFileSystem, IgnitionConfig, Link as IgnitionLink,
-    Unit as IgnitionUnit, User as IgnitionUser, arista_veos_ztp_script,
-    juniper_vevolved_ztp_script,
+    ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CumulusLinuxZtpTemplate,
+    DnsmasqTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
 };
-use util::{
-    base64_encode, copy_file, copy_to_ext4_image, create_dir, create_file, get_ip, get_ipv4_addr,
-    pub_ssh_key_to_md5_hash, term_msg_underline,
-};
+use util::{create_dir, create_file, get_ipv4_addr, pub_ssh_key_to_md5_hash, term_msg_underline};
 
 pub fn create_ztp_files(
     mgmt_net: &SherpaNetwork,
@@ -43,7 +29,6 @@ pub fn create_ztp_files(
 
     let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
-    let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
 
     let dnsmaq_template = DnsmasqTemplate {
         tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
@@ -160,7 +145,10 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
     let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first.to_string());
     let dnsmasq_env_dns2 = "DNS2=";
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
-    let web_server_ipv4 = mgmt_net.v4.web_server.to_string();
+
+    // Webdir
+    let webdir_config_dir =
+        format!("{project_dir}/{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
 
     // Dnsmasq
     let dnsmasq_env_vars = vec![dnsmasq_env_dns1.as_str(), dnsmasq_env_dns2];
@@ -168,16 +156,12 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
         "{}/{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}",
         project_dir
     );
-    let dnsmasq_leases = format!(
-        "{}/{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}:/var/lib/misc/{DNSMASQ_LEASES_FILE}",
-        project_dir
-    );
     let dnsmasq_tftp = format!("{}/{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}", project_dir);
 
     let dnsmasq_volumes = vec![
         dnsmasq_config.as_str(),
-        dnsmasq_leases.as_str(),
         dnsmasq_tftp.as_str(),
+        webdir_config_dir.as_str(),
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
@@ -190,28 +174,6 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
         dnsmasq_capabilities,
         SHERPA_MANAGEMENT_NETWORK_NAME,
         &boot_server_ipv4,
-    )
-    .await?;
-
-    // Webdir
-    let webdir_env_vars = vec![];
-    let webdir_config_dir =
-        format!("{project_dir}/{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
-    let webdir_leases = format!(
-        "{project_dir}/{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}:/opt/{ZTP_DIR}/{DNSMASQ_DIR}/{DNSMASQ_LEASES_FILE}:ro",
-    );
-    let webdir_volumes = vec![webdir_config_dir.as_str(), webdir_leases.as_str()];
-    let webdir_capabilities = vec![];
-
-    run_container(
-        &docker_conn,
-        CONTAINER_WEBDIR_NAME,
-        CONTAINER_WEBDIR_REPO,
-        webdir_env_vars,
-        webdir_volumes,
-        webdir_capabilities,
-        SHERPA_MANAGEMENT_NETWORK_NAME,
-        &web_server_ipv4,
     )
     .await?;
 

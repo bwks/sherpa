@@ -1,9 +1,5 @@
 use std::net::Ipv4Addr;
 
-use anyhow::Result;
-
-use konst::{BOOT_SERVER_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4};
-
 #[derive(Clone)]
 pub struct NameServer {
     #[allow(dead_code)]

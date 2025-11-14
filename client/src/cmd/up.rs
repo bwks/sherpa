@@ -5,25 +5,23 @@ use askama::Template;
 
 use container::docker_connection;
 use data::{
-    CloneDisk, Config, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels,
-    DhcpLease, DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Dns, Interface,
-    InterfaceConnection, OsVariants, QemuCommand, Sherpa, SherpaNetwork, User, ZtpMethods,
-    ZtpRecord,
+    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, OsVariants,
+    QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
 };
 use konst::{
-    ARISTA_OUI, ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_OUI, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT,
-    BOOT_SERVER_MAC, BOOT_SERVER_NAME, CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_OUI,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_OUI, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_OUI,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_OUI, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_OUI, CUMULUS_ZTP, HTTP_PORT, JUNIPER_OUI,
+    ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT, CISCO_ASAV_ZTP_CONFIG,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG,
+    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_ZTP,
     JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
     SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
-    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX,
-    SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
-    SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
+    ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use libvirt::{Qemu, clone_disk, create_vm, get_mgmt_ip};
+use libvirt::IsolatedNetwork;
+use libvirt::{Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -33,7 +31,7 @@ use template::{
     AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
     CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, DnsmasqTemplate, DomainTemplate, File as IgnitionFile,
+    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
     FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
     JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit,
     User as IgnitionUser,
@@ -41,10 +39,9 @@ use template::{
 use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases,
-    get_ip, get_ipv4_addr, get_ssh_public_key, id_to_port, load_config, load_file,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
-    term_msg_surround, term_msg_underline,
+    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_ip,
+    get_ipv4_addr, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
+    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -77,6 +74,12 @@ pub async fn up(
 
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
+
+    let lab_network = IsolatedNetwork {
+        network_name: format!("sherpa-isolated-{lab_id}"),
+        bridge_name: format!("br-{lab_id}"),
+    };
+    lab_network.create(&qemu_conn)?;
 
     let mut ztp_records = vec![];
 
@@ -1179,7 +1182,6 @@ pub async fn up(
 
     while start_time.elapsed() < timeout && connected_devices.len() < ztp_devices.len() {
         for device in &ztp_devices {
-            let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
             if connected_devices.contains(&device.name) {
                 continue;
             }

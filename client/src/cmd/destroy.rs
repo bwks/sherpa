@@ -5,7 +5,7 @@ use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use container::{docker_connection, kill_container};
-use konst::{SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
+use konst::{CONTAINER_DNSMASQ_NAME, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use libvirt::{Qemu, delete_disk};
 use util::{dir_exists, file_exists, term_msg_surround};
 
@@ -18,9 +18,12 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     let pool_disks = storage_pool.list_volumes()?;
 
     let docker = docker_connection()?;
-    kill_container(&docker, "dnsmasq").await?;
-    kill_container(&docker, "webdir").await?;
-
+    kill_container(&docker, CONTAINER_DNSMASQ_NAME).await?;
+    // let options = Some(ListContainersOptions {
+    //     all: true,
+    //     ..Default::default()
+    // });
+    // docker.list_containers(options);
     for domain in domains {
         let vm_name = domain.get_name()?;
         if vm_name.contains(lab_id) && domain.is_active()? {
@@ -44,6 +47,18 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
             }
         }
     }
+
+    let networks = qemu_conn.list_all_networks(0)?;
+    for network in networks {
+        if network.get_name()?.contains(lab_id) {
+            let network_name = network.get_name()?;
+            println!("Destroying network: {}", network_name);
+            network.destroy()?;
+            network.undefine()?;
+            println!("Destroyed network: {}", network_name);
+        }
+    }
+
     if dir_exists(TEMP_DIR) {
         fs::remove_dir_all(TEMP_DIR)?;
         println!("Deleted directory: {TEMP_DIR}");

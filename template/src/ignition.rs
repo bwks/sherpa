@@ -1,13 +1,12 @@
 use anyhow::Result;
-use ipnetwork::Ipv4Network;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
 
 use data::Config as SherpaConfig;
 use konst::{
-    DOCKER_COMPOSE_VERSION, HTTP_PORT, IGNITION_VERSION, SHERPA_DOMAIN_NAME,
-    SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX, SHERPA_MANAGEMENT_NETWORK_IPV4,
+    DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME,
+    SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX,
 };
 use util::base64_encode;
 

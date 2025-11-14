@@ -1,5 +1,4 @@
 mod boot_containers;
-mod boot_server;
 mod boxx;
 mod clean;
 mod cli;
@@ -16,19 +15,3 @@ mod ssh;
 mod up;
 
 pub use cli::Cli;
-
-// pub use cmd::boot_server;
-// pub use cmd::boxx::{BoxCommands, parse_box_commands};
-// pub use cmd::clean::clean;
-// pub use cmd::cli::Cli;
-// pub use cmd::console::console;
-// pub use cmd::container::{ContainerCommands, parse_container_commands};
-// pub use cmd::destroy::destroy;
-// pub use cmd::doctor::doctor;
-// pub use cmd::down::down;
-// pub use cmd::import::import;
-// pub use cmd::init::init;
-// pub use cmd::inspect::inspect;
-// pub use cmd::resume::resume;
-// pub use cmd::ssh::ssh;
-// pub use cmd::up::up;

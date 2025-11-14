@@ -22,7 +22,7 @@ sha2 = "0.10.8"
 twox-hash = "2.0.0"
 
 # Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 
 # Random number generator
 rand = "0.8.5"
