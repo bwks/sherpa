@@ -47,3 +47,8 @@ impl ContainerImage {
         }
     }
 }
+
+pub struct ContainerNetworkAttachment {
+    pub name: String,
+    pub ipv4_address: Option<String>,
+}

@@ -4,26 +4,66 @@ use std::process::Command;
 use anyhow::{Context, Result};
 use async_compression::Level;
 use async_compression::tokio::write::GzipEncoder;
+use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
     NetworkingConfig,
 };
+use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
     KillContainerOptions, RemoveContainerOptions, StartContainerOptions,
 };
-
-use bollard::Docker;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use data::{Config as SherpaConfig, ContainerImage};
+use data::{Config as SherpaConfig, ContainerImage, ContainerNetworkAttachment};
 use konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use util::{create_dir, dir_exists};
 
 pub fn docker_connection() -> Result<Docker> {
     let docker = Docker::connect_with_local_defaults()?;
     Ok(docker)
+}
+
+pub async fn create_network(
+    docker: &Docker,
+    name: &str,
+    ipv4_prefix: Option<String>,
+    bridge: &str,
+) -> Result<()> {
+    let ipam_config = IpamConfig {
+        subnet: ipv4_prefix,
+        ..Default::default()
+    };
+
+    let ipam = Ipam {
+        driver: Some("default".to_string()),
+        config: Some(vec![ipam_config]),
+        ..Default::default()
+    };
+
+    let mut options = HashMap::new();
+    options.insert(
+        "com.docker.network.bridge.name".to_string(),
+        bridge.to_string(),
+    );
+    let create_request = NetworkCreateRequest {
+        name: name.to_owned(),
+        driver: Some("bridge".to_owned()),
+        options: Some(options),
+        ipam: Some(ipam),
+        internal: Some(false),
+        enable_ipv6: Some(false),
+        ..Default::default()
+    };
+
+    match docker.create_network(create_request).await {
+        Ok(response) => println!("Network created: {:?}", response),
+        Err(e) => eprintln!("Error creating network: {}", e),
+    }
+
+    Ok(())
 }
 
 pub async fn run_container(
@@ -33,8 +73,7 @@ pub async fn run_container(
     env_vars: Vec<&str>,
     volumes: Vec<&str>,
     capabilities: Vec<&str>,
-    network_attachment: &str,
-    ipv4_address: &str,
+    network_attachments: Vec<ContainerNetworkAttachment>,
 ) -> Result<()> {
     // Environment variables
 
@@ -48,17 +87,20 @@ pub async fn run_container(
 
     // Endpoint config for static IP on sherpa-management network
     let mut endpoints_config = HashMap::new();
-    endpoints_config.insert(
-        network_attachment.to_string(),
-        EndpointSettings {
-            ipam_config: Some(EndpointIpamConfig {
-                ipv4_address: Some(ipv4_address.to_string()),
-                ipv6_address: None,
-                link_local_ips: None,
-            }),
-            ..Default::default()
-        },
-    );
+
+    for attachment in network_attachments {
+        endpoints_config.insert(
+            attachment.name,
+            EndpointSettings {
+                ipam_config: Some(EndpointIpamConfig {
+                    ipv4_address: attachment.ipv4_address,
+                    ipv6_address: None,
+                    link_local_ips: None,
+                }),
+                ..Default::default()
+            },
+        );
+    }
 
     let networking_config = NetworkingConfig {
         endpoints_config: Some(endpoints_config),

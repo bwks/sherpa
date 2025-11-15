@@ -20,7 +20,6 @@ use konst::{
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use libvirt::IsolatedNetwork;
 use libvirt::{Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -75,12 +74,6 @@ pub async fn up(
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
 
-    let lab_network = IsolatedNetwork {
-        network_name: format!("sherpa-isolated-{lab_id}"),
-        bridge_name: format!("br-{lab_id}"),
-    };
-    lab_network.create(&qemu_conn)?;
-
     let mut ztp_records = vec![];
 
     for device in &manifest.devices {
@@ -110,6 +103,25 @@ pub async fn up(
     };
 
     println!("Manifest Ok");
+
+    // TODO: If the future, figure out how to have isolated networks
+    // for each lab
+    //
+    // term_msg_underline("Lab Network");
+    // let lab_network = IsolatedNetwork {
+    //     network_name: format!("sherpa-isolated-{lab_id}"),
+    //     bridge_name: format!("br-{lab_id}"),
+    // };
+    // lab_network.create(&qemu_conn)?;
+
+    // // Docker Network
+    // create_network(
+    //     &docker_conn,
+    //     &format!("zz-sherpa-isolated-{lab_id}"),
+    //     None,
+    //     &format!("br-{lab_id}"),
+    // )
+    // .await?;
 
     term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {
@@ -349,7 +361,8 @@ pub async fn up(
                     println!("Creating Cloud-Init config {}", device.name);
                     let dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.model {
-                        DeviceModels::CentosLinux
+                        DeviceModels::AlpineLinux
+                        | DeviceModels::CentosLinux
                         | DeviceModels::FedoraLinux
                         | DeviceModels::OpensuseLinux
                         | DeviceModels::RedhatLinux
@@ -1111,7 +1124,7 @@ pub async fn up(
     }
 
     let _ztp_templates = create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
-    create_boot_containers(&docker_conn, &mgmt_net).await?;
+    create_boot_containers(&docker_conn, &mgmt_net, &lab_id).await?;
 
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");

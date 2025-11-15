@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use clap::{Parser, Subcommand};
+use container::docker_connection;
 
 use super::boxx::{BoxCommands, parse_box_commands};
 use super::clean::clean;
@@ -133,6 +134,7 @@ impl Cli {
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let qemu = Qemu::default();
+        let docker = docker_connection()?;
         let sherpa = Sherpa {
             config_dir: expand_path(SHERPA_CONFIG_DIR),
             boxes_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}")),
@@ -146,7 +148,7 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
-                init(&sherpa, &qemu, config_file, manifest_file, *force)?;
+                init(&sherpa, &qemu, &docker, config_file, manifest_file, *force).await?;
             }
 
             Commands::Up { config_file } => {

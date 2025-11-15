@@ -1,4 +1,5 @@
 use anyhow::Result;
+use container::{Docker, create_network};
 use data::Sherpa;
 use konst::{
     HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
@@ -14,9 +15,10 @@ use util::{
     load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
-pub fn init(
+pub async fn init(
     sherpa: &Sherpa,
     qemu: &Qemu,
+    docker_conn: &Docker,
     config_file: &str,
     manifest_file: &str,
     force: bool,
@@ -130,6 +132,16 @@ pub fn init(
         };
         isolated_network.create(&qemu_conn)?;
     }
+
+    // Docker Networks
+    create_network(
+        &docker_conn,
+        SHERPA_MANAGEMENT_NETWORK_NAME,
+        Some(config.management_prefix_ipv4.network().to_string()),
+        SHERPA_MANAGEMENT_NETWORK_BRIDGE,
+    )
+    .await?;
+
     let storage_pool = SherpaStoragePool {
         name: SHERPA_STORAGE_POOL.to_owned(),
         path: SHERPA_STORAGE_POOL_PATH.to_owned(),

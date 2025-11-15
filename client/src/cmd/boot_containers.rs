@@ -4,7 +4,9 @@ use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{Dns, MgmtInterfaces, SherpaNetwork, User, ZtpRecord, ZtpTemplates};
+use data::{
+    ContainerNetworkAttachment, Dns, MgmtInterfaces, SherpaNetwork, User, ZtpRecord, ZtpTemplates,
+};
 use konst::{
     ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, CISCO_IOSV_ZTP_CONFIG,
     CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
@@ -135,7 +137,11 @@ pub fn create_ztp_files(
     })
 }
 
-pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwork) -> Result<()> {
+pub async fn create_boot_containers(
+    docker_conn: &Docker,
+    mgmt_net: &SherpaNetwork,
+    _lab_id: &str,
+) -> Result<()> {
     let project_path = path::absolute(".")?;
     let project_dir = project_path.display();
     let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
@@ -165,6 +171,17 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
+    let network_attachments = vec![
+        ContainerNetworkAttachment {
+            name: SHERPA_MANAGEMENT_NETWORK_NAME.to_string(),
+            ipv4_address: Some(boot_server_ipv4),
+        },
+        // ContainerNetworkAttachment {
+        //     name: format!("zz-sherpa-isolated-{lab_id}"),
+        //     ipv4_address: None,
+        // },
+    ];
+
     run_container(
         &docker_conn,
         CONTAINER_DNSMASQ_NAME,
@@ -172,8 +189,7 @@ pub async fn create_boot_containers(docker_conn: &Docker, mgmt_net: &SherpaNetwo
         dnsmasq_env_vars,
         dnsmasq_volumes,
         dnsmasq_capabilities,
-        SHERPA_MANAGEMENT_NETWORK_NAME,
-        &boot_server_ipv4,
+        network_attachments,
     )
     .await?;
 

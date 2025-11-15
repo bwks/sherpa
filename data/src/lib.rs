@@ -14,7 +14,7 @@ mod user;
 mod ztp;
 
 pub use config::{Config, InventoryManagement, Sherpa, ZtpServer};
-pub use container::{ContainerImage, ContainerModel};
+pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use device::{
     BiosTypes, CpuArchitecture, DeviceKind, DeviceModel, DeviceModels, InterfaceTypes,
