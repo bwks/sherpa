@@ -33,7 +33,7 @@ pub async fn inspect(
             .find(|d| d.get_name().unwrap_or_default() == device_name)
         {
             let vm_ip = if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
-                vm_ip.ip.clone()
+                vm_ip.ipv4_address.clone()
             } else {
                 "".to_owned()
             };

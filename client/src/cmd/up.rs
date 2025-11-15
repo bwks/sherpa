@@ -37,9 +37,9 @@ use template::{
 };
 use topology::{Device, Manifest};
 use util::{
-    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_ip,
-    get_ipv4_addr, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
+    base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
+    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases,
+    get_ip, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
     pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
@@ -172,15 +172,10 @@ pub async fn up(
         let cdrom_bus = device_model.cdrom_bus.clone();
 
         let mac_address = random_mac(KVM_OUI);
-        let ipv4_address = get_ipv4_addr(
-            mgmt_net.v4.prefix,
-            20 + dev_id_map.get(&device.name).unwrap().to_owned() as u32,
-        )?;
         ztp_records.push(ZtpRecord {
             device_name: device.name.clone().to_owned(),
             config_file: format!("{}.conf", &device.name),
             mac_address: mac_address.to_string(),
-            ipv4_address: ipv4_address.to_string(),
         });
 
         let mut interfaces: Vec<Interface> = vec![];
@@ -361,14 +356,33 @@ pub async fn up(
                     println!("Creating Cloud-Init config {}", device.name);
                     let dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.model {
-                        DeviceModels::AlpineLinux
-                        | DeviceModels::CentosLinux
+                        DeviceModels::CentosLinux
                         | DeviceModels::FedoraLinux
                         | DeviceModels::OpensuseLinux
                         | DeviceModels::RedhatLinux
                         | DeviceModels::SuseLinux
                         | DeviceModels::UbuntuLinux => {
                             let cloud_init_user = CloudInitUser::default()?;
+                            let cloud_init_config = CloudInitConfig {
+                                hostname: device.name.clone(),
+                                fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
+                                ssh_pwauth: true,
+                                users: vec![cloud_init_user],
+                            };
+                            let yaml_config = cloud_init_config.to_string()?;
+
+                            let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+                            let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                            create_dir(&dir)?;
+                            create_file(&user_data, yaml_config)?;
+                            // create_file(&user_data, rendered_template)?;
+                            create_file(&meta_data, "".to_string())?;
+                            create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                        }
+                        DeviceModels::AlpineLinux => {
+                            let mut cloud_init_user = CloudInitUser::default()?;
+                            cloud_init_user.shell = "/bin/sh".to_string();
+                            cloud_init_user.groups = vec!["wheel".to_string()];
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
@@ -1209,22 +1223,28 @@ pub async fn up(
                 _ => SSH_PORT,
             };
             if let Some(vm_data) = ztp_records.iter().find(|x| &x.device_name == &device.name) {
-                match tcp_connect(&vm_data.ipv4_address, ssh_port)? {
-                    true => {
-                        println!("{} - Ready", &device.name);
-                        connected_devices.insert(device.name.clone());
-                        device_ip_map.push(DeviceConnection {
-                            name: device.name.clone(),
-                            ip_address: vm_data.ipv4_address.clone(),
-                            ssh_port,
-                        });
+                let leases = get_dhcp_leases(&config).await?;
+                if let Some(lease) = leases
+                    .iter()
+                    .find(|d| clean_mac(&d.mac_address) == clean_mac(&vm_data.mac_address))
+                {
+                    match tcp_connect(&lease.ipv4_address, ssh_port)? {
+                        true => {
+                            println!("{} - Ready", &device.name);
+                            connected_devices.insert(device.name.clone());
+                            device_ip_map.push(DeviceConnection {
+                                name: device.name.clone(),
+                                ip_address: lease.ipv4_address.clone(),
+                                ssh_port,
+                            });
+                        }
+                        false => {
+                            println!("{} - Waiting for SSH", device.name);
+                        }
                     }
-                    false => {
-                        println!("{} - Waiting for SSH", device.name);
-                    }
+                } else {
+                    println!("{} - Still booting.", device.name);
                 }
-            } else {
-                println!("{} - Still booting.", device.name);
             }
         }
 

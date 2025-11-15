@@ -21,7 +21,7 @@ pub use file_system::{
     file_exists, fix_permissions_recursive, get_cwd, load_file,
 };
 pub use ip::{get_ip, get_ipv4_addr, get_ipv4_network};
-pub use mac::random_mac;
+pub use mac::{clean_mac, random_mac};
 pub use output::{term_msg_highlight, term_msg_surround, term_msg_underline};
 pub use port::id_to_port;
 pub use random::get_id;

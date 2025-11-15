@@ -18,6 +18,15 @@ pub fn random_mac(vendor_oui: &str) -> String {
     )
 }
 
+/// Clean a address by removing known MAC delimiters,
+/// trimming any whitespace and transforming to lowercase
+pub fn clean_mac(mac_address: &str) -> String {
+    mac_address
+        .trim()
+        .replace([':', '-', '.', ' '], "")
+        .to_lowercase()
+}
+
 // #[cfg(test)]
 // mod tests {
 //     use super::*;
