@@ -140,7 +140,7 @@ pub fn create_ztp_files(
 pub async fn create_boot_containers(
     docker_conn: &Docker,
     mgmt_net: &SherpaNetwork,
-    _lab_id: &str,
+    lab_id: &str,
 ) -> Result<()> {
     let project_path = path::absolute(".")?;
     let project_dir = project_path.display();
@@ -171,20 +171,14 @@ pub async fn create_boot_containers(
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
-    let network_attachments = vec![
-        ContainerNetworkAttachment {
-            name: SHERPA_MANAGEMENT_NETWORK_NAME.to_string(),
-            ipv4_address: Some(boot_server_ipv4),
-        },
-        // ContainerNetworkAttachment {
-        //     name: format!("zz-sherpa-isolated-{lab_id}"),
-        //     ipv4_address: None,
-        // },
-    ];
+    let network_attachments = vec![ContainerNetworkAttachment {
+        name: SHERPA_MANAGEMENT_NETWORK_NAME.to_string(),
+        ipv4_address: Some(boot_server_ipv4),
+    }];
 
     run_container(
         &docker_conn,
-        CONTAINER_DNSMASQ_NAME,
+        &format!("{}-{}", CONTAINER_DNSMASQ_NAME, lab_id),
         CONTAINER_DNSMASQ_REPO,
         dnsmasq_env_vars,
         dnsmasq_volumes,

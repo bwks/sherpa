@@ -6,13 +6,12 @@ use async_compression::Level;
 use async_compression::tokio::write::GzipEncoder;
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
-    NetworkingConfig,
+    ContainerCreateBody, ContainerCreateResponse, ContainerSummary, EndpointIpamConfig,
+    EndpointSettings, HostConfig, Ipam, IpamConfig, NetworkCreateRequest, NetworkingConfig,
 };
-use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
-    KillContainerOptions, RemoveContainerOptions, StartContainerOptions,
+    KillContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions,
 };
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -24,6 +23,14 @@ use util::{create_dir, dir_exists};
 pub fn docker_connection() -> Result<Docker> {
     let docker = Docker::connect_with_local_defaults()?;
     Ok(docker)
+}
+
+pub async fn list_containers(docker_conn: &Docker) -> Result<Vec<ContainerSummary>> {
+    let options = Some(ListContainersOptions {
+        all: true,
+        ..Default::default()
+    });
+    Ok(docker_conn.list_containers(options).await?)
 }
 
 pub async fn create_network(
@@ -170,7 +177,7 @@ pub async fn run_container(
 }
 
 pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
-    match docker
+    docker
         .kill_container(
             name,
             Some(KillContainerOptions {
@@ -178,14 +185,9 @@ pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
             }),
         )
         .await
-    {
-        Ok(_) => {
-            println!("Container destroyed: {name}")
-        }
-        Err(_) => {
-            println!("Container not destroyed: {name}")
-        }
-    }
+        .with_context(|| format!("Error destroying container: {name}"))?;
+
+    println!("Destroyed container: {name}");
     Ok(())
 }
 

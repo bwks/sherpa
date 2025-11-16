@@ -16,7 +16,6 @@ pub async fn inspect(
     devices: &[Device],
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
-
     let qemu_conn = qemu.connect()?;
     let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
 
@@ -26,7 +25,7 @@ pub async fn inspect(
     let leases = get_dhcp_leases(&config).await?;
     let mut inactive_devices = vec![];
     for device in devices {
-        let device_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
+        let device_name = format!("{}-{}", device.name, lab_id);
 
         if let Some(domain) = domains
             .iter()

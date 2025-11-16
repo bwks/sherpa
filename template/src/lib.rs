@@ -21,7 +21,7 @@ pub use cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 pub use cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use cisco_nxos::CiscoNxosZtpTemplate;
-pub use cloud_init::{CloudInitConfig, CloudInitUser};
+pub use cloud_init::{CloudInitConfig, CloudInitUser, MetaDataConfig};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate};

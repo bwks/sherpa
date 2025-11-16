@@ -153,28 +153,30 @@ impl Cli {
 
             Commands::Up { config_file } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id()?;
+                let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
 
                 up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest).await?;
             }
             Commands::Down => {
-                let lab_id = get_id()?;
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
                 down(&qemu, &lab_id)?;
             }
             Commands::Resume => {
-                let lab_id = get_id()?;
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
                 resume(&qemu, &lab_id)?;
             }
             Commands::Destroy => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id()?;
+                let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
                 destroy(&qemu, &lab_name, &lab_id).await?;
             }
             Commands::Inspect => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id()?;
+                let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
                 let config = load_config(&sherpa.config_path)?;
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.devices).await?;
@@ -195,7 +197,8 @@ impl Cli {
                 disks,
                 networks,
             } => {
-                let lab_id = get_id()?;
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
                 clean(&qemu, *all, *disks, *networks, &lab_id)?;
             }
             Commands::Console { name } => {

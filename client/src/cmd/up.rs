@@ -32,8 +32,8 @@ use template::{
     CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
     CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
     FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
-    JunipervJunosZtpTemplate, PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit,
-    User as IgnitionUser,
+    JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SshConfigTemplate,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 use topology::{Device, Manifest};
 use util::{
@@ -50,7 +50,7 @@ pub async fn up(
     sherpa: &Sherpa,
     config_file: &str,
     qemu: &Qemu,
-    lab_name: &str,
+    _lab_name: &str,
     lab_id: &str,
     manifest: &Manifest,
 ) -> Result<()> {
@@ -160,7 +160,7 @@ pub async fn up(
     for device in &manifest.devices {
         let links = &links.to_owned();
         let mut disks: Vec<DeviceDisk> = vec![];
-        let vm_name = format!("{}-{}-{}", device.name, lab_name, lab_id);
+        let vm_name = format!("{}-{}", device.name, lab_id);
 
         let device_model = config
             .device_models
@@ -366,37 +366,50 @@ pub async fn up(
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
+                                manage_etc_hosts: true,
                                 ssh_pwauth: true,
                                 users: vec![cloud_init_user],
+                                ..Default::default()
                             };
-                            let yaml_config = cloud_init_config.to_string()?;
+                            let user_data_config = cloud_init_config.to_string()?;
 
                             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                             create_dir(&dir)?;
-                            create_file(&user_data, yaml_config)?;
+                            create_file(&user_data, user_data_config)?;
                             // create_file(&user_data, rendered_template)?;
                             create_file(&meta_data, "".to_string())?;
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
                         DeviceModels::AlpineLinux => {
+                            let meta_data = MetaDataConfig {
+                                instance_id: format!("iid-{}", device.name.clone(),),
+                                local_hostname: format!(
+                                    "{}.{}",
+                                    device.name.clone(),
+                                    SHERPA_DOMAIN_NAME
+                                ),
+                            };
                             let mut cloud_init_user = CloudInitUser::default()?;
                             cloud_init_user.shell = "/bin/sh".to_string();
                             cloud_init_user.groups = vec!["wheel".to_string()];
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
+                                manage_etc_hosts: true,
                                 ssh_pwauth: true,
                                 users: vec![cloud_init_user],
+                                ..Default::default()
                             };
-                            let yaml_config = cloud_init_config.to_string()?;
+                            let meta_data_config = meta_data.to_string()?;
+                            let user_data_config = cloud_init_config.to_string()?;
 
                             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                             create_dir(&dir)?;
-                            create_file(&user_data, yaml_config)?;
+                            create_file(&user_data, user_data_config)?;
                             // create_file(&user_data, rendered_template)?;
-                            create_file(&meta_data, "".to_string())?;
+                            create_file(&meta_data, meta_data_config)?;
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
                         _ => {

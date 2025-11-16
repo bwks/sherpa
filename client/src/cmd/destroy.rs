@@ -4,7 +4,7 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use container::{docker_connection, kill_container};
+use container::{docker_connection, kill_container, list_containers};
 use konst::{CONTAINER_DNSMASQ_NAME, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use libvirt::{Qemu, delete_disk};
 use util::{dir_exists, file_exists, term_msg_surround};
@@ -17,13 +17,18 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
     let pool_disks = storage_pool.list_volumes()?;
 
-    let docker = docker_connection()?;
-    kill_container(&docker, CONTAINER_DNSMASQ_NAME).await?;
-    // let options = Some(ListContainersOptions {
-    //     all: true,
-    //     ..Default::default()
-    // });
-    // docker.list_containers(options);
+    let docker_conn = docker_connection()?;
+    let lab_router = format!("{}-{}", CONTAINER_DNSMASQ_NAME, lab_id);
+    for container in list_containers(&docker_conn).await? {
+        if container
+            // From docks: for historic reasons, names are prefixed with forward slash (/)
+            .names
+            .is_some_and(|x| x.contains(&format!("/{}", &lab_router)))
+        {
+            kill_container(&docker_conn, &lab_router).await?;
+        }
+    }
+
     for domain in domains {
         let vm_name = domain.get_name()?;
         if vm_name.contains(lab_id) && domain.is_active()? {

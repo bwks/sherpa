@@ -32,6 +32,7 @@ pub fn clean(qemu: &Qemu, all: bool, disks: bool, networks: bool, lab_id: &str) 
 
         let networks = qemu_conn.list_all_networks(0)?;
         for network in networks {
+            // TODO: Update this to work with per-lab networks
             if network.get_name()?.contains("sherpa") {
                 let network_name = network.get_name()?;
                 println!("Destroying network: {}", network_name);

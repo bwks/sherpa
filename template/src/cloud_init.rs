@@ -4,12 +4,30 @@ use serde_derive::{Deserialize, Serialize};
 use konst::{SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME};
 use util::get_ssh_public_key;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct MetaDataConfig {
+    #[serde(rename = "instance-id")]
+    pub instance_id: String,
+    #[serde(rename = "local-hostname")]
+    pub local_hostname: String,
+}
+impl MetaDataConfig {
+    pub fn to_string(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(&self)?)
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CloudInitConfig {
     pub hostname: String,
     pub fqdn: String,
+    pub manage_etc_hosts: bool,
     pub ssh_pwauth: bool,
     pub users: Vec<CloudInitUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packages: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runcmd: Option<Vec<String>>,
 }
 impl CloudInitConfig {
     pub fn to_string(&self) -> Result<String> {
