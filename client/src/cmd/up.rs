@@ -10,15 +10,13 @@ use data::{
     QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
 };
 use konst::{
-    ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG,
-    CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_ZTP,
-    DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
-    SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
-    ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
+    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
+    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
+    TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
@@ -27,19 +25,18 @@ use std::thread;
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 use template::{
-    AristaVeosZtpTemplate, ArubaAoscxShTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate,
-    CiscoNxosZtpTemplate, CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
-    FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
-    JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
+    CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
+    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
+    DomainTemplate, File as IgnitionFile, FileParams as IgnitionFileParams,
+    FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
+    PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
 use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases,
-    get_ip, get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
+    create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_ip,
+    get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
     pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
@@ -176,6 +173,7 @@ pub async fn up(
             device_name: device.name.clone().to_owned(),
             config_file: format!("{}.conf", &device.name),
             mac_address: mac_address.to_string(),
+            ztp_method: device_model.ztp_method.clone(),
         });
 
         let mut interfaces: Vec<Interface> = vec![];
@@ -511,24 +509,96 @@ pub async fn up(
                     src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.iso"));
                 }
-                ZtpMethods::Http => {
+                ZtpMethods::Tftp => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
+                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{TFTP_DIR}");
 
-                    match device_model.os_variant {
-                        OsVariants::Aos => {}
-                        OsVariants::Eos => {
-                            let t = AristaVeosZtpTemplate {
+                    match device.model {
+                        DeviceModels::AristaVeos => {
+                            let arista_template = AristaVeosZtpTemplate {
                                 hostname: device.name.clone(),
-                                user,
+                                user: user.clone(),
                                 dns: dns.clone(),
                             };
-                            let rendered_template = t.render()?;
-                            let ztp_config = format!("{dir}/{ARISTA_VEOS_ZTP}");
+                            let rendered_template = arista_template.render()?;
+                            let ztp_config = format!("{dir}/{}.conf", device.name);
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
+                        }
+                        DeviceModels::ArubaAoscx => {
+                            let aruba_template = ArubaAoscxTemplate {
+                                hostname: device.name.clone(),
+                                user: user.clone(),
+                                dns: dns.clone(),
+                            };
+                            let aruba_rendered_template = aruba_template.render()?;
+                            let ztp_config = format!("{dir}/{}.conf", device.name);
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, aruba_rendered_template)?;
+                        }
+                        DeviceModels::JuniperVevolved => {
+                            let juniper_template = JunipervJunosZtpTemplate {
+                                hostname: device.name.clone(),
+                                user: sherpa_user.clone(),
+                                mgmt_interface: device_model.management_interface.to_string(),
+                            };
+                            let juniper_rendered_template = juniper_template.render()?;
+                            let ztp_config = format!("{dir}/{}.conf", device.name);
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, juniper_rendered_template)?;
+                        }
+                        _ => {
+                            anyhow::bail!(
+                                "Tftp ZTP method not supported for {}",
+                                device_model.name
+                            );
+                        }
+                    }
+                }
+                ZtpMethods::Http => {
+                    // generate the template
+                    println!("Creating ZTP config {}", device.name);
+                    let _user = sherpa_user.clone();
+                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
+
+                    match device.model {
+                        DeviceModels::SonicLinux => {
+                            // let sonic_template = SonicTemplate {
+                            //     hostname: device.name.clone(),
+                            //     user: user.clone(),
+                            //     dns: dns.clone(),
+                            // };
+                            // let sonic_rendered_template = sonic_template.render()?;
+                            let sonic_rendered_template = r#"{
+                              "DEVICE_METADATA": {
+                                "localhost": {
+                                  "hostname": "dev01",
+                                  "default_switch_hostname": "dev01",
+                                  "domainname": "sherpa.lab.local"
+                                }
+                              },
+                              "MGMT_INTERFACE": {
+                                "eth0|dhcp": {}
+                              },
+                              "AAA": {
+                                "authentication": {
+                                  "login": "local"
+                                }
+                              },
+                              "USER": {
+                                "sherpa": {
+                                  "ssh_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDgr2+T2GIgVNQiNJm0YOyqwkLlk43MXkvTw2lYUH3pDQ0Yaee9lv7siqKbotxTNlmECML8XSah1aLnRdCiaOLke8+0Pt/GMwE/R58ZiuqDC272d0KTwWuPG+umK+dQkub6IXbHSbNdzJ0Cua/xF7VBhfzNlRg7kl8J4tMLjFC1NxHFnBVFhUEnXB/FOjibBarj/0GdpP03wxdbQ6ARcSly+RB5c3XMMJLGxRDeNIsukLe6+7axMRDlkQpP4aJQ/PP5AXex4axzAo0jHyZCMBjNZTay4cJqoAEo1xFcbe9m4b6MaqMPJ9XkMdVUXjeM1VqDngQLdwKPsNKUPGWK42S3qfpQkntpddW7L2DoANMfFSXRjiyVEYb5mchBCGSWbSg1aDHdzeZmqLBXIRNwSFbdArP3P5HS+wYdw1QTLkH9o6DAdWodkzw5RJGE7kGtR5ZxJjKCQZIOr4BFoG2cCj9smLRLJr/KFvVY2MTuAjdGby2sskNY7xEIjlXBp0HQv4cPaNzlFpAHBDWRK7ySnJY3YkAQ7VkUnHGNerS6HAMsoNXVkvGvYEAjH4+rMUZrrNssSKTfa4WMWcjHhMZhNK3FsXPV0JySBft10d7aVF7qzOOATRfwN5dghDLkU0JXVQdgq8z2nEsM3393095CsIt1vOCm9tLFLPsodj/s5qWFlw==",
+                                  "privilege": "15"
+                                }
+                              }
+                            }"#;
+                            let json_data: serde_json::Value =
+                                serde_json::from_str(sonic_rendered_template)?;
+                            let ztp_config = format!("{dir}/{}.conf", device.name);
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, json_data.to_string())?;
                         }
                         _ => {
                             anyhow::bail!(
@@ -597,67 +667,6 @@ pub async fn up(
                             // Create a copy of the hdd base image
                             copy_file(&src_disk, &dst_disk)?;
                             // copy file to hdd disk
-                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
-
-                            src_config_disk = Some(dst_disk.to_owned());
-                            dst_config_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
-                        }
-                        DeviceModels::JuniperVevolved => {
-                            let juniper_template = JunipervJunosZtpTemplate {
-                                hostname: device.name.clone(),
-                                user: sherpa_user.clone(),
-                                mgmt_interface: device_model.management_interface.to_string(),
-                            };
-                            let juniper_rendered_template = juniper_template.render()?;
-
-                            let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                            let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
-
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, juniper_rendered_template)?;
-                            // clone HDD disk
-                            let src_disk = format!(
-                                "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
-                            );
-                            let dst_disk = format!("{dir}/junos-cfg.img");
-
-                            // Create a copy of the disk base image
-                            copy_file(&src_disk, &dst_disk)?;
-
-                            // Create tar.gz config file
-                            create_config_archive(&ztp_config, &ztp_config_tgz)?;
-
-                            // copy file to disk
-                            copy_to_dos_image(&ztp_config_tgz, &dst_disk, "/")?;
-
-                            src_config_disk = Some(dst_disk.to_owned());
-                            dst_config_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
-                        }
-                        DeviceModels::ArubaAoscx => {
-                            let aruba_template = ArubaAoscxShTemplate {
-                                hostname: device.name.clone(),
-                                user: sherpa_user.clone(),
-                                dns: dns.clone(),
-                            };
-                            let aruba_rendered_template = aruba_template.render()?;
-
-                            let ztp_config = format!("{dir}/{ARUBA_ZTP_SCRIPT}");
-
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, aruba_rendered_template)?;
-                            // clone HDD disk
-                            let src_disk = format!(
-                                "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
-                            );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
-
-                            // Create a copy of the usb base image
-                            copy_file(&src_disk, &dst_disk)?;
-                            // copy file to USB disk
                             copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
@@ -735,59 +744,6 @@ pub async fn up(
 
                             // copy file to USB disk
                             // copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
-                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
-
-                            src_usb_disk = Some(dst_usb.to_owned());
-                            dst_usb_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
-                        }
-                        OsVariants::Eos => {
-                            let t = AristaVeosZtpTemplate {
-                                hostname: device.name.clone(),
-                                user,
-                                dns: dns.clone(),
-                            };
-                            let rendered_template = t.render()?;
-                            let ztp_config = format!("{dir}/{ARISTA_VEOS_ZTP}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            // clone USB disk
-                            let src_usb = format!(
-                                "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
-                            );
-                            let dst_usb = format!("{dir}/cfg.img");
-
-                            // Create a copy of the usb base image
-                            copy_file(&src_usb, &dst_usb)?;
-                            // copy file to USB disk
-                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
-
-                            src_usb_disk = Some(dst_usb.to_owned());
-                            dst_usb_disk =
-                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
-                        }
-                        OsVariants::Aos => {
-                            let aruba_template = ArubaAoscxTemplate {
-                                hostname: device.name.clone(),
-                                user: sherpa_user.clone(),
-                                dns: dns.clone(),
-                            };
-                            let aruba_rendered_template = aruba_template.render()?;
-
-                            let ztp_config = format!("{dir}/{ARUBA_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, aruba_rendered_template)?;
-                            // clone USB disk
-                            let src_usb = format!(
-                                "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_AOSCX
-                            );
-                            let dst_usb = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
-
-                            // Create a copy of the usb base image
-                            copy_file(&src_usb, &dst_usb)?;
-                            // copy file to USB disk
                             copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());

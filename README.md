@@ -89,7 +89,7 @@ sudo systemctl restart libvirtd.service
 
 | Vendor    | Model          | Minimum Tested Version | Status             | ZTP Method |
 | --------- | -------------- | ---------------------- | ------------------ | ---------- |
-| Arista    | vEOS           | 4.32.2f                | :white_check_mark: | HTTP+USB   |
+| Arista    | vEOS           | 4.32.2f                | :white_check_mark: | TFTP       |
 | Aruba     | AOS-CX         | 10.07                  | :white_check_mark: | TFTP       |
 | Cisco     | ASAv           | 9.20.2                 | :white_check_mark: | CDROM      |
 | Cisco     | CSR 1000v      | 17.03.08a              | :white_check_mark: | CDROM      |
@@ -102,12 +102,13 @@ sudo systemctl restart libvirtd.service
 | Juniper   | vRouter        | 23.4R2-S2.1            | :white_check_mark: | CDROM      |
 | Juniper   | vSwitch        | 23.4R2-S2.1            | :white_check_mark: | CDROM      |
 | Juniper   | vSRXv3         | 23.2R2.21              | :white_check_mark: | CDROM      |
-| Juniper   | vEvolved       | 23.4R2-S2.1            | :white_check_mark: | HTTP+USB   |
+| Juniper   | vEvolved       | 23.4R2-S2.1            | :white_check_mark: | TFTP       |
 | Nvidia    | Cumulus Linux  | 5.9.2                  | :white_check_mark: | USB        |
 | Nokia     | SR Linux       | 24.10.1                | :white_check_mark: | TBA        |
 | Microsoft | FlatCar Linux  | 3975.2.2               | :white_check_mark: | Ignition   |
 | Canonical | Ubuntu Linux   | 24.04                  | :white_check_mark: | Cloud-Init |
 | RedHat    | Fedora Linux   | 40-1.14                | :white_check_mark: | Cloud-Init |
+| SONiC     | Sonic Linux    | 25051111               | :construction:     | TFTP       |
 
 ## Obtain Boxes
 

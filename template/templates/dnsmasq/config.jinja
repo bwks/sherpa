@@ -15,9 +15,10 @@ dhcp-range={{ dhcp_start }},{{ dhcp_end }},2m
 
 # Set default gateway (Option 3) and option 150 (TFTP server IP)
 dhcp-option=3,{{ gateway_ipv4 }} # Default Gateway
-dhcp-option=150,{{ tftp_server_ipv4 }} # TFTP Server
 dhcp-option=6,{{ tftp_server_ipv4 }} # DNS Server
 dhcp-option=15,{{ SHERPA_DOMAIN_NAME }} # Search Domain
+dhcp-option=66,{{ tftp_server_ipv4 }} # TFTP Server
+dhcp-option=150,{{ tftp_server_ipv4 }} # TFTP Server
 
 # Ignore client identifier
 dhcp-ignore-clid
@@ -26,11 +27,18 @@ dhcp-ignore-clid
 enable-tftp
 tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 
+{# Host level DHCP settings #}
 {%- for record in ztp_records %}
 # {{ record.device_name }}
-dhcp-host={{ record.mac_address }},,{{ record.device_name }}
-dhcp-option={{ record.mac_address }},66,{{ tftp_server_ipv4 }}:69
-dhcp-option={{ record.mac_address }},67,http://{{ tftp_server_ipv4 }}:8080/{{ record.config_file }}
-dhcp-option={{ record.mac_address }},239,http://{{ tftp_server_ipv4 }}:8080/{{ record.config_file }}
-
+dhcp-host={{ record.mac_address }},,{{ record.device_name }},,set:{{ record.device_name }}-tag
+{%-   match record.ztp_method %}
+{%-     when ZtpMethods::Tftp %}
+dhcp-option=tag:{{ record.device_name }}-tag,67,{{ record.config_file }}
+{%-     when ZtpMethods::Http %}
+dhcp-option=tag:{{ record.device_name }}-tag,67,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
+dhcp-option=tag:{{ record.device_name }}-tag,239,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
+{%-     else %}
+# Add as needed
+{%-   endmatch  %}
 {%- endfor %}
+{# END #}
