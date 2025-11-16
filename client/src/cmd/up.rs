@@ -13,8 +13,8 @@ use konst::{
     ARISTA_VEOS_ZTP, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_SCRIPT, CISCO_ASAV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG,
     CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_ZTP,
-    JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
+    DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_BLANK_DISK_AOSCX, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M,
     SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS,
     SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
@@ -514,12 +514,22 @@ pub async fn up(
                 ZtpMethods::Http => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
-                    let _user = sherpa_user.clone();
-                    let _dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
+                    let user = sherpa_user.clone();
+                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
 
                     match device_model.os_variant {
                         OsVariants::Aos => {}
-                        OsVariants::Eos => {}
+                        OsVariants::Eos => {
+                            let t = AristaVeosZtpTemplate {
+                                hostname: device.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{ARISTA_VEOS_ZTP}");
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, rendered_template)?;
+                        }
                         _ => {
                             anyhow::bail!(
                                 "HTTP ZTP method not supported for {}",
