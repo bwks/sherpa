@@ -172,7 +172,7 @@ pub async fn create_boot_containers(
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
     let network_attachments = vec![ContainerNetworkAttachment {
-        name: SHERPA_MANAGEMENT_NETWORK_NAME.to_string(),
+        name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         ipv4_address: Some(boot_server_ipv4),
     }];
 

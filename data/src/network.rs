@@ -3,17 +3,13 @@ use std::net::Ipv4Addr;
 use anyhow::{Result, anyhow};
 use ipnetwork::Ipv4Network;
 
-use konst::{
-    SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX, SHERPA_MANAGEMENT_NETWORK_IPV4,
-    SHERPA_MANAGEMENT_WEBDIR_IPV4_INDEX,
-};
+use konst::{SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX, SHERPA_MANAGEMENT_NETWORK_IPV4};
 
 pub struct NetworkV4 {
     pub prefix: Ipv4Network,
     pub first: Ipv4Addr,
     pub last: Ipv4Addr,
     pub boot_server: Ipv4Addr,
-    pub web_server: Ipv4Addr,
     pub network: Ipv4Addr,
     pub subnet_mask: Ipv4Addr,
     pub prefix_length: u8,
@@ -36,9 +32,6 @@ impl SherpaNetwork {
         let boot_server = v4
             .nth(SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX)
             .ok_or_else(|| anyhow!("Error parsing boot server IPv4"))?;
-        let web_server = v4
-            .nth(SHERPA_MANAGEMENT_WEBDIR_IPV4_INDEX)
-            .ok_or_else(|| anyhow!("Error parsing web server IPv4"))?;
         let subnet_mask = v4.mask();
         let network = v4.network();
         let v4_prefix = NetworkV4 {
@@ -46,7 +39,6 @@ impl SherpaNetwork {
             first,
             last,
             boot_server,
-            web_server,
             network,
             subnet_mask,
             prefix_length: v4.prefix(),

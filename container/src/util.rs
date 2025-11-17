@@ -7,11 +7,13 @@ use async_compression::tokio::write::GzipEncoder;
 use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerSummary, EndpointIpamConfig,
-    EndpointSettings, HostConfig, Ipam, IpamConfig, NetworkCreateRequest, NetworkingConfig,
+    EndpointSettings, HostConfig, Ipam, IpamConfig, Network, NetworkCreateRequest,
+    NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
-    KillContainerOptions, ListContainersOptions, RemoveContainerOptions, StartContainerOptions,
+    KillContainerOptions, ListContainersOptions, ListNetworksOptions, RemoveContainerOptions,
+    StartContainerOptions,
 };
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -33,6 +35,12 @@ pub async fn list_containers(docker_conn: &Docker) -> Result<Vec<ContainerSummar
     Ok(docker_conn.list_containers(options).await?)
 }
 
+pub async fn list_networks(docker_conn: &Docker) -> Result<Vec<Network>> {
+    let options = Some(ListNetworksOptions {
+        ..Default::default()
+    });
+    Ok(docker_conn.list_networks(options).await?)
+}
 pub async fn create_network(
     docker: &Docker,
     name: &str,
@@ -66,13 +74,20 @@ pub async fn create_network(
     };
 
     match docker.create_network(create_request).await {
-        Ok(response) => println!("Network created: {:?}", response),
-        Err(e) => eprintln!("Error creating network: {}", e),
+        Ok(response) => println!("Container network created: {:?}", response),
+        Err(e) => eprintln!("Error creating container network: {}", e),
     }
 
     Ok(())
 }
+pub async fn delete_network(docker: &Docker, name: &str) -> Result<()> {
+    match docker.remove_network(name).await {
+        Ok(_) => println!("Container network deleted: {}", name),
+        Err(e) => eprintln!("Error deleting container network: {}", e),
+    }
 
+    Ok(())
+}
 pub async fn run_container(
     docker: &Docker,
     name: &str,

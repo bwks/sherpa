@@ -48,12 +48,6 @@ pub struct NatNetwork {
     pub bridge_name: String,
     pub ipv4_address: Ipv4Addr,
     pub ipv4_netmask: Ipv4Addr,
-    pub ipv4_default_gateway: Ipv4Addr,
-    pub dhcp_start: Ipv4Addr,
-    pub dhcp_end: Ipv4Addr,
-    pub ztp_http_port: u16,
-    pub ztp_tftp_port: u16,
-    pub ztp_server_ipv4: Ipv4Addr,
 }
 impl NatNetwork {
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {

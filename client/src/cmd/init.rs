@@ -2,10 +2,9 @@ use anyhow::Result;
 use container::{Docker, create_network};
 use data::Sherpa;
 use konst::{
-    HTTP_PORT, SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, TFTP_PORT,
+    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
@@ -98,21 +97,11 @@ pub async fn init(
         println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
     } else {
         println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
-        let ipv4_network_size = config.management_prefix_ipv4.size();
         let management_network = NatNetwork {
             network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
             bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
             ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
             ipv4_netmask: config.management_prefix_ipv4.mask(),
-            ipv4_default_gateway: config.management_prefix_ipv4.nth(1).unwrap(),
-            dhcp_start: config.management_prefix_ipv4.nth(5).unwrap(),
-            dhcp_end: config
-                .management_prefix_ipv4
-                .nth(ipv4_network_size - 2)
-                .unwrap(),
-            ztp_http_port: HTTP_PORT,
-            ztp_tftp_port: TFTP_PORT,
-            ztp_server_ipv4: config.management_prefix_ipv4.nth(5).unwrap(),
         };
         management_network.create(&qemu_conn)?;
     }

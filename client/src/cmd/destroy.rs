@@ -4,7 +4,9 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use container::{docker_connection, kill_container, list_containers};
+use container::{
+    delete_network, docker_connection, kill_container, list_containers, list_networks,
+};
 use konst::{CONTAINER_DNSMASQ_NAME, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
 use libvirt::{Qemu, delete_disk};
 use util::{dir_exists, file_exists, term_msg_surround};
@@ -50,6 +52,15 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
                     println!("Deleted disk: {disk}");
                 }
             }
+        }
+    }
+
+    let container_networks = list_networks(&docker_conn).await?;
+    for network in container_networks {
+        if let Some(network_name) = network.name
+            && network_name.contains(lab_id)
+        {
+            delete_network(&docker_conn, &network_name).await?;
         }
     }
 

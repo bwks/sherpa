@@ -3,7 +3,7 @@ use super::boot_containers::{create_boot_containers, create_ztp_files};
 use anyhow::{Context, Result};
 use askama::Template;
 
-use container::docker_connection;
+use container::{create_network, docker_connection};
 use data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
     DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, OsVariants,
@@ -14,11 +14,13 @@ use konst::{
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
     CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD_HASH,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH,
     SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
     TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use libvirt::{Qemu, clone_disk, create_vm};
+use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -101,24 +103,32 @@ pub async fn up(
 
     println!("Manifest Ok");
 
-    // TODO: If the future, figure out how to have isolated networks
-    // for each lab
-    //
-    // term_msg_underline("Lab Network");
-    // let lab_network = IsolatedNetwork {
-    //     network_name: format!("sherpa-isolated-{lab_id}"),
-    //     bridge_name: format!("br-{lab_id}"),
-    // };
-    // lab_network.create(&qemu_conn)?;
+    // Libvirt networks
+    term_msg_underline("Lab Network");
+    println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
+    let management_network = NatNetwork {
+        network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
+        bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
+        ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
+        ipv4_netmask: config.management_prefix_ipv4.mask(),
+    };
+    management_network.create(&qemu_conn)?;
 
-    // // Docker Network
-    // create_network(
-    //     &docker_conn,
-    //     &format!("zz-sherpa-isolated-{lab_id}"),
-    //     None,
-    //     &format!("br-{lab_id}"),
-    // )
-    // .await?;
+    println!("Creating network: {SHERPA_ISOLATED_NETWORK_NAME}-{lab_id}");
+    let isolated_network = IsolatedNetwork {
+        network_name: format!("{SHERPA_ISOLATED_NETWORK_NAME}-{lab_id}"),
+        bridge_name: format!("{SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
+    };
+    isolated_network.create(&qemu_conn)?;
+
+    // Docker Networks
+    create_network(
+        &docker_conn,
+        &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
+        Some(config.management_prefix_ipv4.to_string()),
+        &format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
+    )
+    .await?;
 
     term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {
@@ -1111,6 +1121,7 @@ pub async fn up(
             loopback_ipv4: get_ip(device_id).to_string(),
             telnet_port: TELNET_PORT,
             qemu_commands,
+            lab_id: lab_id.to_string(),
         };
 
         domains.push(domain);

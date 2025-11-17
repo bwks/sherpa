@@ -23,6 +23,7 @@ pub struct DomainTemplate {
     pub loopback_ipv4: String,
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,
+    pub lab_id: String,
 }
 
 pub struct BootServer {
