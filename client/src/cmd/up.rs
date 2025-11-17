@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use super::boot_containers::{create_boot_containers, create_ztp_files};
 
 use anyhow::{Context, Result};
@@ -37,7 +39,7 @@ use template::{
 use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_ip,
+    create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_free_subnet, get_ip,
     get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
     pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
@@ -105,12 +107,21 @@ pub async fn up(
 
     // Libvirt networks
     term_msg_underline("Lab Network");
+
+    let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
+    let lab_net_bits = lab_net.network().to_bits();
+    let gateway_ip = Ipv4Addr::from_bits(lab_net_bits + 1);
+    let lab_router_ip = Ipv4Addr::from_bits(lab_net_bits + 2);
+    println!("Network: {}", lab_net);
+    println!("Gateway: {}", gateway_ip);
+    println!("Lab Router: {}", lab_router_ip);
     println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
+
     let management_network = NatNetwork {
         network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
-        ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
-        ipv4_netmask: config.management_prefix_ipv4.mask(),
+        ipv4_address: gateway_ip,
+        ipv4_netmask: lab_net.netmask(),
     };
     management_network.create(&qemu_conn)?;
 
@@ -125,7 +136,7 @@ pub async fn up(
     create_network(
         &docker_conn,
         &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
-        Some(config.management_prefix_ipv4.to_string()),
+        Some(lab_net.to_string()),
         &format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
     )
     .await?;

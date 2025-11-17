@@ -29,5 +29,7 @@ rand = "0.8.5"
 
 # IP Addressing
 ipnetwork = { version = "0.21.1", features = ["serde"] }
+ipnet = "2.11.0"
+getifaddrs = "0.6.0"
 
 reqwest = "0.11.27"
