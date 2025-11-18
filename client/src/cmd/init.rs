@@ -1,23 +1,22 @@
 use anyhow::Result;
-use container::{Docker, create_network};
+use container::Docker;
 use data::Sherpa;
 use konst::{
-    SHERPA_ISOLATED_NETWORK_BRIDGE, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
-use libvirt::{IsolatedNetwork, NatNetwork, Qemu, SherpaStoragePool};
+use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
 use topology::Manifest;
 use util::{
     create_config, create_dir, default_config, dir_exists, file_exists, generate_ssh_keypair,
-    get_ipv4_addr, load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
+    load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
 pub async fn init(
     sherpa: &Sherpa,
     qemu: &Qemu,
-    docker_conn: &Docker,
     config_file: &str,
     manifest_file: &str,
     force: bool,
@@ -92,44 +91,17 @@ pub async fn init(
     if qemu_conn
         .list_networks()?
         .iter()
-        .any(|net| net == SHERPA_MANAGEMENT_NETWORK_NAME)
+        .any(|net| net == SHERPA_BRIDGE_NETWORK_NAME)
     {
         println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
     } else {
         println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
-        let management_network = NatNetwork {
-            network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
-            bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
-            ipv4_address: get_ipv4_addr(&config.management_prefix_ipv4, 1)?,
-            ipv4_netmask: config.management_prefix_ipv4.netmask(),
+        let bridge_network = BridgeNetwork {
+            network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
+            bridge_name: SHERPA_BRIDGE_NETWORK_BRIDGE.to_owned(),
         };
-        management_network.create(&qemu_conn)?;
+        bridge_network.create(&qemu_conn)?;
     }
-
-    // Create the isolated network
-    if qemu_conn
-        .list_networks()?
-        .iter()
-        .any(|net| net == SHERPA_ISOLATED_NETWORK_NAME)
-    {
-        println!("Network already exists: {SHERPA_ISOLATED_NETWORK_NAME}");
-    } else {
-        println!("Creating network: {SHERPA_ISOLATED_NETWORK_NAME}");
-        let isolated_network = IsolatedNetwork {
-            network_name: SHERPA_ISOLATED_NETWORK_NAME.to_owned(),
-            bridge_name: SHERPA_ISOLATED_NETWORK_BRIDGE.to_owned(),
-        };
-        isolated_network.create(&qemu_conn)?;
-    }
-
-    // Docker Networks
-    create_network(
-        &docker_conn,
-        SHERPA_MANAGEMENT_NETWORK_NAME,
-        Some(config.management_prefix_ipv4.network().to_string()),
-        SHERPA_MANAGEMENT_NETWORK_BRIDGE,
-    )
-    .await?;
 
     let storage_pool = SherpaStoragePool {
         name: SHERPA_STORAGE_POOL.to_owned(),

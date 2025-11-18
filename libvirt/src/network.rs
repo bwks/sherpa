@@ -7,6 +7,34 @@ use virt::network::Network;
 
 use konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
 
+pub struct BridgeNetwork {
+    pub network_name: String,
+    pub bridge_name: String,
+}
+
+impl BridgeNetwork {
+    pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        let network_name = &self.network_name;
+        let bridge_name = &self.bridge_name;
+        let network_xml = format!(
+            r#"
+            <network>
+              <name>{network_name}</name>
+              <forward mode="bridge"/>
+              <bridge name="{bridge_name}"/>
+            </network>
+            "#
+        );
+        let network = Network::define_xml(qemu_conn, &network_xml)?;
+        network.create()?;
+        network.set_autostart(true)?;
+
+        println!("Network created and started: {}", &self.network_name);
+
+        Ok(())
+    }
+}
+
 pub struct IsolatedNetwork {
     pub network_name: String,
     pub bridge_name: String,

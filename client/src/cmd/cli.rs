@@ -148,7 +148,7 @@ impl Cli {
                 manifest_file,
                 force,
             } => {
-                init(&sherpa, &qemu, &docker, config_file, manifest_file, *force).await?;
+                init(&sherpa, &qemu, config_file, manifest_file, *force).await?;
             }
 
             Commands::Up { config_file } => {

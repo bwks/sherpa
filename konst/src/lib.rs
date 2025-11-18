@@ -27,6 +27,8 @@ pub const SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX: u32 = 2;
 pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-blackhole";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "brsi";
+pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
+pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";

@@ -81,6 +81,23 @@ sudo sh -c 'echo "  /var/lib/libvirt/sherpa/** r," >> /etc/apparmor.d/abstractio
 sudo systemctl restart libvirtd.service
 ```
 
+### Bridge interface
+
+Create bridge interface to bridge lab-router / lab-vm's to the physical network.
+
+```yaml
+network:
+    version: 2
+    ethernets:
+        enp6s0: {}
+    bridges:
+        br-sherpa0:
+            interfaces: [enp6s0]
+            parameters:
+                stp: false
+                forward-delay: 0
+```
+
 ## Device Support Matrix
 
 - Working - :white_check_mark:
