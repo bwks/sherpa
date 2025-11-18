@@ -3,7 +3,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use anyhow::Result;
-use ipnetwork::Ipv4Network;
+use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
 use data::{Config, ContainerImage, DeviceModel, InventoryManagement, VmProviders, ZtpServer};
@@ -58,8 +58,9 @@ pub fn default_config() -> Config {
         DeviceModel::suse_linux(),
         DeviceModel::flatcar_linux(),
     ];
-    let mgmt_prefix_ipv4 = Ipv4Network::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4)
-        .expect("Failed to parse IPv4 network");
+    // TODO: FIXME DEFAULT SHERPA MGMT
+    let mgmt_prefix_ipv4 =
+        Ipv4Net::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4).expect("Failed to parse IPv4 network");
 
     let ztp_server = ZtpServer {
         enable: false,

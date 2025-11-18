@@ -11,7 +11,7 @@ use ssh_key::Algorithm;
 use topology::Manifest;
 use util::{
     create_config, create_dir, default_config, dir_exists, file_exists, generate_ssh_keypair,
-    load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
+    get_ipv4_addr, load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
 pub async fn init(
@@ -100,8 +100,8 @@ pub async fn init(
         let management_network = NatNetwork {
             network_name: SHERPA_MANAGEMENT_NETWORK_NAME.to_owned(),
             bridge_name: SHERPA_MANAGEMENT_NETWORK_BRIDGE.to_owned(),
-            ipv4_address: config.management_prefix_ipv4.nth(1).unwrap(),
-            ipv4_netmask: config.management_prefix_ipv4.mask(),
+            ipv4_address: get_ipv4_addr(&config.management_prefix_ipv4, 1)?,
+            ipv4_netmask: config.management_prefix_ipv4.netmask(),
         };
         management_network.create(&qemu_conn)?;
     }

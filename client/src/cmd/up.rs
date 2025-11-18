@@ -1,5 +1,3 @@
-use std::net::Ipv4Addr;
-
 use super::boot_containers::{create_boot_containers, create_ztp_files};
 
 use anyhow::{Context, Result};
@@ -8,13 +6,13 @@ use askama::Template;
 use container::{create_network, docker_connection};
 use data::{
     CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, OsVariants,
-    QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo,
+    NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
-    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, READINESS_SLEEP,
+    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
@@ -40,8 +38,9 @@ use topology::{Device, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_free_subnet, get_ip,
-    get_ssh_public_key, id_to_port, load_config, load_file, pub_ssh_key_to_md5_hash,
-    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
+    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, load_config, load_file,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
+    term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -59,7 +58,6 @@ pub async fn up(
     let docker_conn = docker_connection()?;
     let qemu_conn = Arc::new(qemu.connect()?);
     let sherpa_user = sherpa_user()?;
-    let dns = default_dns()?;
 
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
@@ -68,7 +66,9 @@ pub async fn up(
 
     sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
     let mut config = load_config(&sherpa.config_path)?;
-    let mgmt_net = SherpaNetwork::new(Some(&config.management_prefix_ipv4.to_string()), None)?;
+
+    // TODO: RUN EXISTING LAB VALIDATORS
+
     term_msg_underline("Validating Manifest");
     let links = manifest.links.clone().unwrap_or_default();
 
@@ -105,18 +105,39 @@ pub async fn up(
 
     println!("Manifest Ok");
 
-    // Libvirt networks
+    // Create Temp DIR
+    create_dir(TEMP_DIR)?;
+
     term_msg_underline("Lab Network");
-
     let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
-    let lab_net_bits = lab_net.network().to_bits();
-    let gateway_ip = Ipv4Addr::from_bits(lab_net_bits + 1);
-    let lab_router_ip = Ipv4Addr::from_bits(lab_net_bits + 2);
-    println!("Network: {}", lab_net);
-    println!("Gateway: {}", gateway_ip);
-    println!("Lab Router: {}", lab_router_ip);
-    println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
+    let gateway_ip = get_ipv4_addr(&lab_net, 1)?;
+    let lab_router_ip = get_ipv4_addr(&lab_net, 2)?;
+    let lab_info = LabInfo {
+        id: lab_id.to_string(),
+        user: get_username()?,
+        name: manifest.name.clone(),
+        ipv4_network: lab_net,
+        ipv4_gateway: gateway_ip,
+        ipv4_router: lab_router_ip,
+    };
+    println!("{}", lab_info);
+    create_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
+    let mgmt_net = SherpaNetwork {
+        v4: NetworkV4 {
+            prefix: lab_net,
+            first: gateway_ip,
+            last: lab_net.broadcast(),
+            boot_server: lab_router_ip,
+            network: lab_net.network(),
+            subnet_mask: lab_net.netmask(),
+            prefix_length: lab_net.prefix_len(),
+        },
+    };
+    let dns = default_dns(&lab_net)?;
+
+    println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
+    // Libvirt networks
     let management_network = NatNetwork {
         network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
@@ -158,9 +179,6 @@ pub async fn up(
             println!("ZTP server is not required")
         }
     }
-
-    // Create Temp DIR
-    create_dir(TEMP_DIR)?;
 
     // Create a mapping of device name to device id.
     // Devices have an id based on their order in the list of devices

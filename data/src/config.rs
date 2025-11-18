@@ -1,4 +1,4 @@
-use ipnetwork::Ipv4Network;
+use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
 use super::container::ContainerImage;
@@ -45,7 +45,7 @@ pub struct Config {
     pub name: String,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
-    pub management_prefix_ipv4: Ipv4Network,
+    pub management_prefix_ipv4: Ipv4Net,
     pub boxes_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,

@@ -34,6 +34,7 @@ pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
+pub const LAB_FILE_NAME: &str = "lab-info.toml";
 
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";

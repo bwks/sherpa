@@ -1,9 +1,30 @@
-use anyhow::{Result, anyhow};
-use std::{net::Ipv4Addr, str::FromStr};
+use std::net::Ipv4Addr;
+use std::str::FromStr;
 
+use anyhow::{Context, Result, anyhow};
 use getifaddrs::{Address, Interfaces, getifaddrs};
 use ipnet::{Ipv4Net, ipv4_mask_to_prefix};
-use ipnetwork::Ipv4Network;
+
+/// Get the nth IPv4 addr from a network block given an index
+pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
+    let net_bits = network.network().to_bits();
+    Ok(Ipv4Addr::from_bits(net_bits + nth))
+}
+
+/// Parses a CIDR notation string into an `Ipv4Network`.
+///
+/// # Parameters
+/// - `cidr`: A string slice that holds the CIDR notation (e.g., "192.168.1.0/24").
+///
+/// # Returns
+/// - `Result<Ipv4Net, anyhow::Error>`: The parsed `Ipv4Network` if successful,
+///   or an error if the input string is not a valid CIDR notation.
+///
+/// # Errors
+/// - Returns an error if the input string is not a valid CIDR notation.
+pub fn get_ipv4_network(ipv4_net: &str) -> Result<Ipv4Net> {
+    Ipv4Net::from_str(ipv4_net).with_context(|| "Failed to parse network: {ipv4_net}")
+}
 
 /// Get a free subnet from the supernet block that is not currently in use.
 pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
@@ -61,42 +82,6 @@ pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
 /// Get an IPv4 address from a host address.
 pub fn get_ip(host_addr: u8) -> Ipv4Addr {
     Ipv4Addr::new(127, 127, 127, host_addr)
-}
-
-/// Parses a CIDR notation string into an `Ipv4Network`.
-///
-/// # Parameters
-/// - `cidr`: A string slice that holds the CIDR notation (e.g., "192.168.1.0/24").
-///
-/// # Returns
-/// - `Result<Ipv4Network, anyhow::Error>`: The parsed `Ipv4Network` if successful,
-///   or an error if the input string is not a valid CIDR notation.
-///
-/// # Errors
-/// - Returns an error if the input string is not a valid CIDR notation.
-pub fn get_ipv4_network(ipv4_net: &str) -> Result<Ipv4Network> {
-    ipv4_net
-        .parse::<Ipv4Network>()
-        .map_err(|e| anyhow!("Failed to parse network: {}", e))
-}
-
-/// Retrieves an IPv4 address from a given network and offset.
-///
-/// # Parameters
-/// - `network`: The base IPv4 network address.
-/// - `offset`: The offset from the base network address to get the desired IPv4 address.
-///
-/// # Returns
-/// - `Result<Ipv4Addr, anyhow::Error>`: The IPv4 address at the specified offset within the network,
-///   or an error if the offset is out of range or the network is invalid.
-///
-/// # Errors
-/// - Returns an error if the offset is out of the network range.
-/// - Returns an error if the network is invalid.
-pub fn get_ipv4_addr(ipv4_net: Ipv4Network, nth: u32) -> Result<Ipv4Addr> {
-    ipv4_net
-        .nth(nth)
-        .ok_or_else(|| anyhow!("Failed to get IP:{nth} from network: {ipv4_net}"))
 }
 
 #[cfg(test)]

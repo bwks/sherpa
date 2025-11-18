@@ -1,12 +1,14 @@
+use std::str::FromStr;
+
 use anyhow::Result;
 
 use virt::storage_pool::StoragePool;
 
-use data::Config;
-use konst::SHERPA_STORAGE_POOL;
+use data::{Config, LabInfo};
+use konst::{LAB_FILE_NAME, SHERPA_STORAGE_POOL, TEMP_DIR};
 use libvirt::Qemu;
 use topology::Device;
-use util::{get_dhcp_leases, term_msg_surround, term_msg_underline};
+use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
 
 pub async fn inspect(
     qemu: &Qemu,
@@ -16,6 +18,12 @@ pub async fn inspect(
     devices: &[Device],
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
+
+    term_msg_underline("Lab Info");
+    let lab_file = load_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}"))?;
+    let lab_info = LabInfo::from_str(&lab_file)?;
+    println!("{}", lab_info);
+
     let qemu_conn = qemu.connect()?;
     let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
 
@@ -54,7 +62,7 @@ pub async fn inspect(
     }
 
     if !inactive_devices.is_empty() {
-        term_msg_underline("Inactive Devices");
+        term_msg_underline("inactive devices");
         for device in &inactive_devices {
             println!("{device}")
         }

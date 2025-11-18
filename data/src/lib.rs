@@ -6,6 +6,7 @@ mod dhcp;
 mod disk;
 mod dns;
 mod interface;
+mod lab;
 mod mapping;
 mod network;
 mod provider;
@@ -24,10 +25,11 @@ pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use interface::{ConnectionTypes, Interface, MgmtInterfaces};
+pub use lab::LabInfo;
 pub use mapping::{
     CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand, ZtpTemplates,
 };
-pub use network::SherpaNetwork;
+pub use network::{NetworkV4, SherpaNetwork};
 pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use user::User;
