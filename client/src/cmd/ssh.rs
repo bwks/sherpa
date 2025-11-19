@@ -9,7 +9,7 @@ pub fn ssh(name: &str) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
 
     let status = Command::new("ssh")
-        .arg(&name)
+        .arg(name)
         .arg("-F")
         .arg(format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"))
         .status()?;

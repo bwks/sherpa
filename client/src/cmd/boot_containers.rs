@@ -24,7 +24,7 @@ pub fn create_ztp_files(
     mgmt_net: &SherpaNetwork,
     sherpa_user: &User,
     dns: &Dns,
-    ztp_records: &Vec<ZtpRecord>,
+    ztp_records: &[ZtpRecord],
 ) -> Result<ZtpTemplates> {
     // Create ZTP files
     term_msg_underline("Creating ZTP configs");
@@ -37,7 +37,7 @@ pub fn create_ztp_files(
         gateway_ipv4: mgmt_net.v4.first.to_string(),
         dhcp_start: get_ipv4_addr(&mgmt_net.v4.prefix, 20)?.to_string(),
         dhcp_end: get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
-        ztp_records: ztp_records.clone(),
+        ztp_records: ztp_records.to_vec().clone(),
     };
 
     let dnsmasq_rendered_template = dnsmaq_template.render()?;
@@ -148,7 +148,7 @@ pub async fn create_boot_containers(
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
     let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
-    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first.to_string());
+    let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
     let dnsmasq_env_dns2 = "DNS2=";
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
 
@@ -177,7 +177,7 @@ pub async fn create_boot_containers(
     }];
 
     run_container(
-        &docker_conn,
+        docker_conn,
         &format!("{}-{}", CONTAINER_DNSMASQ_NAME, lab_id),
         CONTAINER_DNSMASQ_REPO,
         dnsmasq_env_vars,

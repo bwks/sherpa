@@ -1,5 +1,4 @@
 #!/bin/bash
-# filepath: /home/bradmin/code/rust/sherpa/scripts/create_iosv_disk.sh
 # Creates a disk image that is compatible with Cisco IOSv and IOSvl2 images.
 # The disk image is used to load a config on boot.
 # This uses the `mkfs.vfat` command and it is required to be installed

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use virt::storage_pool::StoragePool;
 
@@ -20,7 +20,12 @@ pub async fn inspect(
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     term_msg_underline("Lab Info");
-    let lab_file = load_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}"))?;
+    let lab_file = match load_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}")) {
+        Ok(f) => f,
+        Err(_) => {
+            bail!("Unable to load lab file. Is the lab running?")
+        }
+    };
     let lab_info = LabInfo::from_str(&lab_file)?;
     println!("{}", lab_info);
 
@@ -30,7 +35,7 @@ pub async fn inspect(
     let domains = qemu_conn.list_all_domains(0)?;
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
 
-    let leases = get_dhcp_leases(&config).await?;
+    let leases = get_dhcp_leases(config).await?;
     let mut inactive_devices = vec![];
     for device in devices {
         let device_name = format!("{}-{}", device.name, lab_id);

@@ -1068,36 +1068,36 @@ pub async fn up(
         });
 
         // Data Disk
-        if dst_config_disk.is_some() {
+        if let Some(dst_config_disk) = dst_config_disk {
             copy_disks.push(CloneDisk {
                 // These should always have a value.
                 src: src_config_disk.unwrap(),
-                dst: dst_config_disk.clone().unwrap(),
+                dst: dst_config_disk.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::File,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
                 // These should always have a value.
-                src_file: dst_config_disk.unwrap().clone(),
+                src_file: dst_config_disk.clone(),
                 target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
                 target_bus: hdd_bus.clone(),
             });
         }
 
         // USB
-        if dst_usb_disk.is_some() {
+        if let Some(dst_usb_disk) = dst_usb_disk {
             copy_disks.push(CloneDisk {
                 // These should always have a value.
                 src: src_usb_disk.unwrap(),
-                dst: dst_usb_disk.clone().unwrap(),
+                dst: dst_usb_disk.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::File,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
                 // These should always have a value.
-                src_file: dst_usb_disk.unwrap().clone(),
+                src_file: dst_usb_disk.clone(),
                 target_dev: DiskTargets::target(&DiskBuses::Usb, disks.len() as u8)?,
                 target_bus: DiskBuses::Usb,
             });
@@ -1157,7 +1157,7 @@ pub async fn up(
     }
 
     let _ztp_templates = create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
-    create_boot_containers(&docker_conn, &mgmt_net, &lab_id).await?;
+    create_boot_containers(&docker_conn, &mgmt_net, lab_id).await?;
 
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");
@@ -1241,7 +1241,7 @@ pub async fn up(
                 DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
                 _ => SSH_PORT,
             };
-            if let Some(vm_data) = ztp_records.iter().find(|x| &x.device_name == &device.name) {
+            if let Some(vm_data) = ztp_records.iter().find(|x| x.device_name == device.name) {
                 let leases = get_dhcp_leases(&config).await?;
                 if let Some(lease) = leases
                     .iter()
