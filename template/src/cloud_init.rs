@@ -52,7 +52,7 @@ pub struct CloudInitUser {
     pub shell: String,
 }
 impl CloudInitUser {
-    pub fn default() -> Result<Self> {
+    pub fn sherpa() -> Result<Self> {
         let ssh_key =
             get_ssh_public_key(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"))?;
         Ok(Self {

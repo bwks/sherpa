@@ -210,7 +210,7 @@ pub async fn remove_container(docker: &Docker, name: &str) -> Result<()> {
     // Wait for the container to exit, then remove (emulates --rm)
     docker
         .remove_container(
-            &name,
+            name,
             Some(RemoveContainerOptions {
                 force: true,
                 ..Default::default()
@@ -242,7 +242,7 @@ pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage)
     let mut export_stream = docker.export_image(&image_location);
 
     println!("Saving image to: {}", image_save_location);
-    let file = tokio::fs::File::create(&format!("{}", image_save_location)).await?;
+    let file = tokio::fs::File::create(&image_save_location).await?;
     let mut encoder = GzipEncoder::with_quality(file, Level::Fastest);
 
     while let Some(chunk) = export_stream.next().await {

@@ -399,7 +399,7 @@ pub async fn up(
                         | DeviceModels::RedhatLinux
                         | DeviceModels::SuseLinux
                         | DeviceModels::UbuntuLinux => {
-                            let cloud_init_user = CloudInitUser::default()?;
+                            let cloud_init_user = CloudInitUser::sherpa()?;
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
@@ -427,7 +427,7 @@ pub async fn up(
                                     SHERPA_DOMAIN_NAME
                                 ),
                             };
-                            let mut cloud_init_user = CloudInitUser::default()?;
+                            let mut cloud_init_user = CloudInitUser::sherpa()?;
                             cloud_init_user.shell = "/bin/sh".to_string();
                             cloud_init_user.groups = vec!["wheel".to_string()];
                             let cloud_init_config = CloudInitConfig {

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
-use serde_json;
 
 use konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION};
 
@@ -375,7 +374,6 @@ WantedBy=local-fs.target
             name: "dnsmasq.service".to_owned(),
             enabled: Some(true),
             contents: Some(
-                format!(
                     r#"[Unit]
 Description=dnsmasq
 After=media-container.mount containerd.service
@@ -397,8 +395,7 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 "#
-                )
-                .to_owned(),
+                .to_string(),
             ),
             ..Default::default()
         }
@@ -407,7 +404,7 @@ WantedBy=multi-user.target
         Self {
             name: "webdir.service".to_owned(),
             enabled: Some(true),
-            contents: Some(format!(r#"[Unit]
+            contents: Some(r#"[Unit]
 Description=WebDir
 After=media-container.mount containerd.service
 Requires=media-container.mount containerd.service
@@ -425,7 +422,7 @@ RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
-"#).to_owned()),
+"#.to_string()),
             ..Default::default()
         }
     }

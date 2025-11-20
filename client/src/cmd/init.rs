@@ -67,7 +67,7 @@ pub async fn init(
     if file_exists(manifest_file) && !force {
         println!("Manifest file already exists: {manifest_file}");
     } else {
-        let manifest = Manifest::default()?;
+        let manifest = Manifest::example()?;
         manifest.write_file(SHERPA_MANIFEST_FILE)?;
     }
 

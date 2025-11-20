@@ -55,24 +55,22 @@ pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
     let mut interface_networks = vec![];
     for (_index, interface) in interfaces {
         for address in interface.address.iter().flatten() {
-            match address {
-                Address::V4(..) => {
-                    if address.ip_addr().is_some() && address.netmask().is_some() {
-                        let ip_address = address.ip_addr().unwrap(); // Must be some.
-                        let ip = Ipv4Addr::from_str(&ip_address.to_string())?;
+            if let Address::V4(..) = address
+                && address.ip_addr().is_some()
+                && address.netmask().is_some()
+            {
+                let ip_address = address.ip_addr().unwrap(); // Must be some.
+                let ip = Ipv4Addr::from_str(&ip_address.to_string())?;
 
-                        // First convert to IpAddr to compute the prefix length
-                        let netmask_addr = address.netmask().unwrap(); // Must be some.
-                        // Convert to Ipv4Addr
-                        let netmask = Ipv4Addr::from_str(&netmask_addr.to_string())?;
-                        let prefix = ipv4_mask_to_prefix(netmask)?;
+                // First convert to IpAddr to compute the prefix length
+                let netmask_addr = address.netmask().unwrap(); // Must be some.
+                // Convert to Ipv4Addr
+                let netmask = Ipv4Addr::from_str(&netmask_addr.to_string())?;
+                let prefix = ipv4_mask_to_prefix(netmask)?;
 
-                        let ip_network = Ipv4Net::new(ip, prefix)?;
-                        let subnet = Ipv4Net::new(ip_network.network(), prefix)?;
-                        interface_networks.push(subnet)
-                    }
-                }
-                _ => {}
+                let ip_network = Ipv4Net::new(ip, prefix)?;
+                let subnet = Ipv4Net::new(ip_network.network(), prefix)?;
+                interface_networks.push(subnet)
             }
         }
     }

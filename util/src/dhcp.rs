@@ -1,5 +1,4 @@
 use anyhow::Result;
-use reqwest;
 
 use super::get_ipv4_addr;
 use data::{Config, DhcpLease};

@@ -19,7 +19,7 @@ pub struct Manifest {
 }
 
 impl Manifest {
-    pub fn default() -> Result<Self> {
+    pub fn example() -> Result<Self> {
         let name =
             petname::petname(2, "-").ok_or(anyhow::anyhow!("Failed to generate manifest name"))?;
 
