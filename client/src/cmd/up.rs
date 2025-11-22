@@ -32,7 +32,7 @@ use template::{
     CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
     DomainTemplate, File as IgnitionFile, FileParams as IgnitionFileParams,
     FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
-    PyatsInventory, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
+    PyatsInventory, SonicLinuxZtp, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
 use topology::{Device, Manifest};
 use util::{
@@ -604,45 +604,14 @@ pub async fn up(
 
                     match device.model {
                         DeviceModels::SonicLinux => {
-                            let sonic_ztp_template = r#"{
-                              "ztp": {
-                                "001-configdb-json": {
-                                  "url": {
-                                    "source": "http://172.31.0.2:8080/configs/config_db.json",
-                                    "destination": "/etc/sonic/config_db.json",
-                                    "secure": false
-                                  }
-                                },
-                                "002-set-password": {
-                                    "plugin": {
-                                      "url": "http://172.31.0.2:8080/configs/ztp_user.sh",
-                                      "shell": "true"
-                                     },
-                                     "reboot-on-success": false
-                                  }
-                                }
-                              }"#;
-                            let sonic_rendered_template = r#"{
-                              "DEVICE_METADATA": {
-                                "localhost": {
-                                  "hostname": "dev01"
-                                }
-                              },
-                              "AAA": {
-                                "authentication": {
-                                  "login": "local"
-                                }
-                              }
-                            }"#;
-                            let ztp_json_data: serde_json::Value =
-                                serde_json::from_str(sonic_ztp_template)?;
-                            let json_data: serde_json::Value =
-                                serde_json::from_str(sonic_rendered_template)?;
-                            let ztp_init = format!("{dir}/{}.conf", device.name);
-                            let ztp_config = format!("{dir}/config_db.json");
+                            let sonic_ztp_file_map =
+                                SonicLinuxZtp::file_map(&device.name, &mgmt_net.v4.boot_server);
+                            let sonic_ztp_config = SonicLinuxZtp::config(&device.name);
+                            let ztp_init = format!("{dir}/{}.conf", &device.name);
+                            let ztp_config = format!("{dir}/{}_config_db.json", &device.name);
                             create_dir(&dir)?;
-                            create_file(&ztp_init, ztp_json_data.to_string())?;
-                            create_file(&ztp_config, json_data.to_string())?;
+                            create_file(&ztp_init, sonic_ztp_file_map)?;
+                            create_file(&ztp_config, sonic_ztp_config)?;
                         }
                         _ => {
                             anyhow::bail!(

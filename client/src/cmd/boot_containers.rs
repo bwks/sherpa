@@ -16,7 +16,7 @@ use konst::{
 };
 use template::{
     ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CumulusLinuxZtpTemplate,
-    DnsmasqTemplate, SonicLinuxZtpTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
+    DnsmasqTemplate, SonicLinuxUserTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
 };
 use util::{create_dir, create_file, get_ipv4_addr, pub_ssh_key_to_md5_hash, term_msg_underline};
 
@@ -87,12 +87,12 @@ pub fn create_ztp_files(
     create_file(&cumulus_ztp_config, cumulus_rendered_template.clone())?;
 
     // Sonic
-    let sonic_user_template = SonicLinuxZtpTemplate {
+    let sonic_user_template = SonicLinuxUserTemplate {
         user: sherpa_user.clone(),
     };
     let sonic_user_rendered_template = sonic_user_template.render()?;
     create_file(
-        &format!("{ztp_configs_dir}/ztp_user.sh"),
+        &format!("{ztp_configs_dir}/sonic_ztp_user.sh"),
         sonic_user_rendered_template.clone(),
     )?;
 

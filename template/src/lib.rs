@@ -29,5 +29,5 @@ pub use domain::{BootServer, DomainTemplate};
 pub use ignition::{Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User};
 pub use juniper_junos::{JunipervJunosZtpTemplate, juniper_vevolved_ztp_script};
 pub use pyats::PyatsInventory;
-pub use sonic_linux::SonicLinuxZtpTemplate;
+pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::SshConfigTemplate;
