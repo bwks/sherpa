@@ -4,14 +4,16 @@ Vagrant re-imagined.
 
 ## Why?
 
-I love the workflow of Vagrant. Define an environment in a config file and build/destroy it with a few commands.
-This also made sharing labs with peers much easier.
+I love the workflow of Vagrant. Define an environment in a config file and
+build/destroy it with a few commands. This also made sharing labs with peers
+much easier.
 
 Docker came along and it's great when you can get by with only using Containers.
 I am from a networking background and in that space, VM's are mostly still king.
 
-I am learning Rust and what better way to learn than to build something that you can use.
-So that is why I am building Sherpa. To help me learn Rust and build a tool that I can use to make my life easier while im at it.
+I am learning Rust and what better way to learn than to build something that you
+can use. So that is why I am building Sherpa. To help me learn Rust and build and
+tool that I can use to make my life easier while im at it.
 
 ## Project Goals
 
@@ -123,9 +125,10 @@ network:
 | Nvidia    | Cumulus Linux  | 5.9.2                  | :white_check_mark: | USB        |
 | Nokia     | SR Linux       | 24.10.1                | :white_check_mark: | TBA        |
 | Microsoft | FlatCar Linux  | 3975.2.2               | :white_check_mark: | Ignition   |
+| Microsoft | Windows Server  | 2024               | :white_check_mark: | CloudBase-Init   |
 | Canonical | Ubuntu Linux   | 24.04                  | :white_check_mark: | Cloud-Init |
 | RedHat    | Fedora Linux   | 40-1.14                | :white_check_mark: | Cloud-Init |
-| SONiC     | Sonic Linux    | 25051111               | :construction:     | TFTP       |
+| SONiC     | Sonic Linux    | 25051122               | :white_check_mark:     | TFTP       |
 
 ## Obtain Boxes
 
@@ -248,7 +251,7 @@ Fedora provides ready built cloud images setup to work with cloud-init.
 ### Flatcar Linux
 
 [Flatcar Images](https://www.flatcar.org/docs/latest/installing/vms/libvirt/)
-wget https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_qemu_image.img
+wget <https://stable.release.flatcar-linux.net/amd64-usr/current/flatcar_production_qemu_image.img>
 
 ### CentOS
 

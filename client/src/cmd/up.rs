@@ -604,39 +604,44 @@ pub async fn up(
 
                     match device.model {
                         DeviceModels::SonicLinux => {
-                            // let sonic_template = SonicTemplate {
-                            //     hostname: device.name.clone(),
-                            //     user: user.clone(),
-                            //     dns: dns.clone(),
-                            // };
-                            // let sonic_rendered_template = sonic_template.render()?;
+                            let sonic_ztp_template = r#"{
+                              "ztp": {
+                                "001-configdb-json": {
+                                  "url": {
+                                    "source": "http://172.31.0.2:8080/configs/config_db.json",
+                                    "destination": "/etc/sonic/config_db.json",
+                                    "secure": false
+                                  }
+                                },
+                                "002-set-password": {
+                                    "plugin": {
+                                      "url": "http://172.31.0.2:8080/configs/ztp_user.sh",
+                                      "shell": "true"
+                                     },
+                                     "reboot-on-success": false
+                                  }
+                                }
+                              }"#;
                             let sonic_rendered_template = r#"{
                               "DEVICE_METADATA": {
                                 "localhost": {
-                                  "hostname": "dev01",
-                                  "default_switch_hostname": "dev01",
-                                  "domainname": "sherpa.lab.local"
+                                  "hostname": "dev01"
                                 }
-                              },
-                              "MGMT_INTERFACE": {
-                                "eth0|dhcp": {}
                               },
                               "AAA": {
                                 "authentication": {
                                   "login": "local"
                                 }
-                              },
-                              "USER": {
-                                "sherpa": {
-                                  "ssh_key": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDgr2+T2GIgVNQiNJm0YOyqwkLlk43MXkvTw2lYUH3pDQ0Yaee9lv7siqKbotxTNlmECML8XSah1aLnRdCiaOLke8+0Pt/GMwE/R58ZiuqDC272d0KTwWuPG+umK+dQkub6IXbHSbNdzJ0Cua/xF7VBhfzNlRg7kl8J4tMLjFC1NxHFnBVFhUEnXB/FOjibBarj/0GdpP03wxdbQ6ARcSly+RB5c3XMMJLGxRDeNIsukLe6+7axMRDlkQpP4aJQ/PP5AXex4axzAo0jHyZCMBjNZTay4cJqoAEo1xFcbe9m4b6MaqMPJ9XkMdVUXjeM1VqDngQLdwKPsNKUPGWK42S3qfpQkntpddW7L2DoANMfFSXRjiyVEYb5mchBCGSWbSg1aDHdzeZmqLBXIRNwSFbdArP3P5HS+wYdw1QTLkH9o6DAdWodkzw5RJGE7kGtR5ZxJjKCQZIOr4BFoG2cCj9smLRLJr/KFvVY2MTuAjdGby2sskNY7xEIjlXBp0HQv4cPaNzlFpAHBDWRK7ySnJY3YkAQ7VkUnHGNerS6HAMsoNXVkvGvYEAjH4+rMUZrrNssSKTfa4WMWcjHhMZhNK3FsXPV0JySBft10d7aVF7qzOOATRfwN5dghDLkU0JXVQdgq8z2nEsM3393095CsIt1vOCm9tLFLPsodj/s5qWFlw==",
-                                  "privilege": "15"
-                                }
                               }
                             }"#;
+                            let ztp_json_data: serde_json::Value =
+                                serde_json::from_str(sonic_ztp_template)?;
                             let json_data: serde_json::Value =
                                 serde_json::from_str(sonic_rendered_template)?;
-                            let ztp_config = format!("{dir}/{}.conf", device.name);
+                            let ztp_init = format!("{dir}/{}.conf", device.name);
+                            let ztp_config = format!("{dir}/config_db.json");
                             create_dir(&dir)?;
+                            create_file(&ztp_init, ztp_json_data.to_string())?;
                             create_file(&ztp_config, json_data.to_string())?;
                         }
                         _ => {

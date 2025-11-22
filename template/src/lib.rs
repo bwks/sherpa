@@ -12,6 +12,7 @@ mod domain;
 mod ignition;
 mod juniper_junos;
 mod pyats;
+mod sonic_linux;
 mod ssh;
 
 pub use arista_eos::{AristaVeosZtpTemplate, arista_veos_ztp_script};
@@ -28,4 +29,5 @@ pub use domain::{BootServer, DomainTemplate};
 pub use ignition::{Contents, File, FileParams, FileSystem, IgnitionConfig, Link, Unit, User};
 pub use juniper_junos::{JunipervJunosZtpTemplate, juniper_vevolved_ztp_script};
 pub use pyats::PyatsInventory;
+pub use sonic_linux::SonicLinuxZtpTemplate;
 pub use ssh::SshConfigTemplate;

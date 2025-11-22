@@ -68,9 +68,6 @@ impl IsolatedNetwork {
     }
 }
 
-// TODO
-// pub struct BridgeNetwork {}
-
 pub struct NatNetwork {
     pub network_name: String,
     pub bridge_name: String,

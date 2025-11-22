@@ -1,0 +1,15 @@
+#!/bin/bash
+
+/usr/sbin/useradd {{ user.username }}
+{% if let Some(password) = user.password %}/usr/bin/echo "{{ user.username }}:{{ password }}" | chpasswd{% endif %}
+/usr/bin/mkdir -p /home/{{ user.username }}/.ssh
+/usr/bin/echo '{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' >/home/{{ user.username }}/.ssh/authorized_keys
+/usr/bin/chmod 700 /home/{{ user.username }}/.ssh
+/usr/bin/chmod 600 /home/{{ user.username }}/.ssh/authorized_keys
+/usr/bin/chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}
+/usr/sbin/usermod -s /bin/bash {{ user.username }}
+{% if user.sudo %}
+/usr/sbin/usermod -aG sudo {{ user.username }}
+{% endif %}
+
+exit 0

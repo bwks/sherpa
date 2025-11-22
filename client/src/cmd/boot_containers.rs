@@ -16,7 +16,7 @@ use konst::{
 };
 use template::{
     ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CumulusLinuxZtpTemplate,
-    DnsmasqTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
+    DnsmasqTemplate, SonicLinuxZtpTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
 };
 use util::{create_dir, create_file, get_ipv4_addr, pub_ssh_key_to_md5_hash, term_msg_underline};
 
@@ -30,6 +30,7 @@ pub fn create_ztp_files(
     term_msg_underline("Creating ZTP configs");
 
     let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
+    let ztp_configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
 
     let dnsmaq_template = DnsmasqTemplate {
@@ -63,11 +64,6 @@ pub fn create_ztp_files(
     let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
     create_dir(&aruba_dir)?;
 
-    // TODO: Aruba USB ZTP config
-    // let aruba_ztp_file = format!("{aruba_dir}/{ARUBA_ZTP_SCRIPT}");
-    // let aruba_ztp_script = aruba_aoscx_ztp_script();
-    // create_file(&aruba_ztp_file, aruba_ztp_script.clone())?;
-
     let aruba_template = ArubaAoscxTemplate {
         hostname: "aos-ztp".to_owned(),
         user: sherpa_user.clone(),
@@ -89,6 +85,16 @@ pub fn create_ztp_files(
     let cumulus_rendered_template = cumulus_template.render()?;
     let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
     create_file(&cumulus_ztp_config, cumulus_rendered_template.clone())?;
+
+    // Sonic
+    let sonic_user_template = SonicLinuxZtpTemplate {
+        user: sherpa_user.clone(),
+    };
+    let sonic_user_rendered_template = sonic_user_template.render()?;
+    create_file(
+        &format!("{ztp_configs_dir}/ztp_user.sh"),
+        sonic_user_rendered_template.clone(),
+    )?;
 
     // Cisco
     let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
