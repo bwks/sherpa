@@ -2,5 +2,6 @@
 
 # Project Related
 sherpa.toml
-manifest.toml
+manifest.*
+files/
 .tmp/
