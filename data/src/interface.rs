@@ -8,15 +8,21 @@ use super::mapping::InterfaceConnection;
 
 pub trait InterfaceTrait {
     fn to_idx(&self) -> u8;
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError>;
 }
 
 #[derive(Debug, Error)]
-pub enum ParseInterfaceError {
+pub enum ParseInterfaceStrError {
     #[error("Unknown interface for {enum_name}: {iface}")]
-    UnknownInterface {
+    UnknownInterfaceStr {
         enum_name: &'static str,
         iface: String,
     },
+}
+#[derive(Debug, Error)]
+pub enum ParseInterfaceIdxError {
+    #[error("Unknown interface index for {enum_name}: {idx}")]
+    UnknownInterfaceIdx { enum_name: &'static str, idx: u8 },
 }
 
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
@@ -283,9 +289,76 @@ impl InterfaceTrait for ArubaAoscxInt {
             ArubaAoscxInt::E1_1_52 => 52,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "1/1/1",
+            2 => "1/1/2",
+            3 => "1/1/3",
+            4 => "1/1/4",
+            5 => "1/1/5",
+            6 => "1/1/6",
+            7 => "1/1/7",
+            8 => "1/1/8",
+            9 => "1/1/9",
+            10 => "1/1/10",
+            11 => "1/1/11",
+            12 => "1/1/12",
+            13 => "1/1/13",
+            14 => "1/1/14",
+            15 => "1/1/15",
+            16 => "1/1/16",
+            17 => "1/1/17",
+            18 => "1/1/18",
+            19 => "1/1/19",
+            20 => "1/1/20",
+            21 => "1/1/21",
+            22 => "1/1/22",
+            23 => "1/1/23",
+            24 => "1/1/24",
+            25 => "1/1/25",
+            26 => "1/1/26",
+            27 => "1/1/27",
+            28 => "1/1/28",
+            29 => "1/1/29",
+            30 => "1/1/30",
+            31 => "1/1/31",
+            32 => "1/1/32",
+            33 => "1/1/33",
+            34 => "1/1/34",
+            35 => "1/1/35",
+            36 => "1/1/36",
+            37 => "1/1/37",
+            38 => "1/1/38",
+            39 => "1/1/39",
+            40 => "1/1/40",
+            41 => "1/1/41",
+            42 => "1/1/42",
+            43 => "1/1/43",
+            44 => "1/1/44",
+            45 => "1/1/45",
+            46 => "1/1/46",
+            47 => "1/1/47",
+            48 => "1/1/48",
+            49 => "1/1/49",
+            50 => "1/1/50",
+            51 => "1/1/51",
+            52 => "1/1/52",
+            _ => "",
+        };
+        let result = if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "ArubaAoscx",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        };
+        result
+    }
 }
+
 impl FromStr for ArubaAoscxInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -341,7 +414,7 @@ impl FromStr for ArubaAoscxInt {
             "1/1/50" => Ok(ArubaAoscxInt::E1_1_50),
             "1/1/51" => Ok(ArubaAoscxInt::E1_1_51),
             "1/1/52" => Ok(ArubaAoscxInt::E1_1_52),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "ArubaAoscx",
                 iface: text.to_string(),
             }),
@@ -455,9 +528,71 @@ impl InterfaceTrait for EthernetInt {
             EthernetInt::Eth48 => 48,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "eth0",
+            1 => "eth1",
+            2 => "eth2",
+            3 => "eth3",
+            4 => "eth4",
+            5 => "eth5",
+            6 => "eth6",
+            7 => "eth7",
+            8 => "eth8",
+            9 => "eth9",
+            10 => "eth10",
+            11 => "eth11",
+            12 => "eth12",
+            13 => "eth13",
+            14 => "eth14",
+            15 => "eth15",
+            16 => "eth16",
+            17 => "eth17",
+            18 => "eth18",
+            19 => "eth19",
+            20 => "eth20",
+            21 => "eth21",
+            22 => "eth22",
+            23 => "eth23",
+            24 => "eth24",
+            25 => "eth25",
+            26 => "eth26",
+            27 => "eth27",
+            28 => "eth28",
+            29 => "eth29",
+            30 => "eth30",
+            31 => "eth31",
+            32 => "eth32",
+            33 => "eth33",
+            34 => "eth34",
+            35 => "eth35",
+            36 => "eth36",
+            37 => "eth37",
+            38 => "eth38",
+            39 => "eth39",
+            40 => "eth40",
+            41 => "eth41",
+            42 => "eth42",
+            43 => "eth43",
+            44 => "eth44",
+            45 => "eth45",
+            46 => "eth46",
+            47 => "eth47",
+            48 => "eth48",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "EthernetInt",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for EthernetInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -510,7 +645,7 @@ impl FromStr for EthernetInt {
             "eth46" => Ok(EthernetInt::Eth46),
             "eth47" => Ok(EthernetInt::Eth47),
             "eth48" => Ok(EthernetInt::Eth48),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "Generic",
                 iface: text.to_string(),
             }),
@@ -623,9 +758,70 @@ impl InterfaceTrait for AristaVeosInt {
             AristaVeosInt::Eth48 => 48,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "eth1",
+            2 => "eth2",
+            3 => "eth3",
+            4 => "eth4",
+            5 => "eth5",
+            6 => "eth6",
+            7 => "eth7",
+            8 => "eth8",
+            9 => "eth9",
+            10 => "eth10",
+            11 => "eth11",
+            12 => "eth12",
+            13 => "eth13",
+            14 => "eth14",
+            15 => "eth15",
+            16 => "eth16",
+            17 => "eth17",
+            18 => "eth18",
+            19 => "eth19",
+            20 => "eth20",
+            21 => "eth21",
+            22 => "eth22",
+            23 => "eth23",
+            24 => "eth24",
+            25 => "eth25",
+            26 => "eth26",
+            27 => "eth27",
+            28 => "eth28",
+            29 => "eth29",
+            30 => "eth30",
+            31 => "eth31",
+            32 => "eth32",
+            33 => "eth33",
+            34 => "eth34",
+            35 => "eth35",
+            36 => "eth36",
+            37 => "eth37",
+            38 => "eth38",
+            39 => "eth39",
+            40 => "eth40",
+            41 => "eth41",
+            42 => "eth42",
+            43 => "eth43",
+            44 => "eth44",
+            45 => "eth45",
+            46 => "eth46",
+            47 => "eth47",
+            48 => "eth48",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "AristaVeos",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for AristaVeosInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -677,7 +873,7 @@ impl FromStr for AristaVeosInt {
             "eth46" => Ok(AristaVeosInt::Eth46),
             "eth47" => Ok(AristaVeosInt::Eth47),
             "eth48" => Ok(AristaVeosInt::Eth48),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "AristaVeos",
                 iface: text.to_string(),
             }),
@@ -788,9 +984,70 @@ impl InterfaceTrait for AristaCeosInt {
             AristaCeosInt::Eth48 => 48,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "eth1",
+            2 => "eth2",
+            3 => "eth3",
+            4 => "eth4",
+            5 => "eth5",
+            6 => "eth6",
+            7 => "eth7",
+            8 => "eth8",
+            9 => "eth9",
+            10 => "eth10",
+            11 => "eth11",
+            12 => "eth12",
+            13 => "eth13",
+            14 => "eth14",
+            15 => "eth15",
+            16 => "eth16",
+            17 => "eth17",
+            18 => "eth18",
+            19 => "eth19",
+            20 => "eth20",
+            21 => "eth21",
+            22 => "eth22",
+            23 => "eth23",
+            24 => "eth24",
+            25 => "eth25",
+            26 => "eth26",
+            27 => "eth27",
+            28 => "eth28",
+            29 => "eth29",
+            30 => "eth30",
+            31 => "eth31",
+            32 => "eth32",
+            33 => "eth33",
+            34 => "eth34",
+            35 => "eth35",
+            36 => "eth36",
+            37 => "eth37",
+            38 => "eth38",
+            39 => "eth39",
+            40 => "eth40",
+            41 => "eth41",
+            42 => "eth42",
+            43 => "eth43",
+            44 => "eth44",
+            45 => "eth45",
+            46 => "eth46",
+            47 => "eth47",
+            48 => "eth48",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "AristaCeos",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for AristaCeosInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -842,7 +1099,7 @@ impl FromStr for AristaCeosInt {
             "eth46" => Ok(AristaCeosInt::Eth46),
             "eth47" => Ok(AristaCeosInt::Eth47),
             "eth48" => Ok(AristaCeosInt::Eth48),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "AristaCeos",
                 iface: text.to_string(),
             }),
@@ -906,9 +1163,38 @@ impl InterfaceTrait for CiscoIosvInt {
             CiscoIosvInt::Gig0_15 => 15,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "gig0/0",
+            1 => "gig0/1",
+            2 => "gig0/2",
+            3 => "gig0/3",
+            4 => "gig0/4",
+            5 => "gig0/5",
+            6 => "gig0/6",
+            7 => "gig0/7",
+            8 => "gig0/8",
+            9 => "gig0/9",
+            10 => "gig0/10",
+            11 => "gig0/11",
+            12 => "gig0/12",
+            13 => "gig0/13",
+            14 => "gig0/14",
+            15 => "gig0/15",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoIosv",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoIosvInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -928,7 +1214,7 @@ impl FromStr for CiscoIosvInt {
             "gig0/13" => Ok(CiscoIosvInt::Gig0_13),
             "gig0/14" => Ok(CiscoIosvInt::Gig0_14),
             "gig0/15" => Ok(CiscoIosvInt::Gig0_15),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoIosv",
                 iface: text.to_string(),
             }),
@@ -992,9 +1278,38 @@ impl InterfaceTrait for CiscoIosvl2Int {
             CiscoIosvl2Int::Gig3_3 => 15,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "gig0/0",
+            1 => "gig0/1",
+            2 => "gig0/2",
+            3 => "gig0/3",
+            4 => "gig1/0",
+            5 => "gig1/1",
+            6 => "gig1/2",
+            7 => "gig1/3",
+            8 => "gig2/0",
+            9 => "gig2/1",
+            10 => "gig2/2",
+            11 => "gig2/3",
+            12 => "gig3/0",
+            13 => "gig3/1",
+            14 => "gig3/2",
+            15 => "gig3/3",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoIosvl2",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoIosvl2Int {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1014,7 +1329,7 @@ impl FromStr for CiscoIosvl2Int {
             "gig3/1" => Ok(CiscoIosvl2Int::Gig3_1),
             "gig3/2" => Ok(CiscoIosvl2Int::Gig3_2),
             "gig3/3" => Ok(CiscoIosvl2Int::Gig3_3),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoIos",
                 iface: text.to_string(),
             }),
@@ -1054,9 +1369,30 @@ impl InterfaceTrait for CiscoAsavInt {
             CiscoAsavInt::Gig0_7 => 7,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "gig0/0",
+            1 => "gig0/1",
+            2 => "gig0/2",
+            3 => "gig0/3",
+            4 => "gig0/4",
+            5 => "gig0/5",
+            6 => "gig0/6",
+            7 => "gig0/7",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoAsav",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoAsavInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1068,7 +1404,7 @@ impl FromStr for CiscoAsavInt {
             "gig0/5" => Ok(CiscoAsavInt::Gig0_5),
             "gig0/6" => Ok(CiscoAsavInt::Gig0_6),
             "gig0/7" => Ok(CiscoAsavInt::Gig0_7),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoAsav",
                 iface: text.to_string(),
             }),
@@ -1117,9 +1453,38 @@ impl InterfaceTrait for CiscoCsr1000vInt {
             CiscoCsr1000vInt::Gig16 => 16,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "gig1",
+            2 => "gig2",
+            3 => "gig3",
+            4 => "gig4",
+            5 => "gig5",
+            6 => "gig6",
+            7 => "gig7",
+            8 => "gig8",
+            9 => "gig9",
+            10 => "gig10",
+            11 => "gig11",
+            12 => "gig12",
+            13 => "gig13",
+            14 => "gig14",
+            15 => "gig15",
+            16 => "gig16",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoCsr1000v",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoCsr1000vInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1139,7 +1504,7 @@ impl FromStr for CiscoCsr1000vInt {
             "gig14" => Ok(CiscoCsr1000vInt::Gig14),
             "gig15" => Ok(CiscoCsr1000vInt::Gig15),
             "gig16" => Ok(CiscoCsr1000vInt::Gig16),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoCsr1000v",
                 iface: text.to_string(),
             }),
@@ -1188,9 +1553,38 @@ impl InterfaceTrait for CiscoCat8000vInt {
             CiscoCat8000vInt::Gig16 => 16,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "gig1",
+            2 => "gig2",
+            3 => "gig3",
+            4 => "gig4",
+            5 => "gig5",
+            6 => "gig6",
+            7 => "gig7",
+            8 => "gig8",
+            9 => "gig9",
+            10 => "gig10",
+            11 => "gig11",
+            12 => "gig12",
+            13 => "gig13",
+            14 => "gig14",
+            15 => "gig15",
+            16 => "gig16",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoCat8000v",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoCat8000vInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1210,7 +1604,7 @@ impl FromStr for CiscoCat8000vInt {
             "gig14" => Ok(CiscoCat8000vInt::Gig14),
             "gig15" => Ok(CiscoCat8000vInt::Gig15),
             "gig16" => Ok(CiscoCat8000vInt::Gig16),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoCat8000v",
                 iface: text.to_string(),
             }),
@@ -1250,9 +1644,30 @@ impl InterfaceTrait for CiscoCat9000vInt {
             CiscoCat9000vInt::Gig0_0_8 => 8,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "gig0/0/1",
+            2 => "gig0/0/2",
+            3 => "gig0/0/3",
+            4 => "gig0/0/4",
+            5 => "gig0/0/5",
+            6 => "gig0/0/6",
+            7 => "gig0/0/7",
+            8 => "gig0/0/8",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoCat9000v",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoCat9000vInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1264,7 +1679,7 @@ impl FromStr for CiscoCat9000vInt {
             "gig0/0/6" => Ok(CiscoCat9000vInt::Gig0_0_6),
             "gig0/0/7" => Ok(CiscoCat9000vInt::Gig0_0_7),
             "gig0/0/8" => Ok(CiscoCat9000vInt::Gig0_0_8),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoCat9000v",
                 iface: text.to_string(),
             }),
@@ -1473,9 +1888,86 @@ impl InterfaceTrait for CiscoNexus9300vInt {
             CiscoNexus9300vInt::Eth1_64 => 64,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1 => "eth1/1",
+            2 => "eth1/2",
+            3 => "eth1/3",
+            4 => "eth1/4",
+            5 => "eth1/5",
+            6 => "eth1/6",
+            7 => "eth1/7",
+            8 => "eth1/8",
+            9 => "eth1/9",
+            10 => "eth1/10",
+            11 => "eth1/11",
+            12 => "eth1/12",
+            13 => "eth1/13",
+            14 => "eth1/14",
+            15 => "eth1/15",
+            16 => "eth1/16",
+            17 => "eth1/17",
+            18 => "eth1/18",
+            19 => "eth1/19",
+            20 => "eth1/20",
+            21 => "eth1/21",
+            22 => "eth1/22",
+            23 => "eth1/23",
+            24 => "eth1/24",
+            25 => "eth1/25",
+            26 => "eth1/26",
+            27 => "eth1/27",
+            28 => "eth1/28",
+            29 => "eth1/29",
+            30 => "eth1/30",
+            31 => "eth1/31",
+            32 => "eth1/32",
+            33 => "eth1/33",
+            34 => "eth1/34",
+            35 => "eth1/35",
+            36 => "eth1/36",
+            37 => "eth1/37",
+            38 => "eth1/38",
+            39 => "eth1/39",
+            40 => "eth1/40",
+            41 => "eth1/41",
+            42 => "eth1/42",
+            43 => "eth1/43",
+            44 => "eth1/44",
+            45 => "eth1/45",
+            46 => "eth1/46",
+            47 => "eth1/47",
+            48 => "eth1/48",
+            49 => "eth1/49",
+            50 => "eth1/50",
+            51 => "eth1/51",
+            52 => "eth1/52",
+            53 => "eth1/53",
+            54 => "eth1/54",
+            55 => "eth1/55",
+            56 => "eth1/56",
+            57 => "eth1/57",
+            58 => "eth1/58",
+            59 => "eth1/59",
+            60 => "eth1/60",
+            61 => "eth1/61",
+            62 => "eth1/62",
+            63 => "eth1/63",
+            64 => "eth1/64",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoNexus9300v",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for CiscoNexus9300vInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1543,7 +2035,7 @@ impl FromStr for CiscoNexus9300vInt {
             "eth1/62" => Ok(CiscoNexus9300vInt::Eth1_62),
             "eth1/63" => Ok(CiscoNexus9300vInt::Eth1_63),
             "eth1/64" => Ok(CiscoNexus9300vInt::Eth1_64),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "CiscoNexus9300v",
                 iface: text.to_string(),
             }),
@@ -1589,9 +2081,32 @@ impl InterfaceTrait for JuniperVrouterInt {
             JuniperVrouterInt::Ge0_0_9 => 9,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "ge-0/0/0",
+            1 => "ge-0/0/1",
+            2 => "ge-0/0/2",
+            3 => "ge-0/0/3",
+            4 => "ge-0/0/4",
+            5 => "ge-0/0/5",
+            6 => "ge-0/0/6",
+            7 => "ge-0/0/7",
+            8 => "ge-0/0/8",
+            9 => "ge-0/0/9",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "JuniperVrouter",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for JuniperVrouterInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1605,7 +2120,7 @@ impl FromStr for JuniperVrouterInt {
             "ge-0/0/7" => Ok(JuniperVrouterInt::Ge0_0_7),
             "ge-0/0/8" => Ok(JuniperVrouterInt::Ge0_0_8),
             "ge-0/0/9" => Ok(JuniperVrouterInt::Ge0_0_9),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "JuniperVrouter",
                 iface: text.to_string(),
             }),
@@ -1650,9 +2165,32 @@ impl InterfaceTrait for JuniperVswitchInt {
             JuniperVswitchInt::Ge0_0_9 => 9,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "ge-0/0/0",
+            1 => "ge-0/0/1",
+            2 => "ge-0/0/2",
+            3 => "ge-0/0/3",
+            4 => "ge-0/0/4",
+            5 => "ge-0/0/5",
+            6 => "ge-0/0/6",
+            7 => "ge-0/0/7",
+            8 => "ge-0/0/8",
+            9 => "ge-0/0/9",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "JuniperVswitch",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for JuniperVswitchInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1666,7 +2204,7 @@ impl FromStr for JuniperVswitchInt {
             "ge-0/0/7" => Ok(JuniperVswitchInt::Ge0_0_7),
             "ge-0/0/8" => Ok(JuniperVswitchInt::Ge0_0_8),
             "ge-0/0/9" => Ok(JuniperVswitchInt::Ge0_0_9),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "JuniperVswitch",
                 iface: text.to_string(),
             }),
@@ -1717,9 +2255,34 @@ impl InterfaceTrait for JuniperVevolvedInt {
             JuniperVevolvedInt::Et0_0_11 => 11,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "et-0/0/0",
+            1 => "et-0/0/1",
+            2 => "et-0/0/2",
+            3 => "et-0/0/3",
+            4 => "et-0/0/4",
+            5 => "et-0/0/5",
+            6 => "et-0/0/6",
+            7 => "et-0/0/7",
+            8 => "et-0/0/8",
+            9 => "et-0/0/9",
+            10 => "et-0/0/10",
+            11 => "et-0/0/11",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "JuniperVevolved",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for JuniperVevolvedInt {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1735,7 +2298,7 @@ impl FromStr for JuniperVevolvedInt {
             "et-0/0/9" => Ok(JuniperVevolvedInt::Et0_0_9),
             "et-0/0/10" => Ok(JuniperVevolvedInt::Et0_0_10),
             "et-0/0/11" => Ok(JuniperVevolvedInt::Et0_0_11),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "JuniperVevolved",
                 iface: text.to_string(),
             }),
@@ -1775,9 +2338,30 @@ impl InterfaceTrait for JuniperVsrxv3Int {
             JuniperVsrxv3Int::Ge0_0_7 => 7,
         }
     }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0 => "ge-0/0/0",
+            1 => "ge-0/0/1",
+            2 => "ge-0/0/2",
+            3 => "ge-0/0/3",
+            4 => "ge-0/0/4",
+            5 => "ge-0/0/5",
+            6 => "ge-0/0/6",
+            7 => "ge-0/0/7",
+            _ => "",
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "JuniperVsrxv3",
+                idx,
+            })
+        } else {
+            Ok(iface.to_string())
+        }
+    }
 }
 impl FromStr for JuniperVsrxv3Int {
-    type Err = ParseInterfaceError;
+    type Err = ParseInterfaceStrError;
 
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         match text {
@@ -1789,7 +2373,7 @@ impl FromStr for JuniperVsrxv3Int {
             "ge-0/0/5" => Ok(JuniperVsrxv3Int::Ge0_0_5),
             "ge-0/0/6" => Ok(JuniperVsrxv3Int::Ge0_0_6),
             "ge-0/0/7" => Ok(JuniperVsrxv3Int::Ge0_0_7),
-            _ => Err(ParseInterfaceError::UnknownInterface {
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "JuniperVsrxv3",
                 iface: text.to_string(),
             }),

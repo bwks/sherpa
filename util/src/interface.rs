@@ -51,3 +51,46 @@ pub fn interface_to_idx(device_model: &DeviceModels, interface: &str) -> Result<
     };
     Ok(idx)
 }
+pub fn interface_from_idx(device_model: &DeviceModels, idx: u8) -> Result<String> {
+    let iface = match device_model {
+        DeviceModels::CustomUnknown => EthernetInt::from_idx(idx)?,
+        DeviceModels::AristaVeos => AristaVeosInt::from_idx(idx)?,
+        DeviceModels::AristaCeos => AristaCeosInt::from_idx(idx)?,
+        DeviceModels::ArubaAoscx => ArubaAoscxInt::from_idx(idx)?,
+        DeviceModels::CiscoAsav => CiscoAsavInt::from_idx(idx)?,
+        DeviceModels::CiscoCsr1000v => CiscoCsr1000vInt::from_idx(idx)?,
+        DeviceModels::CiscoCat8000v => CiscoCat8000vInt::from_idx(idx)?,
+        DeviceModels::CiscoCat9000v => CiscoCat9000vInt::from_idx(idx)?,
+        // DeviceModels::CiscoIosxrv9000 => {
+        //     CiscoIosxrv9000Int::from_idx(idx)?
+        // }
+        DeviceModels::CiscoNexus9300v => CiscoNexus9300vInt::from_idx(idx)?,
+        DeviceModels::CiscoIosv => CiscoIosvInt::from_idx(idx)?,
+        DeviceModels::CiscoIosvl2 => CiscoIosvl2Int::from_idx(idx)?,
+        DeviceModels::JuniperVrouter => JuniperVrouterInt::from_idx(idx)?,
+        DeviceModels::JuniperVswitch => JuniperVswitchInt::from_idx(idx)?,
+        DeviceModels::JuniperVevolved => JuniperVevolvedInt::from_idx(idx)?,
+        DeviceModels::JuniperVsrxv3 => JuniperVsrxv3Int::from_idx(idx)?,
+        // DeviceModels::NokiaSrlinux => NokiaSrlinuxInt::from_idx(idx)?,
+        // DeviceModels::AlpineLinux => AlpineLinuxInt::from_idx(idx)?,
+        // DeviceModels::CumulusLinux => CumulusLinuxInt::from_idx(idx)?,
+        // DeviceModels::CentosLinux => CentosLinuxInt::from_idx(idx)?,
+        // DeviceModels::FedoraLinux => FedoraLinuxInt::from_idx(idx)?,
+        // DeviceModels::RedhatLinux => RedhatLinuxInt::from_idx(idx)?,
+        // DeviceModels::OpensuseLinux => {
+        //     OpensuseLinuxInt::from_idx(idx)?
+        // }
+        // DeviceModels::SuseLinux => SuseLinuxInt::from_idx(idx)?,
+        // DeviceModels::UbuntuLinux => UbuntuLinuxInt::from_idx(idx)?,
+        // DeviceModels::FlatcarLinux => FlatcarLinuxInt::from_idx(idx)?,
+        // DeviceModels::SonicLinux => SonicLinuxInt::from_idx(idx)?,
+        // DeviceModels::WindowsServer2012 => {
+        //     WindowsServer2012::from_idx(idx)?
+        // }
+        _ => {
+            // println!("ADD MORE MODELS")
+            EthernetInt::from_idx(idx)?
+        }
+    };
+    Ok(iface)
+}

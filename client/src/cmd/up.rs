@@ -37,10 +37,10 @@ use template::{
 use topology::{Device, LinkDetailed, LinkExpanded, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_free_subnet, get_ip,
-    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_to_idx, load_config,
-    load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
-    term_msg_surround, term_msg_underline,
+    create_dir, create_file, create_ztp_iso, dasher, default_dns, get_dhcp_leases, get_free_subnet,
+    get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_from_idx,
+    interface_to_idx, load_config, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
+    random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -251,7 +251,7 @@ pub async fn up(
         // Management Interfaces
         if device_model.dedicated_management_interface {
             interfaces.push(Interface {
-                name: "mgmt".to_owned(),
+                name: dasher(&device_model.management_interface.to_string()),
                 num: 0,
                 mtu: device_model.interface_mtu,
                 mac_address: mac_address.to_string(),
@@ -264,7 +264,7 @@ pub async fn up(
         if device_model.reserved_interface_count > 0 {
             for i in device_model.first_interface_index..=device_model.reserved_interface_count {
                 interfaces.push(Interface {
-                    name: "reserved".to_owned(),
+                    name: format!("int{i}"),
                     num: i,
                     mtu: device_model.interface_mtu,
                     mac_address: random_mac(KVM_OUI),
@@ -286,7 +286,7 @@ pub async fn up(
                 && i == device_model.first_interface_index
             {
                 interfaces.push(Interface {
-                    name: "mgmt".to_owned(),
+                    name: dasher(&device_model.management_interface.to_string()),
                     num: device_model.first_interface_index,
                     mtu: device_model.interface_mtu,
                     mac_address: mac_address.to_string(),
@@ -314,7 +314,7 @@ pub async fn up(
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
                         interfaces.push(Interface {
-                            name: format!("{}{}", device_model.interface_prefix, i),
+                            name: dasher(&l.int_a),
                             num: i,
                             mtu: device_model.interface_mtu,
                             mac_address: random_mac(KVM_OUI),
@@ -338,7 +338,7 @@ pub async fn up(
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
                         interfaces.push(Interface {
-                            name: format!("{}{}", device_model.interface_prefix, i),
+                            name: dasher(&l.int_b),
                             num: i,
                             mtu: device_model.interface_mtu,
                             mac_address: random_mac(KVM_OUI),
@@ -352,7 +352,7 @@ pub async fn up(
                 if !p2p_connection {
                     // Interface not defined in manifest so disable.
                     interfaces.push(Interface {
-                        name: format!("{}{}", device_model.interface_prefix, i),
+                        name: dasher(&interface_from_idx(&device.model, i)?),
                         num: i,
                         mtu: device_model.interface_mtu,
                         mac_address: random_mac(KVM_OUI),
@@ -362,7 +362,7 @@ pub async fn up(
                 }
             } else {
                 interfaces.push(Interface {
-                    name: format!("{}{}", device_model.interface_prefix, i),
+                    name: dasher(&interface_from_idx(&device.model, i)?),
                     num: i,
                     mtu: device_model.interface_mtu,
                     mac_address: random_mac(KVM_OUI),

@@ -9,6 +9,7 @@ mod mac;
 mod output;
 mod port;
 mod random;
+mod sanitizers;
 mod ssh;
 mod text;
 mod user;
@@ -22,12 +23,13 @@ pub use file_system::{
     create_dir, create_file, create_symlink, create_ztp_iso, delete_dirs, dir_exists, expand_path,
     file_exists, fix_permissions_recursive, get_cwd, load_file,
 };
-pub use interface::interface_to_idx;
+pub use interface::{interface_from_idx, interface_to_idx};
 pub use ip::{get_free_subnet, get_interface_networks, get_ip, get_ipv4_addr, get_ipv4_network};
 pub use mac::{clean_mac, random_mac};
 pub use output::{term_msg_highlight, term_msg_surround, term_msg_underline};
 pub use port::id_to_port;
 pub use random::get_id;
+pub use sanitizers::dasher;
 pub use ssh::{
     generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
