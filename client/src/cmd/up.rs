@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use super::boot_containers::{create_boot_containers, create_ztp_files};
 
 use anyhow::{Context, Result};
@@ -7,12 +5,9 @@ use askama::Template;
 
 use container::{create_network, docker_connection};
 use data::{
-    AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoIosvInt, CiscoIosvl2Int, CiscoNexus9300vInt, CloneDisk, ConnectionTypes,
-    DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses, DiskDevices, DiskDrivers,
-    DiskFormats, DiskTargets, EthernetInt, ExpandedLink, Interface, InterfaceConnection,
-    InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
-    LabInfo, NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
+    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo,
+    NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
@@ -39,12 +34,12 @@ use template::{
     FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
     PyatsInventory, SonicLinuxZtp, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
-use topology::{Device, LinkExpanded, Manifest};
+use topology::{Device, LinkDetailed, LinkExpanded, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_free_subnet, get_ip,
-    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, load_config, load_file,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
+    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_to_idx, load_config,
+    load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user,
     term_msg_surround, term_msg_underline,
 };
 use validate::{
@@ -82,7 +77,29 @@ pub async fn up(
         .iter()
         .map(|x| x.expand())
         .collect::<Result<Vec<LinkExpanded>>>()?;
-g
+
+    let mut links_detailed = vec![];
+    for link in links.iter() {
+        let mut this_link = LinkDetailed::default();
+        for device in manifest.devices.iter() {
+            let device_model = device.model.clone();
+            if link.dev_a == device.name {
+                let int_idx = interface_to_idx(&device_model, &link.int_a)?;
+                this_link.dev_a = device.name.clone();
+                this_link.dev_a_model = device_model;
+                this_link.int_a = link.int_a.clone();
+                this_link.int_a_idx = int_idx;
+            } else if link.dev_b == device.name {
+                let int_idx = interface_to_idx(&device_model, &link.int_b)?;
+                this_link.dev_b = device.name.clone();
+                this_link.dev_b_model = device_model;
+                this_link.int_b = link.int_b.clone();
+                this_link.int_b_idx = int_idx;
+            }
+        }
+        links_detailed.push(this_link)
+    }
+
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
 
@@ -96,7 +113,11 @@ g
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         if !device_model.dedicated_management_interface {
-            check_mgmt_usage(&device.name, device_model.first_interface_index, &links)?;
+            check_mgmt_usage(
+                &device.name,
+                device_model.first_interface_index,
+                &links_detailed,
+            )?;
         }
 
         check_interface_bounds(
@@ -104,13 +125,13 @@ g
             &device_model.name,
             device_model.first_interface_index,
             device_model.interface_count,
-            &links,
+            &links_detailed,
         )?;
     }
 
     // Connection Validators
     if !links.is_empty() {
-        check_duplicate_interface_link(&links)?;
+        check_duplicate_interface_link(&links_detailed)?;
         check_link_device(&manifest.devices, &links)?;
     };
 
@@ -205,7 +226,6 @@ g
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
     for device in &manifest.devices {
-        let links = &links.to_owned();
         let mut disks: Vec<DeviceDisk> = vec![];
         let vm_name = format!("{}-{}", device.name, lab_id);
 
@@ -276,68 +296,11 @@ g
                 continue;
             }
             // Device to device links
-            if !links.is_empty() {
+            if !links_detailed.is_empty() {
                 let mut p2p_connection = false;
-                for l in links {
-                    let int_a_idx = match device.model {
-                        DeviceModels::CustomUnknown => EthernetInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::AristaVeos => AristaVeosInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::AristaCeos => AristaCeosInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::ArubaAoscx => ArubaAoscxInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::CiscoAsav => CiscoAsavInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::CiscoCsr1000v => {
-                            CiscoCsr1000vInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::CiscoCat8000v => {
-                            CiscoCat8000vInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::CiscoCat9000v => {
-                            CiscoCat9000vInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        // DeviceModels::CiscoIosxrv9000 => {
-                        //     CiscoIosxrv9000Int::from_str(&l.int_a)?.to_idx()
-                        // }
-                        DeviceModels::CiscoNexus9300v => {
-                            CiscoNexus9300vInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::CiscoIosv => CiscoIosvInt::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::CiscoIosvl2 => CiscoIosvl2Int::from_str(&l.int_a)?.to_idx(),
-                        DeviceModels::JuniperVrouter => {
-                            JuniperVrouterInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::JuniperVswitch => {
-                            JuniperVswitchInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::JuniperVevolved => {
-                            JuniperVevolvedInt::from_str(&l.int_a)?.to_idx()
-                        }
-                        DeviceModels::JuniperVsrxv3 => {
-                            JuniperVsrxv3Int::from_str(&l.int_a)?.to_idx()
-                        }
-                        // DeviceModels::NokiaSrlinux => NokiaSrlinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::AlpineLinux => AlpineLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::CumulusLinux => CumulusLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::CentosLinux => CentosLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::FedoraLinux => FedoraLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::RedhatLinux => RedhatLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::OpensuseLinux => {
-                        //     OpensuseLinuxInt::from_str(&l.int_a)?.to_idx()
-                        // }
-                        // DeviceModels::SuseLinux => SuseLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::UbuntuLinux => UbuntuLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::FlatcarLinux => FlatcarLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::SonicLinux => SonicLinuxInt::from_str(&l.int_a)?.to_idx(),
-                        // DeviceModels::WindowsServer2012 => {
-                        //     WindowsServer2012::from_str(&l.int_a)?.to_idx()
-                        // }
-                        _ => {
-                            // println!("ADD MORE MODELS")
-                            0
-                        }
-                    };
-
+                for l in links_detailed.iter() {
                     // Device is source in manifest
-                    if l.dev_a == device.name && i == l.int_a {
+                    if l.dev_a == device.name && i == l.int_a_idx {
                         let source_id = dev_id_map.get(&l.dev_b).ok_or_else(|| {
                             anyhow::anyhow!("Connection dev_b not found: {}", l.dev_b)
                         })?;
@@ -347,7 +310,7 @@ g
                             local_port: id_to_port(i),
                             local_loopback: get_ip(local_id).to_string(),
                             source_id: source_id.to_owned(),
-                            source_port: id_to_port(l.int_b),
+                            source_port: id_to_port(l.int_b_idx),
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
                         interfaces.push(Interface {
@@ -361,7 +324,7 @@ g
                         p2p_connection = true;
                         break;
                     // Device is destination in manifest
-                    } else if l.dev_b == device.name && i == l.int_b {
+                    } else if l.dev_b == device.name && i == l.int_b_idx {
                         let source_id = dev_id_map.get(&l.dev_a).ok_or_else(|| {
                             anyhow::anyhow!("Connection dev_a not found: {}", l.dev_a)
                         })?;
@@ -371,7 +334,7 @@ g
                             local_port: id_to_port(i),
                             local_loopback: get_ip(local_id).to_string(),
                             source_id: source_id.to_owned(),
-                            source_port: id_to_port(l.int_a),
+                            source_port: id_to_port(l.int_a_idx),
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
                         interfaces.push(Interface {

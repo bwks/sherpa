@@ -8,7 +8,7 @@ use data::{
     InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
 };
 
-pub fn interface_to_idx(device_model: DeviceModels, interface: &str) -> Result<u8> {
+pub fn interface_to_idx(device_model: &DeviceModels, interface: &str) -> Result<u8> {
     let idx = match device_model {
         DeviceModels::CustomUnknown => EthernetInt::from_str(interface)?.to_idx(),
         DeviceModels::AristaVeos => AristaVeosInt::from_str(interface)?.to_idx(),

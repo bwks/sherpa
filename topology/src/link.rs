@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
 use data::DeviceModels;
-use util::{interface_to_idx, split_dev_int};
+use util::split_dev_int;
 
 /// Manifest Link
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -21,7 +21,7 @@ pub struct LinkExpanded {
     pub int_b: String,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct LinkDetailed {
     pub dev_a: String,
     pub dev_a_model: DeviceModels,

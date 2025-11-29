@@ -3,21 +3,21 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use data::DeviceModels;
-use topology::{Device, LinkExpanded};
+use topology::{Device, LinkDetailed, LinkExpanded};
 
 /// Check if a device with a non-dedicated management interface
 /// has the first interface defined in a connection
 pub fn check_mgmt_usage(
     device_name: &str,
     first_interface_index: u8,
-    links: &Vec<LinkExpanded>,
+    links: &Vec<LinkDetailed>,
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt
         if device_name == link.dev_a {
-            (device_name, link.int_a)
+            (device_name, link.int_a_idx)
         } else if device_name == link.dev_b {
-            (device_name, link.int_b)
+            (device_name, link.int_b_idx)
         } else {
             continue; // this will skip to the next loop if device not matched in link
         };
@@ -31,12 +31,12 @@ pub fn check_mgmt_usage(
 }
 
 /// Check for duplicate interface usage in device links
-pub fn check_duplicate_interface_link(links: &Vec<LinkExpanded>) -> Result<()> {
+pub fn check_duplicate_interface_link(links: &Vec<LinkDetailed>) -> Result<()> {
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
     for link in links {
-        check_device_interface(&link.dev_a, link.int_a, &mut device_int_map)?;
-        check_device_interface(&link.dev_b, link.int_b, &mut device_int_map)?;
+        check_device_interface(&link.dev_a, link.int_a_idx, &mut device_int_map)?;
+        check_device_interface(&link.dev_b, link.int_b_idx, &mut device_int_map)?;
     }
     Ok(())
 }
@@ -85,14 +85,14 @@ pub fn check_interface_bounds(
     device_model: &DeviceModels,
     first_interface_index: u8,
     interface_count: u8,
-    links: &Vec<LinkExpanded>,
+    links: &Vec<LinkDetailed>,
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt
         if device_name == link.dev_a {
-            (device_name, link.int_a)
+            (device_name, link.int_a_idx)
         } else if device_name == link.dev_b {
-            (device_name, link.int_b)
+            (device_name, link.int_b_idx)
         } else {
             continue; // this will skip to the next loop if device not matched in link
         };
