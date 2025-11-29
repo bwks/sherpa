@@ -29,9 +29,13 @@ pub fn create_ztp_files(
     // Create ZTP files
     term_msg_underline("Creating ZTP configs");
 
+    // Create directories
     let ztp_dir = format!("{TEMP_DIR}/{ZTP_DIR}");
     let ztp_configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
+    create_dir(&ztp_dir)?;
+    create_dir(&ztp_configs_dir)?;
+    create_dir(&dnsmasq_dir)?;
 
     let dnsmaq_template = DnsmasqTemplate {
         tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
@@ -42,7 +46,6 @@ pub fn create_ztp_files(
     };
 
     let dnsmasq_rendered_template = dnsmaq_template.render()?;
-    create_dir(&dnsmasq_dir)?;
     create_file(
         &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
         dnsmasq_rendered_template,

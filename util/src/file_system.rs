@@ -97,15 +97,19 @@ pub fn delete_dirs(dir_path: &str) -> Result<()> {
 /// Copy a file from a source to a destination.
 /// This will overwrite the destination file if it exists.
 pub fn copy_file(src: &str, dst: &str) -> Result<()> {
-    let source = File::open(src)?;
-    let destination = File::create(dst)?;
+    let source = File::open(src).with_context(|| format!("Error loading src file: {src}"))?;
+    let destination =
+        File::create(dst).with_context(|| format!("Error creating dst file: {dst}"))?;
 
     let mut reader = BufReader::new(source);
     let mut writer = BufWriter::new(destination);
 
-    io::copy(&mut reader, &mut writer)?;
+    io::copy(&mut reader, &mut writer)
+        .with_context(|| format!("Error copying file: {src} -> {dst}"))?;
 
-    writer.flush()?; // Ensures all buffered contents are written to the file
+    writer
+        .flush()
+        .with_context(|| "Error flushing writer contents")?; // Ensures all buffered contents are written to the file
 
     Ok(())
 }

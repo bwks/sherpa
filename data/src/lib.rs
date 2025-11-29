@@ -24,7 +24,12 @@ pub use device::{
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
-pub use interface::{ConnectionTypes, Interface, MgmtInterfaces};
+pub use interface::{
+    AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
+    CiscoCsr1000vInt, CiscoIosvInt, CiscoIosvl2Int, CiscoNexus9300vInt, ConnectionTypes,
+    EthernetInt, Interface, InterfaceKind, InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt,
+    JuniperVsrxv3Int, JuniperVswitchInt, MgmtInterfaces,
+};
 pub use lab::LabInfo;
 pub use mapping::{
     CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand, ZtpTemplates,

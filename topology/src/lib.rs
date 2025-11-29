@@ -4,5 +4,5 @@ mod manifest;
 
 // re-export
 pub use device::Device;
-pub use link::Link;
+pub use link::{Link, Link2, LinkExpanded};
 pub use manifest::Manifest;

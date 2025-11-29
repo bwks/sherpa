@@ -499,6 +499,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "thiserror",
  "toml",
 ]
 
@@ -2539,6 +2540,7 @@ dependencies = [
  "serde_derive",
  "toml",
  "toml_edit",
+ "util",
 ]
 
 [[package]]

@@ -5,17 +5,20 @@ use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use super::device::Device;
-use super::link::Link;
-use data::{DeviceModels, ZtpServer};
+use super::link::Link2;
+use data::{DeviceModels, InventoryManagement, ZtpServer};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
     pub name: String,
     pub devices: Vec<Device>,
-    pub links: Option<Vec<Link>>,
+    pub links: Option<Vec<Link2>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ztp_server: Option<ZtpServer>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inventory_management: Option<InventoryManagement>,
 }
 
 impl Manifest {
@@ -34,11 +37,9 @@ impl Manifest {
             ..Default::default()
         };
 
-        let links = vec![Link {
-            dev_a: dev01.name.clone(),
-            int_a: 1,
-            dev_b: dev02.name.clone(),
-            int_b: 1,
+        let links = vec![Link2 {
+            src: format!("{}::{}", dev01.name.clone(), 1),
+            dst: format!("{}::{}", dev02.name.clone(), 1),
         }];
 
         let devices: Vec<Device> = vec![dev01, dev02];
@@ -91,10 +92,12 @@ impl Manifest {
             for link in links {
                 let mut link_table = InlineTable::new();
                 link_table.decor_mut().set_prefix("\n  ");
-                link_table.insert("dev_a", Value::from(link.dev_a.as_str()));
-                link_table.insert("int_a", Value::from(link.int_a as i64));
-                link_table.insert("dev_b", Value::from(link.dev_b.as_str()));
-                link_table.insert("int_b", Value::from(link.int_b as i64));
+                // link_table.insert("dev_a", Value::from(link.dev_a.as_str()));
+                // link_table.insert("int_a", Value::from(link.int_a as i64));
+                // link_table.insert("dev_b", Value::from(link.dev_b.as_str()));
+                // link_table.insert("int_b", Value::from(link.int_b as i64));
+                link_table.insert("dev_a", Value::from(link.src.as_str()));
+                link_table.insert("dev_b", Value::from(link.dst.as_str()));
                 link_array.push_formatted(Value::from(link_table));
             }
             doc["links"] = Item::Value(Value::Array(link_array));

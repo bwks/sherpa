@@ -9,7 +9,7 @@
 /usr/bin/chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}
 /usr/sbin/usermod -s /bin/bash {{ user.username }}
 {% if user.sudo %}
-/usr/sbin/usermod -aG sudo {{ user.username }}
+/usr/sbin/usermod -aG sudo,admin,docker {{ user.username }}
 {% endif %}
 
 exit 0

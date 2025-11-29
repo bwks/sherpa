@@ -49,7 +49,7 @@
     <boot dev='hd'/>
     {% match bios %}
     {%   when BiosTypes::Uefi %}
-    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE.fd</loader>
+    <loader readonly='yes' type='pflash'>/usr/share/OVMF/OVMF_CODE_4M.fd</loader>
     <nvram>/var/lib/libvirt/qemu/nvram/{{ name|uppercase }}_VARS.fd</nvram>
     {%   when BiosTypes::SeaBios %}
     <!-- SeaBios - No stanza required -->

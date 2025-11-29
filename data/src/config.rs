@@ -23,17 +23,17 @@ impl Default for ZtpServer {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct InventoryManagement {
-    pub pyats: bool,
     pub ansible: bool,
+    pub pyats: bool,
     pub nornir: bool,
 }
 
 impl Default for InventoryManagement {
     fn default() -> Self {
         Self {
-            pyats: true,
+            pyats: false,
             ansible: false,
             nornir: false,
         }

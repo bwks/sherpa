@@ -10,8 +10,8 @@ domain={{ SHERPA_DOMAIN_NAME }}
 # DHCP
 dhcp-leasefile=/opt/{{ ZTP_DIR }}/{{ DNSMASQ_DIR }}/{{ DNSMASQ_LEASES_FILE }}
 
-# DHCP range for the subnet (customize to your network)
-dhcp-range={{ dhcp_start }},{{ dhcp_end }},2m
+# DHCP range for the subnet
+dhcp-range={{ dhcp_start }},{{ dhcp_end }},60m
 
 # Set default gateway (Option 3) and option 150 (TFTP server IP)
 dhcp-option=3,{{ gateway_ipv4 }} # Default Gateway

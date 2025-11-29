@@ -14,7 +14,7 @@ username {{ user.username }}
  group netadmin
 {%- endif %}
 {%- if let Some(password) = user.password %}
- password 0 {{ password }}
+ secret 0 {{ password }}
 {%- endif %}
 !
 aaa authorization exec default local

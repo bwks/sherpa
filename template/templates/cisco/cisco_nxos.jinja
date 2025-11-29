@@ -7,7 +7,7 @@ hostname {{ hostname }}
 !
 username admin password 0 {{ konst::SHERPA_PASSWORD }} role network-admin
 {%- if let Some(password) = user.password %}
-username {{ user.username }} password 0 {{ password }} 
+username {{ user.username }} password 0 {{ password }}
 {%- endif %}
 {%- if user.sudo %}
 username {{ user.username }} role network-admin

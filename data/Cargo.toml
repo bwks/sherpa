@@ -8,6 +8,9 @@ konst = { path = "../konst" }
 
 # Errors
 anyhow = "1.0.100"
+thiserror = "2.0.17"
+
+# Templates
 askama = "0.14.0"
 
 # CLI

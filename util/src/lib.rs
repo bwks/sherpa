@@ -3,12 +3,14 @@ mod dhcp;
 mod dns;
 mod encode;
 mod file_system;
+mod interface;
 mod ip;
 mod mac;
 mod output;
 mod port;
 mod random;
 mod ssh;
+mod text;
 mod user;
 
 pub use config::{create_config, default_config, load_config};
@@ -20,6 +22,7 @@ pub use file_system::{
     create_dir, create_file, create_symlink, create_ztp_iso, delete_dirs, dir_exists, expand_path,
     file_exists, fix_permissions_recursive, get_cwd, load_file,
 };
+pub use interface::interface_to_idx;
 pub use ip::{get_free_subnet, get_interface_networks, get_ip, get_ipv4_addr, get_ipv4_network};
 pub use mac::{clean_mac, random_mac};
 pub use output::{term_msg_highlight, term_msg_surround, term_msg_underline};
@@ -28,4 +31,5 @@ pub use random::get_id;
 pub use ssh::{
     generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
 };
+pub use text::split_dev_int;
 pub use user::{get_username, sherpa_user};

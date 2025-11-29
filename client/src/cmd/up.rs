@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use super::boot_containers::{create_boot_containers, create_ztp_files};
 
 use anyhow::{Context, Result};
@@ -5,16 +7,19 @@ use askama::Template;
 
 use container::{create_network, docker_connection};
 use data::{
-    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo,
-    NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
+    AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
+    CiscoCsr1000vInt, CiscoIosvInt, CiscoIosvl2Int, CiscoNexus9300vInt, CloneDisk, ConnectionTypes,
+    DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses, DiskDevices, DiskDrivers,
+    DiskFormats, DiskTargets, EthernetInt, ExpandedLink, Interface, InterfaceConnection,
+    InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
+    LabInfo, NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
     CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_SRLINUX, SHERPA_DOMAIN_NAME,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH,
     SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
@@ -34,7 +39,7 @@ use template::{
     FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
     PyatsInventory, SonicLinuxZtp, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
-use topology::{Device, Manifest};
+use topology::{Device, LinkExpanded, Manifest};
 use util::{
     base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_dir, create_file, create_ztp_iso, default_dns, get_dhcp_leases, get_free_subnet, get_ip,
@@ -70,8 +75,14 @@ pub async fn up(
     // TODO: RUN EXISTING LAB VALIDATORS
 
     term_msg_underline("Validating Manifest");
-    let links = manifest.links.clone().unwrap_or_default();
+    let manifest_links = manifest.links.clone().unwrap_or_default();
 
+    // links from manifest links
+    let links = manifest_links
+        .iter()
+        .map(|x| x.expand())
+        .collect::<Result<Vec<LinkExpanded>>>()?;
+g
     // Device Validators
     check_duplicate_device(&manifest.devices)?;
 
@@ -268,6 +279,63 @@ pub async fn up(
             if !links.is_empty() {
                 let mut p2p_connection = false;
                 for l in links {
+                    let int_a_idx = match device.model {
+                        DeviceModels::CustomUnknown => EthernetInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::AristaVeos => AristaVeosInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::AristaCeos => AristaCeosInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::ArubaAoscx => ArubaAoscxInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::CiscoAsav => CiscoAsavInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::CiscoCsr1000v => {
+                            CiscoCsr1000vInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::CiscoCat8000v => {
+                            CiscoCat8000vInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::CiscoCat9000v => {
+                            CiscoCat9000vInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        // DeviceModels::CiscoIosxrv9000 => {
+                        //     CiscoIosxrv9000Int::from_str(&l.int_a)?.to_idx()
+                        // }
+                        DeviceModels::CiscoNexus9300v => {
+                            CiscoNexus9300vInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::CiscoIosv => CiscoIosvInt::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::CiscoIosvl2 => CiscoIosvl2Int::from_str(&l.int_a)?.to_idx(),
+                        DeviceModels::JuniperVrouter => {
+                            JuniperVrouterInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::JuniperVswitch => {
+                            JuniperVswitchInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::JuniperVevolved => {
+                            JuniperVevolvedInt::from_str(&l.int_a)?.to_idx()
+                        }
+                        DeviceModels::JuniperVsrxv3 => {
+                            JuniperVsrxv3Int::from_str(&l.int_a)?.to_idx()
+                        }
+                        // DeviceModels::NokiaSrlinux => NokiaSrlinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::AlpineLinux => AlpineLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::CumulusLinux => CumulusLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::CentosLinux => CentosLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::FedoraLinux => FedoraLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::RedhatLinux => RedhatLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::OpensuseLinux => {
+                        //     OpensuseLinuxInt::from_str(&l.int_a)?.to_idx()
+                        // }
+                        // DeviceModels::SuseLinux => SuseLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::UbuntuLinux => UbuntuLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::FlatcarLinux => FlatcarLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::SonicLinux => SonicLinuxInt::from_str(&l.int_a)?.to_idx(),
+                        // DeviceModels::WindowsServer2012 => {
+                        //     WindowsServer2012::from_str(&l.int_a)?.to_idx()
+                        // }
+                        _ => {
+                            // println!("ADD MORE MODELS")
+                            0
+                        }
+                    };
+
                     // Device is source in manifest
                     if l.dev_a == device.name && i == l.int_a {
                         let source_id = dev_id_map.get(&l.dev_b).ok_or_else(|| {
@@ -523,8 +591,7 @@ pub async fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::JuniperVevolved
-                        | DeviceModels::JuniperVsrxv3
+                        DeviceModels::JuniperVsrxv3
                         | DeviceModels::JuniperVrouter
                         | DeviceModels::JuniperVswitch => {
                             let t = JunipervJunosZtpTemplate {
@@ -577,7 +644,9 @@ pub async fn up(
                             create_dir(&dir)?;
                             create_file(&ztp_config, aruba_rendered_template)?;
                         }
-                        DeviceModels::JuniperVevolved => {
+                        DeviceModels::JuniperVevolved
+                        | DeviceModels::JuniperVrouter
+                        | DeviceModels::JuniperVswitch => {
                             let juniper_template = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user: sherpa_user.clone(),
@@ -624,6 +693,7 @@ pub async fn up(
                 ZtpMethods::Disk => {
                     println!("Creating ZTP config {}", device.name);
                     let mut user = sherpa_user.clone();
+
                     let dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.model {
                         DeviceModels::CiscoIosv => {
@@ -744,9 +814,8 @@ pub async fn up(
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_SRLINUX
+                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
                             );
-
                             let dst_usb = format!("{dir}/cfg.img");
 
                             // Create a copy of the usb base image

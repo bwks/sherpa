@@ -3,14 +3,14 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use data::DeviceModels;
-use topology::{Device, Link};
+use topology::{Device, LinkExpanded};
 
 /// Check if a device with a non-dedicated management interface
 /// has the first interface defined in a connection
 pub fn check_mgmt_usage(
     device_name: &str,
     first_interface_index: u8,
-    links: &Vec<Link>,
+    links: &Vec<LinkExpanded>,
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt
@@ -31,7 +31,7 @@ pub fn check_mgmt_usage(
 }
 
 /// Check for duplicate interface usage in device links
-pub fn check_duplicate_interface_link(links: &Vec<Link>) -> Result<()> {
+pub fn check_duplicate_interface_link(links: &Vec<LinkExpanded>) -> Result<()> {
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
     for link in links {
@@ -61,7 +61,7 @@ fn check_device_interface(
 }
 
 /// Check devices defined in links are defined as top level devices
-pub fn check_link_device(devices: &[Device], links: &Vec<Link>) -> Result<()> {
+pub fn check_link_device(devices: &[Device], links: &Vec<LinkExpanded>) -> Result<()> {
     let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
     let mut unique_device_link: HashSet<String> = HashSet::new();
     for link in links {
@@ -85,7 +85,7 @@ pub fn check_interface_bounds(
     device_model: &DeviceModels,
     first_interface_index: u8,
     interface_count: u8,
-    links: &Vec<Link>,
+    links: &Vec<LinkExpanded>,
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt

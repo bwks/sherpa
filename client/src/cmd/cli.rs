@@ -206,11 +206,8 @@ impl Cli {
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                // let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                // let lab_id = get_id()?;
-                // let lab_name = manifest.name.clone();
-                // ssh(&qemu, name, &lab_name, &lab_id)?;
-                ssh(name)?;
+                let config = load_config(&sherpa.config_path)?;
+                ssh(name, &config).await?;
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;
