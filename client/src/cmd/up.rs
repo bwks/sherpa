@@ -262,7 +262,7 @@ pub async fn up(
 
         // Reserved Interfaces
         if device_model.reserved_interface_count > 0 {
-            for i in device_model.first_interface_index..=device_model.reserved_interface_count {
+            for i in device_model.first_interface_index..device_model.reserved_interface_count {
                 interfaces.push(Interface {
                     name: format!("int{i}"),
                     num: i,

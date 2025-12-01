@@ -301,8 +301,8 @@ devices = [
   { name = "dev02", device_model = "arista_veos" },
 ]
 
-connections = [
-  { device_a = "dev01", interface_a = 2, device_b = "dev02", interface_b = 1 },
+links = [
+  { src = "dev01::gig2", dst = "dev02::eth1/1" },
 ]
 ```
 

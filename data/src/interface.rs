@@ -108,7 +108,7 @@ pub struct Interface {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum InterfaceKind {
-    EthernetInt(EthernetInt),
+    Ethernet(EthernetInt),
     ArubaAoscx(ArubaAoscxInt),
     AristaVeos(AristaVeosInt),
     CiscoIosv(CiscoIosvInt),
@@ -122,6 +122,7 @@ pub enum InterfaceKind {
     JuniperVswitch(JuniperVswitchInt),
     JuniperVevolved(JuniperVevolvedInt),
     JuniperVsrxv3(JuniperVsrxv3Int),
+    CumulusLinux(CumulusLinuxInt),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -291,59 +292,8 @@ impl InterfaceTrait for ArubaAoscxInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "1/1/1",
-            2 => "1/1/2",
-            3 => "1/1/3",
-            4 => "1/1/4",
-            5 => "1/1/5",
-            6 => "1/1/6",
-            7 => "1/1/7",
-            8 => "1/1/8",
-            9 => "1/1/9",
-            10 => "1/1/10",
-            11 => "1/1/11",
-            12 => "1/1/12",
-            13 => "1/1/13",
-            14 => "1/1/14",
-            15 => "1/1/15",
-            16 => "1/1/16",
-            17 => "1/1/17",
-            18 => "1/1/18",
-            19 => "1/1/19",
-            20 => "1/1/20",
-            21 => "1/1/21",
-            22 => "1/1/22",
-            23 => "1/1/23",
-            24 => "1/1/24",
-            25 => "1/1/25",
-            26 => "1/1/26",
-            27 => "1/1/27",
-            28 => "1/1/28",
-            29 => "1/1/29",
-            30 => "1/1/30",
-            31 => "1/1/31",
-            32 => "1/1/32",
-            33 => "1/1/33",
-            34 => "1/1/34",
-            35 => "1/1/35",
-            36 => "1/1/36",
-            37 => "1/1/37",
-            38 => "1/1/38",
-            39 => "1/1/39",
-            40 => "1/1/40",
-            41 => "1/1/41",
-            42 => "1/1/42",
-            43 => "1/1/43",
-            44 => "1/1/44",
-            45 => "1/1/45",
-            46 => "1/1/46",
-            47 => "1/1/47",
-            48 => "1/1/48",
-            49 => "1/1/49",
-            50 => "1/1/50",
-            51 => "1/1/51",
-            52 => "1/1/52",
-            _ => "",
+            1..=52 => format!("1/1/{}", idx),
+            _ => String::new(),
         };
         let result = if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -351,7 +301,7 @@ impl InterfaceTrait for ArubaAoscxInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         };
         result
     }
@@ -530,56 +480,8 @@ impl InterfaceTrait for EthernetInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "eth0",
-            1 => "eth1",
-            2 => "eth2",
-            3 => "eth3",
-            4 => "eth4",
-            5 => "eth5",
-            6 => "eth6",
-            7 => "eth7",
-            8 => "eth8",
-            9 => "eth9",
-            10 => "eth10",
-            11 => "eth11",
-            12 => "eth12",
-            13 => "eth13",
-            14 => "eth14",
-            15 => "eth15",
-            16 => "eth16",
-            17 => "eth17",
-            18 => "eth18",
-            19 => "eth19",
-            20 => "eth20",
-            21 => "eth21",
-            22 => "eth22",
-            23 => "eth23",
-            24 => "eth24",
-            25 => "eth25",
-            26 => "eth26",
-            27 => "eth27",
-            28 => "eth28",
-            29 => "eth29",
-            30 => "eth30",
-            31 => "eth31",
-            32 => "eth32",
-            33 => "eth33",
-            34 => "eth34",
-            35 => "eth35",
-            36 => "eth36",
-            37 => "eth37",
-            38 => "eth38",
-            39 => "eth39",
-            40 => "eth40",
-            41 => "eth41",
-            42 => "eth42",
-            43 => "eth43",
-            44 => "eth44",
-            45 => "eth45",
-            46 => "eth46",
-            47 => "eth47",
-            48 => "eth48",
-            _ => "",
+            1..=48 => format!("eth{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -647,6 +549,253 @@ impl FromStr for EthernetInt {
             "eth48" => Ok(EthernetInt::Eth48),
             _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
                 enum_name: "Generic",
+                iface: text.to_string(),
+            }),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum CumulusLinuxInt {
+    #[serde(rename = "swp1")]
+    Swp1,
+    #[serde(rename = "swp2")]
+    Swp2,
+    #[serde(rename = "swp3")]
+    Swp3,
+    #[serde(rename = "swp4")]
+    Swp4,
+    #[serde(rename = "swp5")]
+    Swp5,
+    #[serde(rename = "swp6")]
+    Swp6,
+    #[serde(rename = "swp7")]
+    Swp7,
+    #[serde(rename = "swp8")]
+    Swp8,
+    #[serde(rename = "swp9")]
+    Swp9,
+    #[serde(rename = "swp10")]
+    Swp10,
+    #[serde(rename = "swp11")]
+    Swp11,
+    #[serde(rename = "swp12")]
+    Swp12,
+    #[serde(rename = "swp13")]
+    Swp13,
+    #[serde(rename = "swp14")]
+    Swp14,
+    #[serde(rename = "swp15")]
+    Swp15,
+    #[serde(rename = "swp16")]
+    Swp16,
+    #[serde(rename = "swp17")]
+    Swp17,
+    #[serde(rename = "swp18")]
+    Swp18,
+    #[serde(rename = "swp19")]
+    Swp19,
+    #[serde(rename = "swp20")]
+    Swp20,
+    #[serde(rename = "swp21")]
+    Swp21,
+    #[serde(rename = "swp22")]
+    Swp22,
+    #[serde(rename = "swp23")]
+    Swp23,
+    #[serde(rename = "swp24")]
+    Swp24,
+    #[serde(rename = "swp25")]
+    Swp25,
+    #[serde(rename = "swp26")]
+    Swp26,
+    #[serde(rename = "swp27")]
+    Swp27,
+    #[serde(rename = "swp28")]
+    Swp28,
+    #[serde(rename = "swp29")]
+    Swp29,
+    #[serde(rename = "swp30")]
+    Swp30,
+    #[serde(rename = "swp31")]
+    Swp31,
+    #[serde(rename = "swp32")]
+    Swp32,
+    #[serde(rename = "swp33")]
+    Swp33,
+    #[serde(rename = "swp34")]
+    Swp34,
+    #[serde(rename = "swp35")]
+    Swp35,
+    #[serde(rename = "swp36")]
+    Swp36,
+    #[serde(rename = "swp37")]
+    Swp37,
+    #[serde(rename = "swp38")]
+    Swp38,
+    #[serde(rename = "swp39")]
+    Swp39,
+    #[serde(rename = "swp40")]
+    Swp40,
+    #[serde(rename = "swp41")]
+    Swp41,
+    #[serde(rename = "swp42")]
+    Swp42,
+    #[serde(rename = "swp43")]
+    Swp43,
+    #[serde(rename = "swp44")]
+    Swp44,
+    #[serde(rename = "swp45")]
+    Swp45,
+    #[serde(rename = "swp46")]
+    Swp46,
+    #[serde(rename = "swp47")]
+    Swp47,
+    #[serde(rename = "swp48")]
+    Swp48,
+    #[serde(rename = "swp49")]
+    Swp49,
+    #[serde(rename = "swp50")]
+    Swp50,
+    #[serde(rename = "swp51")]
+    Swp51,
+    #[serde(rename = "swp52")]
+    Swp52,
+}
+
+impl InterfaceTrait for CumulusLinuxInt {
+    fn to_idx(&self) -> u8 {
+        match self {
+            CumulusLinuxInt::Swp1 => 1,
+            CumulusLinuxInt::Swp2 => 2,
+            CumulusLinuxInt::Swp3 => 3,
+            CumulusLinuxInt::Swp4 => 4,
+            CumulusLinuxInt::Swp5 => 5,
+            CumulusLinuxInt::Swp6 => 6,
+            CumulusLinuxInt::Swp7 => 7,
+            CumulusLinuxInt::Swp8 => 8,
+            CumulusLinuxInt::Swp9 => 9,
+            CumulusLinuxInt::Swp10 => 10,
+            CumulusLinuxInt::Swp11 => 11,
+            CumulusLinuxInt::Swp12 => 12,
+            CumulusLinuxInt::Swp13 => 13,
+            CumulusLinuxInt::Swp14 => 14,
+            CumulusLinuxInt::Swp15 => 15,
+            CumulusLinuxInt::Swp16 => 16,
+            CumulusLinuxInt::Swp17 => 17,
+            CumulusLinuxInt::Swp18 => 18,
+            CumulusLinuxInt::Swp19 => 19,
+            CumulusLinuxInt::Swp20 => 20,
+            CumulusLinuxInt::Swp21 => 21,
+            CumulusLinuxInt::Swp22 => 22,
+            CumulusLinuxInt::Swp23 => 23,
+            CumulusLinuxInt::Swp24 => 24,
+            CumulusLinuxInt::Swp25 => 25,
+            CumulusLinuxInt::Swp26 => 26,
+            CumulusLinuxInt::Swp27 => 27,
+            CumulusLinuxInt::Swp28 => 28,
+            CumulusLinuxInt::Swp29 => 29,
+            CumulusLinuxInt::Swp30 => 30,
+            CumulusLinuxInt::Swp31 => 31,
+            CumulusLinuxInt::Swp32 => 32,
+            CumulusLinuxInt::Swp33 => 33,
+            CumulusLinuxInt::Swp34 => 34,
+            CumulusLinuxInt::Swp35 => 35,
+            CumulusLinuxInt::Swp36 => 36,
+            CumulusLinuxInt::Swp37 => 37,
+            CumulusLinuxInt::Swp38 => 38,
+            CumulusLinuxInt::Swp39 => 39,
+            CumulusLinuxInt::Swp40 => 40,
+            CumulusLinuxInt::Swp41 => 41,
+            CumulusLinuxInt::Swp42 => 42,
+            CumulusLinuxInt::Swp43 => 43,
+            CumulusLinuxInt::Swp44 => 44,
+            CumulusLinuxInt::Swp45 => 45,
+            CumulusLinuxInt::Swp46 => 46,
+            CumulusLinuxInt::Swp47 => 47,
+            CumulusLinuxInt::Swp48 => 48,
+            CumulusLinuxInt::Swp49 => 49,
+            CumulusLinuxInt::Swp50 => 50,
+            CumulusLinuxInt::Swp51 => 51,
+            CumulusLinuxInt::Swp52 => 52,
+        }
+    }
+
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            1..=52 => format!("swp{}", idx),
+            _ => String::new(),
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CumulusLinuxInt",
+                idx,
+            })
+        } else {
+            Ok(iface)
+        }
+    }
+}
+
+impl FromStr for CumulusLinuxInt {
+    type Err = ParseInterfaceStrError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "swp1" => Ok(CumulusLinuxInt::Swp1),
+            "swp2" => Ok(CumulusLinuxInt::Swp2),
+            "swp3" => Ok(CumulusLinuxInt::Swp3),
+            "swp4" => Ok(CumulusLinuxInt::Swp4),
+            "swp5" => Ok(CumulusLinuxInt::Swp5),
+            "swp6" => Ok(CumulusLinuxInt::Swp6),
+            "swp7" => Ok(CumulusLinuxInt::Swp7),
+            "swp8" => Ok(CumulusLinuxInt::Swp8),
+            "swp9" => Ok(CumulusLinuxInt::Swp9),
+            "swp10" => Ok(CumulusLinuxInt::Swp10),
+            "swp11" => Ok(CumulusLinuxInt::Swp11),
+            "swp12" => Ok(CumulusLinuxInt::Swp12),
+            "swp13" => Ok(CumulusLinuxInt::Swp13),
+            "swp14" => Ok(CumulusLinuxInt::Swp14),
+            "swp15" => Ok(CumulusLinuxInt::Swp15),
+            "swp16" => Ok(CumulusLinuxInt::Swp16),
+            "swp17" => Ok(CumulusLinuxInt::Swp17),
+            "swp18" => Ok(CumulusLinuxInt::Swp18),
+            "swp19" => Ok(CumulusLinuxInt::Swp19),
+            "swp20" => Ok(CumulusLinuxInt::Swp20),
+            "swp21" => Ok(CumulusLinuxInt::Swp21),
+            "swp22" => Ok(CumulusLinuxInt::Swp22),
+            "swp23" => Ok(CumulusLinuxInt::Swp23),
+            "swp24" => Ok(CumulusLinuxInt::Swp24),
+            "swp25" => Ok(CumulusLinuxInt::Swp25),
+            "swp26" => Ok(CumulusLinuxInt::Swp26),
+            "swp27" => Ok(CumulusLinuxInt::Swp27),
+            "swp28" => Ok(CumulusLinuxInt::Swp28),
+            "swp29" => Ok(CumulusLinuxInt::Swp29),
+            "swp30" => Ok(CumulusLinuxInt::Swp30),
+            "swp31" => Ok(CumulusLinuxInt::Swp31),
+            "swp32" => Ok(CumulusLinuxInt::Swp32),
+            "swp33" => Ok(CumulusLinuxInt::Swp33),
+            "swp34" => Ok(CumulusLinuxInt::Swp34),
+            "swp35" => Ok(CumulusLinuxInt::Swp35),
+            "swp36" => Ok(CumulusLinuxInt::Swp36),
+            "swp37" => Ok(CumulusLinuxInt::Swp37),
+            "swp38" => Ok(CumulusLinuxInt::Swp38),
+            "swp39" => Ok(CumulusLinuxInt::Swp39),
+            "swp40" => Ok(CumulusLinuxInt::Swp40),
+            "swp41" => Ok(CumulusLinuxInt::Swp41),
+            "swp42" => Ok(CumulusLinuxInt::Swp42),
+            "swp43" => Ok(CumulusLinuxInt::Swp43),
+            "swp44" => Ok(CumulusLinuxInt::Swp44),
+            "swp45" => Ok(CumulusLinuxInt::Swp45),
+            "swp46" => Ok(CumulusLinuxInt::Swp46),
+            "swp47" => Ok(CumulusLinuxInt::Swp47),
+            "swp48" => Ok(CumulusLinuxInt::Swp48),
+            "swp49" => Ok(CumulusLinuxInt::Swp49),
+            "swp50" => Ok(CumulusLinuxInt::Swp50),
+            "swp51" => Ok(CumulusLinuxInt::Swp51),
+            "swp52" => Ok(CumulusLinuxInt::Swp52),
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
+                enum_name: "CumulusLinuxInt",
                 iface: text.to_string(),
             }),
         }
@@ -760,55 +909,8 @@ impl InterfaceTrait for AristaVeosInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "eth1",
-            2 => "eth2",
-            3 => "eth3",
-            4 => "eth4",
-            5 => "eth5",
-            6 => "eth6",
-            7 => "eth7",
-            8 => "eth8",
-            9 => "eth9",
-            10 => "eth10",
-            11 => "eth11",
-            12 => "eth12",
-            13 => "eth13",
-            14 => "eth14",
-            15 => "eth15",
-            16 => "eth16",
-            17 => "eth17",
-            18 => "eth18",
-            19 => "eth19",
-            20 => "eth20",
-            21 => "eth21",
-            22 => "eth22",
-            23 => "eth23",
-            24 => "eth24",
-            25 => "eth25",
-            26 => "eth26",
-            27 => "eth27",
-            28 => "eth28",
-            29 => "eth29",
-            30 => "eth30",
-            31 => "eth31",
-            32 => "eth32",
-            33 => "eth33",
-            34 => "eth34",
-            35 => "eth35",
-            36 => "eth36",
-            37 => "eth37",
-            38 => "eth38",
-            39 => "eth39",
-            40 => "eth40",
-            41 => "eth41",
-            42 => "eth42",
-            43 => "eth43",
-            44 => "eth44",
-            45 => "eth45",
-            46 => "eth46",
-            47 => "eth47",
-            48 => "eth48",
-            _ => "",
+            1..=48 => format!("eth{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -816,7 +918,7 @@ impl InterfaceTrait for AristaVeosInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -986,55 +1088,8 @@ impl InterfaceTrait for AristaCeosInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "eth1",
-            2 => "eth2",
-            3 => "eth3",
-            4 => "eth4",
-            5 => "eth5",
-            6 => "eth6",
-            7 => "eth7",
-            8 => "eth8",
-            9 => "eth9",
-            10 => "eth10",
-            11 => "eth11",
-            12 => "eth12",
-            13 => "eth13",
-            14 => "eth14",
-            15 => "eth15",
-            16 => "eth16",
-            17 => "eth17",
-            18 => "eth18",
-            19 => "eth19",
-            20 => "eth20",
-            21 => "eth21",
-            22 => "eth22",
-            23 => "eth23",
-            24 => "eth24",
-            25 => "eth25",
-            26 => "eth26",
-            27 => "eth27",
-            28 => "eth28",
-            29 => "eth29",
-            30 => "eth30",
-            31 => "eth31",
-            32 => "eth32",
-            33 => "eth33",
-            34 => "eth34",
-            35 => "eth35",
-            36 => "eth36",
-            37 => "eth37",
-            38 => "eth38",
-            39 => "eth39",
-            40 => "eth40",
-            41 => "eth41",
-            42 => "eth42",
-            43 => "eth43",
-            44 => "eth44",
-            45 => "eth45",
-            46 => "eth46",
-            47 => "eth47",
-            48 => "eth48",
-            _ => "",
+            1..=48 => format!("eth{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1042,7 +1097,7 @@ impl InterfaceTrait for AristaCeosInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1165,23 +1220,8 @@ impl InterfaceTrait for CiscoIosvInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "gig0/0",
-            1 => "gig0/1",
-            2 => "gig0/2",
-            3 => "gig0/3",
-            4 => "gig0/4",
-            5 => "gig0/5",
-            6 => "gig0/6",
-            7 => "gig0/7",
-            8 => "gig0/8",
-            9 => "gig0/9",
-            10 => "gig0/10",
-            11 => "gig0/11",
-            12 => "gig0/12",
-            13 => "gig0/13",
-            14 => "gig0/14",
-            15 => "gig0/15",
-            _ => "",
+            0..=15 => format!("gig0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1189,7 +1229,7 @@ impl InterfaceTrait for CiscoIosvInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1338,6 +1378,151 @@ impl FromStr for CiscoIosvl2Int {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum CiscoIosxrv9000Int {
+    #[serde(rename = "gig0/0/0/0")]
+    Gig0_0_0_0,
+    #[serde(rename = "gig0/0/0/1")]
+    Gig0_0_0_1,
+    #[serde(rename = "gig0/0/0/2")]
+    Gig0_0_0_2,
+    #[serde(rename = "gig0/0/0/3")]
+    Gig0_0_0_3,
+    #[serde(rename = "gig0/0/0/4")]
+    Gig0_0_0_4,
+    #[serde(rename = "gig0/0/0/5")]
+    Gig0_0_0_5,
+    #[serde(rename = "gig0/0/0/6")]
+    Gig0_0_0_6,
+    #[serde(rename = "gig0/0/0/7")]
+    Gig0_0_0_7,
+    #[serde(rename = "gig0/0/0/8")]
+    Gig0_0_0_8,
+    #[serde(rename = "gig0/0/0/9")]
+    Gig0_0_0_9,
+    #[serde(rename = "gig0/0/0/10")]
+    Gig0_0_0_10,
+    #[serde(rename = "gig0/0/0/11")]
+    Gig0_0_0_11,
+    #[serde(rename = "gig0/0/0/12")]
+    Gig0_0_0_12,
+    #[serde(rename = "gig0/0/0/13")]
+    Gig0_0_0_13,
+    #[serde(rename = "gig0/0/0/14")]
+    Gig0_0_0_14,
+    #[serde(rename = "gig0/0/0/15")]
+    Gig0_0_0_15,
+    #[serde(rename = "gig0/0/0/16")]
+    Gig0_0_0_16,
+    #[serde(rename = "gig0/0/0/17")]
+    Gig0_0_0_17,
+    #[serde(rename = "gig0/0/0/18")]
+    Gig0_0_0_18,
+    #[serde(rename = "gig0/0/0/19")]
+    Gig0_0_0_19,
+    #[serde(rename = "gig0/0/0/20")]
+    Gig0_0_0_20,
+    #[serde(rename = "gig0/0/0/21")]
+    Gig0_0_0_21,
+    #[serde(rename = "gig0/0/0/22")]
+    Gig0_0_0_22,
+    #[serde(rename = "gig0/0/0/23")]
+    Gig0_0_0_23,
+    #[serde(rename = "gig0/0/0/24")]
+    Gig0_0_0_24,
+    #[serde(rename = "gig0/0/0/25")]
+    Gig0_0_0_25,
+    #[serde(rename = "gig0/0/0/26")]
+    Gig0_0_0_26,
+    #[serde(rename = "gig0/0/0/27")]
+    Gig0_0_0_27,
+    #[serde(rename = "gig0/0/0/28")]
+    Gig0_0_0_28,
+    #[serde(rename = "gig0/0/0/29")]
+    Gig0_0_0_29,
+    #[serde(rename = "gig0/0/0/30")]
+    Gig0_0_0_30,
+}
+
+impl InterfaceTrait for CiscoIosxrv9000Int {
+    fn to_idx(&self) -> u8 {
+        match self {
+            CiscoIosxrv9000Int::Gig0_0_0_0 => 0,
+            CiscoIosxrv9000Int::Gig0_0_0_1 => 1,
+            CiscoIosxrv9000Int::Gig0_0_0_2 => 2,
+            CiscoIosxrv9000Int::Gig0_0_0_3 => 3,
+            CiscoIosxrv9000Int::Gig0_0_0_4 => 4,
+            CiscoIosxrv9000Int::Gig0_0_0_5 => 5,
+            CiscoIosxrv9000Int::Gig0_0_0_6 => 6,
+            CiscoIosxrv9000Int::Gig0_0_0_7 => 7,
+            CiscoIosxrv9000Int::Gig0_0_0_8 => 8,
+            CiscoIosxrv9000Int::Gig0_0_0_9 => 9,
+            CiscoIosxrv9000Int::Gig0_0_0_10 => 10,
+            CiscoIosxrv9000Int::Gig0_0_0_11 => 11,
+            CiscoIosxrv9000Int::Gig0_0_0_12 => 12,
+            CiscoIosxrv9000Int::Gig0_0_0_13 => 13,
+            CiscoIosxrv9000Int::Gig0_0_0_14 => 14,
+            CiscoIosxrv9000Int::Gig0_0_0_15 => 15,
+            CiscoIosxrv9000Int::Gig0_0_0_16 => 16,
+            CiscoIosxrv9000Int::Gig0_0_0_17 => 17,
+            CiscoIosxrv9000Int::Gig0_0_0_18 => 18,
+            CiscoIosxrv9000Int::Gig0_0_0_19 => 19,
+            CiscoIosxrv9000Int::Gig0_0_0_20 => 20,
+            CiscoIosxrv9000Int::Gig0_0_0_21 => 21,
+            CiscoIosxrv9000Int::Gig0_0_0_22 => 22,
+            CiscoIosxrv9000Int::Gig0_0_0_23 => 23,
+            CiscoIosxrv9000Int::Gig0_0_0_24 => 24,
+            CiscoIosxrv9000Int::Gig0_0_0_25 => 25,
+            CiscoIosxrv9000Int::Gig0_0_0_26 => 26,
+            CiscoIosxrv9000Int::Gig0_0_0_27 => 27,
+            CiscoIosxrv9000Int::Gig0_0_0_28 => 28,
+            CiscoIosxrv9000Int::Gig0_0_0_29 => 29,
+            CiscoIosxrv9000Int::Gig0_0_0_30 => 30,
+        }
+    }
+    fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
+        let iface = match idx {
+            0..=30 => format!("gig0/0/0/{}", idx),
+            _ => String::new(),
+        };
+        if iface.is_empty() {
+            Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
+                enum_name: "CiscoIosxrv9000Int",
+                idx,
+            })
+        } else {
+            Ok(iface)
+        }
+    }
+}
+
+impl FromStr for CiscoIosxrv9000Int {
+    type Err = ParseInterfaceStrError;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text {
+            "gig0/0/0/0" => Ok(CiscoIosxrv9000Int::Gig0_0_0_0),
+            "gig0/0/0/1" => Ok(CiscoIosxrv9000Int::Gig0_0_0_1),
+            "gig0/0/0/2" => Ok(CiscoIosxrv9000Int::Gig0_0_0_2),
+            "gig0/0/0/3" => Ok(CiscoIosxrv9000Int::Gig0_0_0_3),
+            "gig0/0/0/4" => Ok(CiscoIosxrv9000Int::Gig0_0_0_4),
+            "gig0/0/0/5" => Ok(CiscoIosxrv9000Int::Gig0_0_0_5),
+            "gig0/0/0/6" => Ok(CiscoIosxrv9000Int::Gig0_0_0_6),
+            "gig0/0/0/7" => Ok(CiscoIosxrv9000Int::Gig0_0_0_7),
+            "gig0/0/0/8" => Ok(CiscoIosxrv9000Int::Gig0_0_0_8),
+            "gig0/0/0/9" => Ok(CiscoIosxrv9000Int::Gig0_0_0_9),
+            "gig0/0/0/10" => Ok(CiscoIosxrv9000Int::Gig0_0_0_10),
+            "gig0/0/0/11" => Ok(CiscoIosxrv9000Int::Gig0_0_0_11),
+            "gig0/0/0/12" => Ok(CiscoIosxrv9000Int::Gig0_0_0_12),
+            "gig0/0/0/13" => Ok(CiscoIosxrv9000Int::Gig0_0_0_13),
+            _ => Err(ParseInterfaceStrError::UnknownInterfaceStr {
+                enum_name: "CiscoIosxrv9000Int",
+                iface: text.to_string(),
+            }),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum CiscoAsavInt {
     #[serde(rename = "gig0/0")]
     Gig0_0,
@@ -1371,15 +1556,8 @@ impl InterfaceTrait for CiscoAsavInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "gig0/0",
-            1 => "gig0/1",
-            2 => "gig0/2",
-            3 => "gig0/3",
-            4 => "gig0/4",
-            5 => "gig0/5",
-            6 => "gig0/6",
-            7 => "gig0/7",
-            _ => "",
+            0..=7 => format!("gig0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1387,7 +1565,7 @@ impl InterfaceTrait for CiscoAsavInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1455,23 +1633,8 @@ impl InterfaceTrait for CiscoCsr1000vInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "gig1",
-            2 => "gig2",
-            3 => "gig3",
-            4 => "gig4",
-            5 => "gig5",
-            6 => "gig6",
-            7 => "gig7",
-            8 => "gig8",
-            9 => "gig9",
-            10 => "gig10",
-            11 => "gig11",
-            12 => "gig12",
-            13 => "gig13",
-            14 => "gig14",
-            15 => "gig15",
-            16 => "gig16",
-            _ => "",
+            1..=16 => format!("gig{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1479,7 +1642,7 @@ impl InterfaceTrait for CiscoCsr1000vInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1555,23 +1718,8 @@ impl InterfaceTrait for CiscoCat8000vInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "gig1",
-            2 => "gig2",
-            3 => "gig3",
-            4 => "gig4",
-            5 => "gig5",
-            6 => "gig6",
-            7 => "gig7",
-            8 => "gig8",
-            9 => "gig9",
-            10 => "gig10",
-            11 => "gig11",
-            12 => "gig12",
-            13 => "gig13",
-            14 => "gig14",
-            15 => "gig15",
-            16 => "gig16",
-            _ => "",
+            1..=16 => format!("gig{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1579,7 +1727,7 @@ impl InterfaceTrait for CiscoCat8000vInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1646,15 +1794,8 @@ impl InterfaceTrait for CiscoCat9000vInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "gig0/0/1",
-            2 => "gig0/0/2",
-            3 => "gig0/0/3",
-            4 => "gig0/0/4",
-            5 => "gig0/0/5",
-            6 => "gig0/0/6",
-            7 => "gig0/0/7",
-            8 => "gig0/0/8",
-            _ => "",
+            1..=8 => format!("gig0/0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1662,7 +1803,7 @@ impl InterfaceTrait for CiscoCat9000vInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -1890,71 +2031,8 @@ impl InterfaceTrait for CiscoNexus9300vInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            1 => "eth1/1",
-            2 => "eth1/2",
-            3 => "eth1/3",
-            4 => "eth1/4",
-            5 => "eth1/5",
-            6 => "eth1/6",
-            7 => "eth1/7",
-            8 => "eth1/8",
-            9 => "eth1/9",
-            10 => "eth1/10",
-            11 => "eth1/11",
-            12 => "eth1/12",
-            13 => "eth1/13",
-            14 => "eth1/14",
-            15 => "eth1/15",
-            16 => "eth1/16",
-            17 => "eth1/17",
-            18 => "eth1/18",
-            19 => "eth1/19",
-            20 => "eth1/20",
-            21 => "eth1/21",
-            22 => "eth1/22",
-            23 => "eth1/23",
-            24 => "eth1/24",
-            25 => "eth1/25",
-            26 => "eth1/26",
-            27 => "eth1/27",
-            28 => "eth1/28",
-            29 => "eth1/29",
-            30 => "eth1/30",
-            31 => "eth1/31",
-            32 => "eth1/32",
-            33 => "eth1/33",
-            34 => "eth1/34",
-            35 => "eth1/35",
-            36 => "eth1/36",
-            37 => "eth1/37",
-            38 => "eth1/38",
-            39 => "eth1/39",
-            40 => "eth1/40",
-            41 => "eth1/41",
-            42 => "eth1/42",
-            43 => "eth1/43",
-            44 => "eth1/44",
-            45 => "eth1/45",
-            46 => "eth1/46",
-            47 => "eth1/47",
-            48 => "eth1/48",
-            49 => "eth1/49",
-            50 => "eth1/50",
-            51 => "eth1/51",
-            52 => "eth1/52",
-            53 => "eth1/53",
-            54 => "eth1/54",
-            55 => "eth1/55",
-            56 => "eth1/56",
-            57 => "eth1/57",
-            58 => "eth1/58",
-            59 => "eth1/59",
-            60 => "eth1/60",
-            61 => "eth1/61",
-            62 => "eth1/62",
-            63 => "eth1/63",
-            64 => "eth1/64",
-            _ => "",
+            1..=64 => format!("eth1/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -1962,7 +2040,7 @@ impl InterfaceTrait for CiscoNexus9300vInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -2083,17 +2161,8 @@ impl InterfaceTrait for JuniperVrouterInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "ge-0/0/0",
-            1 => "ge-0/0/1",
-            2 => "ge-0/0/2",
-            3 => "ge-0/0/3",
-            4 => "ge-0/0/4",
-            5 => "ge-0/0/5",
-            6 => "ge-0/0/6",
-            7 => "ge-0/0/7",
-            8 => "ge-0/0/8",
-            9 => "ge-0/0/9",
-            _ => "",
+            0..=9 => format!("ge-0/0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -2101,7 +2170,7 @@ impl InterfaceTrait for JuniperVrouterInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -2167,17 +2236,8 @@ impl InterfaceTrait for JuniperVswitchInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "ge-0/0/0",
-            1 => "ge-0/0/1",
-            2 => "ge-0/0/2",
-            3 => "ge-0/0/3",
-            4 => "ge-0/0/4",
-            5 => "ge-0/0/5",
-            6 => "ge-0/0/6",
-            7 => "ge-0/0/7",
-            8 => "ge-0/0/8",
-            9 => "ge-0/0/9",
-            _ => "",
+            0..=9 => format!("ge-0/0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -2185,7 +2245,7 @@ impl InterfaceTrait for JuniperVswitchInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -2257,19 +2317,8 @@ impl InterfaceTrait for JuniperVevolvedInt {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "et-0/0/0",
-            1 => "et-0/0/1",
-            2 => "et-0/0/2",
-            3 => "et-0/0/3",
-            4 => "et-0/0/4",
-            5 => "et-0/0/5",
-            6 => "et-0/0/6",
-            7 => "et-0/0/7",
-            8 => "et-0/0/8",
-            9 => "et-0/0/9",
-            10 => "et-0/0/10",
-            11 => "et-0/0/11",
-            _ => "",
+            0..=11 => format!("et-0/0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -2277,7 +2326,7 @@ impl InterfaceTrait for JuniperVevolvedInt {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
@@ -2340,15 +2389,8 @@ impl InterfaceTrait for JuniperVsrxv3Int {
     }
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError> {
         let iface = match idx {
-            0 => "ge-0/0/0",
-            1 => "ge-0/0/1",
-            2 => "ge-0/0/2",
-            3 => "ge-0/0/3",
-            4 => "ge-0/0/4",
-            5 => "ge-0/0/5",
-            6 => "ge-0/0/6",
-            7 => "ge-0/0/7",
-            _ => "",
+            0..=7 => format!("ge-0/0/{}", idx),
+            _ => String::new(),
         };
         if iface.is_empty() {
             Err(ParseInterfaceIdxError::UnknownInterfaceIdx {
@@ -2356,7 +2398,7 @@ impl InterfaceTrait for JuniperVsrxv3Int {
                 idx,
             })
         } else {
-            Ok(iface.to_string())
+            Ok(iface)
         }
     }
 }
