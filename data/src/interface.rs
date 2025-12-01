@@ -1,5 +1,4 @@
 use std::fmt;
-use std::str::FromStr;
 
 use serde_derive::{Deserialize, Serialize};
 use thiserror::Error;
