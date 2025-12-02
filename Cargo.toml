@@ -7,4 +7,16 @@ opt-level = 3
 
 [workspace]
 resolver = "3"
-members = ["client", "konst", "container", "data", "libvirt", "server", "template", "topology", "util", "validate"]
+members = [
+  "crates/client",
+  "crates/konst",
+  "crates/container",
+  "crates/data",
+  "crates/libvirt",
+  "crates/server",
+  "crates/template",
+  "crates/topology",
+  "crates/util",
+  "crates/validate",
+]
+default-members = ["crates/client"]
