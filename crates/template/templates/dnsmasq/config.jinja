@@ -30,7 +30,7 @@ tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 {# Host level DHCP settings #}
 {%- for record in ztp_records %}
 # {{ record.device_name }}
-dhcp-host={{ record.mac_address }},,{{ record.device_name }},,set:{{ record.device_name }}-tag
+dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.device_name }},,set:{{ record.device_name }}-tag
 {%-   match record.ztp_method %}
 {%-     when ZtpMethods::Tftp %}
 dhcp-option=tag:{{ record.device_name }}-tag,67,{{ record.config_file }}

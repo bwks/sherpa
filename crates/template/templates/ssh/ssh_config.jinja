@@ -1,7 +1,7 @@
-{%- for host in hosts %}
-Host {{ host.ip_address }} {{ host.name }} {{ host.name }}.{{ SHERPA_DOMAIN_NAME }}
-    HostName {{ host.ip_address }}
-    Port {{ host.ssh_port }}
+{%- for record in ztp_records %}
+Host {{ record.ipv4_address }} {{ record.device_name }} {{ record.device_name }}.{{ SHERPA_DOMAIN_NAME }}
+    HostName {{ record.ipv4_address }}
+    Port {{ record.ssh_port }}
     User {{ SHERPA_USERNAME }}
     IdentityFile {{ SHERPA_CONFIG_DIR }}/{{ SHERPA_SSH_PRIVATE_KEY_FILE }}
     IdentitiesOnly yes

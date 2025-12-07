@@ -1,10 +1,11 @@
 use askama::Template;
 
-use data::DeviceConnection;
+use data::ZtpRecord;
 use konst::{SHERPA_CONFIG_DIR, SHERPA_DOMAIN_NAME, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME};
 
 #[derive(Template)]
 #[template(path = "ssh/ssh_config.jinja", ext = "txt")]
 pub struct SshConfigTemplate {
-    pub hosts: Vec<DeviceConnection>,
+    // pub hosts: Vec<DeviceConnection>,
+    pub ztp_records: Vec<ZtpRecord>,
 }

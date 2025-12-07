@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::{Config, DeviceConnection};
+use data::{Config, ZtpRecord};
 use topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,14 +40,14 @@ impl PyatsInventory {
     pub fn from_manifest(
         manifest: &Manifest,
         config: &Config,
-        device_ips: &[DeviceConnection],
+        device_ips: &[ZtpRecord],
     ) -> Result<PyatsInventory> {
         // https://devnet-pubhub-site.s3.amazonaws.com/media/pyats/docs/topology/schema.html#schema
         let mut devices = HashMap::new();
         for device in &manifest.devices {
             let device_ip_map = device_ips
                 .iter()
-                .find(|d| d.name == device.name)
+                .find(|d| d.device_name == device.name)
                 .ok_or_else(|| {
                     anyhow::anyhow!("Device name not found in DeviceConnection: {}", device.name)
                 })?;
@@ -63,9 +63,9 @@ impl PyatsInventory {
             connections.insert(
                 "mgmt".to_string(),
                 Connection {
-                    ip: device_ip_map.ip_address.to_owned(),
+                    ip: device_ip_map.ipv4_address.to_string(),
                     protocol: "ssh".to_owned(),
-                    port: 22,
+                    port: device_ip_map.ssh_port,
                     ssh_options: "-F .tmp/sherpa_ssh_config".to_owned(),
                 },
             );

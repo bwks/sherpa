@@ -206,8 +206,7 @@ impl Cli {
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                let config = load_config(&sherpa.config_path)?;
-                ssh(name, &config).await?;
+                ssh(name).await?;
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;

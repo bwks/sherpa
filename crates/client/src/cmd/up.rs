@@ -36,9 +36,9 @@ use template::{
 };
 use topology::{Device, LinkDetailed, LinkExpanded, Manifest};
 use util::{
-    base64_encode, base64_encode_file, clean_mac, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_dir, create_file, create_ztp_iso, dasher, default_dns, get_dhcp_leases, get_free_subnet,
-    get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_from_idx,
+    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
+    create_dir, create_file, create_ztp_iso, dasher, default_dns, get_free_subnet, get_ip,
+    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_from_idx,
     interface_to_idx, load_config, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
     random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
@@ -229,6 +229,12 @@ pub async fn up(
         let mut disks: Vec<DeviceDisk> = vec![];
         let vm_name = format!("{}-{}", device.name, lab_id);
 
+        let device_idx = dev_id_map
+            .get(&device.name)
+            .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
+
+        let device_ip_idx = 10 + device_idx.to_owned() as u32;
+
         let device_model = config
             .device_models
             .iter()
@@ -242,8 +248,10 @@ pub async fn up(
         ztp_records.push(ZtpRecord {
             device_name: device.name.clone().to_owned(),
             config_file: format!("{}.conf", &device.name),
+            ipv4_address: get_ipv4_addr(&mgmt_net.v4.prefix, device_ip_idx)?,
             mac_address: mac_address.to_string(),
             ztp_method: device_model.ztp_method.clone(),
+            ssh_port: 22,
         });
 
         let mut interfaces: Vec<Interface> = vec![];
@@ -1216,6 +1224,25 @@ pub async fn up(
             .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
     }
 
+    if !ztp_records.is_empty() {
+        if config.inventory_management.pyats {
+            term_msg_underline("Creating PyATS Testbed File");
+            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
+            let pyats_yaml = pyats_inventory.to_yaml()?;
+            create_file(".tmp/testbed.yaml", pyats_yaml)?;
+        }
+
+        term_msg_underline("Creating SSH Config File");
+        let ssh_config_template = SshConfigTemplate {
+            ztp_records: ztp_records.clone(),
+        };
+        let rendered_template = ssh_config_template.render()?;
+        create_file(
+            &format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"),
+            rendered_template,
+        )?;
+    }
+
     // Check if VMs are ready
     term_msg_underline("Checking VM Readiness");
     let start_time = Instant::now();
@@ -1248,28 +1275,42 @@ pub async fn up(
                 _ => SSH_PORT,
             };
             if let Some(vm_data) = ztp_records.iter().find(|x| x.device_name == device.name) {
-                let leases = get_dhcp_leases(&config).await?;
-                if let Some(lease) = leases
-                    .iter()
-                    .find(|d| clean_mac(&d.mac_address) == clean_mac(&vm_data.mac_address))
-                {
-                    match tcp_connect(&lease.ipv4_address, ssh_port)? {
-                        true => {
-                            println!("{} - Ready", &device.name);
-                            connected_devices.insert(device.name.clone());
-                            device_ip_map.push(DeviceConnection {
-                                name: device.name.clone(),
-                                ip_address: lease.ipv4_address.clone(),
-                                ssh_port,
-                            });
-                        }
-                        false => {
-                            println!("{} - Waiting for SSH", device.name);
-                        }
+                match tcp_connect(&vm_data.ipv4_address.to_string(), ssh_port)? {
+                    true => {
+                        println!("{} - Ready", &device.name);
+                        connected_devices.insert(device.name.clone());
+                        device_ip_map.push(DeviceConnection {
+                            name: device.name.clone(),
+                            ip_address: vm_data.ipv4_address.to_string(),
+                            ssh_port,
+                        });
                     }
-                } else {
-                    println!("{} - Still booting.", device.name);
+                    false => {
+                        println!("{} - Waiting for SSH", device.name);
+                    }
                 }
+                // let leases = get_dhcp_leases(&config).await?;
+                // if let Some(lease) = leases
+                //     .iter()
+                //     .find(|d| clean_mac(&d.mac_address) == clean_mac(&vm_data.mac_address))
+                // {
+                //     match tcp_connect(&lease.ipv4_address, ssh_port)? {
+                //         true => {
+                //             println!("{} - Ready", &device.name);
+                //             connected_devices.insert(device.name.clone());
+                //             device_ip_map.push(DeviceConnection {
+                //                 name: device.name.clone(),
+                //                 ip_address: lease.ipv4_address.clone(),
+                //                 ssh_port,
+                //             });
+                //         }
+                //         false => {
+                //             println!("{} - Waiting for SSH", device.name);
+                //         }
+                //     }
+                // } else {
+                //     println!("{} - Still booting.", device.name);
+                // }
             }
         }
 
@@ -1287,24 +1328,6 @@ pub async fn up(
                 println!("Device is not ready: {}", device.name);
             }
         }
-    }
-    if !device_ip_map.is_empty() {
-        if config.inventory_management.pyats {
-            term_msg_underline("Creating PyATS Testbed File");
-            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &device_ip_map)?;
-            let pyats_yaml = pyats_inventory.to_yaml()?;
-            create_file(".tmp/testbed.yaml", pyats_yaml)?;
-        }
-
-        term_msg_underline("Creating SSH Config File");
-        let ssh_config_template = SshConfigTemplate {
-            hosts: device_ip_map,
-        };
-        let rendered_template = ssh_config_template.render()?;
-        create_file(
-            &format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"),
-            rendered_template,
-        )?;
     }
 
     Ok(())
