@@ -2280,11 +2280,35 @@ dependencies = [
 name = "sherpa-server"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "askama",
+ "async-compression",
  "axum",
+ "clap",
+ "container",
+ "data",
+ "futures",
+ "futures-util",
+ "konst",
+ "libvirt",
+ "petname",
+ "rand 0.8.5",
+ "reqwest",
  "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_yaml",
+ "ssh-key",
+ "template",
  "tokio",
+ "toml",
+ "toml_edit",
+ "topology",
  "tracing",
  "tracing-subscriber",
+ "util",
+ "validate",
+ "virt",
 ]
 
 [[package]]

@@ -34,20 +34,16 @@ pub async fn inspect(
     config: &Config,
     devices: &[Device],
 ) -> Result<()> {
-    term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
-
-    term_msg_underline("Lab Info");
     let lab_file = match load_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}")) {
         Ok(f) => f,
         Err(_) => {
             bail!("Unable to load lab file. Is the lab running?")
         }
     };
-    let lab_info = LabInfo::from_str(&lab_file)?;
-    println!("{}", lab_info);
+    let _lab_info = LabInfo::from_str(&lab_file)?;
 
     let qemu_conn = qemu.connect()?;
-    let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
+    // let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
 
     let domains = qemu_conn.list_all_domains(0)?;
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
@@ -61,7 +57,7 @@ pub async fn inspect(
 
     let leases = get_dhcp_leases(config).await?;
     let mut inactive_devices = vec![];
-    for device in devices {
+    for device in devices.iter() {
         let mut device_data = InpsectDevice {
             name: device.name.clone(),
             model: device.model.clone(),
@@ -71,7 +67,7 @@ pub async fn inspect(
         };
         let device_name = format!("{}-{}", device.name, lab_id);
 
-        if let Some(domain) = domains
+        if let Some(_domain) = domains
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name)
         {
@@ -80,26 +76,20 @@ pub async fn inspect(
             } else {
                 "".to_owned()
             };
-            term_msg_underline(&device.name);
-            println!("Domain: {}", device_name);
-            println!("Model: {}", device.model);
-            println!("Active: {:#?}", domain.is_active()?);
             if !vm_ip.is_empty() {
-                println!("Mgmt IP: {vm_ip}");
                 device_data.mgmt_ip = vm_ip;
                 device_data.active = true;
             }
             let mut device_disks = vec![];
             for volume in pool.list_volumes()? {
                 if volume.contains(&device_name) {
-                    println!("Disk: {volume}");
                     device_disks.push(volume)
                 }
             }
             device_data.disks = device_disks;
             inspect_devices.push(device_data)
         } else {
-            inactive_devices.push(device.name);
+            inactive_devices.push(device.name.clone());
         }
     }
 
@@ -108,7 +98,6 @@ pub async fn inspect(
     println!("{}", serde_json::to_string_pretty(&inspect_data)?);
 
     if !inactive_devices.is_empty() {
-        term_msg_underline("inactive devices");
         for device in &inactive_devices {
             println!("{device}")
         }
