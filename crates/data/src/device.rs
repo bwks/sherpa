@@ -31,7 +31,7 @@ pub enum DeviceModels {
     JuniperVevolved,
     JuniperVsrxv3,
     NokiaSrlinux,
-    AlpineLinux,
+    AlpineLinuxv,
     CumulusLinux,
     CentosLinux,
     FedoraLinux,
@@ -42,6 +42,7 @@ pub enum DeviceModels {
     FlatcarLinux,
     SonicLinux,
     WindowsServer2012,
+    OpenBsd,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -62,7 +63,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::JuniperVevolved => write!(f, "juniper_vevolved"),
             DeviceModels::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
             DeviceModels::NokiaSrlinux => write!(f, "nokia_srlinux"),
-            DeviceModels::AlpineLinux => write!(f, "alpine_linux"),
+            DeviceModels::AlpineLinuxv => write!(f, "alpine_linux"),
             DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
             DeviceModels::CentosLinux => write!(f, "centos_linux"),
             DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
@@ -73,6 +74,7 @@ impl fmt::Display for DeviceModels {
             DeviceModels::WindowsServer2012 => write!(f, "windows_server"),
             DeviceModels::FlatcarLinux => write!(f, "flatcar_linux"),
             DeviceModels::SonicLinux => write!(f, "sonic_linux"),
+            DeviceModels::OpenBsd => write!(f, "open_bsd"),
             DeviceModels::CustomUnknown => write!(f, "custom_unknown"),
         }
     }
@@ -103,6 +105,7 @@ pub enum Manufacturers {
     Suse,
     Sonic,
     Linux,
+    Bsd,
     #[default]
     Unknown,
 }
@@ -123,6 +126,7 @@ pub enum OsVariants {
     Server2012,
     Srlinux,
     Sonic,
+    Bsd,
     #[default]
     Unknown,
 }
@@ -140,6 +144,7 @@ impl fmt::Display for OsVariants {
             OsVariants::Linux => write!(f, "linux"),
             OsVariants::Nxos => write!(f, "nxos"),
             OsVariants::Sonic => write!(f, "sonic_linux"),
+            OsVariants::Bsd => write!(f, "bsd"),
             OsVariants::Server2012 => write!(f, "server_2012"),
             OsVariants::Srlinux => write!(f, "srlinux"),
             OsVariants::Unknown => write!(f, "unknown"),
@@ -360,7 +365,7 @@ impl DeviceModel {
             DeviceModels::JuniperVevolved => DeviceModel::juniper_vevolved(),
             DeviceModels::JuniperVsrxv3 => DeviceModel::juniper_vsrxv3(),
             DeviceModels::NokiaSrlinux => DeviceModel::nokia_srlinux(),
-            DeviceModels::AlpineLinux => DeviceModel::alpine_linux(),
+            DeviceModels::AlpineLinuxv => DeviceModel::alpine_linux(),
             DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
             DeviceModels::CentosLinux => DeviceModel::centos_linux(),
             DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
@@ -370,6 +375,7 @@ impl DeviceModel {
             DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
             DeviceModels::SonicLinux => DeviceModel::sonic_linux(),
             DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
+            DeviceModels::OpenBsd => DeviceModel::open_bsd(),
             DeviceModels::WindowsServer2012 => todo!(),
             DeviceModels::CustomUnknown => DeviceModel::default(),
         }
@@ -856,7 +862,7 @@ impl DeviceModel {
     }
     pub fn alpine_linux() -> DeviceModel {
         DeviceModel {
-            name: DeviceModels::AlpineLinux,
+            name: DeviceModels::AlpineLinuxv,
             version: "latest".to_owned(),
             os_variant: OsVariants::Linux,
             manufacturer: Manufacturers::Linux,
@@ -1199,6 +1205,38 @@ impl DeviceModel {
             ztp_username: None,
             ztp_password: None,
             ztp_method: ZtpMethods::Ignition,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+        }
+    }
+    pub fn open_bsd() -> DeviceModel {
+        DeviceModel {
+            name: DeviceModels::OpenBsd,
+            version: "latest".to_owned(),
+            os_variant: OsVariants::Bsd,
+            manufacturer: Manufacturers::Bsd,
+            kind: DeviceKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceTypes::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineTypes::Q35,
+            vmx_enabled: false,
+            memory: 2048,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethods::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,

@@ -437,7 +437,8 @@ pub async fn up(
                         | DeviceModels::OpensuseLinux
                         | DeviceModels::RedhatLinux
                         | DeviceModels::SuseLinux
-                        | DeviceModels::UbuntuLinux => {
+                        | DeviceModels::UbuntuLinux
+                        | DeviceModels::OpenBsd => {
                             let cloud_init_user = CloudInitUser::sherpa()?;
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
@@ -457,7 +458,7 @@ pub async fn up(
                             create_file(&meta_data, "".to_string())?;
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
-                        DeviceModels::AlpineLinux => {
+                        DeviceModels::AlpineLinuxv => {
                             let meta_data = MetaDataConfig {
                                 instance_id: format!("iid-{}", device.name.clone(),),
                                 local_hostname: format!(
