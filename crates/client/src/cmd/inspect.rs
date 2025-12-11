@@ -8,7 +8,7 @@ use virt::storage_pool::StoragePool;
 use data::{Config, DeviceModels, LabInfo};
 use konst::{LAB_FILE_NAME, SHERPA_STORAGE_POOL, TEMP_DIR};
 use libvirt::Qemu;
-use topology::Device;
+use topology::Node;
 use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -32,7 +32,7 @@ pub async fn inspect(
     lab_name: &str,
     lab_id: &str,
     config: &Config,
-    devices: &[Device],
+    devices: &[Node],
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
@@ -47,7 +47,7 @@ pub async fn inspect(
     println!("{}", lab_info);
 
     let qemu_conn = qemu.connect()?;
-    let devices: Vec<Device> = devices.iter().map(|d| (*d).to_owned()).collect();
+    let devices: Vec<Node> = devices.iter().map(|d| (*d).to_owned()).collect();
 
     let domains = qemu_conn.list_all_domains(0)?;
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;

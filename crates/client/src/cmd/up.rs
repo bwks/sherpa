@@ -34,7 +34,7 @@ use template::{
     FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
     PyatsInventory, SonicLinuxZtp, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
-use topology::{Device, LinkDetailed, LinkExpanded, Manifest};
+use topology::{LinkDetailed, LinkExpanded, Manifest, Node};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_dir, create_file, create_ztp_iso, dasher, default_dns, get_free_subnet, get_ip,
@@ -81,7 +81,7 @@ pub async fn up(
     let mut links_detailed = vec![];
     for link in links.iter() {
         let mut this_link = LinkDetailed::default();
-        for device in manifest.devices.iter() {
+        for device in manifest.nodes.iter() {
             let device_model = device.model.clone();
             if link.dev_a == device.name {
                 let int_idx = interface_to_idx(&device_model, &link.int_a)?;
@@ -101,11 +101,11 @@ pub async fn up(
     }
 
     // Device Validators
-    check_duplicate_device(&manifest.devices)?;
+    check_duplicate_device(&manifest.nodes)?;
 
     let mut ztp_records = vec![];
 
-    for device in &manifest.devices {
+    for device in &manifest.nodes {
         let device_model = config
             .device_models
             .iter()
@@ -132,7 +132,7 @@ pub async fn up(
     // Connection Validators
     if !links.is_empty() {
         check_duplicate_interface_link(&links_detailed)?;
-        check_link_device(&manifest.devices, &links)?;
+        check_link_device(&manifest.nodes, &links)?;
     };
 
     println!("Manifest Ok");
@@ -201,7 +201,7 @@ pub async fn up(
     if config.ztp_server.enable {
         println!("ZTP server is enabled in configuration")
     } else {
-        for device in &manifest.devices {
+        for device in &manifest.nodes {
             if device.model.needs_ztp_server() {
                 println!("ZTP server is required");
                 config.ztp_server.enable = true
@@ -216,16 +216,16 @@ pub async fn up(
     // Devices have an id based on their order in the list of devices
     // from the manifest file.
     let dev_id_map: HashMap<String, u8> = manifest
-        .devices
+        .nodes
         .iter()
         .enumerate()
         .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
         .collect();
 
-    let mut ztp_devices: Vec<&Device> = vec![];
+    let mut ztp_devices: Vec<&Node> = vec![];
     let mut copy_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
-    for device in &manifest.devices {
+    for device in &manifest.nodes {
         let mut disks: Vec<DeviceDisk> = vec![];
         let vm_name = format!("{}-{}", device.name, lab_id);
 
@@ -438,8 +438,18 @@ pub async fn up(
                         | DeviceModels::RedhatLinux
                         | DeviceModels::SuseLinux
                         | DeviceModels::UbuntuLinux
-                        | DeviceModels::OpenBsd => {
-                            let cloud_init_user = CloudInitUser::sherpa()?;
+                        | DeviceModels::FreeBsd
+                        | DeviceModels::OpenBsd
+                        | DeviceModels::NetBsd
+                        | DeviceModels::DragonflyBsd => {
+                            let (admin_group, shell) = match device_model.os_variant {
+                                OsVariants::Bsd => ("wheel".to_string(), "/bin/ksh".to_string()),
+                                _ => ("sudo".to_string(), "/bin/bash".to_string()),
+                            };
+                            let mut cloud_init_user = CloudInitUser::sherpa()?;
+                            cloud_init_user.groups = vec![admin_group];
+                            cloud_init_user.shell = shell;
+
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),

@@ -1,9 +1,9 @@
 use anyhow::{Result, bail};
 
-use topology::Device;
+use topology::Node;
 
 // Check duplicate device definitions
-pub fn check_duplicate_device(devices: &Vec<Device>) -> Result<()> {
+pub fn check_duplicate_device(devices: &Vec<Node>) -> Result<()> {
     let mut devs: Vec<String> = vec![];
 
     for device in devices {
@@ -26,15 +26,15 @@ mod tests {
     #[test]
     fn test_check_duplicate_device_no_duplicates() -> Result<()> {
         let devices = vec![
-            Device {
+            Node {
                 name: "router1".to_string(),
                 ..Default::default()
             },
-            Device {
+            Node {
                 name: "router2".to_string(),
                 ..Default::default()
             },
-            Device {
+            Node {
                 name: "switch1".to_string(),
                 ..Default::default()
             },
@@ -45,11 +45,11 @@ mod tests {
     #[test]
     fn test_check_duplicate_device_with_duplicates() {
         let devices = vec![
-            Device {
+            Node {
                 name: "router1".to_string(),
                 ..Default::default()
             },
-            Device {
+            Node {
                 name: "router1".to_string(),
                 ..Default::default()
             },
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn test_check_duplicate_device_single() -> Result<()> {
-        let devices = vec![Device {
+        let devices = vec![Node {
             name: "router1".to_string(),
             ..Default::default()
         }];

@@ -44,7 +44,7 @@ impl PyatsInventory {
     ) -> Result<PyatsInventory> {
         // https://devnet-pubhub-site.s3.amazonaws.com/media/pyats/docs/topology/schema.html#schema
         let mut devices = HashMap::new();
-        for device in &manifest.devices {
+        for device in &manifest.nodes {
             let device_ip_map = device_ips
                 .iter()
                 .find(|d| d.device_name == device.name)

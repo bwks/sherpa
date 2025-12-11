@@ -7,7 +7,7 @@ use clap::Subcommand;
 use data::{DeviceModels, Sherpa};
 
 #[derive(Debug, Subcommand)]
-pub enum BoxCommands {
+pub enum ImageCommands {
     /// List all boxes
     List {
         /// Optional: List all boxes for a model
@@ -39,10 +39,10 @@ fn list_directory_contents(path: &Path, indent: u8) -> Result<()> {
     Ok(())
 }
 
-/// Parse the commands for Box
-pub fn parse_box_commands(commands: &BoxCommands, config: &Sherpa) -> Result<()> {
+/// Parse the commands for Image
+pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result<()> {
     match commands {
-        BoxCommands::List { model } => {
+        ImageCommands::List { model } => {
             if let Some(m) = model {
                 let model_dir = format!("{}/{}", &config.boxes_dir, m);
                 println!("{}", &model_dir);

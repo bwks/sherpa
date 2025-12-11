@@ -11,7 +11,7 @@ pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
 
     let dev_id_map: HashMap<String, u8> = manifest
-        .devices
+        .nodes
         .iter()
         .enumerate()
         .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
@@ -23,7 +23,7 @@ pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
             get_ip(255)
         } else {
             let device = manifest
-                .devices
+                .nodes
                 .iter()
                 .find(|d| d.name == *name)
                 .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;

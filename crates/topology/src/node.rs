@@ -3,7 +3,7 @@ use serde_derive::{Deserialize, Serialize};
 use data::DeviceModels;
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
-pub struct Device {
+pub struct Node {
     pub name: String,
     pub model: DeviceModels,
     pub cpu_count: Option<u8>,

@@ -1,7 +1,7 @@
 pub const SHERPA_CONFIG_FILE: &str = "sherpa.toml";
 pub const SHERPA_MANIFEST_FILE: &str = "manifest.toml";
 pub const SHERPA_CONFIG_DIR: &str = "~/.sherpa";
-pub const SHERPA_BOXES_DIR: &str = "boxes";
+pub const SHERPA_IMAGES_DIR: &str = "images";
 pub const SHERPA_CONTAINERS_DIR: &str = "containers";
 pub const SHERPA_BINS_DIR: &str = "bins";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";

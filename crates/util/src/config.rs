@@ -8,8 +8,8 @@ use ipnet::Ipv4Net;
 use super::file_system::{create_file, expand_path};
 use data::{Config, ContainerImage, DeviceModel, InventoryManagement, VmProviders, ZtpServer};
 use konst::{
-    QEMU_BIN, SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_CONTAINERS_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
+    QEMU_BIN, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
+    SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 
 pub fn create_config(config: &Config, path: &str) -> Result<()> {
@@ -68,7 +68,7 @@ pub fn default_config() -> Config {
         password: Some(SHERPA_PASSWORD.to_owned()),
     };
 
-    let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}"));
+    let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}"));
     let containers_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
     let bins_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}"));
 
@@ -76,7 +76,7 @@ pub fn default_config() -> Config {
         name: SHERPA_CONFIG_FILE.to_owned(),
         vm_provider: VmProviders::default(),
         qemu_bin: QEMU_BIN.to_owned(),
-        boxes_dir,
+        images_dir: boxes_dir,
         containers_dir,
         bins_dir,
         device_models,

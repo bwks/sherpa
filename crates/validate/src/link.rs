@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use data::DeviceModels;
-use topology::{Device, LinkDetailed, LinkExpanded};
+use topology::{Node, LinkDetailed, LinkExpanded};
 
 /// Check if a device with a non-dedicated management interface
 /// has the first interface defined in a connection
@@ -61,7 +61,7 @@ fn check_device_interface(
 }
 
 /// Check devices defined in links are defined as top level devices
-pub fn check_link_device(devices: &[Device], links: &Vec<LinkExpanded>) -> Result<()> {
+pub fn check_link_device(devices: &[Node], links: &Vec<LinkExpanded>) -> Result<()> {
     let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
     let mut unique_device_link: HashSet<String> = HashSet::new();
     for link in links {

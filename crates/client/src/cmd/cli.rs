@@ -3,13 +3,13 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 // use container::docker_connection;
 
-use super::boxx::{BoxCommands, parse_box_commands};
 use super::clean::clean;
 use super::console::console;
 use super::container::{ContainerCommands, parse_container_commands};
 use super::destroy::destroy;
 use super::doctor::doctor;
 use super::down::down;
+use super::image::{ImageCommands, parse_image_commands};
 use super::import::import;
 use super::init::init;
 use super::inspect::inspect;
@@ -19,8 +19,8 @@ use super::up::up;
 
 use data::{DeviceModels, Sherpa};
 use konst::{
-    SHERPA_BINS_DIR, SHERPA_BOXES_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_CONTAINERS_DIR, SHERPA_MANIFEST_FILE,
+    SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
+    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE,
 };
 use libvirt::Qemu;
 use topology::Manifest;
@@ -114,10 +114,10 @@ enum Commands {
         #[command(subcommand)]
         commands: ContainerCommands,
     },
-    /// Box management commands
-    Box {
+    /// Image management commands
+    Image {
         #[command(subcommand)]
-        commands: BoxCommands,
+        commands: ImageCommands,
     },
 }
 impl Default for Commands {
@@ -137,7 +137,7 @@ impl Cli {
         // let docker = docker_connection()?;
         let sherpa = Sherpa {
             config_dir: expand_path(SHERPA_CONFIG_DIR),
-            boxes_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BOXES_DIR}")),
+            boxes_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}")),
             config_path: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}")),
             containers_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}")),
             bins_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}")),
@@ -179,7 +179,7 @@ impl Cli {
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
                 let config = load_config(&sherpa.config_path)?;
-                inspect(&qemu, &lab_name, &lab_id, &config, &manifest.devices).await?;
+                inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
             }
             Commands::Import {
                 src,
@@ -211,8 +211,8 @@ impl Cli {
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;
             }
-            Commands::Box { commands } => {
-                parse_box_commands(commands, &sherpa)?;
+            Commands::Image { commands } => {
+                parse_image_commands(commands, &sherpa)?;
             }
         }
         Ok(())

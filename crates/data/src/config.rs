@@ -46,7 +46,7 @@ pub struct Config {
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub management_prefix_ipv4: Ipv4Net,
-    pub boxes_dir: String,
+    pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
     pub ztp_server: ZtpServer,
