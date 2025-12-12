@@ -50,6 +50,7 @@ pub fn default_config() -> Config {
         DeviceModel::juniper_vsrxv3(),
         DeviceModel::nokia_srlinux(),
         DeviceModel::cumulus_linux(),
+        DeviceModel::sonic_linux(),
         DeviceModel::centos_linux(),
         DeviceModel::fedora_linux(),
         DeviceModel::redhat_linux(),
@@ -57,6 +58,10 @@ pub fn default_config() -> Config {
         DeviceModel::opensuse_linux(),
         DeviceModel::suse_linux(),
         DeviceModel::flatcar_linux(),
+        DeviceModel::free_bsd(),
+        DeviceModel::open_bsd(),
+        DeviceModel::net_bsd(),
+        DeviceModel::dragonfly_bsd(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =
