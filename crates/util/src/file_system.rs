@@ -139,7 +139,7 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 
     if metadata.is_dir() {
         // Set directory permissions
-        perms.set_mode(0o755);
+        perms.set_mode(0o775);
         fs::set_permissions(&path, perms)?;
 
         for entry in fs::read_dir(&path)? {

@@ -1,16 +1,16 @@
 use anyhow::Result;
 use data::Sherpa;
 use konst::{
-    SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME, SHERPA_MANIFEST_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH,
 };
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
 use topology::Manifest;
 use util::{
-    create_config, create_dir, default_config, dir_exists, file_exists, generate_ssh_keypair,
-    load_config, term_msg_highlight, term_msg_surround, term_msg_underline,
+    create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
+    term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 
 pub async fn init(
@@ -92,9 +92,9 @@ pub async fn init(
         .iter()
         .any(|net| net == SHERPA_BRIDGE_NETWORK_NAME)
     {
-        println!("Network already exists: {SHERPA_MANAGEMENT_NETWORK_NAME}");
+        println!("Network already exists: {SHERPA_BRIDGE_NETWORK_NAME}");
     } else {
-        println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}");
+        println!("Creating network: {SHERPA_BRIDGE_NETWORK_NAME}");
         let bridge_network = BridgeNetwork {
             network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
             bridge_name: SHERPA_BRIDGE_NETWORK_BRIDGE.to_owned(),
