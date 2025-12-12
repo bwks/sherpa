@@ -4,8 +4,8 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
-use super::node::Node;
 use super::link::Link2;
+use super::node::Node;
 use data::{DeviceModels, ZtpServer};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
@@ -77,7 +77,7 @@ impl Manifest {
             devices_array.push_formatted(Value::from(device_table));
         }
 
-        doc["devices"] = Item::Value(Value::Array(devices_array));
+        doc["nodes"] = Item::Value(Value::Array(devices_array));
 
         // Add links array if present
         if let Some(links) = &self.links {
@@ -90,7 +90,7 @@ impl Manifest {
                 let mut link_table = InlineTable::new();
                 link_table.decor_mut().set_prefix("\n  ");
                 link_table.insert("src", Value::from(link.src.as_str()));
-                link_table.insert("src", Value::from(link.dst.as_str()));
+                link_table.insert("dst", Value::from(link.dst.as_str()));
                 link_array.push_formatted(Value::from(link_table));
             }
             doc["links"] = Item::Value(Value::Array(link_array));

@@ -29,31 +29,31 @@ pub async fn init(
 
     term_msg_highlight("Creating Files");
     // Create the default config directories
-    let _config = if dir_exists(&sherpa.config_dir) && !force {
-        println!("Directory path already exists: {}", sherpa.config_dir);
-        load_config(&sherpa.config_path)?
-    } else {
-        create_dir(&sherpa.config_dir)?;
-        create_dir(&sherpa.containers_dir.to_string())?;
-        create_dir(&sherpa.bins_dir.to_string())?;
-        create_dir(&sherpa.boxes_dir)?;
-        // box directories
-        let config = default_config();
-        for device_model in &config.device_models {
-            create_dir(&format!(
-                "{}/{}/latest",
-                sherpa.boxes_dir, device_model.name
-            ))?;
-        }
+    // let _config = if dir_exists(&sherpa.config_dir) {
+    //     println!("Directory path already exists: {}", sherpa.config_dir);
+    //     load_config(&sherpa.config_path)?
+    // } else {
+    create_dir(&sherpa.config_dir)?;
+    create_dir(&sherpa.containers_dir.to_string())?;
+    create_dir(&sherpa.bins_dir.to_string())?;
+    create_dir(&sherpa.boxes_dir)?;
+    // box directories
+    let config = default_config();
+    for device_model in &config.device_models {
+        create_dir(&format!(
+            "{}/{}/latest",
+            sherpa.boxes_dir, device_model.name
+        ))?;
+    }
 
-        for container_image in &config.container_images {
-            create_dir(&format!(
-                "{}/{}/latest",
-                sherpa.containers_dir, container_image.name
-            ))?;
-        }
-        config
-    };
+    for container_image in &config.container_images {
+        create_dir(&format!(
+            "{}/{}/latest",
+            sherpa.containers_dir, container_image.name
+        ))?;
+    }
+    // config
+    // };
 
     // Initialize default files
     if file_exists(&sherpa.config_path) && !force {
