@@ -9,4 +9,5 @@ pub struct CiscoIosXeZtpTemplate {
     pub user: User,
     pub mgmt_interface: String,
     pub dns: Dns,
+    pub license_boot_command: Option<String>,
 }

@@ -10,14 +10,13 @@ use super::destroy::destroy;
 use super::doctor::doctor;
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
-use super::import::import;
 use super::init::init;
 use super::inspect::inspect;
 use super::resume::resume;
 use super::ssh::ssh;
 use super::up::up;
 
-use data::{DeviceModels, Sherpa};
+use data::Sherpa;
 use konst::{
     SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE,
@@ -85,22 +84,6 @@ enum Commands {
         /// Remove all networks
         #[arg(long, action = clap::ArgAction::SetTrue)]
         networks: bool,
-    },
-
-    /// Import a disk image
-    Import {
-        /// Source path of the disk image
-        #[arg(short, long)]
-        src: String,
-        /// Version of the device model
-        #[arg(short, long)]
-        version: String,
-        /// Model of Device
-        #[arg(short, long, value_enum)]
-        model: DeviceModels,
-        /// Import the disk image as the latest version
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        latest: bool,
     },
 
     /// Connect to a device via serial console over Telnet
@@ -180,14 +163,6 @@ impl Cli {
                 let lab_name = manifest.name.clone();
                 let config = load_config(&sherpa.config_path)?;
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
-            }
-            Commands::Import {
-                src,
-                version,
-                model,
-                latest,
-            } => {
-                import(src, version, model, *latest, &sherpa.boxes_dir)?;
             }
             Commands::Doctor { boxes } => {
                 doctor(*boxes, &sherpa.boxes_dir)?;

@@ -5,6 +5,10 @@ use anyhow::Result;
 use clap::Subcommand;
 
 use data::{DeviceModels, Sherpa};
+use util::{
+    copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
+    term_msg_surround,
+};
 
 #[derive(Debug, Subcommand)]
 pub enum ImageCommands {
@@ -13,6 +17,22 @@ pub enum ImageCommands {
         /// Optional: List all boxes for a model
         #[arg(value_enum)]
         model: Option<DeviceModels>,
+    },
+
+    /// Import a disk image
+    Import {
+        /// Source path of the disk image
+        #[arg(short, long)]
+        src: String,
+        /// Version of the device model
+        #[arg(short, long)]
+        version: String,
+        /// Model of Device
+        #[arg(short, long, value_enum)]
+        model: DeviceModels,
+        /// Import the disk image as the latest version
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        latest: bool,
     },
 }
 
@@ -52,6 +72,55 @@ pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result
                 list_directory_contents(config.boxes_dir.as_ref(), 0)?;
             }
         }
+        ImageCommands::Import {
+            src,
+            version,
+            model,
+            latest,
+        } => import(src, version, model, *latest, &config.boxes_dir)?,
     }
+    Ok(())
+}
+
+fn import(
+    src: &str,
+    version: &str,
+    model: &DeviceModels,
+    latest: bool,
+    boxes_dir: &str,
+) -> Result<()> {
+    term_msg_surround("Importing disk image");
+
+    if !file_exists(src) {
+        anyhow::bail!("File does not exist: {}", src);
+    }
+
+    let dst_path = format!("{}/{}", boxes_dir, model);
+    let dst_version_dir = format!("{dst_path}/{version}");
+    let dst_latest_dir = format!("{dst_path}/latest");
+
+    create_dir(&dst_version_dir)?;
+    create_dir(&dst_latest_dir)?;
+
+    let dst_version_disk = format!("{dst_version_dir}/virtioa.qcow2");
+
+    if !file_exists(&dst_version_disk) {
+        println!("Copying file from: {} to: {}", src, dst_version_disk);
+        copy_file(src, &dst_version_disk)?;
+        println!("Copied file from: {} to: {}", src, dst_version_disk);
+    } else {
+        println!("File already exists: {}", dst_version_disk);
+    }
+
+    if latest {
+        let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
+        println!("Symlinking file from: {} to: {}", src, dst_latest_disk);
+        create_symlink(&dst_version_disk, &dst_latest_disk)?;
+        println!("Symlinked file from: {} to: {}", src, dst_latest_disk);
+    }
+
+    println!("Setting base box files to read-only");
+    fix_permissions_recursive(boxes_dir)?;
+
     Ok(())
 }

@@ -7,7 +7,6 @@ mod destroy;
 mod doctor;
 mod down;
 mod image;
-mod import;
 mod init;
 mod inspect;
 mod resume;

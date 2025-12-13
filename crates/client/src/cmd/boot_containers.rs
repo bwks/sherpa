@@ -111,6 +111,7 @@ pub fn create_ztp_files(
         user: cisco_user.clone(),
         mgmt_interface: MgmtInterfaces::GigabitEthernet1.to_string(),
         dns: dns.clone(),
+        license_boot_command: None,
     };
     let iosxe_rendered_template = cisco_iosxe_template.render()?;
     let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");

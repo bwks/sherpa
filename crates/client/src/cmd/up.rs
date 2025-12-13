@@ -521,6 +521,29 @@ pub async fn up(
                         DeviceModels::CiscoCsr1000v
                         | DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v => {
+                            /*
+                                                                           ! cat8000v
+
+                                               !
+                                               ! cat9000v
+                                               license boot level network-advantage addon dna-advantage
+                                               !
+                            */
+                            let license_boot_command =
+                                if device.model == DeviceModels::CiscoCat8000v {
+                                    Some(
+                                        "license boot level network-premier addon dna-premier"
+                                            .to_string(),
+                                    )
+                                } else if device.model == DeviceModels::CiscoCat9000v {
+                                    Some(
+                                        "license boot level network-advantage addon dna-advantage"
+                                            .to_string(),
+                                    )
+                                } else {
+                                    None
+                                };
+
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoIosXeZtpTemplate {
@@ -528,6 +551,7 @@ pub async fn up(
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
+                                license_boot_command,
                             };
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
