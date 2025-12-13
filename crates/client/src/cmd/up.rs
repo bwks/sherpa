@@ -441,7 +441,8 @@ pub async fn up(
                         | DeviceModels::FreeBsd
                         | DeviceModels::OpenBsd
                         | DeviceModels::NetBsd
-                        | DeviceModels::DragonflyBsd => {
+                        | DeviceModels::DragonflyBsd
+                        | DeviceModels::WindowsServer => {
                             let (admin_group, shell) = match device_model.os_variant {
                                 OsVariants::Bsd => ("wheel".to_string(), "/bin/ksh".to_string()),
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),

@@ -62,6 +62,7 @@ pub fn default_config() -> Config {
         DeviceModel::open_bsd(),
         DeviceModel::net_bsd(),
         DeviceModel::dragonfly_bsd(),
+        DeviceModel::windows_server(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =
