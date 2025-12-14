@@ -120,7 +120,7 @@ impl Cli {
         // let docker = docker_connection()?;
         let sherpa = Sherpa {
             config_dir: expand_path(SHERPA_CONFIG_DIR),
-            boxes_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}")),
+            images_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}")),
             config_path: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}")),
             containers_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}")),
             bins_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}")),
@@ -165,7 +165,7 @@ impl Cli {
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
             }
             Commands::Doctor { boxes } => {
-                doctor(*boxes, &sherpa.boxes_dir)?;
+                doctor(*boxes, &sherpa.images_dir)?;
             }
             Commands::Clean {
                 all,

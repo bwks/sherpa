@@ -1,9 +1,9 @@
 use anyhow::Result;
 use data::Sherpa;
 use konst::{
-    SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME, SHERPA_MANIFEST_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
+    SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
@@ -36,13 +36,14 @@ pub async fn init(
     create_dir(&sherpa.config_dir)?;
     create_dir(&sherpa.containers_dir.to_string())?;
     create_dir(&sherpa.bins_dir.to_string())?;
-    create_dir(&sherpa.boxes_dir)?;
+    create_dir(&sherpa.images_dir)?;
+    create_dir(&format!("{}/{}", sherpa.images_dir, SHERPA_BLANK_DISK_DIR))?;
     // box directories
     let config = default_config();
     for device_model in &config.device_models {
         create_dir(&format!(
             "{}/{}/latest",
-            sherpa.boxes_dir, device_model.name
+            sherpa.images_dir, device_model.name
         ))?;
     }
 

@@ -385,14 +385,14 @@ pub async fn up(
         let src_boot_disk = if device_model.kind == DeviceKind::Container {
             format!(
                 "{}/{}/{}/virtioa.qcow2",
-                sherpa.boxes_dir,
+                sherpa.images_dir,
                 DeviceModels::FlatcarLinux,
                 "latest"
             )
         } else {
             format!(
                 "{}/{}/{}/virtioa.qcow2",
-                sherpa.boxes_dir, device_model.name, device_model.version
+                sherpa.images_dir, device_model.name, device_model.version
             )
         };
         let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-hdd.qcow2");
@@ -406,7 +406,7 @@ pub async fn up(
             Some(src_iso) => {
                 let src = format!(
                     "{}/{}/{}/{}",
-                    sherpa.boxes_dir, device_model.name, device_model.version, src_iso
+                    sherpa.images_dir, device_model.name, device_model.version, src_iso
                 );
                 let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso");
                 (Some(src), Some(dst))
@@ -521,14 +521,6 @@ pub async fn up(
                         DeviceModels::CiscoCsr1000v
                         | DeviceModels::CiscoCat8000v
                         | DeviceModels::CiscoCat9000v => {
-                            /*
-                                                                           ! cat8000v
-
-                                               !
-                                               ! cat9000v
-                                               license boot level network-advantage addon dna-advantage
-                                               !
-                            */
                             let license_boot_command =
                                 if device.model == DeviceModels::CiscoCat8000v {
                                     Some(
@@ -720,7 +712,7 @@ pub async fn up(
                             // clone disk
                             let src_disk = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
+                                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
                             let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
@@ -750,7 +742,7 @@ pub async fn up(
                             // clone disk
                             let src_disk = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
+                                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
                             let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
 
@@ -791,7 +783,7 @@ pub async fn up(
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
+                                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
                             );
 
                             let dst_usb = format!("{dir}/cfg.img");
@@ -821,7 +813,7 @@ pub async fn up(
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
+                                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
                             );
                             let dst_usb = format!("{dir}/cfg.img");
 
@@ -971,7 +963,7 @@ pub async fn up(
 
                             let src_container_disk = format!(
                                 "{}/{}/{}/{}",
-                                &sherpa.boxes_dir,
+                                &sherpa.images_dir,
                                 device_model.name,
                                 device_model.version,
                                 CONTAINER_DISK_NAME,
@@ -1009,7 +1001,7 @@ pub async fn up(
 
                             let src_container_disk = format!(
                                 "{}/{}/{}/{}",
-                                &sherpa.boxes_dir,
+                                &sherpa.images_dir,
                                 device_model.name,
                                 device_model.version,
                                 CONTAINER_DISK_NAME,
@@ -1052,7 +1044,7 @@ pub async fn up(
                             // Copy a blank disk to to .tmp directory
                             let src_data_disk = format!(
                                 "{}/{}/{}",
-                                &sherpa.boxes_dir,
+                                &sherpa.images_dir,
                                 SHERPA_BLANK_DISK_DIR,
                                 SHERPA_BLANK_DISK_EXT4_500M
                             );

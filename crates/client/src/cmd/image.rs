@@ -64,12 +64,12 @@ pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result
     match commands {
         ImageCommands::List { model } => {
             if let Some(m) = model {
-                let model_dir = format!("{}/{}", &config.boxes_dir, m);
+                let model_dir = format!("{}/{}", &config.images_dir, m);
                 println!("{}", &model_dir);
                 list_directory_contents(model_dir.as_ref(), 0)?;
             } else {
-                println!("{}", &config.boxes_dir);
-                list_directory_contents(config.boxes_dir.as_ref(), 0)?;
+                println!("{}", &config.images_dir);
+                list_directory_contents(config.images_dir.as_ref(), 0)?;
             }
         }
         ImageCommands::Import {
@@ -77,7 +77,7 @@ pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result
             version,
             model,
             latest,
-        } => import(src, version, model, *latest, &config.boxes_dir)?,
+        } => import(src, version, model, *latest, &config.images_dir)?,
     }
     Ok(())
 }
@@ -87,7 +87,7 @@ fn import(
     version: &str,
     model: &DeviceModels,
     latest: bool,
-    boxes_dir: &str,
+    images_dir: &str,
 ) -> Result<()> {
     term_msg_surround("Importing disk image");
 
@@ -95,7 +95,7 @@ fn import(
         anyhow::bail!("File does not exist: {}", src);
     }
 
-    let dst_path = format!("{}/{}", boxes_dir, model);
+    let dst_path = format!("{}/{}", images_dir, model);
     let dst_version_dir = format!("{dst_path}/{version}");
     let dst_latest_dir = format!("{dst_path}/latest");
 
@@ -120,7 +120,7 @@ fn import(
     }
 
     println!("Setting base box files to read-only");
-    fix_permissions_recursive(boxes_dir)?;
+    fix_permissions_recursive(images_dir)?;
 
     Ok(())
 }

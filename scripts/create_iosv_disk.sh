@@ -1,9 +1,11 @@
-#!/bin/bash
+#! /usr/bin/bash
 # Creates a disk image that is compatible with Cisco IOSv and IOSvl2 images.
 # The disk image is used to load a config on boot.
 # This uses the `mkfs.vfat` command and it is required to be installed
 
 set -e  # Exit on any error
+
+BASE_DIR="/opt/sherpa/images/blank_disk"
 
 # Check if mkfs.vfat exists
 if ! command -v mkfs.vfat &> /dev/null; then
@@ -13,7 +15,7 @@ fi
 
 ### - Create image - ###
 image_size=$((131040 * 512))  # 131040 sectors * 512 bytes each
-image_file_path="iosv.img"
+image_file_path="$BASE_DIR/iosv.img"
 
 # Create empty image file
 dd if=/dev/zero of="$image_file_path" bs=512 count=131040 2>/dev/null

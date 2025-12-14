@@ -59,7 +59,7 @@ pub struct Config {
 pub struct Sherpa {
     pub config_dir: String,
     pub config_path: String,
-    pub boxes_dir: String,
+    pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
 }

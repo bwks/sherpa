@@ -110,7 +110,7 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
             // Copy a blank disk to to .tmp directory
             let src_data_disk = format!(
                 "{}/{}/{}",
-                &sherpa.boxes_dir, SHERPA_BLANK_DISK_DIR, data_disk_base
+                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, data_disk_base
             );
             let dst_data_disk = format!("{TEMP_DIR}/{CONTAINER_DISK_NAME}");
 
@@ -119,7 +119,7 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
             // Copy to container image into the container disk
             copy_to_ext4_image(vec![&container_path], &dst_data_disk, "/")?;
 
-            let dst_path = format!("{}/{}", &sherpa.boxes_dir, model);
+            let dst_path = format!("{}/{}", &sherpa.images_dir, model);
             let dst_version_dir = format!("{dst_path}/{version}");
             let dst_latest_dir = format!("{dst_path}/latest");
 
@@ -158,7 +158,7 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
             println!("Setting base box files to read-only");
 
             // Update box permissions
-            fix_permissions_recursive(&sherpa.boxes_dir)?;
+            fix_permissions_recursive(&sherpa.images_dir)?;
 
             // Delete the local .tmp directory
             delete_dirs(TEMP_DIR)?;
