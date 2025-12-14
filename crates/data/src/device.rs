@@ -1184,7 +1184,7 @@ impl DeviceModel {
             ztp_method: ZtpMethods::Http,
             ztp_password_auth: true,
             first_interface_index: 1,
-            dedicated_management_interface: false,
+            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
