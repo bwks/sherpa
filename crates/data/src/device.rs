@@ -694,7 +694,7 @@ impl DeviceModel {
             cpu_model: CpuModels::HostModel,
             machine_type: MachineTypes::Pc,
             vmx_enabled: false,
-            memory: 512,
+            memory: 768,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Virtio,
