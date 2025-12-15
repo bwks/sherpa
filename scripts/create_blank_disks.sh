@@ -25,8 +25,12 @@ mkfs.vfat  -v -n "vmm-data" $BASE_DIR/junos.img
 qemu-img create -f raw $BASE_DIR/ext4-100mb.img 100M
 mkfs.ext4 -L "data-disk" $BASE_DIR/ext4-100mb.img
 
-qemu-img create -f raw $BASE_DIR/ext4-200mb.img 200MB
+qemu-img create -f raw $BASE_DIR/ext4-200mb.img 200M
 mkfs.ext4 -L "data-disk" $BASE_DIR/ext4-200mb.img
+
+qemu-img create -f raw $BASE_DIR/ext4-500mb.img 500M
+mkfs.ext4 -L "data-disk" $BASE_DIR/ext4-500mb.img
+
 
 qemu-img create -f raw $BASE_DIR/ext4-500mb.img 500MB
 mkfs.ext4 -L "data-disk" $BASE_DIR/ext4-500mb.img

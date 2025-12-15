@@ -12,13 +12,14 @@ use data::{
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
-    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500M, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
-    TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
+    LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
+    TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
@@ -37,10 +38,10 @@ use template::{
 use topology::{LinkDetailed, LinkExpanded, Manifest, Node};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_dir, create_file, create_ztp_iso, dasher, default_dns, get_free_subnet, get_ip,
-    get_ipv4_addr, get_ssh_public_key, get_username, id_to_port, interface_from_idx,
-    interface_to_idx, load_config, load_file, pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash,
-    random_mac, sherpa_user, term_msg_surround, term_msg_underline,
+    create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
+    get_free_subnet, get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port,
+    interface_from_idx, interface_to_idx, load_config, load_file, pub_ssh_key_to_md5_hash,
+    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -643,19 +644,19 @@ pub async fn up(
                             create_dir(&dir)?;
                             create_file(&ztp_config, aruba_rendered_template)?;
                         }
-                        DeviceModels::JuniperVevolved
-                        | DeviceModels::JuniperVrouter
-                        | DeviceModels::JuniperVswitch => {
-                            let juniper_template = JunipervJunosZtpTemplate {
-                                hostname: device.name.clone(),
-                                user: sherpa_user.clone(),
-                                mgmt_interface: device_model.management_interface.to_string(),
-                            };
-                            let juniper_rendered_template = juniper_template.render()?;
-                            let ztp_config = format!("{dir}/{}.conf", device.name);
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, juniper_rendered_template)?;
-                        }
+                        // DeviceModels::JuniperVevolved
+                        // | DeviceModels::JuniperVrouter
+                        // | DeviceModels::JuniperVswitch => {
+                        //     let juniper_template = JunipervJunosZtpTemplate {
+                        //         hostname: device.name.clone(),
+                        //         user: sherpa_user.clone(),
+                        //         mgmt_interface: device_model.management_interface.to_string(),
+                        //     };
+                        //     let juniper_rendered_template = juniper_template.render()?;
+                        //     let ztp_config = format!("{dir}/{}.conf", device.name);
+                        //     create_dir(&dir)?;
+                        //     create_file(&ztp_config, juniper_rendered_template)?;
+                        // }
                         _ => {
                             anyhow::bail!(
                                 "Tftp ZTP method not supported for {}",
@@ -769,8 +770,8 @@ pub async fn up(
                     let user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
-                    match device_model.os_variant {
-                        OsVariants::CumulusLinux => {
+                    match device_model.name {
+                        DeviceModels::CumulusLinux => {
                             let t = CumulusLinuxZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -797,16 +798,15 @@ pub async fn up(
                             dst_usb_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
-                        OsVariants::Junos => {
+                        DeviceModels::JuniperVevolved => {
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
-                                // dns: dns.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                            // let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
+                            let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
 
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
@@ -821,11 +821,11 @@ pub async fn up(
                             copy_file(&src_usb, &dst_usb)?;
 
                             // Create tar.gz config file
-                            // create_config_archive(&ztp_config, &ztp_config_tgz)?;
+                            create_config_archive(&ztp_config, &ztp_config_tgz)?;
 
                             // copy file to USB disk
-                            // copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
-                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
+                            copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
+                            // copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
@@ -1046,7 +1046,7 @@ pub async fn up(
                                 "{}/{}/{}",
                                 &sherpa.images_dir,
                                 SHERPA_BLANK_DISK_DIR,
-                                SHERPA_BLANK_DISK_EXT4_500M
+                                SHERPA_BLANK_DISK_EXT4_500MB
                             );
                             let dst_disk = format!("{dir}/{vm_name}-{CONTAINER_DISK_NAME}");
 

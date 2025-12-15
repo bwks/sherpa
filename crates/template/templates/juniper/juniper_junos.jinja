@@ -33,18 +33,3 @@ interfaces {
         }
     }
 }
-event-options {
-    generate-event {
-        staging time-interval 60;
-    }
-    policy staging {
-        events staging;
-        then {
-            execute-commands {
-                commands {
-                    "request dhcp client renew interface {{ mgmt_interface }}";
-                }
-            }
-        }
-    }
-}

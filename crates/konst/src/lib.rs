@@ -11,7 +11,7 @@ pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_AOSCX: &str = "aos.img";
 pub const SHERPA_BLANK_DISK_JUNOS: &str = "junos.img";
 pub const SHERPA_BLANK_DISK_SRLINUX: &str = "srlinux.img";
-pub const SHERPA_BLANK_DISK_EXT4_500M: &str = "ext4-500m.img";
+pub const SHERPA_BLANK_DISK_EXT4_500MB: &str = "ext4-500mb.img";
 pub const SHERPA_BLANK_DISK_EXT4_1G: &str = "ext4-1g.img";
 pub const SHERPA_BLANK_DISK_EXT4_2G: &str = "ext4-2g.img";
 pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";
@@ -96,7 +96,7 @@ pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
 pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
 pub const JUNIPER_ZTP_DIR: &str = "juniper";
-pub const JUNIPER_ZTP_CONFIG: &str = "junos.conf";
+pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
 pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 

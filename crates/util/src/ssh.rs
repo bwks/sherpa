@@ -116,7 +116,7 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     // Update permissions of private key file to be read-only.
     let metadata = fs::metadata(private_key_path)?;
     let mut perms = metadata.permissions();
-    perms.set_mode(0o600);
+    perms.set_mode(0o640);
     fs::set_permissions(private_key_path, perms)?;
 
     Ok(())

@@ -11,6 +11,7 @@ username admin
 !
 username {{ user.username }}
 {%- if user.sudo %}
+ group root-lr
  group netadmin
 {%- endif %}
 {%- if let Some(password) = user.password %}

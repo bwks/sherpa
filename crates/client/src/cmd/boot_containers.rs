@@ -40,7 +40,7 @@ pub fn create_ztp_files(
     let dnsmaq_template = DnsmasqTemplate {
         tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
         gateway_ipv4: mgmt_net.v4.first.to_string(),
-        dhcp_start: get_ipv4_addr(&mgmt_net.v4.prefix, 20)?.to_string(),
+        dhcp_start: get_ipv4_addr(&mgmt_net.v4.prefix, 10)?.to_string(),
         dhcp_end: get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
         ztp_records: ztp_records.to_vec().clone(),
     };
