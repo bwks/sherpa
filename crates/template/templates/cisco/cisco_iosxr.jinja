@@ -25,8 +25,17 @@ netconf-yang agent
  ssh
 !
 interface MgmtEth0/RP0/CPU0/0
+ {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+ ipv4 address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+ {%- else %}
  ipv4 address dhcp
+ {%- endif %}
  no shutdown
+!
+router static
+ address-family ipv4 unicast
+  0.0.0.0/0 {{ mgmt_ipv4.first }}
+!
 !
 netconf agent tty
  session timeout 5

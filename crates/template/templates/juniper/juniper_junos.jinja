@@ -24,11 +24,20 @@ system {
         }
     }
 }
+routing-options {
+    static {
+        route 0.0.0.0/0 next-hop {{ mgmt_ipv4.first }};
+    }
+}
 interfaces {
     {{ mgmt_interface }} {
         unit 0 {
             family inet {
+                {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+                address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }};
+                {%- else %}
                 dhcp;
+                {%- endif %}
             }
         }
     }

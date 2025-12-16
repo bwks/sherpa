@@ -31,9 +31,15 @@ archive
 !
 interface {{ mgmt_interface }}
  no switchport
+ {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+ ip address {{ mgmt_ipv4_address }} {{ mgmt_ipv4.subnet_mask }}
+ {%- else %}
  ip address dhcp
+ {%- endif %}
  no shutdown
  exit
+!
+ip route 0.0.0.0 0.0.0.0 {{ mgmt_ipv4.first }}
 !
 line con 0
  logging synchronous

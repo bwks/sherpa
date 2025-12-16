@@ -16,7 +16,7 @@ pub struct ZtpServer {
 impl Default for ZtpServer {
     fn default() -> Self {
         Self {
-            enable: false,
+            enable: true,
             username: Some(SHERPA_USERNAME.to_owned()),
             password: Some(SHERPA_PASSWORD.to_owned()),
         }

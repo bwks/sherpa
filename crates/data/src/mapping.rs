@@ -21,9 +21,6 @@ pub struct ZtpTemplates {
     pub arista_eos: String,
     pub aruba_aos: String,
     pub cumulus_linux: String,
-    pub cisco_iosv: String,
-    pub cisco_iosxe: String,
-    pub juniper_vjunos: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

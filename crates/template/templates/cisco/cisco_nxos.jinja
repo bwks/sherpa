@@ -19,10 +19,19 @@ ip domain-name {{ dns.domain }}
 ip name-server {{ server.ipv4_address }}
 {%- endfor %}
 !
-line vty
-  exec-timeout 0
+vrf context management
+!
+ip route 0.0.0.0/0 {{ mgmt_ipv4.first }} vrf management
 !
 interface mgmt0
+  vrf member management
+  {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+  ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+  {%- else %}
   ip address dhcp
+  {%- endif %}
   no shutdown
+!
+line vty
+  exec-timeout 0
 !

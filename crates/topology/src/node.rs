@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use serde_derive::{Deserialize, Serialize};
 
 use data::DeviceModels;
@@ -8,6 +10,7 @@ pub struct Node {
     pub model: DeviceModels,
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
+    pub ipv4_address: Option<Ipv4Addr>,
     pub text_files: Option<Vec<TextFile>>,
     pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,

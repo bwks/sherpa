@@ -5,7 +5,11 @@ interface Management0/0
  nameif management
  management-only
  security-level 0
+ {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+ ip address {{ mgmt_ipv4_address }} {{ mgmt_ipv4.subnet_mask }}
+ {%- else %}
  ip address dhcp
+ {%- endif %}
  no shutdown
 !
 hostname {{ hostname }}
@@ -27,6 +31,7 @@ ssh scopy enable
 http server enable
 http 0.0.0.0 0.0.0.0 management
 domain-name {{ dns.domain }}
+route management 0.0.0.0 0.0.0.0 {{ mgmt_ipv4.first }}
 !
 username {{ user.username }} attributes
   ssh authentication publickey {{ user.ssh_public_key.key }} hashed

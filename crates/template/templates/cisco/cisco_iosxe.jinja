@@ -32,10 +32,16 @@ archive
  time-period 1440
 !
 interface {{ mgmt_interface }}
+ {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+ ip address {{ mgmt_ipv4_address }} {{ mgmt_ipv4.subnet_mask }}
+ {%- else %}
  ip address dhcp
+ {%- endif %}
  negotiation auto
  no shutdown
  exit
+!
+ip route 0.0.0.0 0.0.0.0 {{ mgmt_ipv4.first }}
 !
 line con 0
  logging synchronous

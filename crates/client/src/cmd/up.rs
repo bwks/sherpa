@@ -164,6 +164,7 @@ pub async fn up(
             boot_server: lab_router_ip,
             network: lab_net.network(),
             subnet_mask: lab_net.netmask(),
+            hostmask: lab_net.hostmask(),
             prefix_length: lab_net.prefix_len(),
         },
     };
@@ -426,6 +427,10 @@ pub async fn up(
 
         if device_model.ztp_enable {
             ztp_devices.push(device);
+            let device_ipv4_address = ztp_records
+                .iter()
+                .find(|r| r.device_name == device.name)
+                .map(|r| r.ipv4_address);
             match device_model.ztp_method {
                 ZtpMethods::CloudInit => {
                     term_msg_underline("Creating Cloud-Init disks");
@@ -434,6 +439,8 @@ pub async fn up(
                     let dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.model {
                         DeviceModels::CentosLinux
+                        | DeviceModels::AlmaLinux
+                        | DeviceModels::RockyLinux
                         | DeviceModels::FedoraLinux
                         | DeviceModels::OpensuseLinux
                         | DeviceModels::RedhatLinux
@@ -545,6 +552,8 @@ pub async fn up(
                                 mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
                                 license_boot_command,
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
@@ -560,6 +569,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
@@ -572,6 +583,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
@@ -584,6 +597,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
@@ -598,6 +613,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
@@ -644,19 +661,19 @@ pub async fn up(
                             create_dir(&dir)?;
                             create_file(&ztp_config, aruba_rendered_template)?;
                         }
-                        // DeviceModels::JuniperVevolved
-                        // | DeviceModels::JuniperVrouter
-                        // | DeviceModels::JuniperVswitch => {
-                        //     let juniper_template = JunipervJunosZtpTemplate {
-                        //         hostname: device.name.clone(),
-                        //         user: sherpa_user.clone(),
-                        //         mgmt_interface: device_model.management_interface.to_string(),
-                        //     };
-                        //     let juniper_rendered_template = juniper_template.render()?;
-                        //     let ztp_config = format!("{dir}/{}.conf", device.name);
-                        //     create_dir(&dir)?;
-                        //     create_file(&ztp_config, juniper_rendered_template)?;
-                        // }
+                        DeviceModels::JuniperVevolved => {
+                            let juniper_template = JunipervJunosZtpTemplate {
+                                hostname: device.name.clone(),
+                                user: sherpa_user.clone(),
+                                mgmt_interface: device_model.management_interface.to_string(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let juniper_rendered_template = juniper_template.render()?;
+                            let ztp_config = format!("{dir}/{}.conf", device.name);
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, juniper_rendered_template)?;
+                        }
                         _ => {
                             anyhow::bail!(
                                 "Tftp ZTP method not supported for {}",
@@ -704,6 +721,8 @@ pub async fn up(
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSV_ZTP_CONFIG;
@@ -734,6 +753,8 @@ pub async fn up(
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSV_ZTP_CONFIG;
@@ -803,6 +824,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 mgmt_interface: device_model.management_interface.to_string(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");

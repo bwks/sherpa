@@ -4,19 +4,16 @@ use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{
-    ContainerNetworkAttachment, Dns, MgmtInterfaces, SherpaNetwork, User, ZtpRecord, ZtpTemplates,
-};
+use data::{ContainerNetworkAttachment, Dns, SherpaNetwork, User, ZtpRecord, ZtpTemplates};
 use konst::{
-    ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, CISCO_IOSV_ZTP_CONFIG,
-    CISCO_IOSXE_ZTP_CONFIG, CISCO_ZTP_DIR, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
-    DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR, JUNIPER_ZTP_SCRIPT, SHERPA_MANAGEMENT_NETWORK_NAME,
-    TEMP_DIR, TFTP_DIR, ZTP_DIR,
+    ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, CISCO_ZTP_DIR,
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
+    DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR,
+    SHERPA_MANAGEMENT_NETWORK_NAME, TEMP_DIR, TFTP_DIR, ZTP_DIR,
 };
 use template::{
-    ArubaAoscxTemplate, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate, CumulusLinuxZtpTemplate,
-    DnsmasqTemplate, SonicLinuxUserTemplate, arista_veos_ztp_script, juniper_vevolved_ztp_script,
+    ArubaAoscxTemplate, CumulusLinuxZtpTemplate, DnsmasqTemplate, SonicLinuxUserTemplate,
+    arista_veos_ztp_script,
 };
 use util::{create_dir, create_file, get_ipv4_addr, pub_ssh_key_to_md5_hash, term_msg_underline};
 
@@ -105,45 +102,14 @@ pub fn create_ztp_files(
     let mut cisco_user = sherpa_user.clone();
     cisco_user.ssh_public_key.key = pub_ssh_key_to_md5_hash(&cisco_user.ssh_public_key.key)?;
 
-    // IOSXE
-    let cisco_iosxe_template = CiscoIosXeZtpTemplate {
-        hostname: "iosxe-ztp".to_owned(),
-        user: cisco_user.clone(),
-        mgmt_interface: MgmtInterfaces::GigabitEthernet1.to_string(),
-        dns: dns.clone(),
-        license_boot_command: None,
-    };
-    let iosxe_rendered_template = cisco_iosxe_template.render()?;
-    let cisco_iosxe_ztp_config = format!("{cisco_dir}/{CISCO_IOSXE_ZTP_CONFIG}");
-    create_file(&cisco_iosxe_ztp_config, iosxe_rendered_template.clone())?;
-
-    // IOSv
-    let cisco_iosv_template = CiscoIosvZtpTemplate {
-        hostname: "iosv-ztp".to_owned(),
-        user: cisco_user.clone(),
-        mgmt_interface: MgmtInterfaces::GigabitEthernet0_0.to_string(),
-        dns: dns.clone(),
-    };
-    let iosv_rendered_template = cisco_iosv_template.render()?;
-    let cisco_iosv_ztp_config = format!("{cisco_dir}/{CISCO_IOSV_ZTP_CONFIG}");
-    create_file(&cisco_iosv_ztp_config, iosv_rendered_template.clone())?;
-
     // Juniper vevolved
     let juniper_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{JUNIPER_ZTP_DIR}");
     create_dir(&juniper_dir)?;
 
-    let juniper_vjunos_script = juniper_vevolved_ztp_script();
-    let juniper_vjunos_ztp_config = format!("{juniper_dir}/{JUNIPER_ZTP_SCRIPT}");
-    create_file(&juniper_vjunos_ztp_config, juniper_vjunos_script.clone())?;
-
     Ok(ZtpTemplates {
         arista_eos: arista_ztp_script,
-        // aruba_aos: aruba_ztp_script,
         aruba_aos: aruba_rendered_template,
         cumulus_linux: cumulus_rendered_template,
-        cisco_iosv: iosv_rendered_template,
-        cisco_iosxe: iosxe_rendered_template,
-        juniper_vjunos: juniper_vjunos_script,
     })
 }
 
