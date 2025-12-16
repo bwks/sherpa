@@ -797,6 +797,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CUMULUS_ZTP}");

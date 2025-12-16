@@ -20,7 +20,6 @@ pub struct CloneDisk {
 pub struct ZtpTemplates {
     pub arista_eos: String,
     pub aruba_aos: String,
-    pub cumulus_linux: String,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

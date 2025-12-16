@@ -77,15 +77,6 @@ pub fn create_ztp_files(
     let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
     create_dir(&cumulus_dir)?;
 
-    let cumulus_template = CumulusLinuxZtpTemplate {
-        hostname: "cumulus-ztp".to_owned(),
-        user: sherpa_user.clone(),
-        dns: dns.clone(),
-    };
-    let cumulus_rendered_template = cumulus_template.render()?;
-    let cumulus_ztp_config = format!("{cumulus_dir}/{CUMULUS_ZTP_CONFIG}");
-    create_file(&cumulus_ztp_config, cumulus_rendered_template.clone())?;
-
     // Sonic
     let sonic_user_template = SonicLinuxUserTemplate {
         user: sherpa_user.clone(),
@@ -109,7 +100,6 @@ pub fn create_ztp_files(
     Ok(ZtpTemplates {
         arista_eos: arista_ztp_script,
         aruba_aos: aruba_rendered_template,
-        cumulus_linux: cumulus_rendered_template,
     })
 }
 

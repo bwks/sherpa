@@ -28,6 +28,13 @@ nv set system aaa user {{ user.username }} ssh authorized-key {{ user.username }
 {%- if user.sudo %}
 nv set system aaa user {{ user.username }} role system-admin
 {%- endif %}
+{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+nv unset interface eth0 ip address dhcp
+nv set interface eth0 ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+{%- else %}
+nv set interface eth0 ip address dhcp
+{%- endif %}
+nv set interface eth0 ip gateway {{ mgmt_ipv4.first }}
 
 nv config apply --assume-yes --message "ZTP config"
 
