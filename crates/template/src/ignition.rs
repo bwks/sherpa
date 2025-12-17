@@ -1,8 +1,14 @@
+use std::net::Ipv4Addr;
+
 use anyhow::Result;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
-use konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION};
+use konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
+
+use util::base64_encode;
+
+use data::NetworkV4;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -213,38 +219,37 @@ impl File {
             ..Default::default()
         }
     }
-    //     pub fn ztp_interface(config: &SherpaConfig) -> Result<Self> {
-    //         let mgmt_net = config.management_prefix_ipv4;
-    //         let contents = format!(
-    //             r#"[Match]
-    // Name=eth0
+    pub fn ztp_interface(mgmt_ipv4_address: Ipv4Addr, mgmt_ipv4: NetworkV4) -> Result<Self> {
+        let contents = format!(
+            r#"[Match]
+Name=eth0
 
-    // [Network]
-    // Address={address}/{prefix}
-    // Gateway={gateway}
-    // DNS={gateway}
-    // Domains={domain}
-    // "#,
-    //             address = mgmt_net.nth(SHERPA_MANAGEMENT_DNSMASQ_IPV4_INDEX).unwrap(),
-    //             prefix = mgmt_net.prefix(),
-    //             gateway = mgmt_net.nth(1).unwrap(),
-    //             domain = SHERPA_DOMAIN_NAME,
-    //         );
-    //         let encoded_contents = base64_encode(&contents);
-    //         Ok(Self {
-    //             path: "/etc/systemd/network/00-eth0.network".to_owned(),
-    //             mode: 644,
-    //             overwrite: Some(true),
-    //             contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
-    //             // contents: Contents::new(&contents),
-    //             user: Some(FileParams {
-    //                 name: "root".to_owned(),
-    //             }),
-    //             group: Some(FileParams {
-    //                 name: "root".to_owned(),
-    //             }),
-    //         })
-    //     }
+[Network]
+Address={address}/{prefix}
+Gateway={gateway}
+DNS={dns}
+Domains={domain}
+"#,
+            address = mgmt_ipv4_address,
+            prefix = mgmt_ipv4.prefix_length,
+            gateway = mgmt_ipv4.first,
+            dns = mgmt_ipv4.boot_server,
+            domain = SHERPA_DOMAIN_NAME,
+        );
+        let encoded_contents = base64_encode(&contents);
+        Ok(Self {
+            path: "/etc/systemd/network/00-eth0.network".to_owned(),
+            mode: 644,
+            overwrite: Some(true),
+            contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
+            user: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+            group: Some(FileParams {
+                name: "root".to_owned(),
+            }),
+        })
+    }
     pub fn dnsmasq_config(config: &str) -> Self {
         Self {
             path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),

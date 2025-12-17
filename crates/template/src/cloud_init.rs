@@ -1,6 +1,10 @@
 use anyhow::Result;
+use std::collections::HashMap;
+use std::net::Ipv4Addr;
+
 use serde_derive::{Deserialize, Serialize};
 
+use data::NetworkV4;
 use konst::{SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME};
 use util::get_ssh_public_key;
 
@@ -15,6 +19,86 @@ impl MetaDataConfig {
     pub fn to_string(&self) -> Result<String> {
         Ok(serde_yaml::to_string(&self)?)
     }
+}
+
+// network:
+//   version: 2
+//   ethernets:
+//   id0:
+//       match:
+//       macaddress: "aa:bb:cc:dd:ee:ff"
+//       addresses:
+//       - 192.168.10.50/24
+//       routes:
+//       - to: 0.0.0.0/0
+//           via: 192.168.10.1
+//       nameservers:
+//       addresses:
+//           - 1.1.1.1
+//           - 8.8.8.8
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct CloudInitNetwork {
+    pub version: u8,
+    pub ethernets: HashMap<String, EthernetInterface>,
+}
+
+impl CloudInitNetwork {
+    pub fn to_string(&self) -> Result<String> {
+        Ok(serde_yaml::to_string(&self)?)
+    }
+    pub fn ztp_interface(
+        mgmt_ipv4_address: Ipv4Addr,
+        mgmt_mac_address: String,
+        mgmt_ipv4: NetworkV4,
+    ) -> Self {
+        let mut ethernets = HashMap::new();
+
+        ethernets.insert(
+            "id0".to_string(),
+            EthernetInterface {
+                match_config: MatchConfig {
+                    macaddress: mgmt_mac_address,
+                },
+                addresses: vec![format!("{}/{}", mgmt_ipv4_address, mgmt_ipv4.prefix_length)],
+                routes: vec![Route {
+                    to: "0.0.0.0/0".to_string(),
+                    via: mgmt_ipv4.first.to_string(),
+                }],
+                nameservers: Nameservers {
+                    addresses: vec![mgmt_ipv4.boot_server.to_string()],
+                },
+            },
+        );
+        Self {
+            version: 2,
+            ethernets: ethernets,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct EthernetInterface {
+    #[serde(rename = "match")]
+    pub match_config: MatchConfig,
+    pub addresses: Vec<String>,
+    pub routes: Vec<Route>,
+    pub nameservers: Nameservers,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct MatchConfig {
+    pub macaddress: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Route {
+    pub to: String,
+    pub via: String,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Nameservers {
+    pub addresses: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]

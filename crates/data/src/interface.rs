@@ -410,7 +410,11 @@ interface_enum!(
         Eth45 => 45, "eth45",
         Eth46 => 46, "eth46",
         Eth47 => 47, "eth47",
-        Eth48 => 48, "eth48"
+        Eth48 => 48, "eth48",
+        Eth49 => 49, "eth49",
+        Eth50 => 50, "eth50",
+        Eth51 => 51, "eth51",
+        Eth52 => 52, "eth52"
     ]
 );
 interface_enum!(
@@ -464,7 +468,11 @@ interface_enum!(
         Eth45 => 45, "eth45",
         Eth46 => 46, "eth46",
         Eth47 => 47, "eth47",
-        Eth48 => 48, "eth48"
+        Eth48 => 48, "eth48",
+        Eth49 => 49, "eth49",
+        Eth50 => 50, "eth50",
+        Eth51 => 51, "eth51",
+        Eth52 => 52, "eth52"
     ]
 );
 

@@ -64,6 +64,7 @@ pub const BOOT_SERVER_NAME: &str = "boot01";
 
 pub const CLOUD_INIT_USER_DATA: &str = "user-data";
 pub const CLOUD_INIT_META_DATA: &str = "meta-data";
+pub const CLOUD_INIT_NETWORK_CONFIG: &str = "network-config";
 pub const _USER_SSH_DIR: &str = "~/.ssh";
 pub const _USER_SSH_PUBLIC_KEY_FILE: &str = "id_rsa.pub";
 pub const TEMP_DIR: &str = ".tmp";

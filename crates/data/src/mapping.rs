@@ -17,11 +17,6 @@ pub struct CloneDisk {
     pub dst: String,
 }
 
-pub struct ZtpTemplates {
-    pub arista_eos: String,
-    pub aruba_aos: String,
-}
-
 #[derive(Debug, Deserialize, Serialize)]
 pub struct DeviceDisk {
     pub disk_device: DiskDevices,

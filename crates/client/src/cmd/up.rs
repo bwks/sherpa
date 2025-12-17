@@ -11,15 +11,15 @@ use data::{
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
-    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME,
-    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
-    LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR,
-    TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
+    CONTAINER_DISK_NAME, CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
+    TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
@@ -30,10 +30,11 @@ use std::time::{Duration, Instant};
 use template::{
     AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
     CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitUser, Contents as IgnitionFileContents, CumulusLinuxZtpTemplate,
-    DomainTemplate, File as IgnitionFile, FileParams as IgnitionFileParams,
-    FileSystem as IgnitionFileSystem, IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig,
-    PyatsInventory, SonicLinuxZtp, SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
+    CloudInitConfig, CloudInitNetwork, CloudInitUser, Contents as IgnitionFileContents,
+    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
+    FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
+    JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp, SshConfigTemplate,
+    Unit as IgnitionUnit, User as IgnitionUser,
 };
 use topology::{LinkDetailed, LinkExpanded, Manifest, Node};
 use util::{
@@ -459,6 +460,14 @@ pub async fn up(
                             cloud_init_user.groups = vec![admin_group];
                             cloud_init_user.shell = shell;
 
+                            let ztp_interface = CloudInitNetwork::ztp_interface(
+                                device_ipv4_address.unwrap(),
+                                mac_address,
+                                mgmt_net.v4.clone(),
+                            );
+
+                            let cloud_network_config = ztp_interface.to_string()?;
+
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
                                 fqdn: format!("{}.{}", device.name.clone(), SHERPA_DOMAIN_NAME),
@@ -471,9 +480,11 @@ pub async fn up(
 
                             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                            let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
+
                             create_dir(&dir)?;
                             create_file(&user_data, user_data_config)?;
-                            // create_file(&user_data, rendered_template)?;
+                            create_file(&network_config, cloud_network_config)?;
                             create_file(&meta_data, "".to_string())?;
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
@@ -644,6 +655,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user: user.clone(),
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = arista_template.render()?;
                             let ztp_config = format!("{dir}/{}.conf", device.name);
@@ -655,6 +668,8 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user: user.clone(),
                                 dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let aruba_rendered_template = aruba_template.render()?;
                             let ztp_config = format!("{dir}/{}.conf", device.name);
@@ -692,12 +707,17 @@ pub async fn up(
                         DeviceModels::SonicLinux => {
                             let sonic_ztp_file_map =
                                 SonicLinuxZtp::file_map(&device.name, &mgmt_net.v4.boot_server);
-                            let sonic_ztp_config = SonicLinuxZtp::config(&device.name);
+
                             let ztp_init = format!("{dir}/{}.conf", &device.name);
+                            let sonic_ztp = SonicLinuxZtp {
+                                hostname: device.name.clone(),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                            };
                             let ztp_config = format!("{dir}/{}_config_db.json", &device.name);
                             create_dir(&dir)?;
                             create_file(&ztp_init, sonic_ztp_file_map)?;
-                            create_file(&ztp_config, sonic_ztp_config)?;
+                            create_file(&ztp_config, sonic_ztp.config())?;
                         }
                         _ => {
                             anyhow::bail!(
@@ -1050,6 +1070,14 @@ pub async fn up(
                             let mut files = vec![sudo_config_file, hostname_file, disable_update];
                             files.extend(manifest_text_files);
 
+                            if device_ipv4_address.is_some() {
+                                files.push(IgnitionFile::ztp_interface(
+                                    // This should always be Some
+                                    device_ipv4_address.unwrap(),
+                                    mgmt_net.v4.clone(),
+                                )?);
+                            }
+
                             let ignition_config = IgnitionConfig::new(
                                 vec![ignition_user],
                                 files,
@@ -1223,7 +1251,7 @@ pub async fn up(
         domains.push(domain);
     }
 
-    let _ztp_templates = create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
+    create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
     create_boot_containers(&docker_conn, &mgmt_net, lab_id).await?;
 
     // Clone disks in parallel

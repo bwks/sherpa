@@ -4,25 +4,20 @@ use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{ContainerNetworkAttachment, Dns, SherpaNetwork, User, ZtpRecord, ZtpTemplates};
+use data::{ContainerNetworkAttachment, Dns, SherpaNetwork, User, ZtpRecord};
 use konst::{
-    ARISTA_VEOS_ZTP_SCRIPT, ARISTA_ZTP_DIR, ARUBA_ZTP_CONFIG, ARUBA_ZTP_DIR, CISCO_ZTP_DIR,
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CUMULUS_ZTP_CONFIG, CUMULUS_ZTP_DIR,
-    DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_DIR,
-    SHERPA_MANAGEMENT_NETWORK_NAME, TEMP_DIR, TFTP_DIR, ZTP_DIR,
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_MANAGEMENT_NETWORK_NAME, TEMP_DIR, TFTP_DIR, ZTP_DIR,
 };
-use template::{
-    ArubaAoscxTemplate, CumulusLinuxZtpTemplate, DnsmasqTemplate, SonicLinuxUserTemplate,
-    arista_veos_ztp_script,
-};
-use util::{create_dir, create_file, get_ipv4_addr, pub_ssh_key_to_md5_hash, term_msg_underline};
+use template::{DnsmasqTemplate, SonicLinuxUserTemplate};
+use util::{create_dir, create_file, get_ipv4_addr, term_msg_underline};
 
 pub fn create_ztp_files(
     mgmt_net: &SherpaNetwork,
     sherpa_user: &User,
-    dns: &Dns,
+    _dns: &Dns,
     ztp_records: &[ZtpRecord],
-) -> Result<ZtpTemplates> {
+) -> Result<()> {
     // Create ZTP files
     term_msg_underline("Creating ZTP configs");
 
@@ -52,31 +47,6 @@ pub fn create_ztp_files(
         "".to_string(),
     )?;
 
-    // Aristra vEOS
-    let arista_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARISTA_ZTP_DIR}");
-    create_dir(&arista_dir)?;
-
-    let arista_ztp_file = format!("{arista_dir}/{ARISTA_VEOS_ZTP_SCRIPT}");
-    let arista_ztp_script = arista_veos_ztp_script();
-    create_file(&arista_ztp_file, arista_ztp_script.clone())?;
-
-    // Aruba AOS
-    let aruba_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{ARUBA_ZTP_DIR}");
-    create_dir(&aruba_dir)?;
-
-    let aruba_template = ArubaAoscxTemplate {
-        hostname: "aos-ztp".to_owned(),
-        user: sherpa_user.clone(),
-        dns: dns.clone(),
-    };
-    let aruba_rendered_template = aruba_template.render()?;
-    let aruba_ztp_config = format!("{aruba_dir}/{ARUBA_ZTP_CONFIG}");
-    create_file(&aruba_ztp_config, aruba_rendered_template.clone())?;
-
-    // Cumulus Linux
-    let cumulus_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CUMULUS_ZTP_DIR}");
-    create_dir(&cumulus_dir)?;
-
     // Sonic
     let sonic_user_template = SonicLinuxUserTemplate {
         user: sherpa_user.clone(),
@@ -87,20 +57,7 @@ pub fn create_ztp_files(
         sonic_user_rendered_template.clone(),
     )?;
 
-    // Cisco
-    let cisco_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{CISCO_ZTP_DIR}");
-    create_dir(&cisco_dir)?;
-    let mut cisco_user = sherpa_user.clone();
-    cisco_user.ssh_public_key.key = pub_ssh_key_to_md5_hash(&cisco_user.ssh_public_key.key)?;
-
-    // Juniper vevolved
-    let juniper_dir = format!("{TEMP_DIR}/{ZTP_DIR}/{JUNIPER_ZTP_DIR}");
-    create_dir(&juniper_dir)?;
-
-    Ok(ZtpTemplates {
-        arista_eos: arista_ztp_script,
-        aruba_aos: aruba_rendered_template,
-    })
+    Ok(())
 }
 
 pub async fn create_boot_containers(

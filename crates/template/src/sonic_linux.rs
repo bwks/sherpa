@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use askama::Template;
 use serde_json::json;
 
-use data::User;
+use data::{NetworkV4, User};
 use konst::{DEVICE_CONFIGS_DIR, HTTP_PORT};
 
 #[derive(Template)]
@@ -12,7 +12,11 @@ pub struct SonicLinuxUserTemplate {
     pub user: User,
 }
 
-pub struct SonicLinuxZtp {}
+pub struct SonicLinuxZtp {
+    pub hostname: String,
+    pub mgmt_ipv4: NetworkV4,
+    pub mgmt_ipv4_address: Option<Ipv4Addr>,
+}
 
 impl SonicLinuxZtp {
     pub fn file_map(device_name: &str, ztp_server: &Ipv4Addr) -> String {
@@ -38,11 +42,11 @@ impl SonicLinuxZtp {
         );
         sonic_ztp_template.to_string()
     }
-    pub fn config(device_name: &str) -> String {
-        let template = json!({
+    pub fn config(&self) -> String {
+        let mut template = json!({
           "DEVICE_METADATA": {
             "localhost": {
-              "hostname": device_name
+              "hostname": self.hostname
             }
           },
           "AAA": {
@@ -51,6 +55,23 @@ impl SonicLinuxZtp {
             }
           }
         });
+
+        // Add MGMT_PORT and MGMT_INTERFACE only if mgmt_ip is provided
+        if let Some(mgmt_ip) = self.mgmt_ipv4_address {
+            template["MGMT_PORT"] = json!({
+                "eth0": {
+                    "alias": "eth0",
+                    "admin_status": "up"
+                }
+            });
+
+            template["MGMT_INTERFACE"] = json!({
+                format!("eth0|{}/{}", mgmt_ip, self.mgmt_ipv4.prefix_length): {
+                    "gwaddr": format!("{}", self.mgmt_ipv4.first)
+                }
+            });
+        }
+
         template.to_string()
     }
 }

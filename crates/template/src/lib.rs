@@ -15,14 +15,14 @@ mod pyats;
 mod sonic_linux;
 mod ssh;
 
-pub use arista_eos::{AristaVeosZtpTemplate, arista_veos_ztp_script};
-pub use aruba_aos::{ArubaAoscxShTemplate, ArubaAoscxTemplate};
+pub use arista_eos::AristaVeosZtpTemplate;
+pub use aruba_aos::ArubaAoscxTemplate;
 pub use cisco_asa::CiscoAsavZtpTemplate;
 pub use cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 pub use cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use cisco_nxos::CiscoNxosZtpTemplate;
-pub use cloud_init::{CloudInitConfig, CloudInitUser, MetaDataConfig};
+pub use cloud_init::{CloudInitConfig, CloudInitNetwork, CloudInitUser, MetaDataConfig};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate};

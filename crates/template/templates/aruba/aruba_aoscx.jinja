@@ -15,7 +15,13 @@ ssh server vrf mgmt
 vlan 1
 interface mgmt
     no shutdown
+    {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+    ip static {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+    {%- else %}
     ip dhcp
+    {%- endif %}
+!
+ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
 !
 https-server vrf mgmt
 !

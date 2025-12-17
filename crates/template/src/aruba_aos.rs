@@ -1,19 +1,9 @@
+use std::net::Ipv4Addr;
+
 use askama::Template;
 
-use data::{Dns, User};
-use konst::{ARUBA_ZTP_SCRIPT, SHERPA_PASSWORD};
-
-#[allow(dead_code)]
-pub fn aruba_aoscx_ztp_script() -> String {
-    format!(
-        r#"!
-start-shell
-sudo mkdir /mnt/config/
-sudo mount /dev/sdb /mnt/config/
-/bin/sh /mnt/config/{ARUBA_ZTP_SCRIPT}
-    "#,
-    )
-}
+use data::{Dns, NetworkV4, User};
+use konst::SHERPA_PASSWORD;
 
 #[derive(Template)]
 #[template(path = "aruba/aruba_aoscx.jinja", ext = "txt")]
@@ -21,12 +11,6 @@ pub struct ArubaAoscxTemplate {
     pub hostname: String,
     pub user: User,
     pub dns: Dns,
-}
-
-#[derive(Template)]
-#[template(path = "aruba/aruba_aoscx_sh.jinja", ext = "txt")]
-pub struct ArubaAoscxShTemplate {
-    pub hostname: String,
-    pub user: User,
-    pub dns: Dns,
+    pub mgmt_ipv4: NetworkV4,
+    pub mgmt_ipv4_address: Option<Ipv4Addr>,
 }

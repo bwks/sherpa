@@ -31,9 +31,7 @@ pub use interface::{
     JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MgmtInterfaces,
 };
 pub use lab::LabInfo;
-pub use mapping::{
-    CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand, ZtpTemplates,
-};
+pub use mapping::{CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand};
 pub use network::{NetworkV4, SherpaNetwork};
 pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
