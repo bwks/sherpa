@@ -21,6 +21,11 @@ mkfs.fat -F 32 $BASE_DIR/fat32.img
 cp $BASE_DIR/base.img $BASE_DIR/junos.img
 mkfs.vfat  -v -n "vmm-data" $BASE_DIR/junos.img
 
+# ISE Disk
+# Requires the name to be 'ISE-ZTP'
+qemu-img create -f raw $BASE_DIR/ise.img 10M
+mkfs.ext4  -L "ISE-ZTP" $BASE_DIR/ise.img
+
 # EXT4 Disks
 qemu-img create -f raw $BASE_DIR/ext4-100mb.img 100M
 mkfs.ext4 -L "data-disk" $BASE_DIR/ext4-100mb.img

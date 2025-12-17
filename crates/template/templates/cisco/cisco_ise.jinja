@@ -1,0 +1,41 @@
+# Mandatory networking
+hostname={{ hostname }}
+
+{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+ipv4_addr={{ mgmt_ipv4_address }}
+ipv4_mask={{ mgmt_ipv4.subnet_mask }}
+ipv4_default_gw={{ mgmt_ipv4.first }}
+{%- endif %}
+
+# Optional IPv6
+# ipv6_addr=2001:db8:10::50
+# ipv6_default_gw=2001:db8:10::1
+
+# DNS and domain
+domain={{ dns.domain }}
+primary_nameserver={{ mgmt_ipv4.boot_server }}
+
+# NTP
+primary_ntpserver=time.cloudflare.com
+# secondary_ntpserver=pool.ntp.org
+
+# Timezone (TZ string as in Linux)
+timezone=UTC
+
+# services - optional
+ssh=true
+ers=true
+openapi=true
+
+# Admin credentials
+username={{ user.username }}
+{%- if let Some(password) = user.password %}
+password={{ password }}
+{%- endif %}
+# Optional SSH public key (ISE 3.2+)
+public_key={{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+
+# Skipping specific checks
+SkipIcmpChecks=true
+SkipDnsChecks=true
+SkipNtpChecks=true

@@ -44,6 +44,7 @@ pub fn default_config() -> Config {
         DeviceModel::cisco_nexus9300v(),
         DeviceModel::cisco_iosv(),
         DeviceModel::cisco_iosvl2(),
+        DeviceModel::cisco_ise(),
         DeviceModel::juniper_vrouter(),
         DeviceModel::juniper_vswitch(),
         DeviceModel::juniper_vevolved(),
@@ -63,8 +64,6 @@ pub fn default_config() -> Config {
         DeviceModel::flatcar_linux(),
         DeviceModel::free_bsd(),
         DeviceModel::open_bsd(),
-        DeviceModel::net_bsd(),
-        DeviceModel::dragonfly_bsd(),
         DeviceModel::windows_server(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT

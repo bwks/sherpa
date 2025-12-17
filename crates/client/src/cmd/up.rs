@@ -11,11 +11,11 @@ use data::{
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
-    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
-    CONTAINER_DISK_NAME, CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG,
+    CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG,
+    CLOUD_INIT_USER_DATA, CONTAINER_DISK_NAME, CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG,
     JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD_HASH,
     SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_PORT_ALT,
@@ -29,12 +29,12 @@ use std::thread::sleep;
 use std::time::{Duration, Instant};
 use template::{
     AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate, CiscoIosXeZtpTemplate,
-    CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitNetwork, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
-    FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
-    JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
+    CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoIseZtpTemplate,
+    CiscoNxosZtpTemplate, CloudInitConfig, CloudInitNetwork, CloudInitUser,
+    Contents as IgnitionFileContents, CumulusLinuxZtpTemplate, DomainTemplate,
+    File as IgnitionFile, FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem,
+    IgnitionConfig, JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp,
+    SshConfigTemplate, Unit as IgnitionUnit, User as IgnitionUser,
 };
 use topology::{LinkDetailed, LinkExpanded, Manifest, Node};
 use util::{
@@ -448,10 +448,7 @@ pub async fn up(
                         | DeviceModels::SuseLinux
                         | DeviceModels::UbuntuLinux
                         | DeviceModels::FreeBsd
-                        | DeviceModels::OpenBsd
-                        | DeviceModels::NetBsd
-                        | DeviceModels::DragonflyBsd
-                        | DeviceModels::WindowsServer => {
+                        | DeviceModels::OpenBsd => {
                             let (admin_group, shell) = match device_model.os_variant {
                                 OsVariants::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),
@@ -492,7 +489,7 @@ pub async fn up(
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
 
-                        DeviceModels::AlpineLinuxv => {
+                        DeviceModels::AlpineLinux => {
                             let meta_data = MetaDataConfig {
                                 instance_id: format!("iid-{}", device.name.clone(),),
                                 local_hostname: format!(
@@ -517,10 +514,23 @@ pub async fn up(
 
                             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                            let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
+
                             create_dir(&dir)?;
                             create_file(&user_data, user_data_config)?;
-                            // create_file(&user_data, rendered_template)?;
                             create_file(&meta_data, meta_data_config)?;
+
+                            if device_ipv4_address.is_some() {
+                                let ztp_interface = CloudInitNetwork::ztp_interface(
+                                    // This should always be Some
+                                    device_ipv4_address.unwrap(),
+                                    mac_address,
+                                    mgmt_net.v4.clone(),
+                                );
+                                let cloud_network_config = ztp_interface.to_string()?;
+                                create_file(&network_config, cloud_network_config)?;
+                            }
+
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
                         _ => {
@@ -758,7 +768,7 @@ pub async fn up(
                                 "{}/{}/{}",
                                 &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
+                            let dst_disk = format!("{dir}/{vm_name}-cfg.img");
 
                             // Create a copy of the disk base image
                             copy_file(&src_disk, &dst_disk)?;
@@ -790,12 +800,41 @@ pub async fn up(
                                 "{}/{}/{}",
                                 &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
                             );
-                            let dst_disk = format!("{dir}/{SHERPA_BLANK_DISK_DIR}-cfg.img");
+                            let dst_disk = format!("{dir}/{vm_name}-cfg.img");
 
                             // Create a copy of the hdd base image
                             copy_file(&src_disk, &dst_disk)?;
                             // copy file to hdd disk
                             copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.to_owned());
+                            dst_config_disk =
+                                Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
+                        }
+                        DeviceModels::CiscoIse => {
+                            let t = CiscoIseZtpTemplate {
+                                hostname: device.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
+                            create_dir(&dir)?;
+                            create_file(&ztp_config, rendered_template)?;
+
+                            // clone disk
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_ISE
+                            );
+                            let dst_disk = format!("{dir}/{vm_name}-cfg.img");
+
+                            // Create a copy of the hdd base image
+                            copy_file(&src_disk, &dst_disk)?;
+                            // copy file to hdd disk
+                            copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
