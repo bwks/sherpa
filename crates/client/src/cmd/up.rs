@@ -453,20 +453,12 @@ pub async fn up(
                         | DeviceModels::DragonflyBsd
                         | DeviceModels::WindowsServer => {
                             let (admin_group, shell) = match device_model.os_variant {
-                                OsVariants::Bsd => ("wheel".to_string(), "/bin/ksh".to_string()),
+                                OsVariants::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),
                             };
                             let mut cloud_init_user = CloudInitUser::sherpa()?;
                             cloud_init_user.groups = vec![admin_group];
                             cloud_init_user.shell = shell;
-
-                            let ztp_interface = CloudInitNetwork::ztp_interface(
-                                device_ipv4_address.unwrap(),
-                                mac_address,
-                                mgmt_net.v4.clone(),
-                            );
-
-                            let cloud_network_config = ztp_interface.to_string()?;
 
                             let cloud_init_config = CloudInitConfig {
                                 hostname: device.name.clone(),
@@ -484,10 +476,22 @@ pub async fn up(
 
                             create_dir(&dir)?;
                             create_file(&user_data, user_data_config)?;
-                            create_file(&network_config, cloud_network_config)?;
                             create_file(&meta_data, "".to_string())?;
+
+                            if device_ipv4_address.is_some() {
+                                let ztp_interface = CloudInitNetwork::ztp_interface(
+                                    // This should always be Some
+                                    device_ipv4_address.unwrap(),
+                                    mac_address,
+                                    mgmt_net.v4.clone(),
+                                );
+                                let cloud_network_config = ztp_interface.to_string()?;
+                                create_file(&network_config, cloud_network_config)?;
+                            }
+
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
+
                         DeviceModels::AlpineLinuxv => {
                             let meta_data = MetaDataConfig {
                                 instance_id: format!("iid-{}", device.name.clone(),),

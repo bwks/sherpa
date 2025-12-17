@@ -46,8 +46,6 @@ pub enum DeviceModels {
     WindowsServer,
     FreeBsd,
     OpenBsd,
-    NetBsd,
-    DragonflyBsd,
 }
 impl fmt::Display for DeviceModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -83,8 +81,6 @@ impl fmt::Display for DeviceModels {
             DeviceModels::SonicLinux => write!(f, "sonic_linux"),
             DeviceModels::FreeBsd => write!(f, "free_bsd"),
             DeviceModels::OpenBsd => write!(f, "open_bsd"),
-            DeviceModels::NetBsd => write!(f, "net_bsd"),
-            DeviceModels::DragonflyBsd => write!(f, "dragonfly_bsd"),
             DeviceModels::CustomUnknown => write!(f, "custom_unknown"),
         }
     }
@@ -389,8 +385,6 @@ impl DeviceModel {
             DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
             DeviceModels::FreeBsd => DeviceModel::free_bsd(),
             DeviceModels::OpenBsd => DeviceModel::open_bsd(),
-            DeviceModels::NetBsd => DeviceModel::net_bsd(),
-            DeviceModels::DragonflyBsd => DeviceModel::dragonfly_bsd(),
             DeviceModels::WindowsServer => todo!(),
             DeviceModels::CustomUnknown => DeviceModel::default(),
         }
@@ -1326,70 +1320,6 @@ impl DeviceModel {
     pub fn open_bsd() -> DeviceModel {
         DeviceModel {
             name: DeviceModels::OpenBsd,
-            version: "latest".to_owned(),
-            os_variant: OsVariants::Bsd,
-            manufacturer: Manufacturers::Bsd,
-            kind: DeviceKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
-            ztp_password_auth: false,
-            first_interface_index: 0,
-            dedicated_management_interface: false,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
-        }
-    }
-    pub fn net_bsd() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::NetBsd,
-            version: "latest".to_owned(),
-            os_variant: OsVariants::Bsd,
-            manufacturer: Manufacturers::Bsd,
-            kind: DeviceKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
-            interface_count: 1,
-            interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
-            interface_mtu: MTU_JUMBO_INT,
-            cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X86_64,
-            cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
-            vmx_enabled: false,
-            memory: 1024,
-            hdd_bus: DiskBuses::Virtio,
-            cdrom: None,
-            cdrom_bus: DiskBuses::Sata,
-            ztp_enable: true,
-            ztp_username: None,
-            ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
-            ztp_password_auth: false,
-            first_interface_index: 0,
-            dedicated_management_interface: false,
-            management_interface: MgmtInterfaces::Eth0,
-            reserved_interface_count: 0,
-        }
-    }
-    pub fn dragonfly_bsd() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::DragonflyBsd,
             version: "latest".to_owned(),
             os_variant: OsVariants::Bsd,
             manufacturer: Manufacturers::Bsd,

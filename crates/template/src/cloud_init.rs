@@ -21,21 +21,6 @@ impl MetaDataConfig {
     }
 }
 
-// network:
-//   version: 2
-//   ethernets:
-//   id0:
-//       match:
-//       macaddress: "aa:bb:cc:dd:ee:ff"
-//       addresses:
-//       - 192.168.10.50/24
-//       routes:
-//       - to: 0.0.0.0/0
-//           via: 192.168.10.1
-//       nameservers:
-//       addresses:
-//           - 1.1.1.1
-//           - 8.8.8.8
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CloudInitNetwork {
     pub version: u8,
