@@ -27,9 +27,11 @@ dhcp-ignore-clid
 enable-tftp
 tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 
-{# Host level DHCP settings #}
+{# Host level DNS/DHCP settings #}
 {%- for record in ztp_records %}
 # {{ record.device_name }}
+host-record={{ record.device_name }},{{ record.ipv4_address }}
+host-record={{ record.device_name }}.{{ SHERPA_DOMAIN_NAME }},{{ record.ipv4_address }}
 dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.device_name }},,set:{{ record.device_name }}-tag
 {%-   match record.ztp_method %}
 {%-     when ZtpMethods::Tftp %}

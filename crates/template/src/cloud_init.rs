@@ -5,7 +5,10 @@ use std::net::Ipv4Addr;
 use serde_derive::{Deserialize, Serialize};
 
 use data::NetworkV4;
-use konst::{SHERPA_CONFIG_DIR, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME};
+use konst::{
+    SHERPA_CONFIG_DIR, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_FILE,
+    SHERPA_USERNAME,
+};
 use util::get_ssh_public_key;
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -50,6 +53,7 @@ impl CloudInitNetwork {
                     via: mgmt_ipv4.first.to_string(),
                 }],
                 nameservers: Nameservers {
+                    search: vec![SHERPA_DOMAIN_NAME.to_string()],
                     addresses: vec![mgmt_ipv4.boot_server.to_string()],
                 },
             },
@@ -84,6 +88,14 @@ pub struct Route {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Nameservers {
     pub addresses: Vec<String>,
+    pub search: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CloudInitResolvConf {
+    pub domain: String,
+    pub searchdomains: Vec<String>,
+    pub nameservers: Vec<Ipv4Addr>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
@@ -93,6 +105,10 @@ pub struct CloudInitConfig {
     pub manage_etc_hosts: bool,
     pub ssh_pwauth: bool,
     pub users: Vec<CloudInitUser>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manage_resolv_conf: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolv_conf: Option<CloudInitResolvConf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packages: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

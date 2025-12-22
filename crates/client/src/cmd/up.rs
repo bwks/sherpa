@@ -440,6 +440,8 @@ pub async fn up(
                     // generate the template
                     println!("Creating Cloud-Init config {}", device.name);
                     let dir = format!("{TEMP_DIR}/{vm_name}");
+                    let mut cloud_init_user = CloudInitUser::sherpa()?;
+
                     match device.model {
                         DeviceModels::CentosLinux
                         | DeviceModels::AlmaLinux
@@ -455,7 +457,6 @@ pub async fn up(
                                 OsVariants::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),
                             };
-                            let mut cloud_init_user = CloudInitUser::sherpa()?;
                             cloud_init_user.groups = vec![admin_group];
                             cloud_init_user.shell = shell;
 
@@ -500,7 +501,6 @@ pub async fn up(
                                     SHERPA_DOMAIN_NAME
                                 ),
                             };
-                            let mut cloud_init_user = CloudInitUser::sherpa()?;
                             cloud_init_user.shell = "/bin/sh".to_string();
                             cloud_init_user.groups = vec!["wheel".to_string()];
                             let cloud_init_config = CloudInitConfig {
