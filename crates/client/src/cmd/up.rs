@@ -1,6 +1,6 @@
 use super::boot_containers::{create_boot_containers, create_ztp_files};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
 use container::{create_network, docker_connection};
@@ -428,6 +428,8 @@ pub async fn up(
 
         if device_model.ztp_enable {
             ztp_devices.push(device);
+            // TODO: Update this to use the assigned IP if
+            // an IP is not user defined.
             let device_ipv4_address = ztp_records
                 .iter()
                 .find(|r| r.device_name == device.name)
@@ -816,7 +818,7 @@ pub async fn up(
                                 hostname: device.name.clone(),
                                 user,
                                 dns: dns.clone(),
-                                mgmt_ipv4_address: device_ipv4_address,
+                                mgmt_ipv4_address: device_ipv4_address.ok_or_else(|| anyhow!("Cisco ISE device model requires an IPv4 management address. Node: {}", device.name))?,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
                             };
                             let rendered_template = t.render()?;
@@ -1368,7 +1370,7 @@ pub async fn up(
     }
 
     // Check if VMs are ready
-    term_msg_underline("Checking VM Readiness");
+    term_msg_underline("Checking Node Readiness");
     let start_time = Instant::now();
     let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
     let mut connected_devices = std::collections::HashSet::new();

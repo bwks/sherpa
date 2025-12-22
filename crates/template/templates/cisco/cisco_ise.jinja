@@ -1,11 +1,9 @@
 # Mandatory networking
 hostname={{ hostname }}
 
-{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 ipv4_addr={{ mgmt_ipv4_address }}
 ipv4_mask={{ mgmt_ipv4.subnet_mask }}
 ipv4_default_gw={{ mgmt_ipv4.first }}
-{%- endif %}
 
 # Optional IPv6
 # ipv6_addr=2001:db8:10::50
@@ -26,6 +24,7 @@ timezone=UTC
 ssh=true
 ers=true
 openapi=true
+pxgrid=true
 
 # Admin credentials
 username={{ user.username }}
