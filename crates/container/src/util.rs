@@ -220,6 +220,53 @@ pub async fn remove_container(docker: &Docker, name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Pull a container image from an OCI registry and save to local Docker daemon
+/// Similar to `docker pull` command
+pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
+    let docker = Docker::connect_with_local_defaults()?;
+
+    let image_location = format!("{}:{}", repo, tag);
+
+    println!("Pulling image: {}", image_location);
+
+    // Specify the image details using the builder
+    let options = CreateImageOptionsBuilder::default()
+        .from_image(repo)
+        .tag(tag)
+        .build();
+
+    // Pull the image - this saves directly to Docker's local image store
+    let mut pull_stream = docker.create_image(Some(options), None, None);
+
+    while let Some(pull_result) = pull_stream.next().await {
+        match pull_result {
+            Ok(info) => {
+                // Optionally print pull progress
+                if let Some(status) = info.status {
+                    if let Some(progress) = info.progress {
+                        println!("{}: {}", status, progress);
+                    } else {
+                        println!("{}", status);
+                    }
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "Error pulling image {}: {}",
+                    image_location,
+                    e
+                ));
+            }
+        }
+    }
+
+    println!("Successfully pulled image: {}", image_location);
+    println!("Image is now available in local Docker daemon");
+    println!("Run 'docker image ls' to verify");
+
+    Ok(())
+}
+
 /// Pull down a container image from an OCI compliant Repository.
 pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage) -> Result<()> {
     let image_location = format!("{}:{}", image.repo, image.version);

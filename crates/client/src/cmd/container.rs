@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use clap::Subcommand;
 
-use container::{pull_container_image, save_container_image};
+use container::{pull_container_image, pull_image, save_container_image};
 use data::{ContainerImage, ContainerModel, DeviceModels, Sherpa};
 use konst::{
     CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
@@ -76,7 +76,12 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
                 },
             };
 
-            pull_container_image(&config, &container_image).await?;
+            // pull_container_image(&config, &container_image).await?;
+            pull_image(
+                &repo.clone().unwrap().to_owned(),
+                &version.clone().unwrap().to_owned(),
+            )
+            .await?;
         }
         ContainerCommands::Import {
             image,
