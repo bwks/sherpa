@@ -6,7 +6,8 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use super::link::Link2;
 use super::node::Node;
-use data::{DeviceModels, ZtpServer};
+use data::{NodeModel, ZtpServer};
+use util::load_file as load_file_util;
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
@@ -25,12 +26,12 @@ impl Manifest {
 
         let dev01 = Node {
             name: "dev01".to_owned(),
-            model: DeviceModels::FedoraLinux,
+            model: NodeModel::FedoraLinux,
             ..Default::default()
         };
         let dev02 = Node {
             name: "dev02".to_owned(),
-            model: DeviceModels::FedoraLinux,
+            model: NodeModel::FedoraLinux,
             ..Default::default()
         };
 
@@ -101,7 +102,7 @@ impl Manifest {
     }
 
     pub fn load_file(file_path: &str) -> Result<Manifest> {
-        let file_contents = fs::read_to_string(file_path)?;
+        let file_contents = load_file_util(file_path)?;
         let manifest: Manifest = toml::from_str(&file_contents)?;
         Ok(manifest)
     }

@@ -23,17 +23,13 @@ pub async fn init(
     term_msg_surround("Sherpa Initializing");
     let qemu_conn = qemu.connect()?;
 
-    let mut sherpa = sherpa.clone();
-
-    sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
+    let sherpa = sherpa.clone();
 
     term_msg_highlight("Creating Files");
-    // Create the default config directories
-    // let _config = if dir_exists(&sherpa.config_dir) {
-    //     println!("Directory path already exists: {}", sherpa.config_dir);
-    //     load_config(&sherpa.config_path)?
-    // } else {
+
+    create_dir(&sherpa.base_dir)?;
     create_dir(&sherpa.config_dir)?;
+    create_dir(&sherpa.ssh_dir)?;
     create_dir(&sherpa.containers_dir.to_string())?;
     create_dir(&sherpa.bins_dir.to_string())?;
     create_dir(&sherpa.images_dir)?;
@@ -57,12 +53,12 @@ pub async fn init(
     // };
 
     // Initialize default files
-    if file_exists(&sherpa.config_path) && !force {
-        println!("Config file already exists: {}", sherpa.config_path);
+    if file_exists(&sherpa.config_file_path) && !force {
+        println!("Config file already exists: {}", sherpa.config_file_path);
     } else {
         let mut config = default_config();
         config.name = config_file.to_owned();
-        create_config(&config, &sherpa.config_path)?;
+        create_config(&config, &sherpa.config_file_path)?;
     }
 
     if file_exists(manifest_file) && !force {
@@ -73,14 +69,14 @@ pub async fn init(
     }
 
     // SSH Keys
-    let ssh_pub_key_file = format!("{}/{}", &sherpa.config_dir, SHERPA_SSH_PUBLIC_KEY_FILE);
+    let ssh_pub_key_file = format!("{}/{}", &sherpa.ssh_dir, SHERPA_SSH_PUBLIC_KEY_FILE);
 
     if file_exists(&ssh_pub_key_file) && !force {
         println!("SSH keys already exists: {ssh_pub_key_file}");
     } else {
         term_msg_underline("Creating SSH Keypair");
         generate_ssh_keypair(
-            &sherpa.config_dir,
+            &sherpa.ssh_dir,
             SHERPA_SSH_PRIVATE_KEY_FILE,
             Algorithm::Rsa { hash: None }, // An RSA256 key will be generated.
         )?;

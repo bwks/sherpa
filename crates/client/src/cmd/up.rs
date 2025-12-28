@@ -5,9 +5,9 @@ use askama::Template;
 
 use container::{create_network, docker_connection};
 use data::{
-    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DeviceModels, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo,
-    NetworkV4, OsVariants, QemuCommand, Sherpa, SherpaNetwork, ZtpMethods, ZtpRecord,
+    CloneDisk, ConnectionTypes, DeviceConnection, DeviceDisk, DeviceKind, DiskBuses, DiskDevices,
+    DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, NetworkV4,
+    NodeModel, OsVariant, QemuCommand, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
 use konst::{
     CISCO_ASAV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
@@ -50,7 +50,6 @@ use validate::{
 };
 pub async fn up(
     sherpa: &Sherpa,
-    config_file: &str,
     qemu: &Qemu,
     _lab_name: &str,
     lab_id: &str,
@@ -64,10 +63,9 @@ pub async fn up(
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
     println!("Loading config");
-    let mut sherpa = sherpa.clone();
+    let sherpa = sherpa.clone();
 
-    sherpa.config_path = format!("{}/{}", sherpa.config_dir, config_file);
-    let mut config = load_config(&sherpa.config_path)?;
+    let mut config = load_config(&sherpa.config_file_path)?;
 
     // TODO: RUN EXISTING LAB VALIDATORS
 
@@ -204,15 +202,7 @@ pub async fn up(
     if config.ztp_server.enable {
         println!("ZTP server is enabled in configuration")
     } else {
-        for device in &manifest.nodes {
-            if device.model.needs_ztp_server() {
-                println!("ZTP server is required");
-                config.ztp_server.enable = true
-            }
-        }
-        if !config.ztp_server.enable {
-            println!("ZTP server is not required")
-        }
+        println!("ZTP server is disabled in configuration")
     }
 
     // Create a mapping of device name to device id.
@@ -389,7 +379,7 @@ pub async fn up(
             format!(
                 "{}/{}/{}/virtioa.qcow2",
                 sherpa.images_dir,
-                DeviceModels::FlatcarLinux,
+                NodeModel::FlatcarLinux,
                 "latest"
             )
         } else {
@@ -435,7 +425,7 @@ pub async fn up(
                 .find(|r| r.device_name == device.name)
                 .map(|r| r.ipv4_address);
             match device_model.ztp_method {
-                ZtpMethods::CloudInit => {
+                ZtpMethod::CloudInit => {
                     term_msg_underline("Creating Cloud-Init disks");
                     // generate the template
                     println!("Creating Cloud-Init config {}", device.name);
@@ -443,18 +433,18 @@ pub async fn up(
                     let mut cloud_init_user = CloudInitUser::sherpa()?;
 
                     match device.model {
-                        DeviceModels::CentosLinux
-                        | DeviceModels::AlmaLinux
-                        | DeviceModels::RockyLinux
-                        | DeviceModels::FedoraLinux
-                        | DeviceModels::OpensuseLinux
-                        | DeviceModels::RedhatLinux
-                        | DeviceModels::SuseLinux
-                        | DeviceModels::UbuntuLinux
-                        | DeviceModels::FreeBsd
-                        | DeviceModels::OpenBsd => {
+                        NodeModel::CentosLinux
+                        | NodeModel::AlmaLinux
+                        | NodeModel::RockyLinux
+                        | NodeModel::FedoraLinux
+                        | NodeModel::OpensuseLinux
+                        | NodeModel::RedhatLinux
+                        | NodeModel::SuseLinux
+                        | NodeModel::UbuntuLinux
+                        | NodeModel::FreeBsd
+                        | NodeModel::OpenBsd => {
                             let (admin_group, shell) = match device_model.os_variant {
-                                OsVariants::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
+                                OsVariant::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),
                             };
                             cloud_init_user.groups = vec![admin_group];
@@ -492,7 +482,7 @@ pub async fn up(
                             create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
 
-                        DeviceModels::AlpineLinux => {
+                        NodeModel::AlpineLinux => {
                             let meta_data = MetaDataConfig {
                                 instance_id: format!("iid-{}", device.name.clone(),),
                                 local_hostname: format!(
@@ -545,7 +535,7 @@ pub async fn up(
                     src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}.iso"));
                 }
-                ZtpMethods::Cdrom => {
+                ZtpMethod::Cdrom => {
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
@@ -553,23 +543,22 @@ pub async fn up(
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
                     match device.model {
-                        DeviceModels::CiscoCsr1000v
-                        | DeviceModels::CiscoCat8000v
-                        | DeviceModels::CiscoCat9000v => {
-                            let license_boot_command =
-                                if device.model == DeviceModels::CiscoCat8000v {
-                                    Some(
-                                        "license boot level network-premier addon dna-premier"
-                                            .to_string(),
-                                    )
-                                } else if device.model == DeviceModels::CiscoCat9000v {
-                                    Some(
-                                        "license boot level network-advantage addon dna-advantage"
-                                            .to_string(),
-                                    )
-                                } else {
-                                    None
-                                };
+                        NodeModel::CiscoCsr1000v
+                        | NodeModel::CiscoCat8000v
+                        | NodeModel::CiscoCat9000v => {
+                            let license_boot_command = if device.model == NodeModel::CiscoCat8000v {
+                                Some(
+                                    "license boot level network-premier addon dna-premier"
+                                        .to_string(),
+                                )
+                            } else if device.model == NodeModel::CiscoCat9000v {
+                                Some(
+                                    "license boot level network-advantage addon dna-advantage"
+                                        .to_string(),
+                                )
+                            } else {
+                                None
+                            };
 
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
@@ -589,7 +578,7 @@ pub async fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::CiscoAsav => {
+                        NodeModel::CiscoAsav => {
                             let key_hash = pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoAsavZtpTemplate {
@@ -605,7 +594,7 @@ pub async fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::CiscoNexus9300v => {
+                        NodeModel::CiscoNexus9300v => {
                             let t = CiscoNxosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -619,7 +608,7 @@ pub async fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::CiscoIosxrv9000 => {
+                        NodeModel::CiscoIosxrv9000 => {
                             let t = CiscoIosxrZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -633,9 +622,9 @@ pub async fn up(
                             create_file(&ztp_config, rendered_template)?;
                             create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        DeviceModels::JuniperVsrxv3
-                        | DeviceModels::JuniperVrouter
-                        | DeviceModels::JuniperVswitch => {
+                        NodeModel::JuniperVsrxv3
+                        | NodeModel::JuniperVrouter
+                        | NodeModel::JuniperVswitch => {
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -659,14 +648,14 @@ pub async fn up(
                     src_cdrom_iso = Some(format!("{TEMP_DIR}/{vm_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.iso"));
                 }
-                ZtpMethods::Tftp => {
+                ZtpMethod::Tftp => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{TFTP_DIR}");
 
                     match device.model {
-                        DeviceModels::AristaVeos => {
+                        NodeModel::AristaVeos => {
                             let arista_template = AristaVeosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user: user.clone(),
@@ -679,7 +668,7 @@ pub async fn up(
                             create_dir(&dir)?;
                             create_file(&ztp_config, rendered_template)?;
                         }
-                        DeviceModels::ArubaAoscx => {
+                        NodeModel::ArubaAoscx => {
                             let aruba_template = ArubaAoscxTemplate {
                                 hostname: device.name.clone(),
                                 user: user.clone(),
@@ -692,7 +681,7 @@ pub async fn up(
                             create_dir(&dir)?;
                             create_file(&ztp_config, aruba_rendered_template)?;
                         }
-                        DeviceModels::JuniperVevolved => {
+                        NodeModel::JuniperVevolved => {
                             let juniper_template = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user: sherpa_user.clone(),
@@ -713,14 +702,14 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethods::Http => {
+                ZtpMethod::Http => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let _user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
 
                     match device.model {
-                        DeviceModels::SonicLinux => {
+                        NodeModel::SonicLinux => {
                             let sonic_ztp_file_map =
                                 SonicLinuxZtp::file_map(&device.name, &mgmt_net.v4.boot_server);
 
@@ -743,13 +732,13 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethods::Disk => {
+                ZtpMethod::Disk => {
                     println!("Creating ZTP config {}", device.name);
                     let mut user = sherpa_user.clone();
 
                     let dir = format!("{TEMP_DIR}/{vm_name}");
                     match device.model {
-                        DeviceModels::CiscoIosv => {
+                        NodeModel::CiscoIosv => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoIosvZtpTemplate {
@@ -781,7 +770,7 @@ pub async fn up(
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
-                        DeviceModels::CiscoIosvl2 => {
+                        NodeModel::CiscoIosvl2 => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = CiscoIosvl2ZtpTemplate {
@@ -813,7 +802,7 @@ pub async fn up(
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
-                        DeviceModels::CiscoIse => {
+                        NodeModel::CiscoIse => {
                             let t = CiscoIseZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -850,14 +839,14 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethods::Usb => {
+                ZtpMethod::Usb => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
                     let dir = format!("{TEMP_DIR}/{vm_name}");
 
                     match device_model.name {
-                        DeviceModels::CumulusLinux => {
+                        NodeModel::CumulusLinux => {
                             let t = CumulusLinuxZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -886,7 +875,7 @@ pub async fn up(
                             dst_usb_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{vm_name}-cfg.img"));
                         }
-                        DeviceModels::JuniperVevolved => {
+                        NodeModel::JuniperVevolved => {
                             let t = JunipervJunosZtpTemplate {
                                 hostname: device.name.clone(),
                                 user,
@@ -926,7 +915,7 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethods::Ignition => {
+                ZtpMethod::Ignition => {
                     term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
@@ -1030,7 +1019,7 @@ pub async fn up(
                         .collect::<Result<Vec<IgnitionUnit>>>()?;
 
                     match device.model {
-                        DeviceModels::NokiaSrlinux => {
+                        NodeModel::NokiaSrlinux => {
                             let srlinux_unit = IgnitionUnit::srlinux();
                             let container_disk_unit = IgnitionUnit::mount_container_disk();
 
@@ -1068,7 +1057,7 @@ pub async fn up(
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
 
-                        DeviceModels::AristaCeos => {
+                        NodeModel::AristaCeos => {
                             let ceos_unit = IgnitionUnit::ceos();
                             let container_disk_unit = IgnitionUnit::mount_container_disk();
 
@@ -1105,7 +1094,7 @@ pub async fn up(
                             src_ignition_disk = Some(src_ztp_file.to_owned());
                             dst_ignition_disk = Some(dst_ztp_file.to_owned());
                         }
-                        DeviceModels::FlatcarLinux => {
+                        NodeModel::FlatcarLinux => {
                             let mut units = vec![];
                             units.push(IgnitionUnit::mount_container_disk());
                             units.extend(manifest_systemd_units);
@@ -1262,10 +1251,10 @@ pub async fn up(
         }
 
         let qemu_commands = match device_model.name {
-            DeviceModels::JuniperVrouter => QemuCommand::juniper_vrouter(),
-            DeviceModels::JuniperVswitch => QemuCommand::juniper_vswitch(),
-            DeviceModels::JuniperVevolved => QemuCommand::juniper_vevolved(),
-            DeviceModels::FlatcarLinux | DeviceModels::NokiaSrlinux | DeviceModels::AristaCeos => {
+            NodeModel::JuniperVrouter => QemuCommand::juniper_vrouter(),
+            NodeModel::JuniperVswitch => QemuCommand::juniper_vswitch(),
+            NodeModel::JuniperVevolved => QemuCommand::juniper_vevolved(),
+            NodeModel::FlatcarLinux | NodeModel::NokiaSrlinux | NodeModel::AristaCeos => {
                 QemuCommand::ignition_config(&dst_ignition_disk.clone().unwrap())
             }
             _ => {
@@ -1397,7 +1386,7 @@ pub async fn up(
                 .find(|d| d.name == device.model)
                 .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
             let ssh_port = match device_model.name {
-                DeviceModels::NokiaSrlinux => SSH_PORT_ALT,
+                NodeModel::NokiaSrlinux => SSH_PORT_ALT,
                 _ => SSH_PORT,
             };
             if let Some(vm_data) = ztp_records.iter().find(|x| x.device_name == device.name) {

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::DeviceModels;
+use data::NodeModel;
 use util::split_dev_int;
 
 /// Manifest Link
@@ -24,11 +24,11 @@ pub struct LinkExpanded {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct LinkDetailed {
     pub dev_a: String,
-    pub dev_a_model: DeviceModels,
+    pub dev_a_model: NodeModel,
     pub int_a: String,
     pub int_a_idx: u8,
     pub dev_b: String,
-    pub dev_b_model: DeviceModels,
+    pub dev_b_model: NodeModel,
     pub int_b: String,
     pub int_b_idx: u8,
 }

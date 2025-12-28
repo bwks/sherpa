@@ -2,7 +2,7 @@ use askama::Template;
 
 use data::{
     BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DeviceDisk, DiskBuses,
-    DiskDevices, Interface, InterfaceTypes, MachineTypes, QemuCommand,
+    DiskDevices, Interface, InterfaceType, MachineType, QemuCommand,
 };
 
 #[derive(Debug, Template)]
@@ -12,14 +12,14 @@ pub struct DomainTemplate {
     pub memory: u16,
     pub cpu_architecture: CpuArchitecture,
     pub cpu_model: CpuModels,
-    pub machine_type: MachineTypes,
+    pub machine_type: MachineType,
     pub cpu_count: u8,
     pub vmx_enabled: bool,
     pub qemu_bin: String,
     pub bios: BiosTypes,
     pub disks: Vec<DeviceDisk>,
     pub interfaces: Vec<Interface>,
-    pub interface_type: InterfaceTypes,
+    pub interface_type: InterfaceType,
     pub loopback_ipv4: String,
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,

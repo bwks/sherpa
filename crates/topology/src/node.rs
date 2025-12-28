@@ -2,12 +2,12 @@ use std::net::Ipv4Addr;
 
 use serde_derive::{Deserialize, Serialize};
 
-use data::DeviceModels;
+use data::NodeModel;
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub struct Node {
     pub name: String,
-    pub model: DeviceModels,
+    pub model: NodeModel,
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub ipv4_address: Option<Ipv4Addr>,

@@ -2,7 +2,7 @@ use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
 use super::container::ContainerImage;
-use super::device::DeviceModel;
+use super::node::NodeInstance;
 use super::provider::VmProviders;
 
 use konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
@@ -51,14 +51,16 @@ pub struct Config {
     pub bins_dir: String,
     pub ztp_server: ZtpServer,
     pub inventory_management: InventoryManagement,
-    pub device_models: Vec<DeviceModel>,
+    pub device_models: Vec<NodeInstance>,
     pub container_images: Vec<ContainerImage>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Sherpa {
+    pub base_dir: String,
     pub config_dir: String,
-    pub config_path: String,
+    pub config_file_path: String,
+    pub ssh_dir: String,
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,

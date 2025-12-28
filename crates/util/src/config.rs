@@ -6,9 +6,9 @@ use anyhow::Result;
 use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
-use data::{Config, ContainerImage, DeviceModel, InventoryManagement, VmProviders, ZtpServer};
+use data::{Config, ContainerImage, InventoryManagement, NodeInstance, VmProviders, ZtpServer};
 use konst::{
-    QEMU_BIN, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
+    QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 
@@ -32,39 +32,39 @@ pub fn default_config() -> Config {
         ContainerImage::webdir(),
         ContainerImage::srlinux(),
     ];
-    let device_models: Vec<DeviceModel> = vec![
-        DeviceModel::arista_veos(),
-        DeviceModel::arista_ceos(),
-        DeviceModel::aruba_aoscx(),
-        DeviceModel::cisco_asav(),
-        DeviceModel::cisco_cat8000v(),
-        DeviceModel::cisco_cat9000v(),
-        DeviceModel::cisco_csr1000v(),
-        DeviceModel::cisco_iosxrv9000(),
-        DeviceModel::cisco_nexus9300v(),
-        DeviceModel::cisco_iosv(),
-        DeviceModel::cisco_iosvl2(),
-        DeviceModel::cisco_ise(),
-        DeviceModel::juniper_vrouter(),
-        DeviceModel::juniper_vswitch(),
-        DeviceModel::juniper_vevolved(),
-        DeviceModel::juniper_vsrxv3(),
-        DeviceModel::nokia_srlinux(),
-        DeviceModel::cumulus_linux(),
-        DeviceModel::sonic_linux(),
-        DeviceModel::alpine_linux(),
-        DeviceModel::alma_linux(),
-        DeviceModel::rocky_linux(),
-        DeviceModel::centos_linux(),
-        DeviceModel::fedora_linux(),
-        DeviceModel::redhat_linux(),
-        DeviceModel::ubuntu_linux(),
-        DeviceModel::opensuse_linux(),
-        DeviceModel::suse_linux(),
-        DeviceModel::flatcar_linux(),
-        DeviceModel::free_bsd(),
-        DeviceModel::open_bsd(),
-        DeviceModel::windows_server(),
+    let device_models: Vec<NodeInstance> = vec![
+        NodeInstance::arista_veos(),
+        NodeInstance::arista_ceos(),
+        NodeInstance::aruba_aoscx(),
+        NodeInstance::cisco_asav(),
+        NodeInstance::cisco_cat8000v(),
+        NodeInstance::cisco_cat9000v(),
+        NodeInstance::cisco_csr1000v(),
+        NodeInstance::cisco_iosxrv9000(),
+        NodeInstance::cisco_nexus9300v(),
+        NodeInstance::cisco_iosv(),
+        NodeInstance::cisco_iosvl2(),
+        NodeInstance::cisco_ise(),
+        NodeInstance::juniper_vrouter(),
+        NodeInstance::juniper_vswitch(),
+        NodeInstance::juniper_vevolved(),
+        NodeInstance::juniper_vsrxv3(),
+        NodeInstance::nokia_srlinux(),
+        NodeInstance::cumulus_linux(),
+        NodeInstance::sonic_linux(),
+        NodeInstance::alpine_linux(),
+        NodeInstance::alma_linux(),
+        NodeInstance::rocky_linux(),
+        NodeInstance::centos_linux(),
+        NodeInstance::fedora_linux(),
+        NodeInstance::redhat_linux(),
+        NodeInstance::ubuntu_linux(),
+        NodeInstance::opensuse_linux(),
+        NodeInstance::suse_linux(),
+        NodeInstance::flatcar_linux(),
+        NodeInstance::free_bsd(),
+        NodeInstance::open_bsd(),
+        NodeInstance::windows_server(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =
@@ -76,9 +76,9 @@ pub fn default_config() -> Config {
         password: Some(SHERPA_PASSWORD.to_owned()),
     };
 
-    let boxes_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}"));
-    let containers_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}"));
-    let bins_dir = expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}"));
+    let boxes_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}"));
+    let containers_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_CONTAINERS_DIR}"));
+    let bins_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_BINS_DIR}"));
 
     Config {
         name: SHERPA_CONFIG_FILE.to_owned(),

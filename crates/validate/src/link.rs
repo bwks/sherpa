@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
-use data::DeviceModels;
+use data::NodeModel;
 use topology::{Node, LinkDetailed, LinkExpanded};
 
 /// Check if a device with a non-dedicated management interface
@@ -82,7 +82,7 @@ pub fn check_link_device(devices: &[Node], links: &Vec<LinkExpanded>) -> Result<
 /// - greater than interface_count
 pub fn check_interface_bounds(
     device_name: &str,
-    device_model: &DeviceModels,
+    device_model: &NodeModel,
     first_interface_index: u8,
     interface_count: u8,
     links: &Vec<LinkDetailed>,

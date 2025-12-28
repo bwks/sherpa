@@ -12,12 +12,16 @@ use konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 #[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
-pub enum DeviceModels {
+pub enum NodeModel {
     #[default]
-    CustomUnknown,
+    // Arista
     AristaVeos,
     AristaCeos,
+
+    // Aruba
     ArubaAoscx,
+
+    // Cisco
     CiscoAsav,
     CiscoCsr1000v,
     CiscoCat8000v,
@@ -27,11 +31,17 @@ pub enum DeviceModels {
     CiscoIosv,
     CiscoIosvl2,
     CiscoIse,
+
+    // Juniper
     JuniperVrouter,
     JuniperVswitch,
     JuniperVevolved,
     JuniperVsrxv3,
+
+    // Nokia
     NokiaSrlinux,
+
+    // Linux
     AlmaLinux,
     RockyLinux,
     AlpineLinux,
@@ -44,120 +54,144 @@ pub enum DeviceModels {
     UbuntuLinux,
     FlatcarLinux,
     SonicLinux,
+
+    // Windows
     WindowsServer,
+
+    // BSD
     FreeBsd,
     OpenBsd,
+
+    // SQL
+    SurrealDb,
+    MysqlDb,
+    PostgresqlDb,
+
+    // Generic
+    GenericContainer,
+    GenericNanovm,
+    GenericVm,
 }
-impl fmt::Display for DeviceModels {
+impl fmt::Display for NodeModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DeviceModels::AristaVeos => write!(f, "arista_veos"),
-            DeviceModels::AristaCeos => write!(f, "arista_ceos"),
-            DeviceModels::ArubaAoscx => write!(f, "aruba_aoscx"),
-            DeviceModels::CiscoAsav => write!(f, "cisco_asav"),
-            DeviceModels::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
-            DeviceModels::CiscoCat8000v => write!(f, "cisco_cat8000v"),
-            DeviceModels::CiscoCat9000v => write!(f, "cisco_cat9000v"),
-            DeviceModels::CiscoIosxrv9000 => write!(f, "cisco_iosxrv9000"),
-            DeviceModels::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
-            DeviceModels::CiscoIosv => write!(f, "cisco_iosv"),
-            DeviceModels::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
-            DeviceModels::CiscoIse => write!(f, "cisco_ise"),
-            DeviceModels::JuniperVrouter => write!(f, "juniper_vrouter"),
-            DeviceModels::JuniperVswitch => write!(f, "juniper_vswitch"),
-            DeviceModels::JuniperVevolved => write!(f, "juniper_vevolved"),
-            DeviceModels::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
-            DeviceModels::NokiaSrlinux => write!(f, "nokia_srlinux"),
-            DeviceModels::AlmaLinux => write!(f, "alma_linux"),
-            DeviceModels::RockyLinux => write!(f, "rocky_linux"),
-            DeviceModels::AlpineLinux => write!(f, "alpine_linux"),
-            DeviceModels::CumulusLinux => write!(f, "cumulus_linux"),
-            DeviceModels::CentosLinux => write!(f, "centos_linux"),
-            DeviceModels::FedoraLinux => write!(f, "fedora_linux"),
-            DeviceModels::RedhatLinux => write!(f, "rhel_linux"),
-            DeviceModels::OpensuseLinux => write!(f, "opensuse_linux"),
-            DeviceModels::SuseLinux => write!(f, "suse_linux"),
-            DeviceModels::UbuntuLinux => write!(f, "ubuntu_linux"),
-            DeviceModels::WindowsServer => write!(f, "windows_server"),
-            DeviceModels::FlatcarLinux => write!(f, "flatcar_linux"),
-            DeviceModels::SonicLinux => write!(f, "sonic_linux"),
-            DeviceModels::FreeBsd => write!(f, "free_bsd"),
-            DeviceModels::OpenBsd => write!(f, "open_bsd"),
-            DeviceModels::CustomUnknown => write!(f, "custom_unknown"),
+            // Arista
+            NodeModel::AristaVeos => write!(f, "arista_veos"),
+            NodeModel::AristaCeos => write!(f, "arista_ceos"),
+
+            // Aruba
+            NodeModel::ArubaAoscx => write!(f, "aruba_aoscx"),
+
+            // Cisco
+            NodeModel::CiscoAsav => write!(f, "cisco_asav"),
+            NodeModel::CiscoCsr1000v => write!(f, "cisco_csr1000v"),
+            NodeModel::CiscoCat8000v => write!(f, "cisco_cat8000v"),
+            NodeModel::CiscoCat9000v => write!(f, "cisco_cat9000v"),
+            NodeModel::CiscoIosxrv9000 => write!(f, "cisco_iosxrv9000"),
+            NodeModel::CiscoNexus9300v => write!(f, "cisco_nexus9300v"),
+            NodeModel::CiscoIosv => write!(f, "cisco_iosv"),
+            NodeModel::CiscoIosvl2 => write!(f, "cisco_iosvl2"),
+            NodeModel::CiscoIse => write!(f, "cisco_ise"),
+
+            // Juniper
+            NodeModel::JuniperVrouter => write!(f, "juniper_vrouter"),
+            NodeModel::JuniperVswitch => write!(f, "juniper_vswitch"),
+            NodeModel::JuniperVevolved => write!(f, "juniper_vevolved"),
+            NodeModel::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
+
+            // Nokia
+            NodeModel::NokiaSrlinux => write!(f, "nokia_srlinux"),
+
+            // Linux
+            NodeModel::AlmaLinux => write!(f, "alma_linux"),
+            NodeModel::RockyLinux => write!(f, "rocky_linux"),
+            NodeModel::AlpineLinux => write!(f, "alpine_linux"),
+            NodeModel::CumulusLinux => write!(f, "cumulus_linux"),
+            NodeModel::CentosLinux => write!(f, "centos_linux"),
+            NodeModel::FedoraLinux => write!(f, "fedora_linux"),
+            NodeModel::RedhatLinux => write!(f, "rhel_linux"),
+            NodeModel::OpensuseLinux => write!(f, "opensuse_linux"),
+            NodeModel::SuseLinux => write!(f, "suse_linux"),
+            NodeModel::UbuntuLinux => write!(f, "ubuntu_linux"),
+            NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
+            NodeModel::SonicLinux => write!(f, "sonic_linux"),
+
+            // Windows
+            NodeModel::WindowsServer => write!(f, "windows_server"),
+
+            // SQL
+            NodeModel::SurrealDb => write!(f, "surreal_db"),
+            NodeModel::MysqlDb => write!(f, "mysql_db"),
+            NodeModel::PostgresqlDb => write!(f, "postgresql_db"),
+
+            // BSD
+            NodeModel::FreeBsd => write!(f, "free_bsd"),
+            NodeModel::OpenBsd => write!(f, "open_bsd"),
+
+            // Generic
+            NodeModel::GenericContainer => write!(f, "generic_container"),
+            NodeModel::GenericNanovm => write!(f, "generic_nanovm"),
+            NodeModel::GenericVm => write!(f, "generic_vm"),
         }
     }
 }
 
-impl DeviceModels {
-    pub fn needs_ztp_server(&self) -> bool {
-        matches!(
-            self,
-            DeviceModels::AristaVeos | DeviceModels::ArubaAoscx | DeviceModels::JuniperVevolved
-        )
-    }
-}
-
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Manufacturers {
-    Arista,
-    Aruba,
-    Canonical,
-    Cisco,
-    Juniper,
-    Kinvolk,
-    Microsoft,
-    Nokia,
-    Nvidia,
-    Redhat,
-    Suse,
-    Sonic,
-    Linux,
-    Bsd,
-    #[default]
-    Unknown,
-}
-
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum OsVariants {
-    Asa,
-    Aos,
-    CumulusLinux,
+pub enum OsVariant {
+    // Arista
     Eos,
-    Junos,
+
+    // Aruba
+    Aos,
+
+    // Cisco
+    Asa,
     Ios,
     Iosxe,
     Iosxr,
     Ise,
-    Linux,
     Nxos,
+
+    // Juniper
+    Junos,
+
+    // BSD
+    Bsd, // Generic
+
+    // Linux
+    Linux, // Generic
+    Nvue,  // Cumlus
+    Sonic, // Sonic Linux
+
+    // Windows
     Server2012,
+
+    // Nokia
     Srlinux,
-    Sonic,
-    Bsd,
+
     #[default]
     Unknown,
 }
-impl fmt::Display for OsVariants {
+impl fmt::Display for OsVariant {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            OsVariants::Asa => write!(f, "asa"),
-            OsVariants::Aos => write!(f, "aos"),
-            OsVariants::CumulusLinux => write!(f, "cumulus_linux"),
-            OsVariants::Eos => write!(f, "eos"),
-            OsVariants::Junos => write!(f, "junos"),
-            OsVariants::Ios => write!(f, "ios"),
-            OsVariants::Iosxe => write!(f, "iosxe"),
-            OsVariants::Iosxr => write!(f, "iosxr"),
-            OsVariants::Ise => write!(f, "ise"),
-            OsVariants::Linux => write!(f, "linux"),
-            OsVariants::Nxos => write!(f, "nxos"),
-            OsVariants::Sonic => write!(f, "sonic_linux"),
-            OsVariants::Bsd => write!(f, "bsd"),
-            OsVariants::Server2012 => write!(f, "server_2012"),
-            OsVariants::Srlinux => write!(f, "srlinux"),
-            OsVariants::Unknown => write!(f, "unknown"),
+            OsVariant::Asa => write!(f, "asa"),
+            OsVariant::Aos => write!(f, "aos"),
+            OsVariant::Eos => write!(f, "eos"),
+            OsVariant::Junos => write!(f, "junos"),
+            OsVariant::Ios => write!(f, "ios"),
+            OsVariant::Iosxe => write!(f, "iosxe"),
+            OsVariant::Iosxr => write!(f, "iosxr"),
+            OsVariant::Ise => write!(f, "ise"),
+            OsVariant::Linux => write!(f, "linux"),
+            OsVariant::Nvue => write!(f, "nvue"),
+            OsVariant::Nxos => write!(f, "nxos"),
+            OsVariant::Sonic => write!(f, "sonic"),
+            OsVariant::Bsd => write!(f, "bsd"),
+            OsVariant::Server2012 => write!(f, "server2012"),
+            OsVariant::Srlinux => write!(f, "srlinux"),
+            OsVariant::Unknown => write!(f, "unknown"),
         }
     }
 }
@@ -178,7 +212,7 @@ impl fmt::Display for CpuArchitecture {
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
-pub enum MachineTypes {
+pub enum MachineType {
     #[default]
     #[serde(rename(serialize = "pc", deserialize = "pc"))]
     Pc, // alias of pc-i440fx-X.Y - Qemu version dependent
@@ -209,41 +243,51 @@ pub enum MachineTypes {
     #[serde(rename(serialize = "pc-i440fx-8.2", deserialize = "pc-i440fx-8.2"))]
     PcI440Fx_8_2,
 }
-impl fmt::Display for MachineTypes {
+impl fmt::Display for MachineType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            MachineTypes::Q35 => write!(f, "q35"),
-            MachineTypes::Pc => write!(f, "pc"),
-            MachineTypes::PcQ35_5_0 => write!(f, "pc-q35-5.0"),
-            MachineTypes::PcQ35_5_2 => write!(f, "pc-q35-5.2"),
-            MachineTypes::PcQ35_6_0 => write!(f, "pc-q35-6.0"),
-            MachineTypes::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
-            MachineTypes::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
-            MachineTypes::PcQ35_8_1 => write!(f, "pc-q35-8.1"),
-            MachineTypes::PcQ35_8_2 => write!(f, "pc-q35-8.2"),
-            MachineTypes::PcI440Fx_5_1 => write!(f, "pc-i440fx-5.1"),
-            MachineTypes::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
-            MachineTypes::PcI440Fx_8_0 => write!(f, "pc-i440fx-8.0"),
-            MachineTypes::PcI440Fx_8_1 => write!(f, "pc-i440fx-8.1"),
-            MachineTypes::PcI440Fx_8_2 => write!(f, "pc-i440fx-8.2"),
+            MachineType::Q35 => write!(f, "q35"),
+            MachineType::Pc => write!(f, "pc"),
+            MachineType::PcQ35_5_0 => write!(f, "pc-q35-5.0"),
+            MachineType::PcQ35_5_2 => write!(f, "pc-q35-5.2"),
+            MachineType::PcQ35_6_0 => write!(f, "pc-q35-6.0"),
+            MachineType::PcQ35_6_2 => write!(f, "pc-q35-6.2"),
+            MachineType::PcQ35_8_0 => write!(f, "pc-q35-8.0"),
+            MachineType::PcQ35_8_1 => write!(f, "pc-q35-8.1"),
+            MachineType::PcQ35_8_2 => write!(f, "pc-q35-8.2"),
+            MachineType::PcI440Fx_5_1 => write!(f, "pc-i440fx-5.1"),
+            MachineType::PcI440Fx_4_2 => write!(f, "pc-i440fx-4.2"),
+            MachineType::PcI440Fx_8_0 => write!(f, "pc-i440fx-8.0"),
+            MachineType::PcI440Fx_8_1 => write!(f, "pc-i440fx-8.1"),
+            MachineType::PcI440Fx_8_2 => write!(f, "pc-i440fx-8.2"),
         }
     }
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum InterfaceTypes {
+pub enum InterfaceType {
+    // VM
     E1000,
     #[default]
     Virtio,
     Vmxnet3,
+
+    // Container
+    Host,
+    MacVlan,
 }
-impl fmt::Display for InterfaceTypes {
+impl fmt::Display for InterfaceType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            InterfaceTypes::E1000 => write!(f, "e1000"),
-            InterfaceTypes::Virtio => write!(f, "virtio"),
-            InterfaceTypes::Vmxnet3 => write!(f, "vmxnet3"),
+            // VM
+            InterfaceType::E1000 => write!(f, "e1000"),
+            InterfaceType::Virtio => write!(f, "virtio"),
+            InterfaceType::Vmxnet3 => write!(f, "vmxnet3"),
+
+            // Container
+            InterfaceType::Host => write!(f, "host"),
+            InterfaceType::MacVlan => write!(f, "mac_vlan"),
         }
     }
 }
@@ -266,7 +310,7 @@ impl fmt::Display for BiosTypes {
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
-pub enum ZtpMethods {
+pub enum ZtpMethod {
     #[default]
     #[serde(rename(serialize = "cloud-init", deserialize = "cloud-init"))]
     CloudInit,
@@ -286,33 +330,34 @@ pub enum DeviceKind {
     #[default]
     VirtualMachine,
     Container,
+    NanoVm,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct DeviceModel {
-    pub name: DeviceModels,
+pub struct NodeInstance {
+    pub name: NodeModel,
     pub version: String,
-    pub os_variant: OsVariants,
-    pub manufacturer: Manufacturers,
+    pub repo: Option<String>,
+    pub os_variant: OsVariant,
     pub kind: DeviceKind,
     pub bios: BiosTypes,
     pub cpu_count: u8,
     pub cpu_architecture: CpuArchitecture,
     pub cpu_model: CpuModels,
-    pub machine_type: MachineTypes,
+    pub machine_type: MachineType,
     pub vmx_enabled: bool,
     pub memory: u16,
     pub hdd_bus: DiskBuses,
     pub cdrom: Option<String>,
     pub cdrom_bus: DiskBuses,
     pub ztp_enable: bool,
-    pub ztp_method: ZtpMethods,
+    pub ztp_method: ZtpMethod,
     pub ztp_username: Option<String>,
     pub ztp_password: Option<String>,
     pub ztp_password_auth: bool,
     pub interface_count: u8,
     pub interface_prefix: String,
-    pub interface_type: InterfaceTypes,
+    pub interface_type: InterfaceType,
     pub interface_mtu: u16,
     pub first_interface_index: u8,
     pub dedicated_management_interface: bool,
@@ -320,32 +365,32 @@ pub struct DeviceModel {
     pub reserved_interface_count: u8,
 }
 
-impl Default for DeviceModel {
+impl Default for NodeInstance {
     fn default() -> Self {
         Self {
-            name: DeviceModels::default(),
+            name: NodeModel::default(),
             version: "0.0.0".to_owned(),
-            os_variant: OsVariants::default(),
-            manufacturer: Manufacturers::default(),
+            repo: None,
+            os_variant: OsVariant::default(),
             kind: DeviceKind::default(),
             bios: BiosTypes::default(),
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::default(),
             cpu_model: CpuModels::default(),
-            machine_type: MachineTypes::default(),
+            machine_type: MachineType::default(),
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::default(),
             cdrom: None,
             cdrom_bus: DiskBuses::default(),
             ztp_enable: false,
-            ztp_method: ZtpMethods::None,
+            ztp_method: ZtpMethod::None,
             ztp_username: None,
             ztp_password: None,
             ztp_password_auth: false,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceType::default(),
             interface_mtu: 1500,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -355,61 +400,85 @@ impl Default for DeviceModel {
     }
 }
 
-impl DeviceModel {
+impl NodeInstance {
     #[allow(dead_code)]
-    pub fn get_model(device_model: DeviceModels) -> DeviceModel {
+    pub fn get_model(device_model: NodeModel) -> NodeInstance {
         match device_model {
-            DeviceModels::AristaVeos => DeviceModel::arista_veos(),
-            DeviceModels::AristaCeos => DeviceModel::arista_ceos(),
-            DeviceModels::ArubaAoscx => DeviceModel::aruba_aoscx(),
-            DeviceModels::CiscoAsav => DeviceModel::cisco_asav(),
-            DeviceModels::CiscoCsr1000v => DeviceModel::cisco_csr1000v(),
-            DeviceModels::CiscoCat8000v => DeviceModel::cisco_cat8000v(),
-            DeviceModels::CiscoCat9000v => DeviceModel::cisco_cat9000v(),
-            DeviceModels::CiscoIosxrv9000 => DeviceModel::cisco_iosxrv9000(),
-            DeviceModels::CiscoNexus9300v => DeviceModel::cisco_nexus9300v(),
-            DeviceModels::CiscoIosv => DeviceModel::cisco_iosv(),
-            DeviceModels::CiscoIosvl2 => DeviceModel::cisco_iosvl2(),
-            DeviceModels::CiscoIse => DeviceModel::cisco_ise(),
-            DeviceModels::JuniperVrouter => DeviceModel::juniper_vrouter(),
-            DeviceModels::JuniperVswitch => DeviceModel::juniper_vswitch(),
-            DeviceModels::JuniperVevolved => DeviceModel::juniper_vevolved(),
-            DeviceModels::JuniperVsrxv3 => DeviceModel::juniper_vsrxv3(),
-            DeviceModels::NokiaSrlinux => DeviceModel::nokia_srlinux(),
-            DeviceModels::AlmaLinux => DeviceModel::alma_linux(),
-            DeviceModels::RockyLinux => DeviceModel::rocky_linux(),
-            DeviceModels::AlpineLinux => DeviceModel::alpine_linux(),
-            DeviceModels::CumulusLinux => DeviceModel::cumulus_linux(),
-            DeviceModels::CentosLinux => DeviceModel::centos_linux(),
-            DeviceModels::FedoraLinux => DeviceModel::fedora_linux(),
-            DeviceModels::RedhatLinux => DeviceModel::redhat_linux(),
-            DeviceModels::OpensuseLinux => DeviceModel::opensuse_linux(),
-            DeviceModels::SuseLinux => DeviceModel::suse_linux(),
-            DeviceModels::UbuntuLinux => DeviceModel::ubuntu_linux(),
-            DeviceModels::SonicLinux => DeviceModel::sonic_linux(),
-            DeviceModels::FlatcarLinux => DeviceModel::flatcar_linux(),
-            DeviceModels::FreeBsd => DeviceModel::free_bsd(),
-            DeviceModels::OpenBsd => DeviceModel::open_bsd(),
-            DeviceModels::WindowsServer => todo!(),
-            DeviceModels::CustomUnknown => DeviceModel::default(),
+            // Arista
+            NodeModel::AristaVeos => NodeInstance::arista_veos(),
+            NodeModel::AristaCeos => NodeInstance::arista_ceos(),
+
+            // Aruba
+            NodeModel::ArubaAoscx => NodeInstance::aruba_aoscx(),
+
+            // Cisco
+            NodeModel::CiscoAsav => NodeInstance::cisco_asav(),
+            NodeModel::CiscoCsr1000v => NodeInstance::cisco_csr1000v(),
+            NodeModel::CiscoCat8000v => NodeInstance::cisco_cat8000v(),
+            NodeModel::CiscoCat9000v => NodeInstance::cisco_cat9000v(),
+            NodeModel::CiscoIosxrv9000 => NodeInstance::cisco_iosxrv9000(),
+            NodeModel::CiscoNexus9300v => NodeInstance::cisco_nexus9300v(),
+            NodeModel::CiscoIosv => NodeInstance::cisco_iosv(),
+            NodeModel::CiscoIosvl2 => NodeInstance::cisco_iosvl2(),
+            NodeModel::CiscoIse => NodeInstance::cisco_ise(),
+
+            // Juniper
+            NodeModel::JuniperVrouter => NodeInstance::juniper_vrouter(),
+            NodeModel::JuniperVswitch => NodeInstance::juniper_vswitch(),
+            NodeModel::JuniperVevolved => NodeInstance::juniper_vevolved(),
+            NodeModel::JuniperVsrxv3 => NodeInstance::juniper_vsrxv3(),
+
+            // Nokia
+            NodeModel::NokiaSrlinux => NodeInstance::nokia_srlinux(),
+
+            // Linux
+            NodeModel::AlmaLinux => NodeInstance::alma_linux(),
+            NodeModel::RockyLinux => NodeInstance::rocky_linux(),
+            NodeModel::AlpineLinux => NodeInstance::alpine_linux(),
+            NodeModel::CumulusLinux => NodeInstance::cumulus_linux(),
+            NodeModel::CentosLinux => NodeInstance::centos_linux(),
+            NodeModel::FedoraLinux => NodeInstance::fedora_linux(),
+            NodeModel::RedhatLinux => NodeInstance::redhat_linux(),
+            NodeModel::OpensuseLinux => NodeInstance::opensuse_linux(),
+            NodeModel::SuseLinux => NodeInstance::suse_linux(),
+            NodeModel::UbuntuLinux => NodeInstance::ubuntu_linux(),
+            NodeModel::SonicLinux => NodeInstance::sonic_linux(),
+            NodeModel::FlatcarLinux => NodeInstance::flatcar_linux(),
+
+            // BSD
+            NodeModel::FreeBsd => NodeInstance::free_bsd(),
+            NodeModel::OpenBsd => NodeInstance::open_bsd(),
+
+            // Windows
+            NodeModel::WindowsServer => todo!(),
+
+            // SQL
+            NodeModel::MysqlDb => NodeInstance::mysql_db(),
+            NodeModel::PostgresqlDb => NodeInstance::postgresql_db(),
+            NodeModel::SurrealDb => NodeInstance::surreal_db(),
+
+            // Generic
+            NodeModel::GenericContainer => NodeInstance::generic_container(),
+            NodeModel::GenericNanovm => NodeInstance::generic_nanovm(),
+            NodeModel::GenericVm => NodeInstance::generic_vm(),
         }
     }
-    pub fn arista_veos() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::AristaVeos,
+    pub fn arista_veos() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::AristaVeos,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Eos,
-            manufacturer: Manufacturers::Arista,
+            repo: None,
+            os_variant: OsVariant::Eos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 52,
             interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_STD,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 2048,
             hdd_bus: DiskBuses::Sata,
@@ -418,7 +487,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Tftp,
+            ztp_method: ZtpMethod::Tftp,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -426,22 +495,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn arista_ceos() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::AristaCeos,
+    pub fn arista_ceos() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::AristaCeos,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Eos,
-            manufacturer: Manufacturers::Arista,
+            repo: None,
+            os_variant: OsVariant::Eos,
             kind: DeviceKind::Container,
             bios: BiosTypes::SeaBios,
             interface_count: 52,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_STD,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Sata,
@@ -450,7 +519,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Ignition,
+            ztp_method: ZtpMethod::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -458,22 +527,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn aruba_aoscx() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::ArubaAoscx,
+    pub fn aruba_aoscx() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::ArubaAoscx,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Aos,
-            manufacturer: Manufacturers::Arista,
+            repo: None,
+            os_variant: OsVariant::Aos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 52,
             interface_prefix: "1/1/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
@@ -482,7 +551,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Tftp,
+            ztp_method: ZtpMethod::Tftp,
             ztp_password_auth: true,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -490,22 +559,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_asav() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoAsav,
+    pub fn cisco_asav() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoAsav,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Asa,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Asa,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "GigabitEthernet0".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 2048,
             hdd_bus: DiskBuses::Sata,
@@ -514,7 +583,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -522,22 +591,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_csr1000v() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoCsr1000v,
+    pub fn cisco_csr1000v() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoCsr1000v,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Iosxe,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Iosxe,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceTypes::Vmxnet3,
+            interface_type: InterfaceType::Vmxnet3,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 3072,
             hdd_bus: DiskBuses::Virtio,
@@ -546,7 +615,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: true,
             first_interface_index: 1,
             dedicated_management_interface: false,
@@ -554,22 +623,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_cat8000v() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoCat8000v,
+    pub fn cisco_cat8000v() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoCat8000v,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Iosxe,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Iosxe,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
@@ -578,7 +647,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: false,
@@ -586,22 +655,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_cat9000v() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoCat9000v,
+    pub fn cisco_cat9000v() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoCat9000v,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Iosxe,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Iosxe,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "Gig0/0/".to_owned(),
-            interface_type: InterfaceTypes::E1000,
+            interface_type: InterfaceType::E1000,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 18432,
             hdd_bus: DiskBuses::Sata,
@@ -610,7 +679,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -618,22 +687,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosxrv9000() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoIosxrv9000,
+    pub fn cisco_iosxrv9000() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoIosxrv9000,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Iosxr,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Iosxr,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::Uefi,
             interface_count: 31,
             interface_prefix: "Gig0/0/0/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 20480,
             hdd_bus: DiskBuses::Virtio,
@@ -642,7 +711,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -650,22 +719,22 @@ impl DeviceModel {
             reserved_interface_count: 2,
         }
     }
-    pub fn cisco_nexus9300v() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoNexus9300v,
+    pub fn cisco_nexus9300v() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoNexus9300v,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Nxos,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Nxos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::Uefi,
             interface_count: 64,
             interface_prefix: "Eth1/".to_owned(),
-            interface_type: InterfaceTypes::E1000,
+            interface_type: InterfaceType::E1000,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 12288,
             hdd_bus: DiskBuses::Sata,
@@ -674,7 +743,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -682,22 +751,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosv() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoIosv,
+    pub fn cisco_iosv() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoIosv,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Ios,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Ios,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Gig0/".to_owned(),
-            interface_type: InterfaceTypes::E1000,
+            interface_type: InterfaceType::E1000,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 768,
             hdd_bus: DiskBuses::Virtio,
@@ -706,7 +775,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Disk,
+            ztp_method: ZtpMethod::Disk,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -714,22 +783,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosvl2() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoIosvl2,
+    pub fn cisco_iosvl2() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoIosvl2,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Ios,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Ios,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 16, // Crashes if more than 16 interfaces are defined
             interface_prefix: "Gig".to_owned(),
-            interface_type: InterfaceTypes::E1000,
+            interface_type: InterfaceType::E1000,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Virtio,
@@ -738,7 +807,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Disk,
+            ztp_method: ZtpMethod::Disk,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -746,22 +815,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_ise() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CiscoIse,
+    pub fn cisco_ise() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CiscoIse,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Ise,
-            manufacturer: Manufacturers::Cisco,
+            repo: None,
+            os_variant: OsVariant::Ise,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 16384,
             hdd_bus: DiskBuses::Virtio,
@@ -770,7 +839,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -778,22 +847,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vrouter() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::JuniperVrouter,
+    pub fn juniper_vrouter() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::JuniperVrouter,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Junos,
-            manufacturer: Manufacturers::Juniper,
+            repo: None,
+            os_variant: OsVariant::Junos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_NET,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: true,
             memory: 5120,
             hdd_bus: DiskBuses::Virtio,
@@ -802,7 +871,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -810,22 +879,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vswitch() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::JuniperVswitch,
+    pub fn juniper_vswitch() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::JuniperVswitch,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Junos,
-            manufacturer: Manufacturers::Juniper,
+            repo: None,
+            os_variant: OsVariant::Junos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 10,
             interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_NET,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: true,
             memory: 5120,
             hdd_bus: DiskBuses::Virtio,
@@ -834,7 +903,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -842,22 +911,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vevolved() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::JuniperVevolved,
+    pub fn juniper_vevolved() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::JuniperVevolved,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Junos,
-            manufacturer: Manufacturers::Juniper,
+            repo: None,
+            os_variant: OsVariant::Junos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::Uefi,
             interface_count: 12,
             interface_prefix: "et-0/0/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_NET,
             cpu_count: 4,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::IvyBridge,
-            machine_type: MachineTypes::Pc,
+            machine_type: MachineType::Pc,
             vmx_enabled: true,
             memory: 8192,
             hdd_bus: DiskBuses::Virtio,
@@ -866,7 +935,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Usb,
+            ztp_method: ZtpMethod::Usb,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -874,22 +943,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vsrxv3() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::JuniperVsrxv3,
+    pub fn juniper_vsrxv3() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::JuniperVsrxv3,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Junos,
-            manufacturer: Manufacturers::Juniper,
+            repo: None,
+            os_variant: OsVariant::Junos,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 8,
             interface_prefix: "ge-0/0/".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_NET,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::SandyBridge,
-            machine_type: MachineTypes::PcI440Fx_8_0,
+            machine_type: MachineType::PcI440Fx_8_0,
             vmx_enabled: true,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
@@ -898,7 +967,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Cdrom,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -906,22 +975,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn alma_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::AlmaLinux,
+    pub fn alma_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::AlmaLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Linux,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -930,7 +999,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -938,22 +1007,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn rocky_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::RockyLinux,
+    pub fn rocky_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::RockyLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Linux,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -962,7 +1031,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -970,22 +1039,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn alpine_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::AlpineLinux,
+    pub fn alpine_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::AlpineLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Linux,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 2,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Virtio,
@@ -994,7 +1063,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -1002,22 +1071,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn cumulus_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CumulusLinux,
+    pub fn cumulus_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CumulusLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::CumulusLinux,
-            manufacturer: Manufacturers::Nvidia,
+            repo: None,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 52,
             interface_prefix: "swp".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
+            os_variant: OsVariant::Nvue,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 2048,
             hdd_bus: DiskBuses::Sata,
@@ -1026,7 +1095,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Usb,
+            ztp_method: ZtpMethod::Usb,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -1034,22 +1103,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn nokia_srlinux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::NokiaSrlinux,
+    pub fn nokia_srlinux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::NokiaSrlinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Srlinux,
-            manufacturer: Manufacturers::Nokia,
+            repo: None,
+            os_variant: OsVariant::Srlinux,
             kind: DeviceKind::Container,
             bios: BiosTypes::SeaBios,
             interface_count: 16,
             interface_prefix: "Eth".to_owned(),
-            interface_type: InterfaceTypes::default(),
+            interface_type: InterfaceType::default(),
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Sata,
@@ -1058,7 +1127,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Ignition,
+            ztp_method: ZtpMethod::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,
@@ -1066,22 +1135,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn centos_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::CentosLinux,
+    pub fn centos_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::CentosLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Redhat,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -1090,7 +1159,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1098,22 +1167,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn fedora_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::FedoraLinux,
+    pub fn fedora_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::FedoraLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Redhat,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -1122,7 +1191,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1130,22 +1199,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn redhat_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::RedhatLinux,
+    pub fn redhat_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::RedhatLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Redhat,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -1154,7 +1223,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1162,22 +1231,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn suse_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::SuseLinux,
+    pub fn suse_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::SuseLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Suse,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -1186,7 +1255,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1194,22 +1263,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn opensuse_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::OpensuseLinux,
+    pub fn opensuse_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::OpensuseLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Suse,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Sata,
@@ -1218,7 +1287,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1226,22 +1295,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn ubuntu_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::UbuntuLinux,
+    pub fn ubuntu_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::UbuntuLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Canonical,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Virtio,
@@ -1250,7 +1319,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1258,22 +1327,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn sonic_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::SonicLinux,
+    pub fn sonic_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::SonicLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Sonic,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 52,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
@@ -1282,7 +1351,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Http,
+            ztp_method: ZtpMethod::Http,
             ztp_password_auth: true,
             first_interface_index: 1,
             dedicated_management_interface: true,
@@ -1290,22 +1359,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn flatcar_linux() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::FlatcarLinux,
+    pub fn flatcar_linux() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::FlatcarLinux,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Linux,
-            manufacturer: Manufacturers::Microsoft,
+            repo: None,
+            os_variant: OsVariant::Linux,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 2048,
             hdd_bus: DiskBuses::Virtio,
@@ -1314,7 +1383,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::Ignition,
+            ztp_method: ZtpMethod::Ignition,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1322,22 +1391,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn free_bsd() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::FreeBsd,
+    pub fn free_bsd() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::FreeBsd,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Bsd,
-            manufacturer: Manufacturers::Bsd,
+            repo: None,
+            os_variant: OsVariant::Bsd,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Virtio,
@@ -1346,7 +1415,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1354,22 +1423,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn open_bsd() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::OpenBsd,
+    pub fn open_bsd() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::OpenBsd,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Bsd,
-            manufacturer: Manufacturers::Bsd,
+            repo: None,
+            os_variant: OsVariant::Bsd,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 1,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
             hdd_bus: DiskBuses::Virtio,
@@ -1378,7 +1447,7 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
@@ -1386,22 +1455,22 @@ impl DeviceModel {
             reserved_interface_count: 0,
         }
     }
-    pub fn windows_server() -> DeviceModel {
-        DeviceModel {
-            name: DeviceModels::WindowsServer,
+    pub fn windows_server() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::WindowsServer,
             version: "latest".to_owned(),
-            os_variant: OsVariants::Server2012,
-            manufacturer: Manufacturers::Microsoft,
+            repo: None,
+            os_variant: OsVariant::Server2012,
             kind: DeviceKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
             interface_count: 1,
             interface_prefix: "eth".to_owned(),
-            interface_type: InterfaceTypes::Virtio,
+            interface_type: InterfaceType::Virtio,
             interface_mtu: MTU_JUMBO_INT,
             cpu_count: 2,
             cpu_architecture: CpuArchitecture::X86_64,
             cpu_model: CpuModels::HostModel,
-            machine_type: MachineTypes::Q35,
+            machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
             hdd_bus: DiskBuses::Virtio,
@@ -1410,12 +1479,150 @@ impl DeviceModel {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethods::CloudInit,
+            ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+        }
+    }
+    pub fn surreal_db() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::SurrealDb,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
+        }
+    }
+    pub fn mysql_db() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::MysqlDb,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
+        }
+    }
+    pub fn postgresql_db() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::PostgresqlDb,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
+        }
+    }
+    pub fn generic_container() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::GenericContainer,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
+        }
+    }
+    pub fn generic_nanovm() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::GenericNanovm,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
+        }
+    }
+    pub fn generic_vm() -> NodeInstance {
+        NodeInstance {
+            name: NodeModel::GenericVm,
+            repo: None,
+            version: "latest".to_owned(),
+            kind: DeviceKind::Container,
+            interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            ..Default::default()
         }
     }
 }

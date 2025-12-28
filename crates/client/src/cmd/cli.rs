@@ -18,12 +18,12 @@ use super::up::up;
 
 use data::Sherpa;
 use konst::{
-    SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
-    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE,
+    SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
+    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
 };
 use libvirt::Qemu;
 use topology::Manifest;
-use util::{expand_path, get_id, load_config};
+use util::{get_id, load_config};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]
@@ -52,11 +52,8 @@ enum Commands {
         force: bool,
     },
     /// Build environment
-    Up {
-        /// Name of the config file
-        #[arg(default_value = SHERPA_CONFIG_FILE)]
-        config_file: String,
-    },
+    Up,
+
     /// Stop environment
     Down,
     /// Resume environment
@@ -105,9 +102,10 @@ enum Commands {
 }
 impl Default for Commands {
     fn default() -> Self {
+        let config_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}");
         Commands::Init {
-            config_file: SHERPA_CONFIG_FILE.to_owned(),
-            manifest_file: SHERPA_MANIFEST_FILE.to_owned(),
+            config_file: format!("{config_dir}/{SHERPA_CONFIG_FILE}"),
+            manifest_file: SHERPA_MANIFEST_FILE.to_string(),
             force: false,
         }
     }
@@ -117,13 +115,15 @@ impl Cli {
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let qemu = Qemu::default();
-        // let docker = docker_connection()?;
+        let config_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}");
         let sherpa = Sherpa {
-            config_dir: expand_path(SHERPA_CONFIG_DIR),
-            images_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_IMAGES_DIR}")),
-            config_path: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}")),
-            containers_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_CONTAINERS_DIR}")),
-            bins_dir: expand_path(&format!("{SHERPA_CONFIG_DIR}/{SHERPA_BINS_DIR}")),
+            base_dir: SHERPA_BASE_DIR.to_string(),
+            config_file_path: format!("{config_dir}/{SHERPA_CONFIG_FILE}"),
+            ssh_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_SSH_DIR}"),
+            images_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}"),
+            containers_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_CONTAINERS_DIR}"),
+            bins_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_BINS_DIR}"),
+            config_dir: config_dir,
         };
         match &cli.commands {
             Commands::Init {
@@ -134,12 +134,12 @@ impl Cli {
                 init(&sherpa, &qemu, config_file, manifest_file, *force).await?;
             }
 
-            Commands::Up { config_file } => {
+            Commands::Up => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
 
-                up(&sherpa, config_file, &qemu, &lab_name, &lab_id, &manifest).await?;
+                up(&sherpa, &qemu, &lab_name, &lab_id, &manifest).await?;
             }
             Commands::Down => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
@@ -161,7 +161,7 @@ impl Cli {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
-                let config = load_config(&sherpa.config_path)?;
+                let config = load_config(&sherpa.config_file_path)?;
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
             }
             Commands::Doctor { boxes } => {

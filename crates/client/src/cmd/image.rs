@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use clap::Subcommand;
 
-use data::{DeviceModels, Sherpa};
+use data::{NodeModel, Sherpa};
 use util::{
     copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
     term_msg_surround,
@@ -16,7 +16,7 @@ pub enum ImageCommands {
     List {
         /// Optional: List all boxes for a model
         #[arg(value_enum)]
-        model: Option<DeviceModels>,
+        model: Option<NodeModel>,
     },
 
     /// Import a disk image
@@ -29,7 +29,7 @@ pub enum ImageCommands {
         version: String,
         /// Model of Device
         #[arg(short, long, value_enum)]
-        model: DeviceModels,
+        model: NodeModel,
         /// Import the disk image as the latest version
         #[arg(long, action = clap::ArgAction::SetTrue)]
         latest: bool,
@@ -85,7 +85,7 @@ pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result
 fn import(
     src: &str,
     version: &str,
-    model: &DeviceModels,
+    model: &NodeModel,
     latest: bool,
     images_dir: &str,
 ) -> Result<()> {

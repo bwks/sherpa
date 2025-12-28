@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
 use base64::{Engine as _, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
@@ -15,7 +15,7 @@ use data::{SshKeyAlgorithms, SshPublicKey};
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
     let full_path = expand_path(path);
-    let file = File::open(&full_path)?;
+    let file = File::open(&full_path).with_context(|| format!("Error loading file: {path}"))?;
     let reader = BufReader::new(file);
 
     // Read the first line of the file

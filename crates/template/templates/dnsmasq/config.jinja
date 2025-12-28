@@ -34,9 +34,9 @@ host-record={{ record.device_name }},{{ record.ipv4_address }}
 host-record={{ record.device_name }}.{{ SHERPA_DOMAIN_NAME }},{{ record.ipv4_address }}
 dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.device_name }},,set:{{ record.device_name }}-tag
 {%-   match record.ztp_method %}
-{%-     when ZtpMethods::Tftp %}
+{%-     when ZtpMethod::Tftp %}
 dhcp-option=tag:{{ record.device_name }}-tag,67,{{ record.config_file }}
-{%-     when ZtpMethods::Http %}
+{%-     when ZtpMethod::Http %}
 dhcp-option=tag:{{ record.device_name }}-tag,67,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
 dhcp-option=tag:{{ record.device_name }}-tag,239,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
 {%-     else %}

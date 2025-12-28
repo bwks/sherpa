@@ -5,7 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use virt::storage_pool::StoragePool;
 
-use data::{Config, DeviceModels, LabInfo};
+use data::{Config, NodeModel, LabInfo};
 use konst::{LAB_FILE_NAME, SHERPA_STORAGE_POOL, TEMP_DIR};
 use libvirt::Qemu;
 use topology::Node;
@@ -14,7 +14,7 @@ use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
 #[derive(Debug, Serialize, Deserialize)]
 struct InpsectDevice {
     name: String,
-    model: DeviceModels,
+    model: NodeModel,
     active: bool,
     mgmt_ip: String,
     disks: Vec<String>,

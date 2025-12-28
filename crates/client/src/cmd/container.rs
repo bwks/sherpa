@@ -2,7 +2,7 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 
 use container::{pull_container_image, pull_image, save_container_image};
-use data::{ContainerImage, ContainerModel, DeviceModels, Sherpa};
+use data::{ContainerImage, ContainerModel, NodeModel, Sherpa};
 use konst::{
     CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
     SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
@@ -45,7 +45,7 @@ pub enum ContainerCommands {
         version: String,
         /// Model of Device
         #[arg(short, long, value_enum)]
-        model: DeviceModels,
+        model: NodeModel,
         /// Import the container image as the latest version
         #[arg(long, action = clap::ArgAction::SetTrue)]
         latest: bool,
@@ -53,7 +53,7 @@ pub enum ContainerCommands {
 }
 
 pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &Sherpa) -> Result<()> {
-    let config = load_config(&sherpa.config_path)?;
+    let config = load_config(&sherpa.config_file_path)?;
     match commands {
         ContainerCommands::Pull {
             name,

@@ -3,7 +3,7 @@ Host {{ record.ipv4_address }} {{ record.device_name }} {{ record.device_name }}
     HostName {{ record.ipv4_address }}
     Port {{ record.ssh_port }}
     User {{ SHERPA_USERNAME }}
-    IdentityFile {{ SHERPA_CONFIG_DIR }}/{{ SHERPA_SSH_PRIVATE_KEY_FILE }}
+    IdentityFile {{ SHERPA_BASE_DIR }}/{{ SHERPA_SSH_DIR }}/{{ SHERPA_SSH_PRIVATE_KEY_FILE }}
     IdentitiesOnly yes
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
