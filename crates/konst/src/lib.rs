@@ -6,6 +6,7 @@ pub const SHERPA_SSH_DIR: &str = "ssh";
 pub const SHERPA_IMAGES_DIR: &str = "images";
 pub const SHERPA_CONTAINERS_DIR: &str = "containers";
 pub const SHERPA_BINS_DIR: &str = "bins";
+pub const SHERPA_LABS_DIR: &str = "labs";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";

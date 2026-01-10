@@ -221,10 +221,11 @@ pub async fn up(
         .collect();
 
     let mut container_nodes: Vec<Node> = vec![];
-    let mut unikernel_nodes: Vec<&Node> = vec![];
-    let mut vm_nodes: Vec<&Node> = vec![];
-    let mut copy_disks: Vec<CloneDisk> = vec![];
+    let mut unikernel_nodes: Vec<Node> = vec![];
+    let mut vm_nodes: Vec<Node> = vec![];
+    let mut clone_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
+
     for device in &manifest.nodes {
         let device_idx = dev_id_map
             .get(&device.name)
@@ -280,14 +281,6 @@ pub async fn up(
                 }
 
                 if this_dev.model == NodeModel::NokiaSrlinux {
-                    /*
-                    docker run -t -d --rm --privileged \
-                    -u 0:0 \
-                    -v $(pwd)/srl-config.json:/etc/opt/srlinux/config.json \
-                    --name srlinux \
-                    ghcr.io/nokia/srlinux:25.10.1 \
-                    sudo bash /opt/srlinux/bin/sr_linux
-                    */
                     this_dev.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
                     this_dev.privileged = Some(true);
                     this_dev.environment_variables = Some(
@@ -307,7 +300,7 @@ pub async fn up(
                 container_nodes.push(this_dev);
             }
             NodeKind::Unikernel => {
-                unikernel_nodes.push(device);
+                unikernel_nodes.push(device.clone());
                 println!("Unkernel node: {}", device.model);
                 continue;
             }
@@ -459,26 +452,24 @@ pub async fn up(
             }
         }
 
-        // Container based image run in FlatCar linux.
-        // Set the source disk to the latests FlatCar image.
-        let src_boot_disk = if device_model.kind == NodeKind::Container {
-            format!(
-                "{}/{}/{}/virtioa.qcow2",
-                sherpa.images_dir,
-                NodeModel::FlatcarLinux,
-                "latest"
-            )
-        } else {
-            format!(
-                "{}/{}/{}/virtioa.qcow2",
-                sherpa.images_dir, device_model.name, device_model.version
-            )
+        // Only Virtual machines have a boot disk to clone.
+        let vm_boot_disk = match device_model.kind {
+            NodeKind::VirtualMachine => {
+                let src_boot_disk = format!(
+                    "{}/{}/{}/virtioa.qcow2",
+                    sherpa.images_dir, device_model.name, device_model.version
+                );
+                let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-hdd.qcow2");
+
+                clone_disks.push(CloneDisk {
+                    src: src_boot_disk.clone(),
+                    dst: dst_boot_disk.clone(),
+                });
+
+                Some(dst_boot_disk)
+            }
+            _ => None,
         };
-        let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-hdd.qcow2");
-        copy_disks.push(CloneDisk {
-            src: src_boot_disk,
-            dst: dst_boot_disk.clone(),
-        });
 
         // CDROM ISO
         let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &device_model.cdrom {
@@ -503,7 +494,7 @@ pub async fn up(
         let (mut src_ignition_disk, mut dst_ignition_disk) = (None::<String>, None::<String>);
 
         if device_model.ztp_enable {
-            vm_nodes.push(device);
+            vm_nodes.push(device.clone());
             // TODO: Update this to use the assigned IP if
             // an IP is not user defined.
             let device_ipv4_address = ztp_records
@@ -1199,45 +1190,44 @@ pub async fn up(
             }
         }
         // ISO
-        if dst_cdrom_iso.is_some() {
-            copy_disks.push(CloneDisk {
+        if let (Some(src_cdrom_iso), Some(dst_cdrom_iso)) = (src_cdrom_iso, dst_cdrom_iso) {
+            clone_disks.push(CloneDisk {
                 // These should always have a value.
-                src: src_cdrom_iso.unwrap(),
-                dst: dst_cdrom_iso.clone().unwrap(),
+                src: src_cdrom_iso,
+                dst: dst_cdrom_iso.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::Cdrom,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
-                // These should always have a value.
-                src_file: dst_cdrom_iso.clone().unwrap(),
+                src_file: dst_cdrom_iso.clone(),
                 target_dev: DiskTargets::target(&cdrom_bus, disks.len() as u8)?,
                 target_bus: cdrom_bus.clone(),
             });
         }
 
         // Hdd
-        disks.push(DeviceDisk {
-            disk_device: DiskDevices::File,
-            driver_name: DiskDrivers::Qemu,
-            driver_format: DiskFormats::Qcow2,
-            src_file: dst_boot_disk.clone(),
-            target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-            target_bus: hdd_bus.clone(),
-        });
+        if let Some(vm_boot_disk) = vm_boot_disk {
+            disks.push(DeviceDisk {
+                disk_device: DiskDevices::File,
+                driver_name: DiskDrivers::Qemu,
+                driver_format: DiskFormats::Qcow2,
+                src_file: vm_boot_disk.clone(),
+                target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+                target_bus: hdd_bus.clone(),
+            });
+        }
 
         // Data Disk
-        if let Some(dst_config_disk) = dst_config_disk {
-            copy_disks.push(CloneDisk {
-                // These should always have a value.
-                src: src_config_disk.unwrap(),
+        if let (Some(src_config_disk), Some(dst_config_disk)) = (src_config_disk, dst_config_disk) {
+            clone_disks.push(CloneDisk {
+                src: src_config_disk,
                 dst: dst_config_disk.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::File,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
-                // These should always have a value.
                 src_file: dst_config_disk.clone(),
                 target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
                 target_bus: hdd_bus.clone(),
@@ -1245,17 +1235,15 @@ pub async fn up(
         }
 
         // USB
-        if let Some(dst_usb_disk) = dst_usb_disk {
-            copy_disks.push(CloneDisk {
-                // These should always have a value.
-                src: src_usb_disk.unwrap(),
+        if let (Some(src_usb_disk), Some(dst_usb_disk)) = (src_usb_disk, dst_usb_disk) {
+            clone_disks.push(CloneDisk {
+                src: src_usb_disk,
                 dst: dst_usb_disk.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::File,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
-                // These should always have a value.
                 src_file: dst_usb_disk.clone(),
                 target_dev: DiskTargets::target(&DiskBuses::Usb, disks.len() as u8)?,
                 target_bus: DiskBuses::Usb,
@@ -1263,18 +1251,18 @@ pub async fn up(
         }
 
         // Ignition
-        if dst_ignition_disk.is_some() {
-            copy_disks.push(CloneDisk {
-                // These should always have a value.
-                src: src_ignition_disk.unwrap(),
-                dst: dst_ignition_disk.clone().unwrap(),
+        if let (Some(src_ignition_disk), Some(dst_ignition_disk)) =
+            (src_ignition_disk, dst_ignition_disk.clone())
+        {
+            clone_disks.push(CloneDisk {
+                src: src_ignition_disk,
+                dst: dst_ignition_disk.clone(),
             });
             disks.push(DeviceDisk {
                 disk_device: DiskDevices::File,
                 driver_name: DiskDrivers::Qemu,
                 driver_format: DiskFormats::Raw,
-                // These should always have a value.
-                src_file: dst_ignition_disk.clone().unwrap(),
+                src_file: dst_ignition_disk.clone(),
                 target_dev: DiskTargets::target(&DiskBuses::Sata, disks.len() as u8)?,
                 target_bus: DiskBuses::Sata,
             });
@@ -1285,7 +1273,11 @@ pub async fn up(
             NodeModel::JuniperVswitch => QemuCommand::juniper_vswitch(),
             NodeModel::JuniperVevolved => QemuCommand::juniper_vevolved(),
             NodeModel::FlatcarLinux => {
-                QemuCommand::ignition_config(&dst_ignition_disk.clone().unwrap())
+                if let Some(dst_ignition_disk) = dst_ignition_disk {
+                    QemuCommand::ignition_config(&dst_ignition_disk)
+                } else {
+                    vec![]
+                }
             }
             _ => {
                 vec![]
@@ -1293,26 +1285,28 @@ pub async fn up(
         };
 
         let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
-        let domain = DomainTemplate {
-            qemu_bin: config.qemu_bin.clone(),
-            name: node_name,
-            memory: device.memory.unwrap_or(device_model.memory),
-            cpu_architecture: device_model.cpu_architecture.clone(),
-            cpu_model: device_model.cpu_model.clone(),
-            machine_type: device_model.machine_type.clone(),
-            cpu_count: device.cpu_count.unwrap_or(device_model.cpu_count),
-            vmx_enabled: device_model.vmx_enabled,
-            bios: device_model.bios.clone(),
-            disks,
-            interfaces,
-            interface_type: device_model.interface_type.clone(),
-            loopback_ipv4: get_ip(device_id).to_string(),
-            telnet_port: TELNET_PORT,
-            qemu_commands,
-            lab_id: lab_id.to_string(),
-        };
 
-        domains.push(domain);
+        if device_model.kind == NodeKind::VirtualMachine {
+            let domain = DomainTemplate {
+                qemu_bin: config.qemu_bin.clone(),
+                name: node_name,
+                memory: device.memory.unwrap_or(device_model.memory),
+                cpu_architecture: device_model.cpu_architecture.clone(),
+                cpu_model: device_model.cpu_model.clone(),
+                machine_type: device_model.machine_type.clone(),
+                cpu_count: device.cpu_count.unwrap_or(device_model.cpu_count),
+                vmx_enabled: device_model.vmx_enabled,
+                bios: device_model.bios.clone(),
+                disks,
+                interfaces,
+                interface_type: device_model.interface_type.clone(),
+                loopback_ipv4: get_ip(device_id).to_string(),
+                telnet_port: TELNET_PORT,
+                qemu_commands,
+                lab_id: lab_id.to_string(),
+            };
+            domains.push(domain);
+        }
     }
 
     create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
@@ -1320,7 +1314,7 @@ pub async fn up(
 
     // Clone disks in parallel
     term_msg_underline("Cloning Disks");
-    let disk_handles: Vec<_> = copy_disks
+    let disk_handles: Vec<_> = clone_disks
         .into_iter()
         .map(|disk| {
             let qemu_conn = Arc::clone(&qemu_conn);
@@ -1343,7 +1337,8 @@ pub async fn up(
     }
 
     // Build domains in parallel
-    term_msg_underline("Creating VM Configs");
+    term_msg_underline("Creating Node Configs");
+
     let vm_handles: Vec<_> = domains
         .into_iter()
         .map(|domain| {
@@ -1395,16 +1390,23 @@ pub async fn up(
     let mut connected_devices = std::collections::HashSet::new();
     let mut device_ip_map = vec![];
 
+    let all_lab_nodes = vec![
+        container_nodes.clone(),
+        unikernel_nodes.clone(),
+        vm_nodes.clone(),
+    ]
+    .concat();
+    let total_lab_nodes = all_lab_nodes.len();
+
     println!(
         "Waiting for Nodes: {}",
-        &vm_nodes
+        &all_lab_nodes
             .iter()
             .map(|x| x.name.as_str())
             .collect::<Vec<&str>>()
             .join(" ")
     );
 
-    let total_lab_nodes = container_nodes.len() + unikernel_nodes.len() + vm_nodes.len();
     while start_time.elapsed() < timeout && connected_devices.len() < total_lab_nodes {
         // Containers
         for container in &container_nodes {
@@ -1455,11 +1457,11 @@ pub async fn up(
                 continue;
             }
 
-            let device_model = config
-                .device_models
-                .iter()
-                .find(|d| d.name == device.model)
-                .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
+            // let device_model = config
+            //     .device_models
+            //     .iter()
+            //     .find(|d| d.name == device.model)
+            //     .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
             // let ssh_port = match device_model.name {
             //     NodeModel::NokiaSrlinux => SSH_PORT_ALT,
