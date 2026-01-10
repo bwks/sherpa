@@ -14,7 +14,9 @@ use super::init::init;
 use super::inspect::inspect;
 use super::resume::resume;
 use super::ssh::ssh;
+use super::unikernel::UnikernelCommands;
 use super::up::up;
+use super::virtual_machine::VirtualMachineCommands;
 
 use data::Sherpa;
 use konst::{
@@ -93,6 +95,16 @@ enum Commands {
     Container {
         #[command(subcommand)]
         commands: ContainerCommands,
+    },
+    /// Container management commands
+    Vm {
+        #[command(subcommand)]
+        commands: VirtualMachineCommands,
+    },
+    /// Container management commands
+    Unikernel {
+        #[command(subcommand)]
+        commands: UnikernelCommands,
     },
     /// Image management commands
     Image {
@@ -186,8 +198,16 @@ impl Cli {
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;
             }
+            Commands::Vm { commands } => {
+                // parse_container_commands(commands, &sherpa).await?;
+                println!("NOT IMPLEMENTED");
+            }
+            Commands::Unikernel { commands } => {
+                // parse_container_commands(commands, &sherpa).await?;
+                println!("NOT IMPLEMENTED");
+            }
             Commands::Image { commands } => {
-                parse_image_commands(commands, &sherpa)?;
+                parse_image_commands(commands, &sherpa).await?;
             }
         }
         Ok(())

@@ -12,3 +12,13 @@ pub struct AristaVeosZtpTemplate {
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Option<Ipv4Addr>,
 }
+
+#[derive(Template)]
+#[template(path = "arista/arista_ceos.jinja", ext = "txt")]
+pub struct AristaCeosZtpTemplate {
+    pub hostname: String,
+    pub user: User,
+    pub dns: Dns,
+    pub mgmt_ipv4: NetworkV4,
+    pub mgmt_ipv4_address: Option<Ipv4Addr>,
+}

@@ -4,6 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use clap::Subcommand;
 
+use container::{docker_connection, list_images};
 use data::{NodeModel, Sherpa};
 use util::{
     copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
@@ -17,6 +18,15 @@ pub enum ImageCommands {
         /// Optional: List all boxes for a model
         #[arg(value_enum)]
         model: Option<NodeModel>,
+        /// List container images
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        containers: bool,
+        /// List nanovm images
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        nanovms: bool,
+        /// List virtual machine images
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        virtual_machines: bool,
     },
 
     /// Import a disk image
@@ -60,13 +70,26 @@ fn list_directory_contents(path: &Path, indent: u8) -> Result<()> {
 }
 
 /// Parse the commands for Image
-pub fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result<()> {
+pub async fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result<()> {
     match commands {
-        ImageCommands::List { model } => {
+        ImageCommands::List {
+            model,
+            containers,
+            nanovms,
+            virtual_machines,
+        } => {
             if let Some(m) = model {
                 let model_dir = format!("{}/{}", &config.images_dir, m);
                 println!("{}", &model_dir);
                 list_directory_contents(model_dir.as_ref(), 0)?;
+            } else if *containers {
+                term_msg_surround("Container images");
+                let docker_conn = docker_connection()?;
+                list_images(&docker_conn).await?;
+            } else if *nanovms {
+                println!("NOT IMPLEMENTED")
+            } else if *virtual_machines {
+                println!("NOT IMPLEMENTED")
             } else {
                 println!("{}", &config.images_dir);
                 list_directory_contents(config.images_dir.as_ref(), 0)?;

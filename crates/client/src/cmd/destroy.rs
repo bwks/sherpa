@@ -20,14 +20,17 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     let pool_disks = storage_pool.list_volumes()?;
 
     let docker_conn = docker_connection()?;
-    let lab_router = format!("{}-{}", CONTAINER_DNSMASQ_NAME, lab_id);
     for container in list_containers(&docker_conn).await? {
-        if container
-            // From docks: for historic reasons, names are prefixed with forward slash (/)
-            .names
-            .is_some_and(|x| x.contains(&format!("/{}", &lab_router)))
-        {
-            kill_container(&docker_conn, &lab_router).await?;
+        if let Some(names) = &container.names {
+            // Check if any container name contains the lab_id
+            if names.iter().any(|name| name.contains(lab_id)) {
+                // From docs: for historical reasons, container names start with a '/'
+                // Extract the actual container name (remove leading /)
+                if let Some(container_name) = names.first() {
+                    let name = container_name.trim_start_matches('/');
+                    kill_container(&docker_conn, name).await?;
+                }
+            }
         }
     }
 

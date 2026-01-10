@@ -22,15 +22,16 @@ pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use interface::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int, CiscoNexus9300vInt,
-    ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface, InterfaceKind, InterfaceTrait,
-    JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MgmtInterfaces,
+    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
+    CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface, InterfaceKind,
+    InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
+    MgmtInterfaces,
 };
 pub use lab::LabInfo;
 pub use mapping::{CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand};
 pub use network::{NetworkV4, SherpaNetwork};
 pub use node::{
-    BiosTypes, CpuArchitecture, DeviceKind, InterfaceType, MachineType, NodeInstance, NodeModel,
+    BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeInstance, NodeKind, NodeModel,
     OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;

@@ -1,5 +1,8 @@
 #! /usr/bin/bash
 
+# Ownership
+sudo chown -R sherpa:sherpa /opt/sherpa/
+
 # Folders
 sudo find /opt/sherpa -type d -exec chmod 2775 {} \;
 

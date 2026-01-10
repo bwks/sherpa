@@ -72,7 +72,7 @@ pub async fn create_boot_containers(
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
     let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
     let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
-    let dnsmasq_env_dns2 = "DNS2=";
+    let dnsmasq_env_dns2 = "DNS2=".to_string();
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
 
     // Webdir
@@ -80,18 +80,12 @@ pub async fn create_boot_containers(
         format!("{project_dir}/{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
 
     // Dnsmasq
-    let dnsmasq_env_vars = vec![dnsmasq_env_dns1.as_str(), dnsmasq_env_dns2];
-    let dnsmasq_config = format!(
-        "{}/{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}",
-        project_dir
-    );
-    let dnsmasq_tftp = format!("{}/{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}", project_dir);
+    let dnsmasq_env_vars = vec![dnsmasq_env_dns1, dnsmasq_env_dns2];
+    let dnsmasq_config =
+        format!("{project_dir}/{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}");
+    let dnsmasq_tftp = format!("{project_dir}/{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}");
 
-    let dnsmasq_volumes = vec![
-        dnsmasq_config.as_str(),
-        dnsmasq_tftp.as_str(),
-        webdir_config_dir.as_str(),
-    ];
+    let dnsmasq_volumes = vec![dnsmasq_config, dnsmasq_tftp, webdir_config_dir];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
     let network_attachments = vec![ContainerNetworkAttachment {
@@ -101,12 +95,14 @@ pub async fn create_boot_containers(
 
     run_container(
         docker_conn,
-        &format!("{}-{}", CONTAINER_DNSMASQ_NAME, lab_id),
+        &format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
         CONTAINER_DNSMASQ_REPO,
         dnsmasq_env_vars,
         dnsmasq_volumes,
         dnsmasq_capabilities,
         network_attachments,
+        vec![],
+        false,
     )
     .await?;
 

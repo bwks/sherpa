@@ -4,9 +4,9 @@ use anyhow::Result;
 
 use data::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
-    CiscoCsr1000vInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int, CiscoNexus9300vInt,
-    CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt,
-    JuniperVsrxv3Int, JuniperVswitchInt, NodeModel,
+    CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
+    CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperVevolvedInt,
+    JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, NodeModel,
 };
 
 pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8> {
@@ -22,6 +22,7 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
         NodeModel::CiscoNexus9300v => CiscoNexus9300vInt::from_str(interface)?.to_idx(),
         NodeModel::CiscoIosv => CiscoIosvInt::from_str(interface)?.to_idx(),
         NodeModel::CiscoIosvl2 => CiscoIosvl2Int::from_str(interface)?.to_idx(),
+        NodeModel::CiscoFtdv => CiscoFtdvInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVevolved => JuniperVevolvedInt::from_str(interface)?.to_idx(),
@@ -49,6 +50,7 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
         NodeModel::CiscoNexus9300v => CiscoNexus9300vInt::from_idx(idx)?,
         NodeModel::CiscoIosv => CiscoIosvInt::from_idx(idx)?,
         NodeModel::CiscoIosvl2 => CiscoIosvl2Int::from_idx(idx)?,
+        NodeModel::CiscoFtdv => CiscoFtdvInt::from_idx(idx)?,
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_idx(idx)?,
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_idx(idx)?,
         NodeModel::JuniperVevolved => JuniperVevolvedInt::from_idx(idx)?,

@@ -4,7 +4,6 @@ use serde_derive::{Deserialize, Serialize};
 
 use konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_DNSMASQ_VERSION,
-    CONTAINER_SRLINUX_NAME, CONTAINER_SRLINUX_REPO, CONTAINER_SRLINUX_VERSION,
     CONTAINER_WEBDIR_NAME, CONTAINER_WEBDIR_REPO, CONTAINER_WEBDIR_VERSION,
 };
 
@@ -37,13 +36,6 @@ impl ContainerImage {
             name: CONTAINER_DNSMASQ_NAME.to_owned(),
             repo: CONTAINER_DNSMASQ_REPO.to_owned(),
             version: CONTAINER_DNSMASQ_VERSION.to_owned(),
-        }
-    }
-    pub fn srlinux() -> ContainerImage {
-        ContainerImage {
-            name: CONTAINER_SRLINUX_NAME.to_owned(),
-            repo: CONTAINER_SRLINUX_REPO.to_owned(),
-            version: CONTAINER_SRLINUX_VERSION.to_owned(),
         }
     }
 }

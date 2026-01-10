@@ -27,11 +27,8 @@ pub fn load_config(file_path: &str) -> Result<Config> {
 }
 
 pub fn default_config() -> Config {
-    let container_images: Vec<ContainerImage> = vec![
-        ContainerImage::dnsmasq(),
-        ContainerImage::webdir(),
-        ContainerImage::srlinux(),
-    ];
+    let container_images: Vec<ContainerImage> =
+        vec![ContainerImage::dnsmasq(), ContainerImage::webdir()];
     let device_models: Vec<NodeInstance> = vec![
         NodeInstance::arista_veos(),
         NodeInstance::arista_ceos(),
@@ -65,6 +62,10 @@ pub fn default_config() -> Config {
         NodeInstance::free_bsd(),
         NodeInstance::open_bsd(),
         NodeInstance::windows_server(),
+        // Containers
+        NodeInstance::surreal_db(),
+        NodeInstance::mysql_db(),
+        NodeInstance::postgresql_db(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =

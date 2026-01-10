@@ -11,6 +11,8 @@ mod init;
 mod inspect;
 mod resume;
 mod ssh;
+mod unikernel;
 mod up;
+mod virtual_machine;
 
 pub use cli::Cli;

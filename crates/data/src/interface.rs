@@ -576,6 +576,21 @@ interface_enum!(
 );
 
 interface_enum!(
+    CiscoFtdvInt,
+    "CiscoFtdv",
+    [
+        Gig0_0 => 0, "gig0/0",
+        Gig0_1 => 1, "gig0/1",
+        Gig0_2 => 2, "gig0/2",
+        Gig0_3 => 3, "gig0/3",
+        Gig0_4 => 4, "gig0/4",
+        Gig0_5 => 5, "gig0/5",
+        Gig0_6 => 6, "gig0/6",
+        Gig0_7 => 7, "gig0/7"
+    ]
+);
+
+interface_enum!(
     CiscoCsr1000vInt,
     "CiscoCsr1000v",
     [

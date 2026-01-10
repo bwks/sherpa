@@ -12,8 +12,8 @@ use bollard::models::{
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
-    KillContainerOptions, ListContainersOptions, ListNetworksOptions, RemoveContainerOptions,
-    StartContainerOptions,
+    KillContainerOptions, ListContainersOptions, ListImagesOptions, ListNetworksOptions,
+    RemoveContainerOptions, StartContainerOptions,
 };
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
@@ -33,6 +33,30 @@ pub async fn list_containers(docker_conn: &Docker) -> Result<Vec<ContainerSummar
         ..Default::default()
     });
     Ok(docker_conn.list_containers(options).await?)
+}
+
+/// List all container images
+pub async fn list_images(docker_conn: &Docker) -> Result<()> {
+    let container_images = docker_conn
+        .list_images(Some(ListImagesOptions {
+            all: true,
+            ..Default::default()
+        }))
+        .await?;
+
+    let mut image_list = vec![];
+    for image in container_images {
+        for tag in image.repo_tags {
+            image_list.push(tag)
+        }
+    }
+    image_list.sort();
+
+    for image in image_list {
+        println!("{image}")
+    }
+
+    Ok(())
 }
 
 pub async fn list_networks(docker_conn: &Docker) -> Result<Vec<Network>> {
@@ -92,20 +116,25 @@ pub async fn run_container(
     docker: &Docker,
     name: &str,
     image: &str,
-    env_vars: Vec<&str>,
-    volumes: Vec<&str>,
+    env_vars: Vec<String>,
+    volumes: Vec<String>,
     capabilities: Vec<&str>,
     network_attachments: Vec<ContainerNetworkAttachment>,
+    commands: Vec<String>,
+    privileged: bool,
 ) -> Result<()> {
     // Environment variables
 
-    let env: Vec<String> = env_vars.iter().map(|s| s.to_string()).collect();
+    // let env = env_vars.iter().map(|s| s.to_string()).collect();
 
     // Volume bindings
-    let binds: Vec<String> = volumes.iter().map(|s| s.to_string()).collect();
+    // let binds = volumes;
 
     // Capabilities
-    let caps: Vec<String> = capabilities.iter().map(|s| s.to_string()).collect();
+    let caps = capabilities.iter().map(|s| s.to_string()).collect();
+
+    // Commands
+    let cmds = commands.iter().map(|s| s.to_string()).collect();
 
     // Endpoint config for static IP on sherpa-management network
     let mut endpoints_config = HashMap::new();
@@ -129,20 +158,22 @@ pub async fn run_container(
     };
 
     let host_config = HostConfig {
-        binds: Some(binds),
+        binds: Some(volumes),
         cap_add: Some(caps),
-        auto_remove: Some(true), // like --rm flag, removes container automatically when stopped
+        auto_remove: Some(true),
+        privileged: Some(privileged),
         ..Default::default()
     };
 
     // Full container config
     let config = ContainerCreateBody {
         image: Some(image.to_string()),
-        env: Some(env),
+        env: Some(env_vars),
         host_config: Some(host_config),
         networking_config: Some(networking_config),
         tty: Some(true),
         open_stdin: Some(true),
+        cmd: Some(cmds), // Add the command here
         ..Default::default()
     };
 
@@ -262,8 +293,6 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
 
     println!("Successfully pulled image: {}", image_location);
     println!("Image is now available in local Docker daemon");
-    println!("Run 'docker image ls' to verify");
-
     Ok(())
 }
 

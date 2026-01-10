@@ -2,7 +2,7 @@ mod util;
 
 pub use util::{
     create_network, delete_network, docker_connection, kill_container, list_containers,
-    list_networks, pull_container_image, pull_image, remove_container, run_container,
+    list_images, list_networks, pull_container_image, pull_image, remove_container, run_container,
     save_container_image,
 };
 

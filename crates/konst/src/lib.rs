@@ -91,6 +91,7 @@ pub const CISCO_ASAV_ZTP_CONFIG: &str = "day0-config";
 pub const CISCO_NXOS_ZTP_CONFIG: &str = "nxos_config.txt";
 pub const CISCO_IOSXR_ZTP_CONFIG: &str = "iosxr_config.txt";
 pub const CISCO_ISE_ZTP_CONFIG: &str = "ise-ztp.conf";
+pub const CISCO_FTDV_ZTP_CONFIG: &str = "day0-config";
 pub const CUMULUS_ZTP_DIR: &str = "cumulus";
 pub const CUMULUS_ZTP_CONFIG: &str = "cumulus-config.txt";
 pub const CUMULUS_ZTP: &str = "cumulus-ztp";
@@ -118,11 +119,37 @@ pub const CONTAINER_WEBDIR_NAME: &str = "webdir";
 pub const CONTAINER_WEBDIR_REPO: &str = "ghcr.io/bwks/webdir";
 pub const CONTAINER_WEBDIR_VERSION: &str = "0.1.5";
 pub const CONTAINER_DNSMASQ_NAME: &str = "sherpa-router";
+
 pub const CONTAINER_DNSMASQ_REPO: &str = "ghcr.io/bwks/sherpa-router";
 pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
 pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
-pub const CONTAINER_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
-pub const CONTAINER_SRLINUX_VERSION: &str = "23.10.8";
+
+pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
+pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
+pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] =
+    &["sudo", "bash", "/opt/srlinux/bin/sr_linux"];
+
+pub const CONTAINER_ARISTA_CEOS_REPO: &str = "arista/ceos";
+pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
+    "INTFTYPE=eth",
+    "ETBA=1",
+    "SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
+    "CEOS=1",
+    "EOS_PLATFORM=ceoslab",
+    "MAPETH0:1",
+    "MGMT_INTF:eth0",
+];
+pub const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
+    "/sbin/init",
+    "systemd.setenv=INTFTYPE=eth",
+    "systemd.setenv=ETBA=1",
+    "systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1",
+    "systemd.setenv=CEOS=1",
+    "systemd.setenv=EOS_PLATFORM=ceoslab",
+    "systemd.setenv=container=docker",
+    "systemd.setenv=MAPETH0=1",
+    "systemd.setenv=MGMT_INTF=eth0",
+];
 
 pub const DHCP_URI_DIR: &str = "dnsmasq";
 pub const DHCP_LEASES_FILE: &str = "dnsmasq.leases";

@@ -1,0 +1,30 @@
+!
+hostname {{ hostname }}
+dns domain {{ dns.domain }}
+{%- for server in dns.name_servers %}
+ip name-server {{ server.ipv4_address }}
+{%- endfor %}
+!
+no aaa root
+!
+service routing protocols model multi-agent
+!
+aaa authorization exec default local
+!
+username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+!
+ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
+!
+interface Management0
+   {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+   ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+   {%- else %}
+   ip address dhcp
+   {%- endif %}
+!
+management api http-commands
+   no shutdown
+!
+end
+!
