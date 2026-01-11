@@ -11,15 +11,16 @@ use data::{
     ZtpMethod, ZtpRecord,
 };
 use konst::{
-    CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
-    CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
-    CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS,
-    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO, CONTAINER_DISK_NAME,
-    CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    ARISTA_CEOS_ZTP_VOLUME_MOUNT, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
+    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
+    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
+    CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
+    CONTAINER_DISK_NAME, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO,
+    CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
+    LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
@@ -252,52 +253,70 @@ pub async fn up(
 
                 this_dev.ipv4_address = Some(get_ipv4_addr(&mgmt_net.v4.prefix, device_ip_idx)?);
 
-                if this_dev.model == NodeModel::AristaCeos {
-                    let arista_template = AristaCeosZtpTemplate {
-                        hostname: device.name.clone(),
-                        user: user.clone(),
-                        dns: dns.clone(),
-                        mgmt_ipv4_address: this_dev.ipv4_address,
-                        mgmt_ipv4: mgmt_net.v4.clone(),
-                    };
-                    let rendered_template = arista_template.render()?;
-                    let ztp_config = format!("{dir}/{}.conf", device.name);
-                    create_dir(&dir)?;
-                    create_file(&ztp_config, rendered_template)?;
+                match this_dev.model {
+                    NodeModel::AristaCeos => {
+                        let arista_template = AristaCeosZtpTemplate {
+                            hostname: device.name.clone(),
+                            user: user.clone(),
+                            dns: dns.clone(),
+                            mgmt_ipv4_address: this_dev.ipv4_address,
+                            mgmt_ipv4: mgmt_net.v4.clone(),
+                        };
+                        let rendered_template = arista_template.render()?;
+                        let ztp_config = format!("{dir}/{}.conf", device.name);
+                        let ztp_volume = format!("{ztp_config}:{ARISTA_CEOS_ZTP_VOLUME_MOUNT}");
+                        create_dir(&dir)?;
+                        create_file(&ztp_config, rendered_template)?;
 
-                    this_dev.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
-                    this_dev.privileged = Some(true);
-                    this_dev.environment_variables = Some(
-                        CONTAINER_ARISTA_CEOS_ENV_VARS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                    this_dev.commands = Some(
-                        CONTAINER_ARISTA_CEOS_COMMANDS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
+                        this_dev.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
+                        this_dev.privileged = Some(true);
+                        this_dev.environment_variables = Some(
+                            CONTAINER_ARISTA_CEOS_ENV_VARS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
+                        this_dev.volumes = Some(vec![ztp_volume]);
+                        this_dev.commands = Some(
+                            CONTAINER_ARISTA_CEOS_COMMANDS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
+                    }
+                    NodeModel::NokiaSrlinux => {
+                        this_dev.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
+                        this_dev.privileged = Some(true);
+                        this_dev.environment_variables = Some(
+                            CONTAINER_NOKIA_SRLINUX_ENV_VARS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
+                        this_dev.commands = Some(
+                            CONTAINER_NOKIA_SRLINUX_COMMANDS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
+                    }
+                    NodeModel::SurrealDb => {
+                        this_dev.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
+                        // this_dev.environment_variables = Some(
+                        //     CONTAINER_SURREAL_DB_ENV_VARS
+                        //         .iter()
+                        //         .map(|s| s.to_string())
+                        //         .collect(),
+                        // );
+                        this_dev.commands = Some(
+                            CONTAINER_SURREAL_DB_COMMANDS
+                                .iter()
+                                .map(|s| s.to_string())
+                                .collect(),
+                        );
+                    }
+                    _ => {}
                 }
-
-                if this_dev.model == NodeModel::NokiaSrlinux {
-                    this_dev.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
-                    this_dev.privileged = Some(true);
-                    this_dev.environment_variables = Some(
-                        CONTAINER_NOKIA_SRLINUX_ENV_VARS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                    this_dev.commands = Some(
-                        CONTAINER_NOKIA_SRLINUX_COMMANDS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                }
-
                 container_nodes.push(this_dev);
             }
             NodeKind::Unikernel => {

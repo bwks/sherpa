@@ -99,6 +99,7 @@ pub const CUMULUS_ZTP: &str = "cumulus-ztp";
 pub const ARISTA_ZTP_DIR: &str = "arista";
 pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
 pub const ARISTA_VEOS_ZTP: &str = "startup-config";
+pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/flash/startup-config";
 pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
 pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
@@ -110,6 +111,9 @@ pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
+
+pub const DHCP_URI_DIR: &str = "dnsmasq";
+pub const DHCP_LEASES_FILE: &str = "dnsmasq.leases";
 
 pub const DOCKER_COMPOSE_VERSION: &str = "2.34.0";
 
@@ -152,5 +156,15 @@ pub const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
     "systemd.setenv=MGMT_INTF=eth0",
 ];
 
-pub const DHCP_URI_DIR: &str = "dnsmasq";
-pub const DHCP_LEASES_FILE: &str = "dnsmasq.leases";
+pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
+pub const CONTAINER_SURREAL_DB_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
+    "start",
+    "--log",
+    "trace",
+    "--user",
+    SHERPA_USERNAME,
+    "--pass",
+    SHERPA_PASSWORD,
+    "memory",
+];
