@@ -1,19 +1,9 @@
 use anyhow::{Result, bail};
 use clap::Subcommand;
 
-use container::{
-    docker_connection, list_images, pull_container_image, pull_image, save_container_image,
-};
-use data::{ContainerImage, ContainerModel, NodeModel, Sherpa};
-use konst::{
-    CONTAINER_DISK_NAME, CONTAINER_IMAGE_NAME, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_1G,
-    SHERPA_BLANK_DISK_EXT4_2G, SHERPA_BLANK_DISK_EXT4_3G, SHERPA_BLANK_DISK_EXT4_4G,
-    SHERPA_BLANK_DISK_EXT4_5G, TEMP_DIR,
-};
-use util::{
-    check_file_size, copy_file, copy_to_ext4_image, create_dir, create_symlink, delete_dirs,
-    dir_exists, file_exists, fix_permissions_recursive, load_config, term_msg_surround,
-};
+use container::{docker_connection, list_images, pull_image};
+use data::Sherpa;
+use util::{load_config, term_msg_surround};
 
 #[derive(Debug, Subcommand)]
 #[group(
@@ -75,91 +65,6 @@ pub async fn parse_container_commands(commands: &ContainerCommands, sherpa: &She
                 };
                 pull_image(&repo, &version).await?;
             } //
-              // ImageCommands::Import {
-              //     image,
-              //     version,
-              //     model,
-              //     latest,
-              // } => {
-              //     term_msg_surround("Importing container image");
-
-              //     if !dir_exists(TEMP_DIR) {
-              //         create_dir(TEMP_DIR)?;
-              //     }
-
-              //     save_container_image(image, version)?;
-
-              //     let container_path = format!("{TEMP_DIR}/{CONTAINER_IMAGE_NAME}");
-
-              //     if !file_exists(&container_path) {
-              //         anyhow::bail!("File does not exist: {}", container_path);
-              //     }
-
-              //     let data_disk_base = match check_file_size(&container_path)? {
-              //         1 => SHERPA_BLANK_DISK_EXT4_1G,
-              //         2 => SHERPA_BLANK_DISK_EXT4_2G,
-              //         3 => SHERPA_BLANK_DISK_EXT4_3G,
-              //         4 => SHERPA_BLANK_DISK_EXT4_4G,
-              //         5 => SHERPA_BLANK_DISK_EXT4_5G,
-              //         _ => bail!("Container image is larger than 5GB and not supported."),
-              //     };
-
-              //     // Copy a blank disk to to .tmp directory
-              //     let src_data_disk = format!(
-              //         "{}/{}/{}",
-              //         &sherpa.images_dir, SHERPA_BLANK_DISK_DIR, data_disk_base
-              //     );
-              //     let dst_data_disk = format!("{TEMP_DIR}/{CONTAINER_DISK_NAME}");
-
-              //     copy_file(&src_data_disk, &dst_data_disk)?;
-
-              //     // Copy to container image into the container disk
-              //     copy_to_ext4_image(vec![&container_path], &dst_data_disk, "/")?;
-
-              //     let dst_path = format!("{}/{}", &sherpa.images_dir, model);
-              //     let dst_version_dir = format!("{dst_path}/{version}");
-              //     let dst_latest_dir = format!("{dst_path}/latest");
-
-              //     create_dir(&dst_version_dir)?;
-              //     create_dir(&dst_latest_dir)?;
-
-              //     let dst_version_disk = format!("{dst_version_dir}/{CONTAINER_DISK_NAME}");
-
-              //     if !file_exists(&dst_version_disk) {
-              //         println!(
-              //             "Copying file from: {} to: {}",
-              //             &dst_data_disk, dst_version_disk
-              //         );
-              //         copy_file(&dst_data_disk, &dst_version_disk)?;
-              //         println!(
-              //             "Copied file from: {} to: {}",
-              //             &dst_data_disk, dst_version_disk
-              //         );
-              //     } else {
-              //         println!("File already exists: {}", dst_version_disk);
-              //     }
-
-              //     if *latest {
-              //         let dst_latest_disk = format!("{dst_latest_dir}/{CONTAINER_DISK_NAME}");
-              //         println!(
-              //             "Symlinking file from: {} to: {}",
-              //             dst_version_disk, dst_latest_disk
-              //         );
-              //         create_symlink(&dst_version_disk, &dst_latest_disk)?;
-              //         println!(
-              //             "Symlinked file from: {} to: {}",
-              //             dst_version_disk, dst_latest_disk
-              //         );
-              //     }
-
-              //     println!("Setting base box files to read-only");
-
-              //     // Update box permissions
-              //     fix_permissions_recursive(&sherpa.images_dir)?;
-
-              //     // Delete the local .tmp directory
-              //     delete_dirs(TEMP_DIR)?;
-              // }
         },
     }
     Ok(())

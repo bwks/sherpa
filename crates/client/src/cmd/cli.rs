@@ -1,7 +1,6 @@
 use anyhow::Result;
 
 use clap::{Parser, Subcommand};
-// use container::docker_connection;
 
 use super::clean::clean;
 use super::console::console;
@@ -201,11 +200,13 @@ impl Cli {
                 parse_container_commands(commands, &sherpa).await?;
             }
             Commands::Vm { commands } => {
-                // parse_container_commands(commands, &sherpa).await?;
+                // parse_vm_commands(commands, &sherpa).await?;
+                let _cmds = commands;
                 println!("NOT IMPLEMENTED");
             }
             Commands::Unikernel { commands } => {
-                // parse_container_commands(commands, &sherpa).await?;
+                // parse_unikernel_commands(commands, &sherpa).await?;
+                let _cmds = commands;
                 println!("NOT IMPLEMENTED");
             }
             Commands::Image { commands } => {

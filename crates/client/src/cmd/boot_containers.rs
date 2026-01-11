@@ -1,10 +1,8 @@
-use std::path;
-
 use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{ContainerNetworkAttachment, Dns, SherpaNetwork, User, ZtpRecord};
+use data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
 use konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
     DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_BASE_DIR, SHERPA_LABS_DIR,

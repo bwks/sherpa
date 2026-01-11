@@ -244,7 +244,7 @@ pub async fn up(
         match device_model.kind {
             NodeKind::Container => {
                 // generate the template
-                println!("Creating ZTP config {}", device.name);
+                println!("Creating container config: {}", device.name);
                 let user = sherpa_user.clone();
                 let dir = format!("{}/{}", lab_dir, device.name);
 
@@ -307,9 +307,22 @@ pub async fn up(
             }
             NodeKind::VirtualMachine => {
                 println!("VM node: {}", device.model);
-                // vm_nodes.push(device);
+                vm_nodes.push(device.clone());
             }
         }
+    }
+    for device in &vm_nodes {
+        let device_idx = dev_id_map
+            .get(&device.name)
+            .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
+
+        let device_ip_idx = 10 + device_idx.to_owned() as u32;
+
+        let device_model = config
+            .device_models
+            .iter()
+            .find(|d| d.name == device.model)
+            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         let mut disks: Vec<DeviceDisk> = vec![];
         let node_name = format!("{}-{}", device.name, lab_id);
@@ -495,7 +508,7 @@ pub async fn up(
         let (mut src_ignition_disk, mut dst_ignition_disk) = (None::<String>, None::<String>);
 
         if device_model.ztp_enable {
-            vm_nodes.push(device.clone());
+            // vm_nodes.push(device.clone());
             // TODO: Update this to use the assigned IP if
             // an IP is not user defined.
             let device_ipv4_address = ztp_records
@@ -1366,12 +1379,12 @@ pub async fn up(
     }
 
     if !ztp_records.is_empty() {
-        // if config.inventory_management.pyats {
-        //     term_msg_underline("Creating PyATS Testbed File");
-        //     let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
-        //     let pyats_yaml = pyats_inventory.to_yaml()?;
-        //     create_file(".tmp/testbed.yaml", pyats_yaml)?;
-        // }
+        if config.inventory_management.pyats {
+            term_msg_underline("Creating PyATS Testbed File");
+            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
+            let pyats_yaml = pyats_inventory.to_yaml()?;
+            create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
+        }
 
         term_msg_underline("Creating SSH Config File");
         let ssh_config_template = SshConfigTemplate {
@@ -1450,11 +1463,11 @@ pub async fn up(
             connected_devices.insert(container.name.clone());
         }
 
-        // Micro VMs
+        // Unikernels
 
         // Virtual Machines
-        for device in &vm_nodes {
-            if connected_devices.contains(&device.name) {
+        for vm in &vm_nodes {
+            if connected_devices.contains(&vm.name) {
                 continue;
             }
 
@@ -1468,19 +1481,19 @@ pub async fn up(
             //     NodeModel::NokiaSrlinux => SSH_PORT_ALT,
             //     _ => SSH_PORT,
             // };
-            if let Some(vm_data) = ztp_records.iter().find(|x| x.device_name == device.name) {
+            if let Some(vm_data) = ztp_records.iter().find(|x| x.device_name == vm.name) {
                 match tcp_connect(&vm_data.ipv4_address.to_string(), SSH_PORT)? {
                     true => {
-                        println!("{} - Ready", &device.name);
-                        connected_devices.insert(device.name.clone());
+                        println!("{} - Ready", &vm.name);
+                        connected_devices.insert(vm.name.clone());
                         device_ip_map.push(DeviceConnection {
-                            name: device.name.clone(),
+                            name: vm.name.clone(),
                             ip_address: vm_data.ipv4_address.to_string(),
                             ssh_port: SSH_PORT,
                         });
                     }
                     false => {
-                        println!("{} - Waiting for SSH", device.name);
+                        println!("{} - Waiting for SSH", vm.name);
                     }
                 }
                 // let leases = get_dhcp_leases(&config).await?;
