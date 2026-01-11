@@ -18,12 +18,12 @@ use konst::{
     CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_REPO, CUMULUS_ZTP, DEVICE_CONFIGS_DIR, JUNIPER_ZTP_CONFIG,
     JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
-    SSH_PORT, SSH_PORT_ALT, TELNET_PORT, TEMP_DIR, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SSH_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
 use std::collections::HashMap;
@@ -64,6 +64,7 @@ pub async fn up(
     let docker_conn = docker_connection()?;
     let qemu_conn = Arc::new(qemu.connect()?);
     let sherpa_user = sherpa_user()?;
+    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
 
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
@@ -142,8 +143,8 @@ pub async fn up(
 
     println!("Manifest Ok");
 
-    // Create Temp DIR
-    create_dir(TEMP_DIR)?;
+    // Create this lab directory
+    create_dir(&lab_dir)?;
 
     term_msg_underline("Lab Network");
     let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
@@ -158,7 +159,7 @@ pub async fn up(
         ipv4_router: lab_router_ip,
     };
     println!("{}", lab_info);
-    create_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}"), lab_info.to_string())?;
+    create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
     let mgmt_net = SherpaNetwork {
         v4: NetworkV4 {
@@ -245,7 +246,7 @@ pub async fn up(
                 // generate the template
                 println!("Creating ZTP config {}", device.name);
                 let user = sherpa_user.clone();
-                let dir = format!("{}/{}", TEMP_DIR, device.name);
+                let dir = format!("{}/{}", lab_dir, device.name);
 
                 let mut this_dev = device.clone();
 
@@ -506,7 +507,7 @@ pub async fn up(
                     term_msg_underline("Creating Cloud-Init disks");
                     // generate the template
                     println!("Creating Cloud-Init config {}", device.name);
-                    let dir = format!("{TEMP_DIR}/{node_name}");
+                    let dir = format!("{lab_dir}/{node_name}");
                     let mut cloud_init_user = CloudInitUser::sherpa()?;
 
                     match device.model {
@@ -609,7 +610,7 @@ pub async fn up(
                             );
                         }
                     }
-                    src_cdrom_iso = Some(format!("{TEMP_DIR}/{node_name}/{ZTP_ISO}"));
+                    src_cdrom_iso = Some(format!("{lab_dir}/{node_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}.iso"));
                 }
                 ZtpMethod::Cdrom => {
@@ -617,7 +618,7 @@ pub async fn up(
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let mut user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{node_name}");
+                    let dir = format!("{lab_dir}/{node_name}");
 
                     match device.model {
                         NodeModel::CiscoCsr1000v
@@ -741,14 +742,14 @@ pub async fn up(
                             );
                         }
                     };
-                    src_cdrom_iso = Some(format!("{TEMP_DIR}/{node_name}/{ZTP_ISO}"));
+                    src_cdrom_iso = Some(format!("{lab_dir}/{node_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.iso"));
                 }
                 ZtpMethod::Tftp => {
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{TFTP_DIR}");
+                    let dir = format!("{lab_dir}/{ZTP_DIR}/{TFTP_DIR}");
 
                     match device.model {
                         NodeModel::AristaVeos => {
@@ -802,7 +803,7 @@ pub async fn up(
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let _user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
+                    let dir = format!("{lab_dir}/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
 
                     match device.model {
                         NodeModel::SonicLinux => {
@@ -832,7 +833,7 @@ pub async fn up(
                     println!("Creating ZTP config {}", device.name);
                     let mut user = sherpa_user.clone();
 
-                    let dir = format!("{TEMP_DIR}/{node_name}");
+                    let dir = format!("{lab_dir}/{node_name}");
                     match device.model {
                         NodeModel::CiscoIosv => {
                             let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
@@ -939,7 +940,7 @@ pub async fn up(
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{node_name}");
+                    let dir = format!("{lab_dir}/{node_name}");
 
                     match device_model.name {
                         NodeModel::CumulusLinux => {
@@ -1016,7 +1017,7 @@ pub async fn up(
                     // generate the template
                     println!("Creating ZTP config {}", device.name);
                     let user = sherpa_user.clone();
-                    let dir = format!("{TEMP_DIR}/{node_name}");
+                    let dir = format!("{lab_dir}/{node_name}");
                     let dev_name = device.name.clone();
                     // Add the ignition config
 
@@ -1309,7 +1310,7 @@ pub async fn up(
         }
     }
 
-    create_ztp_files(&mgmt_net, &sherpa_user, &dns, &ztp_records)?;
+    create_ztp_files(&mgmt_net, &sherpa_user, &lab_id, &ztp_records)?;
     create_boot_containers(&docker_conn, &mgmt_net, lab_id).await?;
 
     // Clone disks in parallel
@@ -1365,12 +1366,12 @@ pub async fn up(
     }
 
     if !ztp_records.is_empty() {
-        if config.inventory_management.pyats {
-            term_msg_underline("Creating PyATS Testbed File");
-            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
-            let pyats_yaml = pyats_inventory.to_yaml()?;
-            create_file(".tmp/testbed.yaml", pyats_yaml)?;
-        }
+        // if config.inventory_management.pyats {
+        //     term_msg_underline("Creating PyATS Testbed File");
+        //     let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
+        //     let pyats_yaml = pyats_inventory.to_yaml()?;
+        //     create_file(".tmp/testbed.yaml", pyats_yaml)?;
+        // }
 
         term_msg_underline("Creating SSH Config File");
         let ssh_config_template = SshConfigTemplate {
@@ -1378,7 +1379,7 @@ pub async fn up(
         };
         let rendered_template = ssh_config_template.render()?;
         create_file(
-            &format!("{TEMP_DIR}/{SHERPA_SSH_CONFIG_FILE}"),
+            &format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"),
             rendered_template,
         )?;
     }

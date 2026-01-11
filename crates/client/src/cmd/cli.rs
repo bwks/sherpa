@@ -193,7 +193,9 @@ impl Cli {
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                ssh(name).await?;
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
+                ssh(&lab_id, name).await?;
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;

@@ -5,8 +5,8 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use virt::storage_pool::StoragePool;
 
-use data::{Config, NodeModel, LabInfo};
-use konst::{LAB_FILE_NAME, SHERPA_STORAGE_POOL, TEMP_DIR};
+use data::{Config, LabInfo, NodeModel};
+use konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use libvirt::Qemu;
 use topology::Node;
 use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
@@ -35,9 +35,11 @@ pub async fn inspect(
     devices: &[Node],
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
+    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
 
     term_msg_underline("Lab Info");
-    let lab_file = match load_file(&format!("{TEMP_DIR}/{LAB_FILE_NAME}")) {
+
+    let lab_file = match load_file(&format!("{lab_dir}/{LAB_FILE_NAME}")) {
         Ok(f) => f,
         Err(_) => {
             bail!("Unable to load lab file. Is the lab running?")

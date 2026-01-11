@@ -7,12 +7,13 @@ use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 use container::{
     delete_network, docker_connection, kill_container, list_containers, list_networks,
 };
-use konst::{CONTAINER_DNSMASQ_NAME, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, TEMP_DIR};
+use konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
 use libvirt::{Qemu, delete_disk};
 use util::{dir_exists, file_exists, term_msg_surround};
 
 pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     term_msg_surround(&format!("Destroying environment - {lab_name}-{lab_id}"));
+    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
 
     let qemu_conn = qemu.connect()?;
     let domains = qemu_conn.list_all_domains(0)?;
@@ -78,9 +79,9 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
         }
     }
 
-    if dir_exists(TEMP_DIR) {
-        fs::remove_dir_all(TEMP_DIR)?;
-        println!("Deleted directory: {TEMP_DIR}");
+    if dir_exists(&lab_dir) {
+        fs::remove_dir_all(&lab_dir)?;
+        println!("Deleted directory: {lab_dir}");
     }
     Ok(())
 }
