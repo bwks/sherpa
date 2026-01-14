@@ -149,6 +149,7 @@ pub enum ConnectionTypes {
     Disabled, // Disable interface
     Management, // Connects to management bridge
     Peer,       // Peered with another device
+    PeerBridge, // Peered with another device via a bridge
     Reserved,   // Reserved interfaces used by the virtual platform
 }
 

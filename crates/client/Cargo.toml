@@ -12,6 +12,7 @@ topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
 validate = { path = "../validate" }
+network = { path = "../network" }
 
 # Errors
 anyhow = "1.0.100"

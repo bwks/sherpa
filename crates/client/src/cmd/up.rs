@@ -27,6 +27,7 @@ use konst::{
     SSH_PORT, TELNET_PORT, TFTP_DIR, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
+use network::{create_bridge, create_veth_pair, enslave_to_bridge};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -42,7 +43,7 @@ use template::{
     JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp, SshConfigTemplate,
     Unit as IgnitionUnit, User as IgnitionUser,
 };
-use topology::{LinkDetailed, LinkExpanded, Manifest, Node};
+use topology::{LinkDetailed, LinkExpanded, Manifest, Node, VolumeMount};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
@@ -86,7 +87,7 @@ pub async fn up(
         .collect::<Result<Vec<LinkExpanded>>>()?;
 
     let mut links_detailed = vec![];
-    for link in links.iter() {
+    for (link_idx, link) in links.iter().enumerate() {
         let mut this_link = LinkDetailed::default();
         for device in manifest.nodes.iter() {
             let device_model = device.model.clone();
@@ -96,12 +97,14 @@ pub async fn up(
                 this_link.dev_a_model = device_model;
                 this_link.int_a = link.int_a.clone();
                 this_link.int_a_idx = int_idx;
+                this_link.link_idx = link_idx as u32
             } else if link.dev_b == device.name {
                 let int_idx = interface_to_idx(&device_model, &link.int_b)?;
                 this_link.dev_b = device.name.clone();
                 this_link.dev_b_model = device_model;
                 this_link.int_b = link.int_b.clone();
                 this_link.int_b_idx = int_idx;
+                this_link.link_idx = link_idx as u32
             }
         }
         links_detailed.push(this_link)
@@ -146,6 +149,29 @@ pub async fn up(
 
     // Create this lab directory
     create_dir(&lab_dir)?;
+
+    term_msg_underline("Creating Point-to-Point Links");
+    for (idx, link) in links_detailed.iter().enumerate() {
+        // Generate unique, names must fit within Linux interface name limits (15 chars)
+        let bridge_a = format!("bra{}-{}", idx, lab_id);
+        let bridge_b = format!("brb{}-{}", idx, lab_id);
+        let veth_a = format!("vea{}-{}", idx, lab_id);
+        let veth_b = format!("veb{}-{}", idx, lab_id);
+
+        println!(
+            "Creating link {} - {}::{} <-> {}::{}",
+            idx, link.dev_a, link.int_a, link.dev_b, link.int_b
+        );
+        // println!(
+        //     "  Bridge A: {} | Veth: {} <-> {} | Bridge B: {}",
+        //     bridge_a, veth_a, veth_b, bridge_b
+        // );
+        create_bridge(&bridge_a).await?;
+        create_bridge(&bridge_b).await?;
+        create_veth_pair(&veth_a, &veth_b).await?;
+        enslave_to_bridge(&veth_a, &bridge_a).await?;
+        enslave_to_bridge(&veth_b, &bridge_b).await?;
+    }
 
     term_msg_underline("Lab Network");
     let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
@@ -229,12 +255,6 @@ pub async fn up(
     let mut domains: Vec<DomainTemplate> = vec![];
 
     for device in &manifest.nodes {
-        let device_idx = dev_id_map
-            .get(&device.name)
-            .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
-
-        let device_ip_idx = 10 + device_idx.to_owned() as u32;
-
         let device_model = config
             .device_models
             .iter()
@@ -244,92 +264,105 @@ pub async fn up(
         // Handle Containers, NanoVM's and regular VM's
         match device_model.kind {
             NodeKind::Container => {
-                // generate the template
-                println!("Creating container config: {}", device.name);
-                let user = sherpa_user.clone();
-                let dir = format!("{}/{}", lab_dir, device.name);
-
-                let mut this_dev = device.clone();
-
-                this_dev.ipv4_address = Some(get_ipv4_addr(&mgmt_net.v4.prefix, device_ip_idx)?);
-
-                match this_dev.model {
-                    NodeModel::AristaCeos => {
-                        let arista_template = AristaCeosZtpTemplate {
-                            hostname: device.name.clone(),
-                            user: user.clone(),
-                            dns: dns.clone(),
-                            mgmt_ipv4_address: this_dev.ipv4_address,
-                            mgmt_ipv4: mgmt_net.v4.clone(),
-                        };
-                        let rendered_template = arista_template.render()?;
-                        let ztp_config = format!("{dir}/{}.conf", device.name);
-                        let ztp_volume = format!("{ztp_config}:{ARISTA_CEOS_ZTP_VOLUME_MOUNT}");
-                        create_dir(&dir)?;
-                        create_file(&ztp_config, rendered_template)?;
-
-                        this_dev.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
-                        this_dev.privileged = Some(true);
-                        this_dev.environment_variables = Some(
-                            CONTAINER_ARISTA_CEOS_ENV_VARS
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        );
-                        this_dev.volumes = Some(vec![ztp_volume]);
-                        this_dev.commands = Some(
-                            CONTAINER_ARISTA_CEOS_COMMANDS
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        );
-                    }
-                    NodeModel::NokiaSrlinux => {
-                        this_dev.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
-                        this_dev.privileged = Some(true);
-                        this_dev.environment_variables = Some(
-                            CONTAINER_NOKIA_SRLINUX_ENV_VARS
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        );
-                        this_dev.commands = Some(
-                            CONTAINER_NOKIA_SRLINUX_COMMANDS
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        );
-                    }
-                    NodeModel::SurrealDb => {
-                        this_dev.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
-                        // this_dev.environment_variables = Some(
-                        //     CONTAINER_SURREAL_DB_ENV_VARS
-                        //         .iter()
-                        //         .map(|s| s.to_string())
-                        //         .collect(),
-                        // );
-                        this_dev.commands = Some(
-                            CONTAINER_SURREAL_DB_COMMANDS
-                                .iter()
-                                .map(|s| s.to_string())
-                                .collect(),
-                        );
-                    }
-                    _ => {}
-                }
-                container_nodes.push(this_dev);
+                // println!("Container node: {}", device.model);
+                container_nodes.push(device.clone());
             }
             NodeKind::Unikernel => {
+                // println!("Unkernel node: {}", device.model);
                 unikernel_nodes.push(device.clone());
-                println!("Unkernel node: {}", device.model);
-                continue;
             }
             NodeKind::VirtualMachine => {
-                println!("VM node: {}", device.model);
+                // println!("VM node: {}", device.model);
                 vm_nodes.push(device.clone());
             }
         }
     }
+    // Containers
+    for device in &mut container_nodes {
+        let device_idx = dev_id_map
+            .get(&device.name)
+            .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
+
+        let device_ip_idx = 10 + device_idx.to_owned() as u32;
+
+        // generate the template
+        println!("Creating container config: {}", device.name);
+        let user = sherpa_user.clone();
+        let dir = format!("{}/{}", lab_dir, device.name);
+
+        device.ipv4_address = Some(get_ipv4_addr(&mgmt_net.v4.prefix, device_ip_idx)?);
+
+        match device.model {
+            NodeModel::AristaCeos => {
+                let arista_template = AristaCeosZtpTemplate {
+                    hostname: device.name.clone(),
+                    user: user.clone(),
+                    dns: dns.clone(),
+                    mgmt_ipv4_address: device.ipv4_address,
+                    mgmt_ipv4: mgmt_net.v4.clone(),
+                };
+                let rendered_template = arista_template.render()?;
+                let ztp_config = format!("{dir}/{}.conf", device.name);
+                let ztp_volume = VolumeMount {
+                    src: ztp_config.clone(),
+                    dst: ARISTA_CEOS_ZTP_VOLUME_MOUNT.to_string(),
+                };
+                create_dir(&dir)?;
+                create_file(&ztp_config, rendered_template)?;
+
+                device.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
+                device.privileged = Some(true);
+                device.environment_variables = Some(
+                    CONTAINER_ARISTA_CEOS_ENV_VARS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+                device.volumes = Some(vec![ztp_volume]);
+                device.commands = Some(
+                    CONTAINER_ARISTA_CEOS_COMMANDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+            }
+            NodeModel::NokiaSrlinux => {
+                device.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
+                device.privileged = Some(true);
+                device.environment_variables = Some(
+                    CONTAINER_NOKIA_SRLINUX_ENV_VARS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+                device.commands = Some(
+                    CONTAINER_NOKIA_SRLINUX_COMMANDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+            }
+            NodeModel::SurrealDb => {
+                device.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
+                // device.environment_variables = Some(
+                //     CONTAINER_SURREAL_DB_ENV_VARS
+                //         .iter()
+                //         .map(|s| s.to_string())
+                //         .collect(),
+                // );
+                device.commands = Some(
+                    CONTAINER_SURREAL_DB_COMMANDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+            }
+            _ => {}
+        }
+    }
+    // Unikernels
+
+    // Virtual Machines
     for device in &vm_nodes {
         let device_idx = dev_id_map
             .get(&device.name)
@@ -426,12 +459,20 @@ pub async fn up(
                             source_port: id_to_port(l.int_b_idx),
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
+                        // interfaces.push(Interface {
+                        //     name: dasher(&l.int_a),
+                        //     num: i,
+                        //     mtu: device_model.interface_mtu,
+                        //     mac_address: random_mac(KVM_OUI),
+                        //     connection_type: ConnectionTypes::Peer,
+                        //     interface_connection: Some(interface_connection),
+                        // });
                         interfaces.push(Interface {
-                            name: dasher(&l.int_a),
+                            name: format!("bra{}-{}", l.link_idx, lab_id),
                             num: i,
                             mtu: device_model.interface_mtu,
                             mac_address: random_mac(KVM_OUI),
-                            connection_type: ConnectionTypes::Peer,
+                            connection_type: ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
                         });
                         p2p_connection = true;
@@ -450,12 +491,20 @@ pub async fn up(
                             source_port: id_to_port(l.int_a_idx),
                             source_loopback: get_ip(source_id.to_owned()).to_string(),
                         };
+                        // interfaces.push(Interface {
+                        //     name: dasher(&l.int_b),
+                        //     num: i,
+                        //     mtu: device_model.interface_mtu,
+                        //     mac_address: random_mac(KVM_OUI),
+                        //     connection_type: ConnectionTypes::Peer,
+                        //     interface_connection: Some(interface_connection),
+                        // });
                         interfaces.push(Interface {
-                            name: dasher(&l.int_b),
+                            name: format!("brb{}-{}", l.link_idx, lab_id),
                             num: i,
                             mtu: device_model.interface_mtu,
                             mac_address: random_mac(KVM_OUI),
-                            connection_type: ConnectionTypes::Peer,
+                            connection_type: ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
                         });
                         p2p_connection = true;
@@ -1459,7 +1508,16 @@ pub async fn up(
                 .clone()
                 .unwrap_or_else(|| vec![]);
             let commands = container.commands.clone().unwrap_or_else(|| vec![]);
-            let volumes = container.volumes.clone().unwrap_or_else(|| vec![]);
+            let volumes = if let Some(volumes) = container.volumes.clone() {
+                volumes
+                    .iter()
+                    .map(|v| format!("{}:{}", v.src, v.dst))
+                    .collect()
+            } else {
+                vec![]
+            };
+
+            println!("VOLUMES {:#?}", volumes);
 
             let mgmt_net_attachment = ContainerNetworkAttachment {
                 name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),

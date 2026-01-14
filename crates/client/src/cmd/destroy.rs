@@ -9,6 +9,7 @@ use container::{
 };
 use konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
 use libvirt::{Qemu, delete_disk};
+use network::{delete_interface, find_interfaces_fuzzy};
 use util::{dir_exists, file_exists, term_msg_surround};
 
 pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
@@ -56,6 +57,23 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
                     println!("Deleted disk: {disk}");
                 }
             }
+        }
+    }
+
+    // Delete intefaces
+    // testing
+    let lab_intefaces = find_interfaces_fuzzy(lab_id).await?;
+    for interface in lab_intefaces {
+        // Only delete interfaces created outside of libvirt.
+        //
+        // Also, we will only delete the 'vea' end, the 'veb' end
+        // will be automagically deleted when 'vea' is deleted.
+        if interface.starts_with("vea")
+            || interface.starts_with("bra")
+            || interface.starts_with("brb")
+        {
+            delete_interface(&interface).await?;
+            println!("Deleted interface: {}", interface);
         }
     }
 

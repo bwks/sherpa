@@ -20,8 +20,14 @@ pub struct Node {
     pub ssh_authorized_key_files: Option<Vec<AuthorizedKeyFile>>,
     pub commands: Option<Vec<String>>,
     pub environment_variables: Option<Vec<String>>,
-    pub volumes: Option<Vec<String>>,
+    pub volumes: Option<Vec<VolumeMount>>,
     pub privileged: Option<bool>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+pub struct VolumeMount {
+    pub src: String,
+    pub dst: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

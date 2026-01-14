@@ -161,6 +161,19 @@
     </interface>
     {%         when None %}
     {%       endmatch %}
+
+    {%     when ConnectionTypes::PeerBridge %}
+    {%       match interface.interface_connection %}
+    {%         when Some with (interface_connection) %}
+    <interface type='bridge'>
+      <alias name='ua-net-{{ name }}-p2p-bridge-{{ interface.name }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source bridge='{{ interface.name }}'/>
+      <model type='virtio'/>
+    </interface>
+    {%         when None %}
+    {%       endmatch %}
+
     {%   endmatch %}
     {% endfor %}
 

@@ -6,3 +6,4 @@ manifest.toml
 files/
 .tmp/
 *.bu
+dev.sh
