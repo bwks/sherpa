@@ -43,6 +43,7 @@ pub struct LinkDetailed {
 pub struct Link2 {
     pub src: String,
     pub dst: String,
+    pub p2p: Option<bool>,
 }
 
 impl Link2 {

@@ -3,7 +3,7 @@ use super::boot_containers::{create_boot_containers, create_ztp_files};
 use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
-use container::{create_network, docker_connection, run_container};
+use container::{create_docker_bridge_network, docker_connection, run_container};
 use data::{
     CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DeviceConnection, DeviceDisk,
     DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection,
@@ -150,29 +150,6 @@ pub async fn up(
     // Create this lab directory
     create_dir(&lab_dir)?;
 
-    term_msg_underline("Creating Point-to-Point Links");
-    for (idx, link) in links_detailed.iter().enumerate() {
-        // Generate unique, names must fit within Linux interface name limits (15 chars)
-        let bridge_a = format!("bra{}-{}", idx, lab_id);
-        let bridge_b = format!("brb{}-{}", idx, lab_id);
-        let veth_a = format!("vea{}-{}", idx, lab_id);
-        let veth_b = format!("veb{}-{}", idx, lab_id);
-
-        println!(
-            "Creating link {} - {}::{} <-> {}::{}",
-            idx, link.dev_a, link.int_a, link.dev_b, link.int_b
-        );
-        // println!(
-        //     "  Bridge A: {} | Veth: {} <-> {} | Bridge B: {}",
-        //     bridge_a, veth_a, veth_b, bridge_b
-        // );
-        create_bridge(&bridge_a).await?;
-        create_bridge(&bridge_b).await?;
-        create_veth_pair(&veth_a, &veth_b).await?;
-        enslave_to_bridge(&veth_a, &bridge_a).await?;
-        enslave_to_bridge(&veth_b, &bridge_b).await?;
-    }
-
     term_msg_underline("Lab Network");
     let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
     let gateway_ip = get_ipv4_addr(&lab_net, 1)?;
@@ -220,13 +197,55 @@ pub async fn up(
     isolated_network.create(&qemu_conn)?;
 
     // Docker Networks
-    create_network(
+    create_docker_bridge_network(
         &docker_conn,
         &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         Some(lab_net.to_string()),
         &format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
     )
     .await?;
+
+    // Point-to-Point links are created outside of libvirt. This allows
+    // for better control of connections between VM's and Containers.
+    // Each end of the connection has a bridge created, with a veth pair
+    // connecting the bridges. This allows the targetting of the bridge
+    // interface for packet captures.
+    term_msg_underline("Creating Point-to-Point Links");
+    for (idx, link) in links_detailed.iter().enumerate() {
+        // Generate unique, names must fit within Linux interface name limits (15 chars)
+        let bridge_a = format!("bra{}-{}", idx, lab_id);
+        let bridge_b = format!("brb{}-{}", idx, lab_id);
+        let veth_a = format!("vea{}-{}", idx, lab_id);
+        let veth_b = format!("veb{}-{}", idx, lab_id);
+
+        println!(
+            "Creating link #{} - {}::{} <-> {}::{}",
+            idx, link.dev_a, link.int_a, link.dev_b, link.int_b
+        );
+        create_bridge(
+            &bridge_a,
+            &format!("{}-bridge-{}::{}", lab_id, link.dev_a, link.int_a),
+        )
+        .await?;
+        create_bridge(
+            &bridge_b,
+            &format!("{}-bridge-{}::{}", lab_id, link.dev_b, link.int_b),
+        )
+        .await?;
+        create_veth_pair(
+            &veth_a,
+            &veth_b,
+            &format!("{}-veth-{}::{}", lab_id, link.dev_a, link.int_a),
+            &format!("{}-veth-{}::{}", lab_id, link.dev_b, link.int_b),
+        )
+        .await?;
+        enslave_to_bridge(&veth_a, &bridge_a).await?;
+        enslave_to_bridge(&veth_b, &bridge_b).await?;
+    }
+
+    // testing
+    // create_docker_macvlan_network(&docker_conn, "brb0-723035d2", "brb0-723035d2").await?;
+    create_docker_bridge_network(&docker_conn, "brb0-723035d2", None, "brb0-723035d2").await?;
 
     term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {
@@ -1497,6 +1516,7 @@ pub async fn up(
             }
             let mgmt_ipv4 = container.ipv4_address.map(|i| i.to_string());
             let container_name = format!("{}-{}", container.name, lab_id);
+            // TODO: FIX THESE UNWRAPS
             let container_image = format!(
                 "{}:{}",
                 container.image.as_ref().unwrap(),
@@ -1517,12 +1537,14 @@ pub async fn up(
                 vec![]
             };
 
-            println!("VOLUMES {:#?}", volumes);
-
             let mgmt_net_attachment = ContainerNetworkAttachment {
                 name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                 ipv4_address: mgmt_ipv4,
             };
+            // let test_net_attachment = ContainerNetworkAttachment {
+            //     name: "brb0-723035d2".to_string(),
+            //     ipv4_address: None,
+            // };
 
             run_container(
                 //
@@ -1532,7 +1554,7 @@ pub async fn up(
                 env_vars,
                 volumes,
                 vec![],
-                vec![mgmt_net_attachment],
+                vec![mgmt_net_attachment], //test_net_attachment],
                 commands,
                 privileged,
             )

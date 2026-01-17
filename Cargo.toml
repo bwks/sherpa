@@ -18,6 +18,6 @@ members = [
   "crates/topology",
   "crates/util",
   "crates/validate",
-  "crates/network",
+  "crates/network", "crates/db",
 ]
 default-members = ["crates/client"]

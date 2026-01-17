@@ -169,7 +169,7 @@
       <alias name='ua-net-{{ name }}-p2p-bridge-{{ interface.name }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source bridge='{{ interface.name }}'/>
-      <model type='virtio'/>
+      <model type='{{ interface_type }}'/>
     </interface>
     {%         when None %}
     {%       endmatch %}

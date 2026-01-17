@@ -6,7 +6,7 @@ use data::{
 };
 
 #[derive(Debug, Template)]
-#[template(path = "libvirt/libvirt_domain.jinja", ext = "xml")]
+#[template(path = "libvirt/libvirt_domain.jinja", ext = "xml", escape = "xml")]
 pub struct DomainTemplate {
     pub name: String,
     pub memory: u16,

@@ -65,7 +65,7 @@ pub async fn list_networks(docker_conn: &Docker) -> Result<Vec<Network>> {
     });
     Ok(docker_conn.list_networks(options).await?)
 }
-pub async fn create_network(
+pub async fn create_docker_bridge_network(
     docker: &Docker,
     name: &str,
     ipv4_prefix: Option<String>,
@@ -104,6 +104,32 @@ pub async fn create_network(
 
     Ok(())
 }
+
+/// Create a MACVLAN network. TODO: Thist needs work
+pub async fn create_docker_macvlan_network(
+    docker: &Docker,
+    name: &str,
+    parent_interface: &str,
+) -> Result<()> {
+    let mut options = HashMap::new();
+    options.insert("parent".to_string(), parent_interface.to_string());
+
+    let create_request = NetworkCreateRequest {
+        name: name.to_owned(),
+        driver: Some("macvlan".to_owned()),
+        options: Some(options),
+        internal: Some(false),
+        ..Default::default()
+    };
+
+    match docker.create_network(create_request).await {
+        Ok(response) => println!("Macvlan network created: {:?}", response),
+        Err(e) => eprintln!("Error creating macvlan network: {}", e),
+    }
+
+    Ok(())
+}
+
 pub async fn delete_network(docker: &Docker, name: &str) -> Result<()> {
     match docker.remove_network(name).await {
         Ok(_) => println!("Destroyed container network: {}", name),

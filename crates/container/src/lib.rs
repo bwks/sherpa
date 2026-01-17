@@ -1,9 +1,9 @@
 mod util;
 
 pub use util::{
-    create_network, delete_network, docker_connection, kill_container, list_containers,
-    list_images, list_networks, pull_container_image, pull_image, remove_container, run_container,
-    save_container_image,
+    create_docker_bridge_network, create_docker_macvlan_network, delete_network, docker_connection,
+    kill_container, list_containers, list_images, list_networks, pull_container_image, pull_image,
+    remove_container, run_container, save_container_image,
 };
 
 pub use bollard::Docker;

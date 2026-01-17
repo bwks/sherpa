@@ -7,3 +7,4 @@ files/
 .tmp/
 *.bu
 dev.sh
+*.sql
