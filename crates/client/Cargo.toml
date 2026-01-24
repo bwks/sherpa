@@ -13,6 +13,7 @@ template = { path = "../template" }
 libvirt = { path = "../libvirt" }
 validate = { path = "../validate" }
 network = { path = "../network" }
+db = { path = "../db" }
 
 # Errors
 anyhow = "1.0.100"

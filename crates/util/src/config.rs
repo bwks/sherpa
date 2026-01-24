@@ -6,7 +6,7 @@ use anyhow::Result;
 use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
-use data::{Config, ContainerImage, InventoryManagement, NodeInstance, VmProviders, ZtpServer};
+use data::{Config, ContainerImage, InventoryManagement, NodeVariant, VmProviders, ZtpServer};
 use konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
@@ -29,43 +29,43 @@ pub fn load_config(file_path: &str) -> Result<Config> {
 pub fn default_config() -> Config {
     let container_images: Vec<ContainerImage> =
         vec![ContainerImage::dnsmasq(), ContainerImage::webdir()];
-    let device_models: Vec<NodeInstance> = vec![
-        NodeInstance::arista_veos(),
-        NodeInstance::arista_ceos(),
-        NodeInstance::aruba_aoscx(),
-        NodeInstance::cisco_asav(),
-        NodeInstance::cisco_cat8000v(),
-        NodeInstance::cisco_cat9000v(),
-        NodeInstance::cisco_csr1000v(),
-        NodeInstance::cisco_iosxrv9000(),
-        NodeInstance::cisco_nexus9300v(),
-        NodeInstance::cisco_iosv(),
-        NodeInstance::cisco_iosvl2(),
-        NodeInstance::cisco_ise(),
-        NodeInstance::juniper_vrouter(),
-        NodeInstance::juniper_vswitch(),
-        NodeInstance::juniper_vevolved(),
-        NodeInstance::juniper_vsrxv3(),
-        NodeInstance::nokia_srlinux(),
-        NodeInstance::cumulus_linux(),
-        NodeInstance::sonic_linux(),
-        NodeInstance::alpine_linux(),
-        NodeInstance::alma_linux(),
-        NodeInstance::rocky_linux(),
-        NodeInstance::centos_linux(),
-        NodeInstance::fedora_linux(),
-        NodeInstance::redhat_linux(),
-        NodeInstance::ubuntu_linux(),
-        NodeInstance::opensuse_linux(),
-        NodeInstance::suse_linux(),
-        NodeInstance::flatcar_linux(),
-        NodeInstance::free_bsd(),
-        NodeInstance::open_bsd(),
-        NodeInstance::windows_server(),
+    let device_models: Vec<NodeVariant> = vec![
+        NodeVariant::arista_veos(),
+        NodeVariant::arista_ceos(),
+        NodeVariant::aruba_aoscx(),
+        NodeVariant::cisco_asav(),
+        NodeVariant::cisco_cat8000v(),
+        NodeVariant::cisco_cat9000v(),
+        NodeVariant::cisco_csr1000v(),
+        NodeVariant::cisco_iosxrv9000(),
+        NodeVariant::cisco_nexus9300v(),
+        NodeVariant::cisco_iosv(),
+        NodeVariant::cisco_iosvl2(),
+        NodeVariant::cisco_ise(),
+        NodeVariant::juniper_vrouter(),
+        NodeVariant::juniper_vswitch(),
+        NodeVariant::juniper_vevolved(),
+        NodeVariant::juniper_vsrxv3(),
+        NodeVariant::nokia_srlinux(),
+        NodeVariant::cumulus_linux(),
+        NodeVariant::sonic_linux(),
+        NodeVariant::alpine_linux(),
+        NodeVariant::alma_linux(),
+        NodeVariant::rocky_linux(),
+        NodeVariant::centos_linux(),
+        NodeVariant::fedora_linux(),
+        NodeVariant::redhat_linux(),
+        NodeVariant::ubuntu_linux(),
+        NodeVariant::opensuse_linux(),
+        NodeVariant::suse_linux(),
+        NodeVariant::flatcar_linux(),
+        NodeVariant::free_bsd(),
+        NodeVariant::open_bsd(),
+        NodeVariant::windows_server(),
         // Containers
-        NodeInstance::surreal_db(),
-        NodeInstance::mysql_db(),
-        NodeInstance::postgresql_db(),
+        NodeVariant::surreal_db(),
+        NodeVariant::mysql_db(),
+        NodeVariant::postgresql_db(),
     ];
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =

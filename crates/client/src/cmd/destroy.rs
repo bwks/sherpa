@@ -7,6 +7,7 @@ use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 use container::{
     delete_network, docker_connection, kill_container, list_containers, list_networks,
 };
+use db::{connect, delete_lab, delete_lab_nodes};
 use konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
 use libvirt::{Qemu, delete_disk};
 use network::{delete_interface, find_interfaces_fuzzy};
@@ -96,6 +97,11 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
             println!("Destroyed network: {}", network_name);
         }
     }
+
+    // Database
+    let db = connect("localhost", 8000, "test", "test").await?;
+    delete_lab_nodes(&db, lab_id).await?;
+    delete_lab(&db, lab_id).await?;
 
     if dir_exists(&lab_dir) {
         fs::remove_dir_all(&lab_dir)?;

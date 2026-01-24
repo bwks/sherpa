@@ -8,3 +8,4 @@ files/
 *.bu
 dev.sh
 *.sql
+.idea/

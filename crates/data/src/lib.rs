@@ -31,7 +31,7 @@ pub use lab::LabInfo;
 pub use mapping::{CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand};
 pub use network::{NetworkV4, SherpaNetwork};
 pub use node::{
-    BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeInstance, NodeKind, NodeModel,
+    BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeKind, NodeModel, NodeVariant,
     OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;

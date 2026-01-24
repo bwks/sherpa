@@ -1,5 +1,4 @@
 use super::boot_containers::{create_boot_containers, create_ztp_files};
-
 use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
@@ -10,6 +9,7 @@ use data::{
     LabInfo, NetworkV4, NodeKind, NodeModel, OsVariant, QemuCommand, Sherpa, SherpaNetwork,
     ZtpMethod, ZtpRecord,
 };
+use db::{connect, create_lab, create_lab_node, get_user};
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -55,6 +55,7 @@ use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
     check_link_device, check_mgmt_usage, tcp_connect,
 };
+
 pub async fn up(
     sherpa: &Sherpa,
     qemu: &Qemu,
@@ -147,8 +148,18 @@ pub async fn up(
 
     println!("Manifest Ok");
 
-    // Create this lab directory
-    create_dir(&lab_dir)?;
+    // Testing
+    // Connect to DB
+    let db = connect("localhost", 8000, "test", "test").await?;
+
+    // Insert lab data::
+    println!("{:#?}", db);
+
+    let db_user = get_user(&db, "bradmin").await?;
+    dbg!(&db_user);
+
+    let lab_record = create_lab(&db, &manifest.name, lab_id, &db_user).await?;
+    dbg!(&lab_record);
 
     term_msg_underline("Lab Network");
     let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
@@ -162,7 +173,9 @@ pub async fn up(
         ipv4_gateway: gateway_ip,
         ipv4_router: lab_router_ip,
     };
+
     println!("{}", lab_info);
+    create_dir(&format!("{lab_dir}"))?;
     create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
     let mgmt_net = SherpaNetwork {
@@ -303,6 +316,20 @@ pub async fn up(
             .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
 
         let device_ip_idx = 10 + device_idx.to_owned() as u32;
+
+        create_lab_node(
+            // db: &Surreal<Client>,
+            // name: &str,
+            // index: u16,
+            // model: NodeModel,
+            // lab: &DbLab,
+            &db,
+            &device.name,
+            *device_idx as u16,
+            device.model.clone(),
+            &lab_record,
+        )
+        .await?;
 
         // generate the template
         println!("Creating container config: {}", device.name);

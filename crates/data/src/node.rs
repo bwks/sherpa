@@ -339,7 +339,7 @@ pub enum NodeKind {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct NodeInstance {
+pub struct NodeVariant {
     pub name: NodeModel,
     pub version: String,
     pub repo: Option<String>,
@@ -370,7 +370,7 @@ pub struct NodeInstance {
     pub reserved_interface_count: u8,
 }
 
-impl Default for NodeInstance {
+impl Default for NodeVariant {
     fn default() -> Self {
         Self {
             name: NodeModel::default(),
@@ -405,72 +405,72 @@ impl Default for NodeInstance {
     }
 }
 
-impl NodeInstance {
+impl NodeVariant {
     #[allow(dead_code)]
-    pub fn get_model(device_model: NodeModel) -> NodeInstance {
+    pub fn get_model(device_model: NodeModel) -> NodeVariant {
         match device_model {
             // Arista
-            NodeModel::AristaVeos => NodeInstance::arista_veos(),
-            NodeModel::AristaCeos => NodeInstance::arista_ceos(),
+            NodeModel::AristaVeos => NodeVariant::arista_veos(),
+            NodeModel::AristaCeos => NodeVariant::arista_ceos(),
 
             // Aruba
-            NodeModel::ArubaAoscx => NodeInstance::aruba_aoscx(),
+            NodeModel::ArubaAoscx => NodeVariant::aruba_aoscx(),
 
             // Cisco
-            NodeModel::CiscoAsav => NodeInstance::cisco_asav(),
-            NodeModel::CiscoCsr1000v => NodeInstance::cisco_csr1000v(),
-            NodeModel::CiscoCat8000v => NodeInstance::cisco_cat8000v(),
-            NodeModel::CiscoCat9000v => NodeInstance::cisco_cat9000v(),
-            NodeModel::CiscoIosxrv9000 => NodeInstance::cisco_iosxrv9000(),
-            NodeModel::CiscoNexus9300v => NodeInstance::cisco_nexus9300v(),
-            NodeModel::CiscoIosv => NodeInstance::cisco_iosv(),
-            NodeModel::CiscoIosvl2 => NodeInstance::cisco_iosvl2(),
-            NodeModel::CiscoIse => NodeInstance::cisco_ise(),
-            NodeModel::CiscoFtdv => NodeInstance::cisco_ftdv(),
+            NodeModel::CiscoAsav => NodeVariant::cisco_asav(),
+            NodeModel::CiscoCsr1000v => NodeVariant::cisco_csr1000v(),
+            NodeModel::CiscoCat8000v => NodeVariant::cisco_cat8000v(),
+            NodeModel::CiscoCat9000v => NodeVariant::cisco_cat9000v(),
+            NodeModel::CiscoIosxrv9000 => NodeVariant::cisco_iosxrv9000(),
+            NodeModel::CiscoNexus9300v => NodeVariant::cisco_nexus9300v(),
+            NodeModel::CiscoIosv => NodeVariant::cisco_iosv(),
+            NodeModel::CiscoIosvl2 => NodeVariant::cisco_iosvl2(),
+            NodeModel::CiscoIse => NodeVariant::cisco_ise(),
+            NodeModel::CiscoFtdv => NodeVariant::cisco_ftdv(),
 
             // Juniper
-            NodeModel::JuniperVrouter => NodeInstance::juniper_vrouter(),
-            NodeModel::JuniperVswitch => NodeInstance::juniper_vswitch(),
-            NodeModel::JuniperVevolved => NodeInstance::juniper_vevolved(),
-            NodeModel::JuniperVsrxv3 => NodeInstance::juniper_vsrxv3(),
+            NodeModel::JuniperVrouter => NodeVariant::juniper_vrouter(),
+            NodeModel::JuniperVswitch => NodeVariant::juniper_vswitch(),
+            NodeModel::JuniperVevolved => NodeVariant::juniper_vevolved(),
+            NodeModel::JuniperVsrxv3 => NodeVariant::juniper_vsrxv3(),
 
             // Nokia
-            NodeModel::NokiaSrlinux => NodeInstance::nokia_srlinux(),
+            NodeModel::NokiaSrlinux => NodeVariant::nokia_srlinux(),
 
             // Linux
-            NodeModel::AlmaLinux => NodeInstance::alma_linux(),
-            NodeModel::RockyLinux => NodeInstance::rocky_linux(),
-            NodeModel::AlpineLinux => NodeInstance::alpine_linux(),
-            NodeModel::CumulusLinux => NodeInstance::cumulus_linux(),
-            NodeModel::CentosLinux => NodeInstance::centos_linux(),
-            NodeModel::FedoraLinux => NodeInstance::fedora_linux(),
-            NodeModel::RedhatLinux => NodeInstance::redhat_linux(),
-            NodeModel::OpensuseLinux => NodeInstance::opensuse_linux(),
-            NodeModel::SuseLinux => NodeInstance::suse_linux(),
-            NodeModel::UbuntuLinux => NodeInstance::ubuntu_linux(),
-            NodeModel::SonicLinux => NodeInstance::sonic_linux(),
-            NodeModel::FlatcarLinux => NodeInstance::flatcar_linux(),
+            NodeModel::AlmaLinux => NodeVariant::alma_linux(),
+            NodeModel::RockyLinux => NodeVariant::rocky_linux(),
+            NodeModel::AlpineLinux => NodeVariant::alpine_linux(),
+            NodeModel::CumulusLinux => NodeVariant::cumulus_linux(),
+            NodeModel::CentosLinux => NodeVariant::centos_linux(),
+            NodeModel::FedoraLinux => NodeVariant::fedora_linux(),
+            NodeModel::RedhatLinux => NodeVariant::redhat_linux(),
+            NodeModel::OpensuseLinux => NodeVariant::opensuse_linux(),
+            NodeModel::SuseLinux => NodeVariant::suse_linux(),
+            NodeModel::UbuntuLinux => NodeVariant::ubuntu_linux(),
+            NodeModel::SonicLinux => NodeVariant::sonic_linux(),
+            NodeModel::FlatcarLinux => NodeVariant::flatcar_linux(),
 
             // BSD
-            NodeModel::FreeBsd => NodeInstance::free_bsd(),
-            NodeModel::OpenBsd => NodeInstance::open_bsd(),
+            NodeModel::FreeBsd => NodeVariant::free_bsd(),
+            NodeModel::OpenBsd => NodeVariant::open_bsd(),
 
             // Windows
             NodeModel::WindowsServer => todo!(),
 
             // SQL
-            NodeModel::MysqlDb => NodeInstance::mysql_db(),
-            NodeModel::PostgresqlDb => NodeInstance::postgresql_db(),
-            NodeModel::SurrealDb => NodeInstance::surreal_db(),
+            NodeModel::MysqlDb => NodeVariant::mysql_db(),
+            NodeModel::PostgresqlDb => NodeVariant::postgresql_db(),
+            NodeModel::SurrealDb => NodeVariant::surreal_db(),
 
             // Generic
-            NodeModel::GenericContainer => NodeInstance::generic_container(),
-            NodeModel::GenericUnikernel => NodeInstance::generic_unikernel(),
-            NodeModel::GenericVm => NodeInstance::generic_vm(),
+            NodeModel::GenericContainer => NodeVariant::generic_container(),
+            NodeModel::GenericUnikernel => NodeVariant::generic_unikernel(),
+            NodeModel::GenericVm => NodeVariant::generic_vm(),
         }
     }
-    pub fn arista_veos() -> NodeInstance {
-        NodeInstance {
+    pub fn arista_veos() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::AristaVeos,
             version: "latest".to_owned(),
             repo: None,
@@ -501,8 +501,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn arista_ceos() -> NodeInstance {
-        NodeInstance {
+    pub fn arista_ceos() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::AristaCeos,
             version: "latest".to_owned(),
             repo: None,
@@ -533,8 +533,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn aruba_aoscx() -> NodeInstance {
-        NodeInstance {
+    pub fn aruba_aoscx() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::ArubaAoscx,
             version: "latest".to_owned(),
             repo: None,
@@ -565,8 +565,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_asav() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_asav() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoAsav,
             version: "latest".to_owned(),
             repo: None,
@@ -597,8 +597,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_csr1000v() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_csr1000v() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoCsr1000v,
             version: "latest".to_owned(),
             repo: None,
@@ -629,8 +629,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_cat8000v() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_cat8000v() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoCat8000v,
             version: "latest".to_owned(),
             repo: None,
@@ -661,8 +661,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_cat9000v() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_cat9000v() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoCat9000v,
             version: "latest".to_owned(),
             repo: None,
@@ -693,8 +693,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosxrv9000() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_iosxrv9000() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoIosxrv9000,
             version: "latest".to_owned(),
             repo: None,
@@ -725,8 +725,8 @@ impl NodeInstance {
             reserved_interface_count: 2,
         }
     }
-    pub fn cisco_nexus9300v() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_nexus9300v() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoNexus9300v,
             version: "latest".to_owned(),
             repo: None,
@@ -757,8 +757,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosv() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_iosv() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoIosv,
             version: "latest".to_owned(),
             repo: None,
@@ -789,8 +789,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_iosvl2() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_iosvl2() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoIosvl2,
             version: "latest".to_owned(),
             repo: None,
@@ -821,8 +821,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_ise() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_ise() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoIse,
             version: "latest".to_owned(),
             repo: None,
@@ -853,8 +853,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cisco_ftdv() -> NodeInstance {
-        NodeInstance {
+    pub fn cisco_ftdv() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CiscoFtdv,
             version: "latest".to_owned(),
             repo: None,
@@ -885,8 +885,8 @@ impl NodeInstance {
             reserved_interface_count: 1,
         }
     }
-    pub fn juniper_vrouter() -> NodeInstance {
-        NodeInstance {
+    pub fn juniper_vrouter() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::JuniperVrouter,
             version: "latest".to_owned(),
             repo: None,
@@ -917,8 +917,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vswitch() -> NodeInstance {
-        NodeInstance {
+    pub fn juniper_vswitch() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::JuniperVswitch,
             version: "latest".to_owned(),
             repo: None,
@@ -949,8 +949,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vevolved() -> NodeInstance {
-        NodeInstance {
+    pub fn juniper_vevolved() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::JuniperVevolved,
             version: "latest".to_owned(),
             repo: None,
@@ -981,8 +981,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn juniper_vsrxv3() -> NodeInstance {
-        NodeInstance {
+    pub fn juniper_vsrxv3() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::JuniperVsrxv3,
             version: "latest".to_owned(),
             repo: None,
@@ -1013,8 +1013,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn alma_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn alma_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::AlmaLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1045,8 +1045,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn rocky_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn rocky_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::RockyLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1077,8 +1077,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn alpine_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn alpine_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::AlpineLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1109,8 +1109,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn cumulus_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn cumulus_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CumulusLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1141,8 +1141,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn nokia_srlinux() -> NodeInstance {
-        NodeInstance {
+    pub fn nokia_srlinux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::NokiaSrlinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1173,8 +1173,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn centos_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn centos_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::CentosLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1205,8 +1205,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn fedora_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn fedora_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::FedoraLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1237,8 +1237,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn redhat_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn redhat_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::RedhatLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1269,8 +1269,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn suse_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn suse_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::SuseLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1301,8 +1301,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn opensuse_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn opensuse_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::OpensuseLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1333,8 +1333,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn ubuntu_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn ubuntu_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::UbuntuLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1365,8 +1365,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn sonic_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn sonic_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::SonicLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1397,8 +1397,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn flatcar_linux() -> NodeInstance {
-        NodeInstance {
+    pub fn flatcar_linux() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::FlatcarLinux,
             version: "latest".to_owned(),
             repo: None,
@@ -1429,8 +1429,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn free_bsd() -> NodeInstance {
-        NodeInstance {
+    pub fn free_bsd() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::FreeBsd,
             version: "latest".to_owned(),
             repo: None,
@@ -1461,8 +1461,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn open_bsd() -> NodeInstance {
-        NodeInstance {
+    pub fn open_bsd() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::OpenBsd,
             version: "latest".to_owned(),
             repo: None,
@@ -1493,8 +1493,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn windows_server() -> NodeInstance {
-        NodeInstance {
+    pub fn windows_server() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::WindowsServer,
             version: "latest".to_owned(),
             repo: None,
@@ -1525,8 +1525,8 @@ impl NodeInstance {
             reserved_interface_count: 0,
         }
     }
-    pub fn surreal_db() -> NodeInstance {
-        NodeInstance {
+    pub fn surreal_db() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::SurrealDb,
             repo: None,
             version: "latest".to_owned(),
@@ -1548,8 +1548,8 @@ impl NodeInstance {
             ..Default::default()
         }
     }
-    pub fn mysql_db() -> NodeInstance {
-        NodeInstance {
+    pub fn mysql_db() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::MysqlDb,
             repo: None,
             version: "latest".to_owned(),
@@ -1571,8 +1571,8 @@ impl NodeInstance {
             ..Default::default()
         }
     }
-    pub fn postgresql_db() -> NodeInstance {
-        NodeInstance {
+    pub fn postgresql_db() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::PostgresqlDb,
             repo: None,
             version: "latest".to_owned(),
@@ -1594,8 +1594,8 @@ impl NodeInstance {
             ..Default::default()
         }
     }
-    pub fn generic_container() -> NodeInstance {
-        NodeInstance {
+    pub fn generic_container() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::GenericContainer,
             repo: None,
             version: "latest".to_owned(),
@@ -1617,8 +1617,8 @@ impl NodeInstance {
             ..Default::default()
         }
     }
-    pub fn generic_unikernel() -> NodeInstance {
-        NodeInstance {
+    pub fn generic_unikernel() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::GenericUnikernel,
             repo: None,
             version: "latest".to_owned(),
@@ -1640,8 +1640,8 @@ impl NodeInstance {
             ..Default::default()
         }
     }
-    pub fn generic_vm() -> NodeInstance {
-        NodeInstance {
+    pub fn generic_vm() -> NodeVariant {
+        NodeVariant {
             name: NodeModel::GenericVm,
             repo: None,
             version: "latest".to_owned(),
