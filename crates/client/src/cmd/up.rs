@@ -9,7 +9,7 @@ use data::{
     LabInfo, NetworkV4, NodeKind, NodeModel, OsVariant, QemuCommand, Sherpa, SherpaNetwork,
     ZtpMethod, ZtpRecord,
 };
-use db::{connect, create_lab, create_lab_node, get_user};
+use db::{DbNode, connect, create_lab, create_lab_link, create_lab_node, get_user};
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -55,6 +55,15 @@ use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
     check_link_device, check_mgmt_usage, tcp_connect,
 };
+
+#[derive(Debug)]
+struct LabNodeData {
+    name: String,
+    model: NodeModel,
+    kind: NodeKind,
+    index: u16,
+    db_record: DbNode,
+}
 
 pub async fn up(
     sherpa: &Sherpa,
@@ -273,11 +282,11 @@ pub async fn up(
     // Create a mapping of device name to device id.
     // Devices have an id based on their order in the list of devices
     // from the manifest file.
-    let dev_id_map: HashMap<String, u8> = manifest
+    let dev_id_map: HashMap<String, u16> = manifest
         .nodes
         .iter()
         .enumerate()
-        .map(|(idx, device)| (device.name.clone(), idx as u8 + 1))
+        .map(|(idx, device)| (device.name.clone(), idx as u16 + 1))
         .collect();
 
     let mut container_nodes: Vec<Node> = vec![];
@@ -286,12 +295,35 @@ pub async fn up(
     let mut clone_disks: Vec<CloneDisk> = vec![];
     let mut domains: Vec<DomainTemplate> = vec![];
 
+    let mut lab_node_data = vec![];
+
     for device in &manifest.nodes {
+        let device_idx = dev_id_map
+            .get(&device.name)
+            .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
+
         let device_model = config
             .device_models
             .iter()
             .find(|d| d.name == device.model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
+
+        let lab_node = create_lab_node(
+            &db,
+            &device.name,
+            *device_idx,
+            device.model.clone(),
+            &lab_record,
+        )
+        .await?;
+
+        lab_node_data.push(LabNodeData {
+            name: device.name.clone(),
+            model: device_model.name.clone(),
+            kind: device_model.kind.clone(),
+            index: *device_idx,
+            db_record: lab_node,
+        });
 
         // Handle Containers, NanoVM's and regular VM's
         match device_model.kind {
@@ -309,6 +341,30 @@ pub async fn up(
             }
         }
     }
+
+    for link in links_detailed.iter() {
+        let node_a = lab_node_data
+            .iter()
+            .find(|n| n.name == link.dev_a)
+            .ok_or_else(|| anyhow!("Node not found: {}", link.dev_a))?;
+
+        let node_b = lab_node_data
+            .iter()
+            .find(|n| n.name == link.dev_b)
+            .ok_or_else(|| anyhow!("Node not found: {}", link.dev_b))?;
+
+        let _db_link = create_lab_link(
+            &db,
+            link.link_idx as u16 + 1,
+            &node_a.db_record,
+            &node_b.db_record,
+            &link.int_a,
+            &link.int_b,
+            &lab_record,
+        )
+        .await?;
+    }
+
     // Containers
     for device in &mut container_nodes {
         let device_idx = dev_id_map
@@ -316,20 +372,6 @@ pub async fn up(
             .ok_or_else(|| anyhow::anyhow!("Device not found in device ID map: {}", device.name))?;
 
         let device_ip_idx = 10 + device_idx.to_owned() as u32;
-
-        create_lab_node(
-            // db: &Surreal<Client>,
-            // name: &str,
-            // index: u16,
-            // model: NodeModel,
-            // lab: &DbLab,
-            &db,
-            &device.name,
-            *device_idx as u16,
-            device.model.clone(),
-            &lab_record,
-        )
-        .await?;
 
         // generate the template
         println!("Creating container config: {}", device.name);
@@ -500,10 +542,10 @@ pub async fn up(
                         let interface_connection = InterfaceConnection {
                             local_id,
                             local_port: id_to_port(i),
-                            local_loopback: get_ip(local_id).to_string(),
+                            local_loopback: get_ip(local_id as u8).to_string(),
                             source_id: source_id.to_owned(),
                             source_port: id_to_port(l.int_b_idx),
-                            source_loopback: get_ip(source_id.to_owned()).to_string(),
+                            source_loopback: get_ip(source_id.to_owned() as u8).to_string(),
                         };
                         // interfaces.push(Interface {
                         //     name: dasher(&l.int_a),
@@ -532,10 +574,10 @@ pub async fn up(
                         let interface_connection = InterfaceConnection {
                             local_id,
                             local_port: id_to_port(i),
-                            local_loopback: get_ip(local_id).to_string(),
+                            local_loopback: get_ip(local_id as u8).to_string(),
                             source_id: source_id.to_owned(),
                             source_port: id_to_port(l.int_a_idx),
-                            source_loopback: get_ip(source_id.to_owned()).to_string(),
+                            source_loopback: get_ip(source_id.to_owned() as u8).to_string(),
                         };
                         // interfaces.push(Interface {
                         //     name: dasher(&l.int_b),
@@ -1428,7 +1470,7 @@ pub async fn up(
                 disks,
                 interfaces,
                 interface_type: device_model.interface_type.clone(),
-                loopback_ipv4: get_ip(device_id).to_string(),
+                loopback_ipv4: get_ip(device_id as u8).to_string(),
                 telnet_port: TELNET_PORT,
                 qemu_commands,
                 lab_id: lab_id.to_string(),

@@ -31,3 +31,14 @@ pub struct DbNode {
     pub index: u16,
     pub lab: RecordId, // record<lab>
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DbLink {
+    pub id: Option<RecordId>,
+    pub link_id: u16,
+    pub node_a: RecordId, // record<node>
+    pub node_b: RecordId, // record<node>
+    pub int_a: String,
+    pub int_b: String,
+    pub lab: RecordId, // record<lab>
+}

@@ -34,10 +34,10 @@ pub struct DeviceDisk {
 // In the domain XML config, the source is the remote peer.
 #[derive(Debug, Deserialize, Serialize)]
 pub struct InterfaceConnection {
-    pub local_id: u8,
+    pub local_id: u16,
     pub local_port: u16,
     pub local_loopback: String,
-    pub source_id: u8,
+    pub source_id: u16,
     pub source_port: u16,
     pub source_loopback: String,
 }

@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 
-use super::model::{DbLab, DbNode, DbUser, NodeVariant};
+use super::model::{DbLab, DbLink, DbNode, DbUser, NodeVariant};
 use data::NodeModel;
 
 use surrealdb::RecordId;
@@ -65,6 +65,14 @@ fn get_variant_id(variant: &NodeVariant) -> Result<RecordId> {
         .as_ref()
         .cloned()
         .ok_or_else(|| anyhow!("variant has no id field:\n {:#?}", variant))
+}
+
+/// Get a node's id from a node record.
+fn get_node_id(node: &DbNode) -> Result<RecordId> {
+    node.id
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| anyhow!("Node has no id field:\n {:#?}", node))
 }
 
 /// Delete a lab
@@ -165,4 +173,74 @@ pub async fn create_lab_node(
             lab.lab_id,
         )
     })
+}
+
+/// Create a link record between two nodes
+pub async fn create_lab_link(
+    db: &Surreal<Client>,
+    link_id: u16,
+    node_a: &DbNode,
+    node_b: &DbNode,
+    int_a: &str,
+    int_b: &str,
+    lab: &DbLab,
+) -> Result<DbLink> {
+    let node_a_id = get_node_id(node_a)?;
+    let node_b_id = get_node_id(node_b)?;
+    let lab_id = get_lab_id(lab)?;
+
+    let link: Option<DbLink> = db
+        .create("link")
+        .content(DbLink {
+            id: None,
+            link_id,
+            node_a: node_a_id,
+            node_b: node_b_id,
+            int_a: int_a.to_string(),
+            int_b: int_b.to_string(),
+            lab: lab_id,
+        })
+        .await
+        .context(format!(
+            "Error creating link:\n link_id: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n",
+            link_id, node_a.name, node_b.name, int_a, int_b
+        ))?;
+
+    dbg!(&link);
+
+    link.ok_or_else(|| {
+        anyhow!(
+            "Link was not created:\n link_id: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n lab: {}\n",
+            link_id,
+            node_a.name,
+            node_b.name,
+            int_a,
+            int_b,
+            lab.name,
+        )
+    })
+}
+
+/// Delete all links for a lab
+pub async fn delete_lab_links(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+    let mut response = db
+        .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
+        .bind(("lab_id", lab_id.to_string()))
+        .await
+        .context(format!("Failed to query lab from database: {lab_id}"))?;
+
+    let db_lab: Option<DbLab> = response.take(0)?;
+
+    let lab = db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))?;
+
+    let lab_record_id = get_lab_id(&lab)?;
+
+    let _deleted: Vec<DbLink> = db
+        .query("DELETE link WHERE lab = $lab_id")
+        .bind(("lab_id", lab_record_id))
+        .await
+        .context(format!("Failed to delete links for lab: {lab_id}"))?
+        .take(0)?;
+
+    Ok(())
 }

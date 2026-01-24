@@ -337,6 +337,15 @@ pub enum NodeKind {
     Container,
     Unikernel,
 }
+impl fmt::Display for NodeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeKind::VirtualMachine => write!(f, "virtual_machine"),
+            NodeKind::Container => write!(f, "container"),
+            NodeKind::Unikernel => write!(f, "unikernel"),
+        }
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeVariant {
