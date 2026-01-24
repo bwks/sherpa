@@ -1,6 +1,7 @@
 mod config;
 mod container;
 mod cpu;
+mod db;
 mod dhcp;
 mod disk;
 mod dns;
@@ -17,6 +18,7 @@ mod ztp;
 pub use config::{Config, InventoryManagement, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
+pub use db::{DbLab, DbLink, DbNode, DbUser};
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
@@ -38,3 +40,6 @@ pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use user::User;
 pub use ztp::ZtpRecord;
+
+// Re-export SurrealDB types for convenience
+pub use surrealdb::RecordId;

@@ -1,6 +1,6 @@
 use std::fmt;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 use serde_derive::{Deserialize, Serialize};
 

@@ -9,3 +9,4 @@ files/
 dev.sh
 *.sql
 .idea/
+.opencode/

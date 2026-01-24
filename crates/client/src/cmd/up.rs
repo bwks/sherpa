@@ -62,7 +62,8 @@ struct LabNodeData {
     model: NodeModel,
     kind: NodeKind,
     index: u16,
-    db_record: DbNode,
+    // variant_record:
+    node_record: DbNode,
 }
 
 pub async fn up(
@@ -129,7 +130,7 @@ pub async fn up(
         let device_model = config
             .device_models
             .iter()
-            .find(|d| d.name == device.model)
+            .find(|d| d.model == device.model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         if !device_model.dedicated_management_interface {
@@ -142,7 +143,7 @@ pub async fn up(
 
         check_interface_bounds(
             &device.name,
-            &device_model.name,
+            &device_model.model,
             device_model.first_interface_index,
             device_model.interface_count,
             &links_detailed,
@@ -305,7 +306,7 @@ pub async fn up(
         let device_model = config
             .device_models
             .iter()
-            .find(|d| d.name == device.model)
+            .find(|d| d.model == device.model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         let lab_node = create_lab_node(
@@ -319,10 +320,10 @@ pub async fn up(
 
         lab_node_data.push(LabNodeData {
             name: device.name.clone(),
-            model: device_model.name.clone(),
+            model: device_model.model.clone(),
             kind: device_model.kind.clone(),
             index: *device_idx,
-            db_record: lab_node,
+            node_record: lab_node,
         });
 
         // Handle Containers, NanoVM's and regular VM's
@@ -355,12 +356,12 @@ pub async fn up(
 
         let _db_link = create_lab_link(
             &db,
+            &lab_record,
             link.link_idx as u16 + 1,
-            &node_a.db_record,
-            &node_b.db_record,
+            &node_a.node_record,
+            &node_b.node_record,
             &link.int_a,
             &link.int_b,
-            &lab_record,
         )
         .await?;
     }
@@ -461,7 +462,7 @@ pub async fn up(
         let device_model = config
             .device_models
             .iter()
-            .find(|d| d.name == device.model)
+            .find(|d| d.model == device.model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
         let mut disks: Vec<DeviceDisk> = vec![];
@@ -627,7 +628,7 @@ pub async fn up(
             NodeKind::VirtualMachine => {
                 let src_boot_disk = format!(
                     "{}/{}/{}/virtioa.qcow2",
-                    sherpa.images_dir, device_model.name, device_model.version
+                    sherpa.images_dir, device_model.model, device_model.version
                 );
                 let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-hdd.qcow2");
 
@@ -646,7 +647,7 @@ pub async fn up(
             Some(src_iso) => {
                 let src = format!(
                     "{}/{}/{}/{}",
-                    sherpa.images_dir, device_model.name, device_model.version, src_iso
+                    sherpa.images_dir, device_model.model, device_model.version, src_iso
                 );
                 let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}.iso");
                 (Some(src), Some(dst))
@@ -775,7 +776,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "CDROM ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     }
@@ -907,7 +908,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "CDROM ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     };
@@ -963,7 +964,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "Tftp ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     }
@@ -993,7 +994,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "HTTP ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     }
@@ -1100,7 +1101,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "Disk ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     }
@@ -1111,7 +1112,7 @@ pub async fn up(
                     let user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{node_name}");
 
-                    match device_model.name {
+                    match device_model.model {
                         NodeModel::CumulusLinux => {
                             let t = CumulusLinuxZtpTemplate {
                                 hostname: device.name.clone(),
@@ -1177,7 +1178,10 @@ pub async fn up(
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
                         _ => {
-                            anyhow::bail!("USB ZTP method not supported for {}", device_model.name);
+                            anyhow::bail!(
+                                "USB ZTP method not supported for {}",
+                                device_model.model
+                            );
                         }
                     }
                 }
@@ -1351,7 +1355,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "Ignition ZTP method not supported for {}",
-                                device_model.name
+                                device_model.model
                             );
                         }
                     }
@@ -1438,7 +1442,7 @@ pub async fn up(
             });
         }
 
-        let qemu_commands = match device_model.name {
+        let qemu_commands = match device_model.model {
             NodeModel::JuniperVrouter => QemuCommand::juniper_vrouter(),
             NodeModel::JuniperVswitch => QemuCommand::juniper_vswitch(),
             NodeModel::JuniperVevolved => QemuCommand::juniper_vevolved(),

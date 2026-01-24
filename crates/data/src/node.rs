@@ -3,6 +3,7 @@ use std::fmt;
 use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
+use surrealdb::RecordId;
 
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
@@ -349,7 +350,8 @@ impl fmt::Display for NodeKind {
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeVariant {
-    pub name: NodeModel,
+    pub id: Option<RecordId>,
+    pub model: NodeModel,
     pub version: String,
     pub repo: Option<String>,
     pub os_variant: OsVariant,
@@ -382,7 +384,8 @@ pub struct NodeVariant {
 impl Default for NodeVariant {
     fn default() -> Self {
         Self {
-            name: NodeModel::default(),
+            id: None,
+            model: NodeModel::default(),
             version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::default(),
@@ -480,7 +483,8 @@ impl NodeVariant {
     }
     pub fn arista_veos() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::AristaVeos,
+            id: None,
+            model: NodeModel::AristaVeos,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Eos,
@@ -512,7 +516,8 @@ impl NodeVariant {
     }
     pub fn arista_ceos() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::AristaCeos,
+            id: None,
+            model: NodeModel::AristaCeos,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Eos,
@@ -544,7 +549,8 @@ impl NodeVariant {
     }
     pub fn aruba_aoscx() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::ArubaAoscx,
+            id: None,
+            model: NodeModel::ArubaAoscx,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Aos,
@@ -576,7 +582,8 @@ impl NodeVariant {
     }
     pub fn cisco_asav() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoAsav,
+            id: None,
+            model: NodeModel::CiscoAsav,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Asa,
@@ -608,7 +615,8 @@ impl NodeVariant {
     }
     pub fn cisco_csr1000v() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoCsr1000v,
+            id: None,
+            model: NodeModel::CiscoCsr1000v,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
@@ -640,7 +648,8 @@ impl NodeVariant {
     }
     pub fn cisco_cat8000v() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoCat8000v,
+            id: None,
+            model: NodeModel::CiscoCat8000v,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
@@ -672,7 +681,8 @@ impl NodeVariant {
     }
     pub fn cisco_cat9000v() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoCat9000v,
+            id: None,
+            model: NodeModel::CiscoCat9000v,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
@@ -704,7 +714,8 @@ impl NodeVariant {
     }
     pub fn cisco_iosxrv9000() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoIosxrv9000,
+            id: None,
+            model: NodeModel::CiscoIosxrv9000,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxr,
@@ -736,7 +747,8 @@ impl NodeVariant {
     }
     pub fn cisco_nexus9300v() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoNexus9300v,
+            id: None,
+            model: NodeModel::CiscoNexus9300v,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Nxos,
@@ -768,7 +780,8 @@ impl NodeVariant {
     }
     pub fn cisco_iosv() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoIosv,
+            id: None,
+            model: NodeModel::CiscoIosv,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Ios,
@@ -800,7 +813,8 @@ impl NodeVariant {
     }
     pub fn cisco_iosvl2() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoIosvl2,
+            id: None,
+            model: NodeModel::CiscoIosvl2,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Ios,
@@ -832,7 +846,8 @@ impl NodeVariant {
     }
     pub fn cisco_ise() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoIse,
+            id: None,
+            model: NodeModel::CiscoIse,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Ise,
@@ -864,7 +879,8 @@ impl NodeVariant {
     }
     pub fn cisco_ftdv() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CiscoFtdv,
+            id: None,
+            model: NodeModel::CiscoFtdv,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Fxos,
@@ -896,7 +912,8 @@ impl NodeVariant {
     }
     pub fn juniper_vrouter() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::JuniperVrouter,
+            id: None,
+            model: NodeModel::JuniperVrouter,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
@@ -928,7 +945,8 @@ impl NodeVariant {
     }
     pub fn juniper_vswitch() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::JuniperVswitch,
+            id: None,
+            model: NodeModel::JuniperVswitch,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
@@ -960,7 +978,8 @@ impl NodeVariant {
     }
     pub fn juniper_vevolved() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::JuniperVevolved,
+            id: None,
+            model: NodeModel::JuniperVevolved,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
@@ -992,7 +1011,8 @@ impl NodeVariant {
     }
     pub fn juniper_vsrxv3() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::JuniperVsrxv3,
+            id: None,
+            model: NodeModel::JuniperVsrxv3,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
@@ -1024,7 +1044,8 @@ impl NodeVariant {
     }
     pub fn alma_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::AlmaLinux,
+            id: None,
+            model: NodeModel::AlmaLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1056,7 +1077,8 @@ impl NodeVariant {
     }
     pub fn rocky_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::RockyLinux,
+            id: None,
+            model: NodeModel::RockyLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1088,7 +1110,8 @@ impl NodeVariant {
     }
     pub fn alpine_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::AlpineLinux,
+            id: None,
+            model: NodeModel::AlpineLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1120,7 +1143,8 @@ impl NodeVariant {
     }
     pub fn cumulus_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CumulusLinux,
+            id: None,
+            model: NodeModel::CumulusLinux,
             version: "latest".to_owned(),
             repo: None,
             kind: NodeKind::VirtualMachine,
@@ -1152,7 +1176,8 @@ impl NodeVariant {
     }
     pub fn nokia_srlinux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::NokiaSrlinux,
+            id: None,
+            model: NodeModel::NokiaSrlinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Srlinux,
@@ -1184,7 +1209,8 @@ impl NodeVariant {
     }
     pub fn centos_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::CentosLinux,
+            id: None,
+            model: NodeModel::CentosLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1216,7 +1242,8 @@ impl NodeVariant {
     }
     pub fn fedora_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::FedoraLinux,
+            id: None,
+            model: NodeModel::FedoraLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1248,7 +1275,8 @@ impl NodeVariant {
     }
     pub fn redhat_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::RedhatLinux,
+            id: None,
+            model: NodeModel::RedhatLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1280,7 +1308,8 @@ impl NodeVariant {
     }
     pub fn suse_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::SuseLinux,
+            id: None,
+            model: NodeModel::SuseLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1312,7 +1341,8 @@ impl NodeVariant {
     }
     pub fn opensuse_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::OpensuseLinux,
+            id: None,
+            model: NodeModel::OpensuseLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1344,7 +1374,8 @@ impl NodeVariant {
     }
     pub fn ubuntu_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::UbuntuLinux,
+            id: None,
+            model: NodeModel::UbuntuLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1376,7 +1407,8 @@ impl NodeVariant {
     }
     pub fn sonic_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::SonicLinux,
+            id: None,
+            model: NodeModel::SonicLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1408,7 +1440,8 @@ impl NodeVariant {
     }
     pub fn flatcar_linux() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::FlatcarLinux,
+            id: None,
+            model: NodeModel::FlatcarLinux,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
@@ -1440,7 +1473,8 @@ impl NodeVariant {
     }
     pub fn free_bsd() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::FreeBsd,
+            id: None,
+            model: NodeModel::FreeBsd,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Bsd,
@@ -1472,7 +1506,8 @@ impl NodeVariant {
     }
     pub fn open_bsd() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::OpenBsd,
+            id: None,
+            model: NodeModel::OpenBsd,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Bsd,
@@ -1504,7 +1539,8 @@ impl NodeVariant {
     }
     pub fn windows_server() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::WindowsServer,
+            id: None,
+            model: NodeModel::WindowsServer,
             version: "latest".to_owned(),
             repo: None,
             os_variant: OsVariant::Server2012,
@@ -1536,7 +1572,8 @@ impl NodeVariant {
     }
     pub fn surreal_db() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::SurrealDb,
+            id: None,
+            model: NodeModel::SurrealDb,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::Container,
@@ -1559,7 +1596,8 @@ impl NodeVariant {
     }
     pub fn mysql_db() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::MysqlDb,
+            id: None,
+            model: NodeModel::MysqlDb,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::Container,
@@ -1582,7 +1620,8 @@ impl NodeVariant {
     }
     pub fn postgresql_db() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::PostgresqlDb,
+            id: None,
+            model: NodeModel::PostgresqlDb,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::Container,
@@ -1605,7 +1644,8 @@ impl NodeVariant {
     }
     pub fn generic_container() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::GenericContainer,
+            id: None,
+            model: NodeModel::GenericContainer,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::Container,
@@ -1628,7 +1668,8 @@ impl NodeVariant {
     }
     pub fn generic_unikernel() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::GenericUnikernel,
+            id: None,
+            model: NodeModel::GenericUnikernel,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::Unikernel,
@@ -1651,7 +1692,8 @@ impl NodeVariant {
     }
     pub fn generic_vm() -> NodeVariant {
         NodeVariant {
-            name: NodeModel::GenericVm,
+            id: None,
+            model: NodeModel::GenericVm,
             repo: None,
             version: "latest".to_owned(),
             kind: NodeKind::VirtualMachine,

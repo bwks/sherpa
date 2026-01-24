@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
-
 use surrealdb::RecordId;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
     pub id: Option<RecordId>,
+    pub username: String,
     pub ssh_keys: Vec<String>,
 }
 
@@ -17,28 +17,21 @@ pub struct DbLab {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct NodeVariant {
-    pub id: Option<RecordId>,
-    pub model: RecordId,
-    pub kind: RecordId,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct DbNode {
     pub id: Option<RecordId>,
     pub name: String,
-    pub variant: RecordId, // record<node_variant>
+    pub variant: RecordId,
     pub index: u16,
-    pub lab: RecordId, // record<lab>
+    pub lab: RecordId,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DbLink {
     pub id: Option<RecordId>,
     pub link_id: u16,
-    pub node_a: RecordId, // record<node>
-    pub node_b: RecordId, // record<node>
+    pub node_a: RecordId,
+    pub node_b: RecordId,
     pub int_a: String,
     pub int_b: String,
-    pub lab: RecordId, // record<lab>
+    pub lab: RecordId,
 }

@@ -3,11 +3,13 @@ use std::fmt;
 use serde_derive::{Deserialize, Serialize};
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum CpuModels {
     #[default]
+    #[serde(rename(serialize = "host-model", deserialize = "host-model"))]
     HostModel,
+    #[serde(rename(serialize = "IvyBridge", deserialize = "IvyBridge"))]
     IvyBridge,
+    #[serde(rename(serialize = "SandyBridge", deserialize = "SandyBridge"))]
     SandyBridge,
 }
 impl fmt::Display for CpuModels {

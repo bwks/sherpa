@@ -1,24 +1,24 @@
 use anyhow::{Context, Result, anyhow};
 
-use super::model::{DbLab, DbLink, DbNode, DbUser, NodeVariant};
-use data::NodeModel;
+use data::{DbLab, DbLink, DbNode, DbUser, NodeModel, NodeVariant, RecordId};
 
-use surrealdb::RecordId;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
 /// Get a user form the database
 pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
-    let user: Option<DbUser> = db
-        .select(("user", username))
+    let mut response = db
+        .query("SELECT * FROM ONLY user WHERE username = $username")
+        .bind(("username", username.to_string()))
         .await
         .context(format!("Failed querying user from database: {username}"))?;
-    dbg!(&user);
+
+    let user: Option<DbUser> = response.take(0)?;
     user.ok_or_else(|| anyhow!("User not found: {username}"))
 }
 
 /// Get a user's id from a user record.
-async fn get_user_id(user: &DbUser) -> Result<RecordId> {
+fn get_user_id(user: &DbUser) -> Result<RecordId> {
     user.id
         .as_ref()
         .cloned()
@@ -32,20 +32,18 @@ pub async fn create_lab(
     lab_id: &str,
     user: &DbUser,
 ) -> Result<DbLab> {
-    let user_id = get_user_id(user).await?;
+    let user_id = get_user_id(user)?;
 
     let lab: Option<DbLab> = db
         .create("lab")
         .content(DbLab {
             id: None,
-            name: name.to_string(),
             lab_id: lab_id.to_string(),
+            name: name.to_string(),
             user: user_id,
         })
         .await
         .context("Error creating lab:\n name: `{name}`\n lab_id: {lab_id}\n")?;
-
-    dbg!(&lab);
 
     lab.ok_or_else(|| anyhow!("Lab was not created:\n name: `{name}`\n lab_id: {lab_id}\n"))
 }
@@ -75,18 +73,21 @@ fn get_node_id(node: &DbNode) -> Result<RecordId> {
         .ok_or_else(|| anyhow!("Node has no id field:\n {:#?}", node))
 }
 
-/// Delete a lab
-pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+async fn get_lab_record(db: &Surreal<Client>, lab_id: &str) -> Result<DbLab> {
     let mut response = db
         .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
         .bind(("lab_id", lab_id.to_string()))
         .await
-        .context(format!("Failed to query lab_id from database: {lab_id}"))?;
+        .context(format!("Failed to query lab from database: {lab_id}"))?;
 
     let db_lab: Option<DbLab> = response.take(0)?;
-
     let lab = db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))?;
+    Ok(lab)
+}
 
+/// Delete a lab
+pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+    let lab = get_lab_record(&db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
     let _deleted: Option<DbLab> = db
@@ -99,21 +100,12 @@ pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
 
 /// Delete all nodes for a lab
 pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
-    let mut response = db
-        .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
-        .bind(("lab_id", lab_id.to_string()))
-        .await
-        .context(format!("Failed to query lab from database: {lab_id}"))?;
-
-    let db_lab: Option<DbLab> = response.take(0)?;
-
-    let lab = db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))?;
-
+    let lab = get_lab_record(&db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
     let _deleted: Vec<DbNode> = db
-        .query("DELETE node WHERE lab = $lab_id")
-        .bind(("lab_id", lab_record_id))
+        .query("DELETE node WHERE lab = $lab_record_id")
+        .bind(("lab_record_id", lab_record_id))
         .await
         .context(format!("Failed to delete nodes for lab: {lab_id}"))?
         .take(0)?;
@@ -123,11 +115,9 @@ pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
 
 /// Get node_variant from node_model
 async fn get_node_variant(db: &Surreal<Client>, node_model: &NodeModel) -> Result<NodeVariant> {
-    let model_id = node_model.to_string();
-
     let mut response = db
-        .query("SELECT * FROM ONLY node_variant WHERE model = type::thing('node_model', $model_id)")
-        .bind(("model_id", model_id))
+        .query("SELECT * FROM ONLY node_variant WHERE model = $model_id")
+        .bind(("model_id", node_model.to_string()))
         .await
         .context(format!(
             "Failed to query node_variant from database: {node_model}"
@@ -135,7 +125,6 @@ async fn get_node_variant(db: &Surreal<Client>, node_model: &NodeModel) -> Resul
 
     let variant: Option<NodeVariant> = response.take(0)?;
 
-    dbg!("{}", &variant);
     variant.ok_or_else(|| anyhow!("Node variant not found for model: {node_model}"))
 }
 
@@ -163,14 +152,12 @@ pub async fn create_lab_node(
         .await
         .context("Error creating node:\n name: `{name}`\n lab_id: {lab_id}\n")?;
 
-    dbg!(&node);
-
     node.ok_or_else(|| {
         anyhow!(
-            "Node was not created:\n node name: `{}`\n lab name: {}\n lab id: {}\n",
+            "Node was not created:\n node name: `{}`\n lab name: {}\n lab id: {:?}\n",
             name,
             lab.name,
-            lab.lab_id,
+            lab.id,
         )
     })
 }
@@ -178,12 +165,12 @@ pub async fn create_lab_node(
 /// Create a link record between two nodes
 pub async fn create_lab_link(
     db: &Surreal<Client>,
+    lab: &DbLab,
     link_id: u16,
     node_a: &DbNode,
     node_b: &DbNode,
     int_a: &str,
     int_b: &str,
-    lab: &DbLab,
 ) -> Result<DbLink> {
     let node_a_id = get_node_id(node_a)?;
     let node_b_id = get_node_id(node_b)?;
@@ -206,8 +193,6 @@ pub async fn create_lab_link(
             link_id, node_a.name, node_b.name, int_a, int_b
         ))?;
 
-    dbg!(&link);
-
     link.ok_or_else(|| {
         anyhow!(
             "Link was not created:\n link_id: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n lab: {}\n",
@@ -223,21 +208,12 @@ pub async fn create_lab_link(
 
 /// Delete all links for a lab
 pub async fn delete_lab_links(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
-    let mut response = db
-        .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
-        .bind(("lab_id", lab_id.to_string()))
-        .await
-        .context(format!("Failed to query lab from database: {lab_id}"))?;
-
-    let db_lab: Option<DbLab> = response.take(0)?;
-
-    let lab = db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))?;
-
+    let lab = get_lab_record(&db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
     let _deleted: Vec<DbLink> = db
-        .query("DELETE link WHERE lab = $lab_id")
-        .bind(("lab_id", lab_record_id))
+        .query("DELETE link WHERE lab = $lab_record_id")
+        .bind(("lab_record_id", lab_record_id))
         .await
         .context(format!("Failed to delete links for lab: {lab_id}"))?
         .take(0)?;

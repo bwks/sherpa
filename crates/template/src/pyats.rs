@@ -55,7 +55,7 @@ impl PyatsInventory {
             let model = config
                 .device_models
                 .iter()
-                .find(|d| d.name == device.model)
+                .find(|d| d.model == device.model)
                 .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
             // Create connections map
@@ -87,7 +87,7 @@ impl PyatsInventory {
                 credentials,
                 os: model.os_variant.to_string(),
                 platform: model.os_variant.to_string(),
-                device_type: model.name.to_string(),
+                device_type: model.model.to_string(),
             };
 
             devices.insert(device.name.clone(), device_entry);

@@ -39,7 +39,7 @@ pub async fn init(
     for device_model in &config.device_models {
         create_dir(&format!(
             "{}/{}/latest",
-            sherpa.images_dir, device_model.name
+            sherpa.images_dir, device_model.model
         ))?;
     }
 
