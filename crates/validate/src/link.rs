@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use data::NodeModel;
-use topology::{Node, LinkDetailed, LinkExpanded};
+use topology::{LinkDetailed, LinkExpanded, Node};
 
 /// Check if a device with a non-dedicated management interface
 /// has the first interface defined in a connection
@@ -14,9 +14,9 @@ pub fn check_mgmt_usage(
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt
-        if device_name == link.dev_a {
+        if device_name == link.node_a {
             (device_name, link.int_a_idx)
-        } else if device_name == link.dev_b {
+        } else if device_name == link.node_b {
             (device_name, link.int_b_idx)
         } else {
             continue; // this will skip to the next loop if device not matched in link
@@ -35,8 +35,8 @@ pub fn check_duplicate_interface_link(links: &Vec<LinkDetailed>) -> Result<()> {
     let mut device_int_map: HashMap<String, Vec<u8>> = HashMap::new();
 
     for link in links {
-        check_device_interface(&link.dev_a, link.int_a_idx, &mut device_int_map)?;
-        check_device_interface(&link.dev_b, link.int_b_idx, &mut device_int_map)?;
+        check_device_interface(&link.node_a, link.int_a_idx, &mut device_int_map)?;
+        check_device_interface(&link.node_b, link.int_b_idx, &mut device_int_map)?;
     }
     Ok(())
 }
@@ -65,8 +65,8 @@ pub fn check_link_device(devices: &[Node], links: &Vec<LinkExpanded>) -> Result<
     let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
     let mut unique_device_link: HashSet<String> = HashSet::new();
     for link in links {
-        unique_device_link.insert(link.dev_a.clone());
-        unique_device_link.insert(link.dev_b.clone());
+        unique_device_link.insert(link.node_a.clone());
+        unique_device_link.insert(link.node_b.clone());
     }
     for device in &unique_device_link {
         if !unique_devices.contains(device) {
@@ -89,9 +89,9 @@ pub fn check_interface_bounds(
 ) -> Result<()> {
     for link in links {
         let (device, interface) = // no-fmt
-        if device_name == link.dev_a {
+        if device_name == link.node_a {
             (device_name, link.int_a_idx)
-        } else if device_name == link.dev_b {
+        } else if device_name == link.node_b {
             (device_name, link.int_b_idx)
         } else {
             continue; // this will skip to the next loop if device not matched in link

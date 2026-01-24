@@ -4,7 +4,7 @@ use super::ZtpMethod;
 
 #[derive(Clone, Debug)]
 pub struct ZtpRecord {
-    pub device_name: String,
+    pub node_name: String,
     pub config_file: String,
     pub ipv4_address: Ipv4Addr,
     pub mac_address: String,

@@ -30,10 +30,10 @@ pub use interface::{
     MgmtInterfaces,
 };
 pub use lab::LabInfo;
-pub use mapping::{CloneDisk, DeviceConnection, DeviceDisk, InterfaceConnection, QemuCommand};
-pub use network::{NetworkV4, SherpaNetwork};
+pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
+pub use network::{BridgeKind, NetworkV4, SherpaNetwork};
 pub use node::{
-    BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeKind, NodeModel, NodeVariant,
+    BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
     OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;

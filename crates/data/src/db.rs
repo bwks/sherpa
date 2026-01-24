@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
+use super::BridgeKind;
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
     pub id: Option<RecordId>,
@@ -20,7 +22,7 @@ pub struct DbLab {
 pub struct DbNode {
     pub id: Option<RecordId>,
     pub name: String,
-    pub variant: RecordId,
+    pub config: RecordId,
     pub index: u16,
     pub lab: RecordId,
 }
@@ -28,10 +30,15 @@ pub struct DbNode {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DbLink {
     pub id: Option<RecordId>,
-    pub link_id: u16,
+    pub index: u16,
+    pub kind: BridgeKind,
     pub node_a: RecordId,
     pub node_b: RecordId,
     pub int_a: String,
     pub int_b: String,
     pub lab: RecordId,
+    pub bridge_a: String,
+    pub bridge_b: String,
+    pub veth_a: String,
+    pub veth_b: String,
 }

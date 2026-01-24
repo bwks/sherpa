@@ -4,7 +4,7 @@ use askama::Template;
 use container::{Docker, run_container};
 use data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
 use konst::{
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, NODE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
     DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
 };
@@ -23,7 +23,7 @@ pub fn create_ztp_files(
 
     // Create directories
     let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
-    let ztp_configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+    let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     create_dir(&ztp_dir)?;
     create_dir(&ztp_configs_dir)?;
@@ -72,7 +72,7 @@ pub async fn create_boot_containers(
     // Volume mount dirs
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
-    let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+    let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
 
     // Ensure directories exist
     create_dir(&dnsmasq_dir)?;
@@ -84,7 +84,7 @@ pub async fn create_boot_containers(
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
 
     // Webdir service
-    let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
+    let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
 
     // Dnsmasq service
     let dnsmasq_env_vars = vec![dnsmasq_env_dns1, dnsmasq_env_dns2];

@@ -8,6 +8,7 @@ files/
 *.bu
 dev.sh
 *.sql
+!lab.sql
 .idea/
 .opencode/
 AGENTS.md

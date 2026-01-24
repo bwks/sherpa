@@ -41,6 +41,8 @@ pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
 pub const LAB_FILE_NAME: &str = "lab-info.toml";
+pub const BRIDGE_PREFIX: &str = "br";
+pub const VETH_PREFIX: &str = "ve";
 
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
@@ -81,7 +83,7 @@ pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";
 pub const ZTP_JSON: &str = "ztp.json";
 pub const TFTP_DIR: &str = "tftp";
-pub const DEVICE_CONFIGS_DIR: &str = "configs";
+pub const NODE_CONFIGS_DIR: &str = "configs";
 pub const DNSMASQ_DIR: &str = "dnsmasq";
 pub const DNSMASQ_CONFIG_FILE: &str = "dnsmasq.conf";
 pub const DNSMASQ_LEASES_FILE: &str = "dnsmasq.leases";

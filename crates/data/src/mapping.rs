@@ -4,7 +4,7 @@ use super::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets}
 
 #[derive(Clone, Debug)]
 // Device name to IP address mapping
-pub struct DeviceConnection {
+pub struct NodeConnection {
     pub name: String,
     pub ip_address: String,
     // pub mac_address: String,
@@ -18,7 +18,7 @@ pub struct CloneDisk {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct DeviceDisk {
+pub struct NodeDisk {
     pub disk_device: DiskDevices,
     pub driver_name: DiskDrivers,
     pub driver_format: DiskFormats,

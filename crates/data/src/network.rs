@@ -1,5 +1,26 @@
-use ipnet::Ipv4Net;
+use std::fmt;
 use std::net::Ipv4Addr;
+
+use ipnet::Ipv4Net;
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BridgeKind {
+    #[default]
+    P2pBridge,
+    P2pUdp,
+    P2pVeth,
+}
+impl fmt::Display for BridgeKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BridgeKind::P2pBridge => write!(f, "p2p_bridge"),
+            BridgeKind::P2pUdp => write!(f, "p2p_udp"),
+            BridgeKind::P2pVeth => write!(f, "p2p_veth"),
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct NetworkV4 {

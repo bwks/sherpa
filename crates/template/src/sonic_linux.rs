@@ -4,7 +4,7 @@ use askama::Template;
 use serde_json::json;
 
 use data::{NetworkV4, User};
-use konst::{DEVICE_CONFIGS_DIR, HTTP_PORT};
+use konst::{NODE_CONFIGS_DIR, HTTP_PORT};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]
@@ -25,14 +25,14 @@ impl SonicLinuxZtp {
                 "ztp": {
                   "001-configdb-json": {
                     "url": {
-                      "source": format!("http://{ztp_server}:{HTTP_PORT}/{DEVICE_CONFIGS_DIR}/{device_name}_config_db.json"),
+                      "source": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{device_name}_config_db.json"),
                       "destination": "/etc/sonic/config_db.json",
                       "secure": false
                     }
                   },
                   "002-set-password": {
                       "plugin": {
-                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{DEVICE_CONFIGS_DIR}/sonic_ztp_user.sh"),
+                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/sonic_ztp_user.sh"),
                         "shell": "true"
                        },
                        "reboot-on-success": false

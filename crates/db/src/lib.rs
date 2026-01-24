@@ -6,4 +6,4 @@ pub use action::{
     get_user,
 };
 pub use connect::connect;
-pub use data::{DbLab, DbLink, DbNode, DbUser, NodeVariant};
+pub use data::{DbLab, DbLink, DbNode, DbUser, NodeConfig};

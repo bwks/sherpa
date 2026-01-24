@@ -36,7 +36,7 @@ pub async fn init(
     create_dir(&format!("{}/{}", sherpa.images_dir, SHERPA_BLANK_DISK_DIR))?;
     // box directories
     let config = default_config();
-    for device_model in &config.device_models {
+    for device_model in &config.node_config {
         create_dir(&format!(
             "{}/{}/latest",
             sherpa.images_dir, device_model.model

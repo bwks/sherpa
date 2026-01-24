@@ -1,5 +1,5 @@
 {%- for record in ztp_records %}
-Host {{ record.ipv4_address }} {{ record.device_name }} {{ record.device_name }}.{{ SHERPA_DOMAIN_NAME }}
+Host {{ record.ipv4_address }} {{ record.node_name }} {{ record.node_name }}.{{ SHERPA_DOMAIN_NAME }}
     HostName {{ record.ipv4_address }}
     Port {{ record.ssh_port }}
     User {{ SHERPA_USERNAME }}

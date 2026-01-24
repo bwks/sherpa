@@ -1,6 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 
-use data::{DbLab, DbLink, DbNode, DbUser, NodeModel, NodeVariant, RecordId};
+use data::{BridgeKind, DbLab, DbLink, DbNode, DbUser, NodeConfig, NodeModel, RecordId};
 
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -56,13 +56,13 @@ fn get_lab_id(lab: &DbLab) -> Result<RecordId> {
         .ok_or_else(|| anyhow!("Lab has no id field:\n {:#?}", lab))
 }
 
-/// Get a variant's id from a variant record.
-fn get_variant_id(variant: &NodeVariant) -> Result<RecordId> {
-    variant
+/// Get a config's id from a config record.
+fn get_config_id(config: &NodeConfig) -> Result<RecordId> {
+    config
         .id
         .as_ref()
         .cloned()
-        .ok_or_else(|| anyhow!("variant has no id field:\n {:#?}", variant))
+        .ok_or_else(|| anyhow!("config has no id field:\n {:#?}", config))
 }
 
 /// Get a node's id from a node record.
@@ -113,19 +113,19 @@ pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
     Ok(())
 }
 
-/// Get node_variant from node_model
-async fn get_node_variant(db: &Surreal<Client>, node_model: &NodeModel) -> Result<NodeVariant> {
+/// Get node_config from node_model
+async fn get_node_config(db: &Surreal<Client>, node_model: &NodeModel) -> Result<NodeConfig> {
     let mut response = db
-        .query("SELECT * FROM ONLY node_variant WHERE model = $model_id")
+        .query("SELECT * FROM ONLY node_config WHERE model = $model_id")
         .bind(("model_id", node_model.to_string()))
         .await
         .context(format!(
-            "Failed to query node_variant from database: {node_model}"
+            "Failed to query node_config from database: {node_model}"
         ))?;
 
-    let variant: Option<NodeVariant> = response.take(0)?;
+    let config: Option<NodeConfig> = response.take(0)?;
 
-    variant.ok_or_else(|| anyhow!("Node variant not found for model: {node_model}"))
+    config.ok_or_else(|| anyhow!("Node config not found for model: {node_model}"))
 }
 
 /// Assign a lab node
@@ -136,8 +136,8 @@ pub async fn create_lab_node(
     model: NodeModel,
     lab: &DbLab,
 ) -> Result<DbNode> {
-    let variant = get_node_variant(&db, &model).await?;
-    let variant_id = get_variant_id(&variant)?;
+    let config = get_node_config(&db, &model).await?;
+    let config_id = get_config_id(&config)?;
     let lab_id = get_lab_id(lab)?;
 
     let node: Option<DbNode> = db
@@ -145,12 +145,14 @@ pub async fn create_lab_node(
         .content(DbNode {
             id: None,
             name: name.to_string(),
-            variant: variant_id,
+            config: config_id,
             index,
-            lab: lab_id,
+            lab: lab_id.clone(),
         })
         .await
-        .context("Error creating node:\n name: `{name}`\n lab_id: {lab_id}\n")?;
+        .context(format!(
+            "Error creating node:\n name: `{name}`\n lab_id: {lab_id}\n"
+        ))?;
 
     node.ok_or_else(|| {
         anyhow!(
@@ -166,11 +168,16 @@ pub async fn create_lab_node(
 pub async fn create_lab_link(
     db: &Surreal<Client>,
     lab: &DbLab,
-    link_id: u16,
+    index: u16,
+    kind: BridgeKind,
     node_a: &DbNode,
     node_b: &DbNode,
     int_a: &str,
     int_b: &str,
+    bridge_a: &str,
+    bridge_b: &str,
+    veth_a: &str,
+    veth_b: &str,
 ) -> Result<DbLink> {
     let node_a_id = get_node_id(node_a)?;
     let node_b_id = get_node_id(node_b)?;
@@ -180,23 +187,28 @@ pub async fn create_lab_link(
         .create("link")
         .content(DbLink {
             id: None,
-            link_id,
+            index,
+            kind,
             node_a: node_a_id,
             node_b: node_b_id,
             int_a: int_a.to_string(),
             int_b: int_b.to_string(),
             lab: lab_id,
+            bridge_a: bridge_a.to_string(),
+            bridge_b: bridge_b.to_string(),
+            veth_a: veth_a.to_string(),
+            veth_b: veth_b.to_string(),
         })
         .await
         .context(format!(
-            "Error creating link:\n link_id: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n",
-            link_id, node_a.name, node_b.name, int_a, int_b
+            "Error creating link:\n index: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n",
+            index, node_a.name, node_b.name, int_a, int_b
         ))?;
 
     link.ok_or_else(|| {
         anyhow!(
-            "Link was not created:\n link_id: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n lab: {}\n",
-            link_id,
+            "Link was not created:\n index: {}\n node_a: {}\n node_b: {}\n int_a: {}\n int_b: {}\n lab: {}\n",
+            index,
             node_a.name,
             node_b.name,
             int_a,

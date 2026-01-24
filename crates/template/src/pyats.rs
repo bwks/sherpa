@@ -47,13 +47,13 @@ impl PyatsInventory {
         for device in &manifest.nodes {
             let device_ip_map = device_ips
                 .iter()
-                .find(|d| d.device_name == device.name)
+                .find(|d| d.node_name == device.name)
                 .ok_or_else(|| {
                     anyhow::anyhow!("Device name not found in DeviceConnection: {}", device.name)
                 })?;
 
             let model = config
-                .device_models
+                .node_config
                 .iter()
                 .find(|d| d.model == device.model)
                 .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
