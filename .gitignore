@@ -10,3 +10,5 @@ dev.sh
 *.sql
 .idea/
 .opencode/
+AGENTS.md
+srl-config.json
