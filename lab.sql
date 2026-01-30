@@ -227,6 +227,63 @@ INSERT INTO node_config {
     reserved_interface_count: 0
 };
 
+-- model = "cisco_cat8000v"
+-- version = "latest"
+-- os_variant = "iosxe"
+-- kind = "virtual_machine"
+-- bios = "sea_bios"
+-- cpu_count = 1
+-- cpu_architecture = "x86_64"
+-- cpu_model = "host-model"
+-- machine_type = "q35"
+-- vmx_enabled = false
+-- memory = 4096
+-- hdd_bus = "virtio"
+-- cdrom_bus = "sata"
+-- ztp_enable = true
+-- ztp_method = "cdrom"
+-- ztp_password_auth = false
+-- interface_count = 16
+-- interface_prefix = "Gig"
+-- interface_type = "virtio"
+-- interface_mtu = 9216
+-- first_interface_index = 1
+-- dedicated_management_interface = false
+-- management_interface = "GigabitEthernet1"
+-- reserved_interface_count = 0
+
+-- Cisco 8000v
+INSERT INTO node_config {
+    model: "cisco_cat8000v",
+    version: "latest",
+    repo: "",
+    os_variant: "iosxe",
+    kind: "virtual_machine",
+    bios: "sea_bios",
+    cpu_count: 2,
+    cpu_architecture: "x86_64",
+    cpu_model: "host-model",
+    machine_type: "q35",
+    vmx_enabled: false,
+    memory: 4096,
+    hdd_bus: "sata",
+    cdrom: "",
+    cdrom_bus: "sata",
+    ztp_enable: true,
+    ztp_method: "cdrom",
+    ztp_username: "sherpa",
+    ztp_password: "",
+    ztp_password_auth: false,
+    interface_count: 16,
+    interface_prefix: "eth",
+    interface_type: "virtio",
+    interface_mtu: 9216,
+    first_interface_index: 0,
+    dedicated_management_interface: false,
+    management_interface: "GigabitEthernet1",
+    reserved_interface_count: 0
+};
+
 -- ========================================= --
 -- Example Test Data
 -- ========================================= --

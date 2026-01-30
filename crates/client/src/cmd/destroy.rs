@@ -8,7 +8,10 @@ use container::{
     delete_network, docker_connection, kill_container, list_containers, list_networks,
 };
 use db::{connect, delete_lab, delete_lab_links, delete_lab_nodes};
-use konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH};
+use konst::{
+    BRIDGE_PREFIX, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    VETH_PREFIX,
+};
 use libvirt::{Qemu, delete_disk};
 use network::{delete_interface, find_interfaces_fuzzy};
 use util::{dir_exists, file_exists, term_msg_surround};
@@ -61,23 +64,6 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
         }
     }
 
-    // Delete intefaces
-    // testing
-    let lab_intefaces = find_interfaces_fuzzy(lab_id).await?;
-    for interface in lab_intefaces {
-        // Only delete interfaces created outside of libvirt.
-        //
-        // Also, we will only delete the 'vea' end, the 'veb' end
-        // will be automagically deleted when 'vea' is deleted.
-        if interface.starts_with("vea")
-            || interface.starts_with("bra")
-            || interface.starts_with("brb")
-        {
-            delete_interface(&interface).await?;
-            println!("Deleted interface: {}", interface);
-        }
-    }
-
     let container_networks = list_networks(&docker_conn).await?;
     for network in container_networks {
         if let Some(network_name) = network.name
@@ -95,6 +81,20 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
             network.destroy()?;
             network.undefine()?;
             println!("Destroyed network: {}", network_name);
+        }
+    }
+
+    // Delete intefaces for lab. Only delete interfaces created outside of Libvirt/Docker.
+    // This should be completed last to avoid deleting interface managed by Libvirt/Docker.
+    // only 1 side of the veth interface needs to be deleted
+    let lab_intefaces = find_interfaces_fuzzy(lab_id).await?;
+    for interface in lab_intefaces {
+        if interface.starts_with(&format!("{}a", BRIDGE_PREFIX))
+            || interface.starts_with(&format!("{}b", BRIDGE_PREFIX))
+            || interface.starts_with(&format!("{}a", VETH_PREFIX))
+        {
+            delete_interface(&interface).await?;
+            println!("Deleted interface: {}", interface);
         }
     }
 

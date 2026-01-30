@@ -18,7 +18,7 @@ pub struct DbLab {
     pub user: RecordId,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DbNode {
     pub id: Option<RecordId>,
     pub name: String,

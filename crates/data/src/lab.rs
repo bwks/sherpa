@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
+use super::{BridgeKind, DbNode, NodeKind, NodeModel};
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LabInfo {
     pub id: String,
@@ -27,4 +29,27 @@ impl FromStr for LabInfo {
     fn from_str(s: &str) -> Result<Self> {
         toml::from_str(s).context("Failed to parse LabInfo from TOML")
     }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LabNodeData {
+    pub name: String,
+    pub model: NodeModel,
+    pub kind: NodeKind,
+    pub index: u16,
+    pub record: DbNode,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LabLinkData {
+    pub index: u16,
+    pub kind: BridgeKind,
+    pub node_a: DbNode,
+    pub node_b: DbNode,
+    pub int_a: String,
+    pub int_b: String,
+    pub bridge_a: String,
+    pub bridge_b: String,
+    pub veth_a: String,
+    pub veth_b: String,
 }

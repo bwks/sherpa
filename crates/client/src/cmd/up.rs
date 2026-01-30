@@ -5,11 +5,11 @@ use askama::Template;
 use container::{create_docker_bridge_network, docker_connection, run_container};
 use data::{
     BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses, DiskDevices,
-    DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, NetworkV4,
-    NodeConnection, NodeDisk, NodeKind, NodeModel, OsVariant, QemuCommand, Sherpa, SherpaNetwork,
-    ZtpMethod, ZtpRecord,
+    DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, LabLinkData,
+    LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, OsVariant, QemuCommand,
+    Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
-use db::{DbNode, connect, create_lab, create_lab_link, create_lab_node, get_user};
+use db::{connect, create_lab, create_lab_link, create_lab_node, get_user};
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -55,30 +55,6 @@ use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
     check_link_device, check_mgmt_usage, tcp_connect,
 };
-
-#[derive(Debug)]
-struct LabNodeData {
-    name: String,
-    model: NodeModel,
-    kind: NodeKind,
-    index: u16,
-    // variant_record:
-    node_record: DbNode,
-}
-
-#[derive(Debug)]
-struct LabLinkData {
-    index: u16,
-    kind: BridgeKind,
-    node_a: String,
-    node_b: String,
-    int_a: String,
-    int_b: String,
-    bridge_a: String,
-    bridge_b: String,
-    veth_a: String,
-    veth_b: String,
-}
 
 pub async fn up(
     sherpa: &Sherpa,
@@ -215,7 +191,7 @@ pub async fn up(
             model: node_data.model.clone(),
             kind: node_data.kind.clone(),
             index: *node_idx,
-            node_record: lab_node,
+            record: lab_node,
         });
 
         // Handle Containers, NanoVM's and regular VM's
@@ -299,25 +275,6 @@ pub async fn up(
     term_msg_underline("Creating Point-to-Point Links");
     for (idx, link) in links_detailed.iter().enumerate() {
         let link_index = idx as u16 + 1;
-        // Generate unique, names must fit within Linux interface name limits (15 chars)
-        let bridge_a = format!("{}{}a-{}", BRIDGE_PREFIX, link_index, lab_id);
-        let bridge_b = format!("{}{}b-{}", BRIDGE_PREFIX, link_index, lab_id);
-        let veth_a = format!("{}{}a-{}", VETH_PREFIX, link_index, lab_id);
-        let veth_b = format!("{}{}b-{}", VETH_PREFIX, link_index, lab_id);
-
-        let link_data = LabLinkData {
-            index: link_index,
-            kind: BridgeKind::P2pBridge,
-            node_a: link.node_a.clone(),
-            node_b: link.node_b.clone(),
-            int_a: link.int_a.clone(),
-            int_b: link.int_b.clone(),
-            bridge_a: bridge_a.clone(),
-            bridge_b: bridge_b.clone(),
-            veth_a: veth_a.clone(),
-            veth_b: veth_b.clone(),
-        };
-        lab_link_data.push(link_data);
 
         let node_a = lab_node_data
             .iter()
@@ -329,21 +286,28 @@ pub async fn up(
             .find(|n| n.name == link.node_b)
             .ok_or_else(|| anyhow!("Node not found: {}", link.node_b))?;
 
-        let _db_link = create_lab_link(
-            &db,
-            &lab_record,
-            link_index,
-            BridgeKind::P2pBridge,
-            &node_a.node_record,
-            &node_b.node_record,
-            &link.int_a,
-            &link.int_b,
-            &bridge_a,
-            &bridge_b,
-            &veth_a,
-            &veth_b,
-        )
-        .await?;
+        // Generate unique, names must fit within Linux interface name limits (15 chars)
+        let bridge_a = format!("{}a{}-{}", BRIDGE_PREFIX, link_index, lab_id);
+        let bridge_b = format!("{}b{}-{}", BRIDGE_PREFIX, link_index, lab_id);
+        let veth_a = format!("{}a{}-{}", VETH_PREFIX, link_index, lab_id);
+        let veth_b = format!("{}b{}-{}", VETH_PREFIX, link_index, lab_id);
+
+        let link_data = LabLinkData {
+            index: link_index,
+            kind: BridgeKind::P2pBridge,
+            node_a: node_a.record.clone(),
+            node_b: node_b.record.clone(),
+            int_a: link.int_a.clone(),
+            int_b: link.int_b.clone(),
+            bridge_a: bridge_a.clone(),
+            bridge_b: bridge_b.clone(),
+            veth_a: veth_a.clone(),
+            veth_b: veth_b.clone(),
+        };
+
+        let _db_link = create_lab_link(&db, &lab_record, &link_data).await?;
+
+        lab_link_data.push(link_data);
 
         println!(
             "Creating link #{} - {}::{} <-> {}::{}",
