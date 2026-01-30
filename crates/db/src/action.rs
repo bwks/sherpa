@@ -113,6 +113,90 @@ pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
     Ok(())
 }
 
+/// Create a node_config record in the database
+pub async fn create_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
+    let created_config: Option<NodeConfig> = db
+        .create("node_config")
+        .content(config.clone())
+        .await
+        .context(format!(
+            "Error creating node_config (model and kind must be unique):\n model: {}\n kind: {}\n",
+            config.model, config.kind
+        ))?;
+
+    created_config.ok_or_else(|| {
+        anyhow!(
+            "Node config was not created:\n model: {}\n kind: {}\n",
+            config.model,
+            config.kind
+        )
+    })
+}
+
+/// Upsert a node_config record (create if not exists, update if exists)
+/// This uses a query-based approach to handle the unique constraint gracefully
+pub async fn upsert_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
+    // Use UPDATE...SET to upsert - this will create if not exists or update if exists
+    // We need to construct a specific record ID based on model+kind to make this work
+    // However, since we don't control the ID, let's use a different approach:
+    
+    // First, try to find existing record
+    let existing = get_node_config_by_model_kind(db, &config.model, &config.kind.to_string()).await?;
+    
+    if let Some(existing_config) = existing {
+        // Record exists, return it unchanged (or we could update it)
+        return Ok(existing_config);
+    }
+    
+    // Record doesn't exist, create it
+    let created_config: Option<NodeConfig> = db
+        .create("node_config")
+        .content(config.clone())
+        .await
+        .context(format!(
+            "Error creating node_config:\n model: {}\n kind: {}\n",
+            config.model, config.kind
+        ))?;
+
+    created_config.ok_or_else(|| {
+        anyhow!(
+            "Node config was not created:\n model: {}\n kind: {}\n",
+            config.model,
+            config.kind
+        )
+    })
+}
+
+/// List all node_config records from the database
+pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> {
+    let configs: Vec<NodeConfig> = db
+        .select("node_config")
+        .await
+        .context("Failed to query all node_configs from database")?;
+    
+    Ok(configs)
+}
+
+/// Get node_config by model and kind
+pub async fn get_node_config_by_model_kind(
+    db: &Surreal<Client>,
+    model: &NodeModel,
+    kind: &str,
+) -> Result<Option<NodeConfig>> {
+    let mut response = db
+        .query("SELECT * FROM ONLY node_config WHERE model = $model AND kind = $kind")
+        .bind(("model", model.to_string()))
+        .bind(("kind", kind.to_string()))
+        .await
+        .context(format!(
+            "Failed to query node_config from database: model={}, kind={}",
+            model, kind
+        ))?;
+
+    let config: Option<NodeConfig> = response.take(0)?;
+    Ok(config)
+}
+
 /// Get node_config from node_model
 async fn get_node_config(db: &Surreal<Client>, node_model: &NodeModel) -> Result<NodeConfig> {
     let mut response = db

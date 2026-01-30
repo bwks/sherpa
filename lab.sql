@@ -18,7 +18,7 @@ DEFINE INDEX unique_username
 
 
 -- ========================================= --
--- Updated Node Variant Table
+-- Node Config
 -- ========================================= --
 
 DEFINE TABLE node_config SCHEMAFULL;
@@ -73,7 +73,7 @@ DEFINE FIELD interface_prefix ON TABLE node_config TYPE string;
 DEFINE FIELD interface_type ON TABLE node_config TYPE string
     ASSERT $value IN ["e1000", "virtio", "vmxnet3", "host", "mac_vlan"];
 DEFINE FIELD interface_mtu ON TABLE node_config TYPE number
-    ASSERT $value >= 576 AND $value <= 9216 AND $value == math::floor($value);
+    ASSERT $value >= 576 AND $value <= 9600 AND $value == math::floor($value);
 DEFINE FIELD first_interface_index ON TABLE node_config TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 DEFINE FIELD dedicated_management_interface ON TABLE node_config TYPE bool;

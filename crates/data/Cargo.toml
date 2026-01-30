@@ -26,3 +26,7 @@ surrealdb = "2.4.1"
 ipnet = { version = "2.11.0", features = ["serde"] }
 
 toml = "0.8.19"
+
+# Enum helpers
+strum = "0.27"
+strum_macros = "0.27"

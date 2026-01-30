@@ -5,12 +5,15 @@ use clap::ValueEnum;
 use serde_derive::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
+
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
-#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum)]
+#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter)]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
 pub enum NodeModel {
@@ -136,6 +139,11 @@ impl fmt::Display for NodeModel {
             NodeModel::GenericUnikernel => write!(f, "generic_unikernel"),
             NodeModel::GenericVm => write!(f, "generic_vm"),
         }
+    }
+}
+impl NodeModel {
+    pub fn variants() -> Vec<NodeModel> {
+        NodeModel::iter().collect()
     }
 }
 
@@ -468,7 +476,7 @@ impl NodeConfig {
             NodeModel::OpenBsd => NodeConfig::open_bsd(),
 
             // Windows
-            NodeModel::WindowsServer => todo!(),
+            NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // SQL
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
@@ -1713,5 +1721,23 @@ impl NodeConfig {
             reserved_interface_count: 0,
             ..Default::default()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_all_variants_are_unique() {
+        // Ensure no duplicates in the all_variants list
+        use std::collections::HashSet;
+        let variants = NodeModel::variants();
+        let unique: HashSet<String> = variants.iter().map(|v| v.to_string()).collect();
+        assert_eq!(
+            variants.len(),
+            unique.len(),
+            "all_variants contains duplicates"
+        );
     }
 }

@@ -1226,6 +1226,8 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
+ "strum",
+ "strum_macros",
  "surrealdb",
  "thiserror 2.0.17",
  "toml",
