@@ -4,11 +4,11 @@ use surrealdb::engine::remote::ws::Client;
 
 use data::{NodeConfig, NodeModel};
 
-use super::upsert_node_config;
+use crate::node_config::upsert_node_config;
 
 /// Delete all node_config records from the database
 /// WARNING: This will remove all node configs including any custom ones
-pub async fn delete_all_node_configs(db: &Surreal<Client>) -> Result<usize> {
+pub async fn delete_node_configs(db: &Surreal<Client>) -> Result<usize> {
     let deleted: Vec<NodeConfig> = db.query("DELETE node_config").await?.take(0)?;
 
     Ok(deleted.len())
@@ -45,7 +45,7 @@ pub async fn seed_node_configs(db: &Surreal<Client>) -> Result<usize> {
                 }
             }
             Err(e) => {
-                eprintln!("ERROR: Failed to upsert {}: {}", config.model, e);
+                eprintln!("ERROR: Failed to create {}: {}", config.model, e);
                 return Err(e.context(format!(
                     "Failed to seed node config: {} (created: {}, skipped: {})",
                     config.model, created_count, skipped_count

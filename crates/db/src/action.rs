@@ -1,9 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 
-use data::{DbLab, DbLink, DbNode, DbUser, LabLinkData, NodeConfig, NodeModel, RecordId};
+use data::{DbLab, DbLink, DbNode, DbUser, LabLinkData, NodeModel};
 
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+
+use crate::helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
+use crate::node_config::get_node_config;
 
 /// Get a user form the database
 pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
@@ -15,14 +18,6 @@ pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
 
     let user: Option<DbUser> = response.take(0)?;
     user.ok_or_else(|| anyhow!("User not found: {username}"))
-}
-
-/// Get a user's id from a user record.
-fn get_user_id(user: &DbUser) -> Result<RecordId> {
-    user.id
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| anyhow!("User record has no id field:\n '{:#?}'", user))
 }
 
 /// Create a lab record.
@@ -46,31 +41,6 @@ pub async fn create_lab(
         .context("Error creating lab:\n name: `{name}`\n lab_id: {lab_id}\n")?;
 
     lab.ok_or_else(|| anyhow!("Lab was not created:\n name: `{name}`\n lab_id: {lab_id}\n"))
-}
-
-/// Get a lab's id from a lab record.
-fn get_lab_id(lab: &DbLab) -> Result<RecordId> {
-    lab.id
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| anyhow!("Lab has no id field:\n {:#?}", lab))
-}
-
-/// Get a config's id from a config record.
-fn get_config_id(config: &NodeConfig) -> Result<RecordId> {
-    config
-        .id
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| anyhow!("config has no id field:\n {:#?}", config))
-}
-
-/// Get a node's id from a node record.
-fn get_node_id(node: &DbNode) -> Result<RecordId> {
-    node.id
-        .as_ref()
-        .cloned()
-        .ok_or_else(|| anyhow!("Node has no id field:\n {:#?}", node))
 }
 
 async fn get_lab_record(db: &Surreal<Client>, lab_id: &str) -> Result<DbLab> {
@@ -111,105 +81,6 @@ pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
         .take(0)?;
 
     Ok(())
-}
-
-/// Create a node_config record in the database
-pub async fn create_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
-    let created_config: Option<NodeConfig> = db
-        .create("node_config")
-        .content(config.clone())
-        .await
-        .context(format!(
-            "Error creating node_config (model and kind must be unique):\n model: {}\n kind: {}\n",
-            config.model, config.kind
-        ))?;
-
-    created_config.ok_or_else(|| {
-        anyhow!(
-            "Node config was not created:\n model: {}\n kind: {}\n",
-            config.model,
-            config.kind
-        )
-    })
-}
-
-/// Upsert a node_config record (create if not exists, update if exists)
-/// This uses a query-based approach to handle the unique constraint gracefully
-pub async fn upsert_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
-    // Use UPDATE...SET to upsert - this will create if not exists or update if exists
-    // We need to construct a specific record ID based on model+kind to make this work
-    // However, since we don't control the ID, let's use a different approach:
-    
-    // First, try to find existing record
-    let existing = get_node_config_by_model_kind(db, &config.model, &config.kind.to_string()).await?;
-    
-    if let Some(existing_config) = existing {
-        // Record exists, return it unchanged (or we could update it)
-        return Ok(existing_config);
-    }
-    
-    // Record doesn't exist, create it
-    let created_config: Option<NodeConfig> = db
-        .create("node_config")
-        .content(config.clone())
-        .await
-        .context(format!(
-            "Error creating node_config:\n model: {}\n kind: {}\n",
-            config.model, config.kind
-        ))?;
-
-    created_config.ok_or_else(|| {
-        anyhow!(
-            "Node config was not created:\n model: {}\n kind: {}\n",
-            config.model,
-            config.kind
-        )
-    })
-}
-
-/// List all node_config records from the database
-pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> {
-    let configs: Vec<NodeConfig> = db
-        .select("node_config")
-        .await
-        .context("Failed to query all node_configs from database")?;
-    
-    Ok(configs)
-}
-
-/// Get node_config by model and kind
-pub async fn get_node_config_by_model_kind(
-    db: &Surreal<Client>,
-    model: &NodeModel,
-    kind: &str,
-) -> Result<Option<NodeConfig>> {
-    let mut response = db
-        .query("SELECT * FROM ONLY node_config WHERE model = $model AND kind = $kind")
-        .bind(("model", model.to_string()))
-        .bind(("kind", kind.to_string()))
-        .await
-        .context(format!(
-            "Failed to query node_config from database: model={}, kind={}",
-            model, kind
-        ))?;
-
-    let config: Option<NodeConfig> = response.take(0)?;
-    Ok(config)
-}
-
-/// Get node_config from node_model
-async fn get_node_config(db: &Surreal<Client>, node_model: &NodeModel) -> Result<NodeConfig> {
-    let mut response = db
-        .query("SELECT * FROM ONLY node_config WHERE model = $model_id")
-        .bind(("model_id", node_model.to_string()))
-        .await
-        .context(format!(
-            "Failed to query node_config from database: {node_model}"
-        ))?;
-
-    let config: Option<NodeConfig> = response.take(0)?;
-
-    config.ok_or_else(|| anyhow!("Node config not found for model: {node_model}"))
 }
 
 /// Assign a lab node
