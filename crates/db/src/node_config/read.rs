@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use data::{NodeConfig, NodeModel, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 /// List all node_config records from the database
 pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> {
@@ -48,6 +48,7 @@ pub async fn get_node_config_by_id(
 
 /// Get node_config from node_model (returns error if not found)
 /// This is used internally for config lookups by model.
+#[allow(dead_code)]
 pub(crate) async fn get_node_config(
     db: &Surreal<Client>,
     node_model: &NodeModel,

@@ -2,7 +2,7 @@ use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
 use super::container::ContainerImage;
-use super::node::NodeConfig;
+// use super::node::NodeConfig;
 use super::provider::VmProviders;
 
 use konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
@@ -51,7 +51,7 @@ pub struct Config {
     pub bins_dir: String,
     pub ztp_server: ZtpServer,
     pub inventory_management: InventoryManagement,
-    pub node_config: Vec<NodeConfig>,
+    // pub node_config: Vec<NodeConfig>,
     pub container_images: Vec<ContainerImage>,
 }
 

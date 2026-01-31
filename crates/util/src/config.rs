@@ -29,44 +29,7 @@ pub fn load_config(file_path: &str) -> Result<Config> {
 pub fn default_config() -> Config {
     let container_images: Vec<ContainerImage> =
         vec![ContainerImage::dnsmasq(), ContainerImage::webdir()];
-    let device_models: Vec<NodeConfig> = vec![
-        NodeConfig::arista_veos(),
-        NodeConfig::arista_ceos(),
-        NodeConfig::aruba_aoscx(),
-        NodeConfig::cisco_asav(),
-        NodeConfig::cisco_cat8000v(),
-        NodeConfig::cisco_cat9000v(),
-        NodeConfig::cisco_csr1000v(),
-        NodeConfig::cisco_iosxrv9000(),
-        NodeConfig::cisco_nexus9300v(),
-        NodeConfig::cisco_iosv(),
-        NodeConfig::cisco_iosvl2(),
-        NodeConfig::cisco_ise(),
-        NodeConfig::juniper_vrouter(),
-        NodeConfig::juniper_vswitch(),
-        NodeConfig::juniper_vevolved(),
-        NodeConfig::juniper_vsrxv3(),
-        NodeConfig::nokia_srlinux(),
-        NodeConfig::cumulus_linux(),
-        NodeConfig::sonic_linux(),
-        NodeConfig::alpine_linux(),
-        NodeConfig::alma_linux(),
-        NodeConfig::rocky_linux(),
-        NodeConfig::centos_linux(),
-        NodeConfig::fedora_linux(),
-        NodeConfig::redhat_linux(),
-        NodeConfig::ubuntu_linux(),
-        NodeConfig::opensuse_linux(),
-        NodeConfig::suse_linux(),
-        NodeConfig::flatcar_linux(),
-        NodeConfig::free_bsd(),
-        NodeConfig::open_bsd(),
-        NodeConfig::windows_server(),
-        // Containers
-        NodeConfig::surreal_db(),
-        NodeConfig::mysql_db(),
-        NodeConfig::postgresql_db(),
-    ];
+
     // TODO: FIXME DEFAULT SHERPA MGMT
     let mgmt_prefix_ipv4 =
         Ipv4Net::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4).expect("Failed to parse IPv4 network");
@@ -88,7 +51,6 @@ pub fn default_config() -> Config {
         images_dir: boxes_dir,
         containers_dir,
         bins_dir,
-        node_config: device_models,
         container_images,
         management_prefix_ipv4: mgmt_prefix_ipv4,
         inventory_management: InventoryManagement::default(),

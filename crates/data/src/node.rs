@@ -13,7 +13,9 @@ use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
-#[derive(Default, PartialEq, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter)]
+#[derive(
+    Default, PartialEq, Eq, Hash, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
+)]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
 pub enum NodeModel {
@@ -384,7 +386,7 @@ impl ZtpMethod {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     #[default]

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::{Config, ZtpRecord};
+use data::{NodeConfig, NodeModel, ZtpRecord};
 use topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,8 +39,10 @@ pub struct PyatsInventory {
 impl PyatsInventory {
     pub fn from_manifest(
         manifest: &Manifest,
-        config: &Config,
+        node_configs: &HashMap<NodeModel, NodeConfig>,
         device_ips: &[ZtpRecord],
+        ztp_username: Option<String>,
+        ztp_password: Option<String>,
     ) -> Result<PyatsInventory> {
         // https://devnet-pubhub-site.s3.amazonaws.com/media/pyats/docs/topology/schema.html#schema
         let mut devices = HashMap::new();
@@ -52,10 +54,8 @@ impl PyatsInventory {
                     anyhow::anyhow!("Device name not found in DeviceConnection: {}", device.name)
                 })?;
 
-            let model = config
-                .node_config
-                .iter()
-                .find(|d| d.model == device.model)
+            let model = node_configs
+                .get(&device.model)
                 .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 
             // Create connections map
@@ -75,8 +75,8 @@ impl PyatsInventory {
             credentials.insert(
                 "default".to_string(),
                 Credentials {
-                    username: config.ztp_server.username.to_owned().unwrap_or_default(),
-                    password: config.ztp_server.password.to_owned().unwrap_or_default(),
+                    username: ztp_username.clone().unwrap_or_default(),
+                    password: ztp_password.clone().unwrap_or_default(),
                 },
             );
 

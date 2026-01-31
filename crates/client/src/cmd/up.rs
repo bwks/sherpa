@@ -10,8 +10,8 @@ use data::{
     Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
 use db::{
-    connect, create_lab, create_link, create_node, get_config_id, get_lab_id,
-    get_node_config_by_model_kind, get_node_id, get_user,
+    connect, create_lab, create_link, create_node, get_config_id, get_lab_id, get_node_id,
+    get_user, list_node_configs,
 };
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
@@ -81,6 +81,27 @@ pub async fn up(
 
     // TODO: RUN EXISTING LAB VALIDATORS
 
+    // Connect to DB early to fetch node configs
+    let db = connect("localhost", 8000, "test", "test").await?;
+    let db_user = get_user(&db, "bradmin").await?;
+
+    // Bulk fetch all node configs from database
+    let node_configs_list = list_node_configs(&db).await?;
+
+    // Create two HashMaps:
+    // 1. By model only (for validation and pyats - uses first config found for each model)
+    // 2. By (model, kind) tuple (for creation - precise lookup)
+    let mut node_config_by_model: HashMap<NodeModel, data::NodeConfig> = HashMap::new();
+    let mut node_config_map: HashMap<(NodeModel, data::NodeKind), data::NodeConfig> =
+        HashMap::new();
+
+    for nc in node_configs_list {
+        node_config_by_model
+            .entry(nc.model.clone())
+            .or_insert(nc.clone());
+        node_config_map.insert((nc.model.clone(), nc.kind.clone()), nc);
+    }
+
     term_msg_underline("Validating Manifest");
     let manifest_links = manifest.links.clone().unwrap_or_default();
 
@@ -120,10 +141,8 @@ pub async fn up(
     let mut ztp_records = vec![];
 
     for node in &manifest.nodes {
-        let node_model = config
-            .node_config
-            .iter()
-            .find(|d| d.model == node.model)
+        let node_model = node_config_by_model
+            .get(&node.model)
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", node.model))?;
 
         if !node_model.dedicated_management_interface {
@@ -151,10 +170,7 @@ pub async fn up(
 
     println!("Manifest Ok");
 
-    // Testing
-    // Connect to DB
-    let db = connect("localhost", 8000, "test", "test").await?;
-    let db_user = get_user(&db, "bradmin").await?;
+    // Create lab record in database
     let lab_record = create_lab(&db, &manifest.name, lab_id, &db_user).await?;
     let lab_record_id = get_lab_id(&lab_record)?;
 
@@ -181,28 +197,27 @@ pub async fn up(
             .get(&node.name)
             .ok_or_else(|| anyhow::anyhow!("Node not found in node ID map: {}", node.name))?;
 
-        let node_data = config
-            .node_config
-            .iter()
-            .find(|d| d.model == node.model)
+        // Get node config from our by-model HashMap (for determining kind)
+        let node_data = node_config_by_model
+            .get(&node.model)
             .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
 
-        // Look up the node config in the database
-        let node_config =
-            get_node_config_by_model_kind(&db, &node.model, &node_data.kind.to_string())
-                .await?
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Node config not found in database for model: {}",
-                        node.model
-                    )
-                })?;
+        // Look up the precise node config from HashMap using model+kind
+        let node_config = node_config_map
+            .get(&(node.model.clone(), node_data.kind.clone()))
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Node config not found for model {} and kind {}",
+                    node.model,
+                    node_data.kind
+                )
+            })?;
 
         let lab_node = create_node(
             &db,
             &node.name,
             *node_idx,
-            get_config_id(&node_config)?,
+            get_config_id(node_config)?,
             lab_record_id.clone(),
         )
         .await?;
@@ -467,10 +482,9 @@ pub async fn up(
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
-        let node_model = config
-            .node_config
-            .iter()
-            .find(|d| d.model == node.model)
+        // Get node config from HashMap for O(1) lookup
+        let node_model = node_config_by_model
+            .get(&node.model)
             .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
 
         let mut disks: Vec<NodeDisk> = vec![];
@@ -1533,9 +1547,22 @@ pub async fn up(
     }
 
     if !ztp_records.is_empty() {
-        if config.inventory_management.pyats {
+        // Check manifest's config_management setting, defaulting to false if not present
+        let pyats_enabled = manifest
+            .config_management
+            .as_ref()
+            .map(|c| c.pyats)
+            .unwrap_or(false);
+
+        if pyats_enabled {
             term_msg_underline("Creating PyATS Testbed File");
-            let pyats_inventory = PyatsInventory::from_manifest(manifest, &config, &ztp_records)?;
+            let pyats_inventory = PyatsInventory::from_manifest(
+                manifest,
+                &node_config_by_model,
+                &ztp_records,
+                config.ztp_server.username.clone(),
+                config.ztp_server.password.clone(),
+            )?;
             let pyats_yaml = pyats_inventory.to_yaml()?;
             create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
         }
