@@ -1,75 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 
-use data::{DbLab, DbLink, DbNode, DbUser, LabLinkData, NodeModel};
+use data::{DbLab, DbLink, DbNode, LabLinkData, NodeModel};
 
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
-use crate::helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
+use crate::helpers::{get_config_id, get_lab_id, get_node_id};
 use crate::node_config::get_node_config;
-
-/// Create a lab record.
-pub async fn create_lab(
-    db: &Surreal<Client>,
-    name: &str,
-    lab_id: &str,
-    user: &DbUser,
-) -> Result<DbLab> {
-    let user_id = get_user_id(user)?;
-
-    let lab: Option<DbLab> = db
-        .create("lab")
-        .content(DbLab {
-            id: None,
-            lab_id: lab_id.to_string(),
-            name: name.to_string(),
-            user: user_id,
-        })
-        .await
-        .context("Error creating lab:\n name: `{name}`\n lab_id: {lab_id}\n")?;
-
-    lab.ok_or_else(|| anyhow!("Lab was not created:\n name: `{name}`\n lab_id: {lab_id}\n"))
-}
-
-async fn get_lab_record(db: &Surreal<Client>, lab_id: &str) -> Result<DbLab> {
-    let mut response = db
-        .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
-        .bind(("lab_id", lab_id.to_string()))
-        .await
-        .context(format!("Failed to query lab from database: {lab_id}"))?;
-
-    let db_lab: Option<DbLab> = response.take(0)?;
-    let lab = db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {lab_id}"))?;
-    Ok(lab)
-}
-
-/// Delete a lab
-pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
-    let lab = get_lab_record(&db, lab_id).await?;
-    let lab_record_id = get_lab_id(&lab)?;
-
-    let _deleted: Option<DbLab> = db
-        .delete(lab_record_id)
-        .await
-        .context(format!("Failed to delete lab: {lab_id}"))?;
-
-    Ok(())
-}
-
-/// Delete all nodes for a lab
-pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
-    let lab = get_lab_record(&db, lab_id).await?;
-    let lab_record_id = get_lab_id(&lab)?;
-
-    let _deleted: Vec<DbNode> = db
-        .query("DELETE node WHERE lab = $lab_record_id")
-        .bind(("lab_record_id", lab_record_id))
-        .await
-        .context(format!("Failed to delete nodes for lab: {lab_id}"))?
-        .take(0)?;
-
-    Ok(())
-}
 
 /// Assign a lab node
 pub async fn create_lab_node(
@@ -79,7 +16,7 @@ pub async fn create_lab_node(
     model: NodeModel,
     lab: &DbLab,
 ) -> Result<DbNode> {
-    let config = get_node_config(&db, &model).await?;
+    let config = get_node_config(db, &model).await?;
     let config_id = get_config_id(&config)?;
     let lab_id = get_lab_id(lab)?;
 
@@ -154,19 +91,4 @@ pub async fn create_lab_link(
             lab.name,
         )
     })
-}
-
-/// Delete all links for a lab
-pub async fn delete_lab_links(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
-    let lab = get_lab_record(&db, lab_id).await?;
-    let lab_record_id = get_lab_id(&lab)?;
-
-    let _deleted: Vec<DbLink> = db
-        .query("DELETE link WHERE lab = $lab_record_id")
-        .bind(("lab_record_id", lab_record_id))
-        .await
-        .context(format!("Failed to delete links for lab: {lab_id}"))?
-        .take(0)?;
-
-    Ok(())
 }

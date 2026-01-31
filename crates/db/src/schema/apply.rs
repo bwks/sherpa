@@ -155,6 +155,7 @@ DEFINE FIELD index ON TABLE node TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
 DEFINE FIELD config ON TABLE node TYPE record<node_config>;
 DEFINE FIELD lab ON TABLE node TYPE record<lab>;
+    // ON DELETE CASCADE;
 
 DEFINE INDEX unique_node_name_per_lab
   ON TABLE node FIELDS lab, name UNIQUE;
@@ -175,7 +176,9 @@ DEFINE TABLE link SCHEMAFULL;
 DEFINE FIELD index ON TABLE link TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
 DEFINE FIELD node_a ON TABLE link TYPE record<node>;
+    // ON DELETE CASCADE;
 DEFINE FIELD node_b ON TABLE link TYPE record<node>;
+    // ON DELETE CASCADE;
 DEFINE FIELD int_a ON TABLE link TYPE string;
 DEFINE FIELD int_b ON TABLE link TYPE string;
 DEFINE FIELD bridge_a ON TABLE link TYPE string;
@@ -185,6 +188,7 @@ DEFINE FIELD veth_b ON TABLE link TYPE string;
 DEFINE FIELD kind ON TABLE link TYPE string
     ASSERT $value IN [{}];
 DEFINE FIELD lab ON TABLE link TYPE record<lab>;
+    // ON DELETE CASCADE;
 
 DEFINE INDEX unique_peers_on_link
   ON TABLE link FIELDS node_a, node_b, int_a, int_b UNIQUE;
