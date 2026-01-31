@@ -9,4 +9,7 @@ pub use read::{
     list_labs_by_user,
 };
 pub use update::update_lab;
-pub use delete::{delete_lab, delete_lab_by_id, delete_lab_cascade, delete_lab_safe};
+pub use delete::{
+    delete_lab, delete_lab_by_id, delete_lab_cascade, delete_lab_links, delete_lab_nodes,
+    delete_lab_safe,
+};

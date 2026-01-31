@@ -109,13 +109,12 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         .await?;
     let user = user.expect("User should be created");
 
-    // Create a lab with unique ID
-    let lab_id = format!(
-        "test-lab-delete-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_secs()
-    );
+    // Create a lab with unique 8-char ID
+    let timestamp_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    // Use last 8 digits of timestamp to ensure uniqueness
+    let lab_id = format!("{:08}", timestamp_secs % 100000000);
     let lab = create_lab(&db, "test-lab-constraint", &lab_id, &user).await?;
 
     // Create a node config

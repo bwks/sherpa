@@ -98,7 +98,7 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
         }
     }
 
-    // Database
+    // Database - use cascade delete to remove lab, nodes, and links
     let db = connect("localhost", 8000, "test", "test").await?;
     delete_lab_links(&db, lab_id).await?;
     delete_lab_nodes(&db, lab_id).await?;
