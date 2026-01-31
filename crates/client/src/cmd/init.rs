@@ -1,6 +1,6 @@
 use anyhow::Result;
 use data::Sherpa;
-use db::{apply_schema, connect, seed_node_configs};
+use db::{apply_schema, connect, list_node_configs, seed_node_configs};
 use konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
@@ -35,7 +35,8 @@ pub async fn init(
     create_dir(&sherpa.bins_dir.to_string())?;
     create_dir(&sherpa.images_dir)?;
     create_dir(&format!("{}/{}", sherpa.images_dir, SHERPA_BLANK_DISK_DIR))?;
-    // box directories
+
+    // Initialize default config for container images
     let config = default_config();
 
     for container_image in &config.container_images {
@@ -44,8 +45,6 @@ pub async fn init(
             sherpa.containers_dir, container_image.name
         ))?;
     }
-    // config
-    // };
 
     // Initialize default files
     if file_exists(&sherpa.config_file_path) && !force {
@@ -103,7 +102,7 @@ pub async fn init(
     term_msg_highlight("Initializing Database");
     let db = connect("localhost", 8000, "test", "test").await?;
 
-    term_msg_underline("Applying Datbase Schema");
+    term_msg_underline("Applying Database Schema");
     apply_schema(&db).await?;
 
     term_msg_underline("Seeding Node Configs");
@@ -112,6 +111,23 @@ pub async fn init(
         "Database initialization complete ({} configs seeded)",
         created_count
     );
+
+    // Now fetch node configs from database and create image directories
+    term_msg_underline("Creating Node Image Directories");
+    let node_configs = list_node_configs(&db).await?;
+
+    // Create unique set of models to avoid duplicate directories
+    let mut created_models = std::collections::HashSet::new();
+    for node_config in &node_configs {
+        if created_models.insert(node_config.model.clone()) {
+            let model_dir = format!(
+                "{}/{}/latest",
+                sherpa.images_dir,
+                node_config.model.to_string()
+            );
+            create_dir(&model_dir)?;
+        }
+    }
 
     Ok(())
 }

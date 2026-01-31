@@ -48,7 +48,6 @@ async fn apply_schema_section(
         .await
         .context(format!("Failed to apply schema: {}", section_name))?;
 
-    println!("Table created: {}", section_name);
     Ok(())
 }
 
