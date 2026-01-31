@@ -24,13 +24,13 @@ impl Default for ZtpServer {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct InventoryManagement {
+pub struct ConfigurationManagement {
     pub ansible: bool,
     pub pyats: bool,
     pub nornir: bool,
 }
 
-impl Default for InventoryManagement {
+impl Default for ConfigurationManagement {
     fn default() -> Self {
         Self {
             pyats: false,
@@ -50,8 +50,7 @@ pub struct Config {
     pub containers_dir: String,
     pub bins_dir: String,
     pub ztp_server: ZtpServer,
-    pub inventory_management: InventoryManagement,
-    // pub node_config: Vec<NodeConfig>,
+    pub configuration_management: ConfigurationManagement,
     pub container_images: Vec<ContainerImage>,
 }
 

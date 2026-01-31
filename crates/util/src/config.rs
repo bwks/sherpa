@@ -6,7 +6,7 @@ use anyhow::Result;
 use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
-use data::{Config, ContainerImage, InventoryManagement, NodeConfig, VmProviders, ZtpServer};
+use data::{Config, ConfigurationManagement, ContainerImage, VmProviders, ZtpServer};
 use konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
@@ -53,7 +53,7 @@ pub fn default_config() -> Config {
         bins_dir,
         container_images,
         management_prefix_ipv4: mgmt_prefix_ipv4,
-        inventory_management: InventoryManagement::default(),
+        configuration_management: ConfigurationManagement::default(),
         ztp_server,
     }
 }

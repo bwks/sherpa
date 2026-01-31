@@ -15,7 +15,7 @@ mod ssh;
 mod user;
 mod ztp;
 
-pub use config::{Config, InventoryManagement, Sherpa, ZtpServer};
+pub use config::{Config, ConfigurationManagement, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use db::{DbLab, DbLink, DbNode, DbUser};
