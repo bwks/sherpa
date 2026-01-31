@@ -31,7 +31,7 @@ pub struct LinkDetailed {
     pub node_b_model: NodeModel,
     pub int_b: String,
     pub int_b_idx: u8,
-    pub link_idx: u32,
+    pub link_idx: u16,
 }
 
 /// Manifest Link

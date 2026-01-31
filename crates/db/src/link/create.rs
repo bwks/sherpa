@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use data::{BridgeKind, DbLink, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 /// Create a new link between two nodes
 ///

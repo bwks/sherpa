@@ -98,14 +98,14 @@ pub async fn up(
                 this_link.node_a_model = device_model;
                 this_link.int_a = link.int_a.clone();
                 this_link.int_a_idx = int_idx;
-                this_link.link_idx = link_idx as u32
+                this_link.link_idx = link_idx as u16
             } else if link.node_b == device.name {
                 let int_idx = interface_to_idx(&device_model, &link.int_b)?;
                 this_link.node_b = device.name.clone();
                 this_link.node_b_model = device_model;
                 this_link.int_b = link.int_b.clone();
                 this_link.int_b_idx = int_idx;
-                this_link.link_idx = link_idx as u32
+                this_link.link_idx = link_idx as u16
             }
         }
         links_detailed.push(this_link)
@@ -184,17 +184,29 @@ pub async fn up(
             .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
 
         // Look up the node config in the database
-        let node_config = get_node_config_by_model_kind(&db, &node.model, &node_data.kind.to_string())
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("Node config not found in database for model: {}", node.model))?;
-        
+        let node_config =
+            get_node_config_by_model_kind(&db, &node.model, &node_data.kind.to_string())
+                .await?
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Node config not found in database for model: {}",
+                        node.model
+                    )
+                })?;
+
         let lab_node = create_node(
             &db,
             &node.name,
             *node_idx,
-            node_config.id.ok_or_else(|| anyhow::anyhow!("Config has no ID"))?,
-            lab_record.id.clone().ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?,
-        ).await?;
+            node_config
+                .id
+                .ok_or_else(|| anyhow::anyhow!("Config has no ID"))?,
+            lab_record
+                .id
+                .clone()
+                .ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?,
+        )
+        .await?;
 
         lab_node_data.push(LabNodeData {
             name: node.name.clone(),
@@ -284,8 +296,6 @@ pub async fn up(
     // interface for packet captures.
     term_msg_underline("Creating Point-to-Point Links");
     for (idx, link) in links_detailed.iter().enumerate() {
-        let link_index = idx as u16 + 1;
-
         let node_a = lab_node_data
             .iter()
             .find(|n| n.name == link.node_a)
@@ -297,30 +307,42 @@ pub async fn up(
             .ok_or_else(|| anyhow!("Node not found: {}", link.node_b))?;
 
         // Generate unique, names must fit within Linux interface name limits (15 chars)
-        let bridge_a = format!("{}a{}-{}", BRIDGE_PREFIX, link_index, lab_id);
-        let bridge_b = format!("{}b{}-{}", BRIDGE_PREFIX, link_index, lab_id);
-        let veth_a = format!("{}a{}-{}", VETH_PREFIX, link_index, lab_id);
-        let veth_b = format!("{}b{}-{}", VETH_PREFIX, link_index, lab_id);
+        let bridge_a = format!("{}a{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
+        let bridge_b = format!("{}b{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
+        let veth_a = format!("{}a{}-{}", VETH_PREFIX, link.link_idx, lab_id);
+        let veth_b = format!("{}b{}-{}", VETH_PREFIX, link.link_idx, lab_id);
 
         // Create the link in the database
         let _db_link = create_link(
             &db,
-            link_index,
+            link.link_idx,
             BridgeKind::P2pBridge,
-            node_a.record.id.clone().ok_or_else(|| anyhow!("Node A has no ID"))?,
-            node_b.record.id.clone().ok_or_else(|| anyhow!("Node B has no ID"))?,
+            node_a
+                .record
+                .id
+                .clone()
+                .ok_or_else(|| anyhow!("Node A has no ID"))?,
+            node_b
+                .record
+                .id
+                .clone()
+                .ok_or_else(|| anyhow!("Node B has no ID"))?,
             link.int_a.clone(),
             link.int_b.clone(),
             bridge_a.clone(),
             bridge_b.clone(),
             veth_a.clone(),
             veth_b.clone(),
-            lab_record.id.clone().ok_or_else(|| anyhow!("Lab has no ID"))?,
-        ).await?;
+            lab_record
+                .id
+                .clone()
+                .ok_or_else(|| anyhow!("Lab has no ID"))?,
+        )
+        .await?;
 
         // Store link data for later use (still needed for infrastructure setup)
         let link_data = LabLinkData {
-            index: link_index,
+            index: link.link_idx,
             kind: BridgeKind::P2pBridge,
             node_a: node_a.record.clone(),
             node_b: node_b.record.clone(),
