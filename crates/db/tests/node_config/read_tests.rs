@@ -6,12 +6,12 @@ use db::{
     list_node_configs,
 };
 
-use crate::{create_test_config, setup_db};
+use crate::{create_test_config, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_get_node_config_by_id() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_get_node_config_by_id").await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaCeos);
@@ -29,13 +29,14 @@ async fn test_get_node_config_by_id() -> Result<()> {
     let retrieved = retrieved.unwrap();
     assert_eq!(retrieved.model, NodeModel::AristaCeos);
 
+    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_get_node_config_by_model_kind() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_get_node_config_by_model_kind").await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::CiscoAsav);
@@ -50,13 +51,14 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
     let retrieved = retrieved.unwrap();
     assert_eq!(retrieved.model, NodeModel::CiscoAsav);
 
+    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_count_node_configs() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_count_node_configs").await?;
 
     let initial_count = count_node_configs(&db).await?;
 
@@ -71,13 +73,14 @@ async fn test_count_node_configs() -> Result<()> {
         "Count should increase by 1 after creation"
     );
 
+    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_get_nonexistent_config() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_get_nonexistent_config").await?;
 
     // Try to get a config that doesn't exist
     let result =
@@ -89,13 +92,14 @@ async fn test_get_nonexistent_config() -> Result<()> {
         "Should return None for nonexistent config"
     );
 
+    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_list_configs_returns_all_fields() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_list_configs_returns_all_fields").await?;
 
     // Create a config
     let test_config = create_test_config(NodeModel::UbuntuLinux);
@@ -115,5 +119,6 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
     assert!(ubuntu_config.interface_count > 0);
     assert!(!ubuntu_config.interface_prefix.is_empty());
 
+    teardown_db(&db).await?;
     Ok(())
 }

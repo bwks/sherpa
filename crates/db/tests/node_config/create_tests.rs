@@ -3,12 +3,12 @@ use anyhow::Result;
 use data::NodeModel;
 use db::{create_node_config, list_node_configs, upsert_node_config};
 
-use crate::{create_test_config, setup_db};
+use crate::{create_test_config, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_create_and_list_node_configs() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_create_and_list_node_configs").await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaVeos);
@@ -28,13 +28,16 @@ async fn test_create_and_list_node_configs() -> Result<()> {
     let found = all_configs.iter().any(|c| c.model == NodeModel::AristaVeos);
     assert!(found, "Created config should be in the list");
 
+    // Cleanup
+    teardown_db(&db).await?;
+
     Ok(())
 }
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
 async fn test_upsert_node_config() -> Result<()> {
-    let db = setup_db().await?;
+    let db = setup_db("test_upsert_node_config").await?;
 
     // First upsert - should create
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
@@ -51,6 +54,9 @@ async fn test_upsert_node_config() -> Result<()> {
         second_upsert.id, first_id,
         "Upsert should return the same record"
     );
+
+    // Cleanup
+    teardown_db(&db).await?;
 
     Ok(())
 }

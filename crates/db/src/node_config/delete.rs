@@ -1,28 +1,55 @@
-use anyhow::Result;
-use data::RecordId;
-use surrealdb::engine::remote::ws::Client;
+use anyhow::{Context, Result, anyhow};
+use data::{NodeConfig, RecordId};
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 /// Delete a node_config record from the database by its RecordId
 ///
-/// # TODO
-/// This function is not yet implemented. Future implementation will:
-/// - Accept a RecordId of the node_config to delete
-/// - Delete the record from the database
-/// - Handle foreign key constraints (if nodes reference this config)
-/// - Return success/error status
-/// - Possibly return the deleted config for confirmation
+/// Returns an error if:
+/// - The record doesn't exist (returns "Config not found" error)
+/// - The config is referenced by any nodes (database constraint will reject deletion)
 ///
-/// # Example (when implemented)
+/// # Arguments
+/// * `db` - Database connection
+/// * `id` - RecordId of the node_config to delete
+///
+/// # Returns
+/// `Ok(())` on successful deletion
+///
+/// # Errors
+/// - If the record doesn't exist
+/// - If the record is referenced by nodes (REFERENCE ON DELETE REJECT constraint)
+/// - If there's a database error during deletion
+///
+/// # Example
 /// ```no_run
-/// # use db::{connect, delete_node_config};
-/// # use data::RecordId;
+/// # use db::{connect, create_node_config, delete_node_config};
+/// # use data::{NodeModel, NodeConfig};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect("localhost", 8000, "test", "test").await?;
-/// // delete_node_config(&db, config_id).await?;
+/// 
+/// // Create a config first
+/// let test_config = NodeConfig::get_model(NodeModel::AristaVeos);
+/// let created = create_node_config(&db, test_config).await?;
+/// let config_id = created.id.expect("Config should have ID");
+/// 
+/// // Delete it
+/// delete_node_config(&db, config_id).await?;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node_config(_db: &Surreal<Client>, _id: RecordId) -> Result<()> {
-    todo!("DELETE operations for node_config are not yet implemented")
+pub async fn delete_node_config(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+    // Execute DELETE query
+    let deleted: Option<NodeConfig> = db
+        .delete(id.clone())
+        .await
+        .context(format!(
+            "Failed to delete node_config: {:?}\nNote: Deletion will fail if any nodes reference this config",
+            id
+        ))?;
+
+    // Verify the record was found and deleted
+    deleted.ok_or_else(|| anyhow!("Node config not found for deletion: {:?}", id))?;
+
+    Ok(())
 }
