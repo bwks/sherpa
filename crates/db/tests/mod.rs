@@ -13,4 +13,17 @@ mod helper;
 /// - Specific test: cargo test --package db test_get_node_config_by_id
 mod node_config;
 
+/// Integration tests for user CRUD operations
+///
+/// These tests require a running SurrealDB instance.
+/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
+///
+/// To run these tests:
+/// - All user tests: cargo test --package db --test user
+/// - Only CREATE tests: cargo test --package db user::create_tests
+/// - Only READ tests: cargo test --package db user::read_tests
+/// - Only UPDATE tests: cargo test --package db user::update_tests
+/// - Only DELETE tests: cargo test --package db user::delete_tests
+mod user;
+
 use helper::{create_test_config, setup_db, teardown_db};

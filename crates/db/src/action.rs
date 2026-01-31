@@ -8,18 +8,6 @@ use surrealdb::engine::remote::ws::Client;
 use crate::helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
 use crate::node_config::get_node_config;
 
-/// Get a user form the database
-pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
-    let mut response = db
-        .query("SELECT * FROM ONLY user WHERE username = $username")
-        .bind(("username", username.to_string()))
-        .await
-        .context(format!("Failed querying user from database: {username}"))?;
-
-    let user: Option<DbUser> = response.take(0)?;
-    user.ok_or_else(|| anyhow!("User not found: {username}"))
-}
-
 /// Create a lab record.
 pub async fn create_lab(
     db: &Surreal<Client>,
