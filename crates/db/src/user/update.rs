@@ -3,6 +3,8 @@ use data::DbUser;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
+use crate::helpers::get_user_id;
+
 /// Update an existing user in the database
 ///
 /// This performs a full replacement of all fields (username and ssh_keys).
@@ -44,12 +46,7 @@ use surrealdb::Surreal;
 /// ```
 pub async fn update_user(db: &Surreal<Client>, user: DbUser) -> Result<DbUser> {
     // Extract and validate the ID
-    let id = user.id.clone().ok_or_else(|| {
-        anyhow!(
-            "Cannot update user: user has no ID\n username: {}\n",
-            user.username
-        )
-    })?;
+    let id = get_user_id(&user)?;
 
     // Execute UPDATE query - replaces all fields
     let updated: Option<DbUser> = db

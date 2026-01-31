@@ -11,6 +11,9 @@ pub mod user;
 pub use connect::connect;
 pub use data::{DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
+// Helper functions for extracting IDs safely
+pub use helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
+
 // Lab CRUD operations
 pub use lab::{
     count_labs, count_labs_by_user, create_lab, delete_lab, delete_lab_by_id, delete_lab_cascade,

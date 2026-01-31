@@ -3,6 +3,8 @@ use data::{DbLab, DbUser, RecordId};
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
+use crate::helpers::get_user_id;
+
 /// Delete a user by RecordId
 ///
 /// **WARNING:** This will CASCADE delete all labs owned by this user, along with
@@ -92,9 +94,7 @@ pub async fn delete_user_by_username(db: &Surreal<Client>, username: &str) -> Re
     let user: Option<DbUser> = response.take(0)?;
     let user = user.ok_or_else(|| anyhow!("User not found: {}", username))?;
 
-    let id = user
-        .id
-        .ok_or_else(|| anyhow!("User has no ID: {}", username))?;
+    let id = get_user_id(&user)?;
 
     // Delete using the ID
     delete_user(db, id).await

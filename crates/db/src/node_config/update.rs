@@ -3,6 +3,8 @@ use data::NodeConfig;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
+use crate::helpers::get_config_id;
+
 /// Update an existing node_config record in the database
 ///
 /// This performs a full replacement of all fields. The NodeConfig must have
@@ -40,13 +42,7 @@ use surrealdb::engine::remote::ws::Client;
 /// ```
 pub async fn update_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
     // Extract and validate the ID
-    let id = config.id.clone().ok_or_else(|| {
-        anyhow!(
-            "Cannot update node_config: config has no ID\n model: {}\n kind: {}\n",
-            config.model,
-            config.kind
-        )
-    })?;
+    let id = get_config_id(&config)?;
 
     // Execute UPDATE query - replaces all fields
     let updated: Option<NodeConfig> = db

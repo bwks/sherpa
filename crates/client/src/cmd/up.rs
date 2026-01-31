@@ -9,7 +9,10 @@ use data::{
     LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, OsVariant, QemuCommand,
     Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
-use db::{connect, create_lab, create_link, create_node, get_node_config_by_model_kind, get_user};
+use db::{
+    connect, create_lab, create_link, create_node, get_config_id, get_lab_id,
+    get_node_config_by_model_kind, get_node_id, get_user,
+};
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -153,6 +156,7 @@ pub async fn up(
     let db = connect("localhost", 8000, "test", "test").await?;
     let db_user = get_user(&db, "bradmin").await?;
     let lab_record = create_lab(&db, &manifest.name, lab_id, &db_user).await?;
+    let lab_record_id = get_lab_id(&lab_record)?;
 
     // Create a mapping of node name to node id.
     // Nodes have an id based on their order in the list of nodes
@@ -198,13 +202,8 @@ pub async fn up(
             &db,
             &node.name,
             *node_idx,
-            node_config
-                .id
-                .ok_or_else(|| anyhow::anyhow!("Config has no ID"))?,
-            lab_record
-                .id
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?,
+            get_config_id(&node_config)?,
+            lab_record_id.clone(),
         )
         .await?;
 
@@ -317,26 +316,15 @@ pub async fn up(
             &db,
             link.link_idx,
             BridgeKind::P2pBridge,
-            node_a
-                .record
-                .id
-                .clone()
-                .ok_or_else(|| anyhow!("Node A has no ID"))?,
-            node_b
-                .record
-                .id
-                .clone()
-                .ok_or_else(|| anyhow!("Node B has no ID"))?,
+            get_node_id(&node_a.record)?,
+            get_node_id(&node_b.record)?,
             link.int_a.clone(),
             link.int_b.clone(),
             bridge_a.clone(),
             bridge_b.clone(),
             veth_a.clone(),
             veth_b.clone(),
-            lab_record
-                .id
-                .clone()
-                .ok_or_else(|| anyhow!("Lab has no ID"))?,
+            lab_record_id.clone(),
         )
         .await?;
 

@@ -16,6 +16,3 @@ pub use update::update_node_config;
 
 // Public exports - DELETE operations (to be implemented)
 pub use delete::delete_node_config;
-
-// Internal (crate-only) exports - used by other modules like action.rs
-pub(crate) use read::get_node_config;
