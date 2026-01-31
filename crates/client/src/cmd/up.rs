@@ -10,7 +10,7 @@ use data::{
     Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
 use db::{
-    connect, create_lab, create_link, create_node, get_config_id, get_lab_id, get_node_id,
+    connect, create_lab, create_link, create_node, get_config_id, get_lab, get_lab_id, get_node_id,
     get_user, list_node_configs,
 };
 use konst::{
@@ -84,6 +84,15 @@ pub async fn up(
     // Connect to DB early to fetch node configs
     let db = connect("localhost", 8000, "test", "test").await?;
     let db_user = get_user(&db, "bradmin").await?;
+
+    // Check if lab already exists
+    if let Ok(lab) = get_lab(&db, lab_id).await {
+        return Err(anyhow!(
+            "Lab already exists. Please use a different lab ID or destory the existing lab first.\n Lab name: {}\n Lab id: {}",
+            lab.name,
+            lab_id,
+        ));
+    }
 
     // Bulk fetch all node configs from database
     let node_configs_list = list_node_configs(&db).await?;
