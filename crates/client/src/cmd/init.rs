@@ -1,6 +1,6 @@
 use anyhow::Result;
 use data::Sherpa;
-use db::{connect, seed_node_configs};
+use db::{apply_schema, connect, seed_node_configs};
 use konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
@@ -105,11 +105,19 @@ pub async fn init(
         path: SHERPA_STORAGE_POOL_PATH.to_owned(),
     };
     storage_pool.create(&qemu_conn)?;
-    
-    term_msg_highlight("Seeding Database");
+
+    term_msg_highlight("Initializing Database");
     let db = connect("localhost", 8000, "test", "test").await?;
+
+    term_msg_underline("Applying Datbase Schema");
+    apply_schema(&db).await?;
+
+    term_msg_underline("Seeding Node Configs");
     let created_count = seed_node_configs(&db).await?;
-    println!("Database seeding complete ({} configs created)", created_count);
-    
+    println!(
+        "Database initialization complete ({} configs seeded)",
+        created_count
+    );
+
     Ok(())
 }

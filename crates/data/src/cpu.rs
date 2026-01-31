@@ -1,8 +1,10 @@
 use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq, EnumIter)]
 pub enum CpuModels {
     #[default]
     #[serde(rename(serialize = "host-model", deserialize = "host-model"))]
@@ -19,5 +21,10 @@ impl fmt::Display for CpuModels {
             CpuModels::IvyBridge => write!(f, "IvyBridge"),
             CpuModels::SandyBridge => write!(f, "SandyBridge"),
         }
+    }
+}
+impl CpuModels {
+    pub fn to_vec() -> Vec<CpuModels> {
+        CpuModels::iter().collect()
     }
 }

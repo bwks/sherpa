@@ -1,5 +1,6 @@
 use anyhow::Result;
 use data::{NodeConfig, NodeModel};
+use db::apply_schema;
 use std::time::{SystemTime, UNIX_EPOCH};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -20,6 +21,10 @@ fn generate_test_namespace(test_name: &str) -> String {
 pub async fn setup_db(namespace: &str) -> Result<Surreal<Client>> {
     let namespace = generate_test_namespace(namespace);
     let db = db::connect("localhost", 8000, &namespace, "test_cases").await?;
+    
+    // Apply schema to ensure tables exist for tests
+    apply_schema(&db).await?;
+    
     Ok(db)
 }
 

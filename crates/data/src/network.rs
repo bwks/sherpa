@@ -3,8 +3,10 @@ use std::net::Ipv4Addr;
 
 use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {
     #[default]
@@ -19,6 +21,11 @@ impl fmt::Display for BridgeKind {
             BridgeKind::P2pUdp => write!(f, "p2p_udp"),
             BridgeKind::P2pVeth => write!(f, "p2p_veth"),
         }
+    }
+}
+impl BridgeKind {
+    pub fn to_vec() -> Vec<BridgeKind> {
+        BridgeKind::iter().collect()
     }
 }
 

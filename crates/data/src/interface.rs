@@ -1,6 +1,8 @@
 use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 use thiserror::Error;
 
 use super::mapping::InterfaceConnection;
@@ -94,7 +96,7 @@ pub enum InterfaceTypes {
     Ten,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum MgmtInterfaces {
     #[default]
@@ -139,6 +141,11 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
             MgmtInterfaces::Vlan1 => write!(f, "Vlan1"),
         }
+    }
+}
+impl MgmtInterfaces {
+    pub fn to_vec() -> Vec<MgmtInterfaces> {
+        MgmtInterfaces::iter().collect()
     }
 }
 

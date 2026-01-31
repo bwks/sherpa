@@ -115,7 +115,7 @@ impl fmt::Display for NodeModel {
             NodeModel::CumulusLinux => write!(f, "cumulus_linux"),
             NodeModel::CentosLinux => write!(f, "centos_linux"),
             NodeModel::FedoraLinux => write!(f, "fedora_linux"),
-            NodeModel::RedhatLinux => write!(f, "rhel_linux"),
+            NodeModel::RedhatLinux => write!(f, "redhat_linux"),
             NodeModel::OpensuseLinux => write!(f, "opensuse_linux"),
             NodeModel::SuseLinux => write!(f, "suse_linux"),
             NodeModel::UbuntuLinux => write!(f, "ubuntu_linux"),
@@ -142,12 +142,12 @@ impl fmt::Display for NodeModel {
     }
 }
 impl NodeModel {
-    pub fn variants() -> Vec<NodeModel> {
+    pub fn to_vec() -> Vec<NodeModel> {
         NodeModel::iter().collect()
     }
 }
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum OsVariant {
     // Arista
@@ -169,7 +169,7 @@ pub enum OsVariant {
     Junos,
 
     // BSD
-    Bsd, // Generic
+    Bsd,
 
     // Linux
     Linux, // Generic
@@ -208,8 +208,13 @@ impl fmt::Display for OsVariant {
         }
     }
 }
+impl OsVariant {
+    pub fn to_vec() -> Vec<OsVariant> {
+        OsVariant::iter().collect()
+    }
+}
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum CpuArchitecture {
     #[default]
@@ -222,9 +227,14 @@ impl fmt::Display for CpuArchitecture {
         }
     }
 }
+impl CpuArchitecture {
+    pub fn to_vec() -> Vec<CpuArchitecture> {
+        CpuArchitecture::iter().collect()
+    }
+}
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
 pub enum MachineType {
     #[default]
     #[serde(rename(serialize = "pc", deserialize = "pc"))]
@@ -276,9 +286,14 @@ impl fmt::Display for MachineType {
         }
     }
 }
+impl MachineType {
+    pub fn to_vec() -> Vec<MachineType> {
+        MachineType::iter().collect()
+    }
+}
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[serde(rename_all = "snake_case")]
 pub enum InterfaceType {
     // VM
     E1000,
@@ -304,8 +319,13 @@ impl fmt::Display for InterfaceType {
         }
     }
 }
+impl InterfaceType {
+    pub fn to_vec() -> Vec<InterfaceType> {
+        InterfaceType::iter().collect()
+    }
+}
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum BiosTypes {
     #[default]
@@ -320,8 +340,13 @@ impl fmt::Display for BiosTypes {
         }
     }
 }
+impl BiosTypes {
+    pub fn to_vec() -> Vec<BiosTypes> {
+        BiosTypes::iter().collect()
+    }
+}
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum ZtpMethod {
     #[default]
@@ -337,8 +362,29 @@ pub enum ZtpMethod {
     Volume,
     None,
 }
+impl fmt::Display for ZtpMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ZtpMethod::CloudInit => write!(f, "cloud-init"),
+            ZtpMethod::Cdrom => write!(f, "cdrom"),
+            ZtpMethod::Disk => write!(f, "disk"),
+            ZtpMethod::Http => write!(f, "http"),
+            ZtpMethod::Ignition => write!(f, "ignition"),
+            ZtpMethod::Ipxe => write!(f, "ipxe"),
+            ZtpMethod::Tftp => write!(f, "tftp"),
+            ZtpMethod::Usb => write!(f, "usb"),
+            ZtpMethod::Volume => write!(f, "volume"),
+            ZtpMethod::None => write!(f, "none"),
+        }
+    }
+}
+impl ZtpMethod {
+    pub fn to_vec() -> Vec<ZtpMethod> {
+        ZtpMethod::iter().collect()
+    }
+}
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     #[default]
@@ -353,6 +399,11 @@ impl fmt::Display for NodeKind {
             NodeKind::Container => write!(f, "container"),
             NodeKind::Unikernel => write!(f, "unikernel"),
         }
+    }
+}
+impl NodeKind {
+    pub fn to_vec() -> Vec<NodeKind> {
+        NodeKind::iter().collect()
     }
 }
 
@@ -1732,7 +1783,7 @@ mod tests {
     fn test_all_variants_are_unique() {
         // Ensure no duplicates in the all_variants list
         use std::collections::HashSet;
-        let variants = NodeModel::variants();
+        let variants = NodeModel::to_vec();
         let unique: HashSet<String> = variants.iter().map(|v| v.to_string()).collect();
         assert_eq!(
             variants.len(),

@@ -1,8 +1,10 @@
 use std::fmt;
 
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 use serde_derive::{Deserialize, Serialize};
+use strum::IntoEnumIterator;
+use strum_macros::EnumIter;
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -50,7 +52,7 @@ impl fmt::Display for DiskDevices {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum DiskBuses {
     Ide,
@@ -69,6 +71,11 @@ impl fmt::Display for DiskBuses {
             DiskBuses::Usb => write!(f, "usb"),
             DiskBuses::Virtio => write!(f, "virtio"),
         }
+    }
+}
+impl DiskBuses {
+    pub fn to_vec() -> Vec<DiskBuses> {
+        DiskBuses::iter().collect()
     }
 }
 

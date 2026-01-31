@@ -2,6 +2,7 @@ mod action;
 mod connect;
 mod helpers;
 pub mod node_config;
+pub mod schema;
 pub mod seed;
 
 pub use action::{
@@ -15,5 +16,6 @@ pub use node_config::{
     get_node_config_by_model_kind, list_node_configs, update_node_config, upsert_node_config,
 };
 
+pub use schema::apply_schema;
 pub use seed::node_config::delete_node_configs;
 pub use seed::node_config::seed_node_configs;

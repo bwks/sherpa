@@ -21,7 +21,7 @@ pub async fn delete_node_configs(db: &Surreal<Client>) -> Result<usize> {
 ///
 /// Returns the number of configs successfully created (not including pre-existing ones).
 pub async fn seed_node_configs(db: &Surreal<Client>) -> Result<usize> {
-    let models = NodeModel::variants();
+    let models = NodeModel::to_vec();
 
     let mut created_count = 0;
     let mut skipped_count = 0;
