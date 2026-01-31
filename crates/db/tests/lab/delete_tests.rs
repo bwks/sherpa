@@ -1,11 +1,11 @@
 use anyhow::Result;
 use data::{NodeConfig, NodeModel};
 use db::{
-    count_labs, create_lab, create_lab_node, create_node_config, create_user, delete_lab,
+    count_labs, create_lab, create_node_config, create_user, delete_lab,
     delete_lab_by_id, delete_lab_cascade, delete_lab_safe, get_lab,
 };
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{create_test_node_with_model, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -93,8 +93,8 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
     create_node_config(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
 
     // Create some nodes
-    create_lab_node(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
-    create_lab_node(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
+    create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
+    create_test_node_with_model(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
 
     // Delete with cascade
     delete_lab_cascade(&db, &lab.lab_id).await?;
@@ -122,7 +122,7 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
     create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create a node
-    create_lab_node(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
+    create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
 
     // Try safe delete (should fail)
     let result = delete_lab_safe(&db, &lab.lab_id).await;
@@ -176,9 +176,9 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
     create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoNexus9300v)).await?;
 
     // Create multiple nodes
-    create_lab_node(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
-    create_lab_node(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
-    create_lab_node(&db, "node3", 3, NodeModel::CiscoNexus9300v, &lab).await?;
+    create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
+    create_test_node_with_model(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
+    create_test_node_with_model(&db, "node3", 3, NodeModel::CiscoNexus9300v, &lab).await?;
 
     // Note: In a real scenario, we'd also create links between nodes here
     // For now, just test nodes cascade
@@ -207,8 +207,8 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     create_node_config(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
 
     // Create nodes
-    create_lab_node(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
-    create_lab_node(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
+    create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
+    create_test_node_with_model(&db, "node2", 2, NodeModel::WindowsServer, &lab).await?;
 
     // Delete just the lab (schema CASCADE should handle nodes)
     delete_lab(&db, &lab.lab_id).await?;

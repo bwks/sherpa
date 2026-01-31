@@ -1,10 +1,10 @@
 use anyhow::Result;
 use db::{
-    count_nodes, count_nodes_by_lab, create_lab, create_lab_link, create_node, create_node_config,
+    count_nodes, count_nodes_by_lab, create_lab, create_link, create_node, create_node_config,
     create_user, delete_node, delete_node_by_id, delete_node_cascade, delete_node_safe,
     delete_nodes_by_lab, get_node,
 };
-use data::{BridgeKind, LabLinkData, NodeConfig, NodeModel};
+use data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -293,19 +293,21 @@ async fn test_delete_node_safe_with_links_fails() -> Result<()> {
     .await?;
 
     // Create a link between them
-    let link_data = LabLinkData {
-        index: 0,
-        kind: BridgeKind::P2pBridge,
-        node_a: node1.clone(),
-        node_b: node2.clone(),
-        int_a: "eth0".to_string(),
-        int_b: "eth0".to_string(),
-        bridge_a: "br0".to_string(),
-        bridge_b: "br1".to_string(),
-        veth_a: "veth0".to_string(),
-        veth_b: "veth1".to_string(),
-    };
-    create_lab_link(&db, &lab, &link_data).await?;
+    create_link(
+        &db,
+        0,
+        BridgeKind::P2pBridge,
+        node1.id.clone().unwrap(),
+        node2.id.clone().unwrap(),
+        "eth0".to_string(),
+        "eth0".to_string(),
+        "br0".to_string(),
+        "br1".to_string(),
+        "veth0".to_string(),
+        "veth1".to_string(),
+        lab.id.clone().unwrap(),
+    )
+    .await?;
 
     // Try to delete node1 safely (has a link)
     let result = delete_node_safe(&db, node1.id.unwrap()).await;
@@ -354,19 +356,21 @@ async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
     .await?;
 
     // Create a link between them
-    let link_data = LabLinkData {
-        index: 0,
-        kind: BridgeKind::P2pVeth,
-        node_a: node1.clone(),
-        node_b: node2.clone(),
-        int_a: "eth0".to_string(),
-        int_b: "eth0".to_string(),
-        bridge_a: "br0".to_string(),
-        bridge_b: "br1".to_string(),
-        veth_a: "veth0".to_string(),
-        veth_b: "veth1".to_string(),
-    };
-    create_lab_link(&db, &lab, &link_data).await?;
+    create_link(
+        &db,
+        0,
+        BridgeKind::P2pVeth,
+        node1.id.clone().unwrap(),
+        node2.id.clone().unwrap(),
+        "eth0".to_string(),
+        "eth0".to_string(),
+        "br0".to_string(),
+        "br1".to_string(),
+        "veth0".to_string(),
+        "veth1".to_string(),
+        lab.id.clone().unwrap(),
+    )
+    .await?;
 
     let node1_id = node1.id.clone().unwrap();
 
@@ -418,33 +422,37 @@ async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
     .await?;
 
     // Create links: node1 <-> node2 and node1 <-> node3
-    let link1_data = LabLinkData {
-        index: 0,
-        kind: BridgeKind::P2pBridge,
-        node_a: node1.clone(),
-        node_b: node2.clone(),
-        int_a: "eth0".to_string(),
-        int_b: "eth0".to_string(),
-        bridge_a: "br0".to_string(),
-        bridge_b: "br1".to_string(),
-        veth_a: "veth0".to_string(),
-        veth_b: "veth1".to_string(),
-    };
-    create_lab_link(&db, &lab, &link1_data).await?;
+    create_link(
+        &db,
+        0,
+        BridgeKind::P2pBridge,
+        node1.id.clone().unwrap(),
+        node2.id.clone().unwrap(),
+        "eth0".to_string(),
+        "eth0".to_string(),
+        "br0".to_string(),
+        "br1".to_string(),
+        "veth0".to_string(),
+        "veth1".to_string(),
+        lab.id.clone().unwrap(),
+    )
+    .await?;
 
-    let link2_data = LabLinkData {
-        index: 1,
-        kind: BridgeKind::P2pBridge,
-        node_a: node1.clone(),
-        node_b: node3.clone(),
-        int_a: "eth1".to_string(),
-        int_b: "eth0".to_string(),
-        bridge_a: "br2".to_string(),
-        bridge_b: "br3".to_string(),
-        veth_a: "veth2".to_string(),
-        veth_b: "veth3".to_string(),
-    };
-    create_lab_link(&db, &lab, &link2_data).await?;
+    create_link(
+        &db,
+        1,
+        BridgeKind::P2pBridge,
+        node1.id.clone().unwrap(),
+        node3.id.clone().unwrap(),
+        "eth1".to_string(),
+        "eth0".to_string(),
+        "br2".to_string(),
+        "br3".to_string(),
+        "veth2".to_string(),
+        "veth3".to_string(),
+        lab.id.clone().unwrap(),
+    )
+    .await?;
 
     let node1_id = node1.id.clone().unwrap();
 

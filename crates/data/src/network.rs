@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {
     #[default]

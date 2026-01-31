@@ -52,4 +52,17 @@ mod user;
 /// - Only DELETE tests: cargo test --package db node::delete_tests -- --ignored --test-threads=1
 mod node;
 
-use helper::{create_test_config, setup_db, teardown_db};
+/// Integration tests for link CRUD operations
+///
+/// These tests require a running SurrealDB instance.
+/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
+///
+/// To run these tests:
+/// - All link tests: cargo test --package db link -- --ignored --test-threads=1
+/// - Only CREATE tests: cargo test --package db link::create_tests -- --ignored --test-threads=1
+/// - Only READ tests: cargo test --package db link::read_tests -- --ignored --test-threads=1
+/// - Only UPDATE tests: cargo test --package db link::update_tests -- --ignored --test-threads=1
+/// - Only DELETE tests: cargo test --package db link::delete_tests -- --ignored --test-threads=1
+mod link;
+
+use helper::{create_test_config, create_test_node_with_model, setup_db, teardown_db};

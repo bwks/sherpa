@@ -47,7 +47,7 @@ pub async fn get_node_config_by_id(
 }
 
 /// Get node_config from node_model (returns error if not found)
-/// This is used internally by create_lab_node in action.rs
+/// This is used internally for config lookups by model.
 pub(crate) async fn get_node_config(
     db: &Surreal<Client>,
     node_model: &NodeModel,

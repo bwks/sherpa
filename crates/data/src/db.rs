@@ -27,7 +27,7 @@ pub struct DbNode {
     pub lab: RecordId,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DbLink {
     pub id: Option<RecordId>,
     pub index: u16,

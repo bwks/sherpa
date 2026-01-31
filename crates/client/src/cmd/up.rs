@@ -9,7 +9,7 @@ use data::{
     LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, OsVariant, QemuCommand,
     Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
-use db::{connect, create_lab, create_lab_link, create_lab_node, get_user};
+use db::{connect, create_lab, create_link, create_node, get_node_config_by_model_kind, get_user};
 use konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -183,8 +183,18 @@ pub async fn up(
             .find(|d| d.model == node.model)
             .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
 
-        let lab_node =
-            create_lab_node(&db, &node.name, *node_idx, node.model.clone(), &lab_record).await?;
+        // Look up the node config in the database
+        let node_config = get_node_config_by_model_kind(&db, &node.model, &node_data.kind.to_string())
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Node config not found in database for model: {}", node.model))?;
+        
+        let lab_node = create_node(
+            &db,
+            &node.name,
+            *node_idx,
+            node_config.id.ok_or_else(|| anyhow::anyhow!("Config has no ID"))?,
+            lab_record.id.clone().ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?,
+        ).await?;
 
         lab_node_data.push(LabNodeData {
             name: node.name.clone(),
@@ -292,6 +302,23 @@ pub async fn up(
         let veth_a = format!("{}a{}-{}", VETH_PREFIX, link_index, lab_id);
         let veth_b = format!("{}b{}-{}", VETH_PREFIX, link_index, lab_id);
 
+        // Create the link in the database
+        let _db_link = create_link(
+            &db,
+            link_index,
+            BridgeKind::P2pBridge,
+            node_a.record.id.clone().ok_or_else(|| anyhow!("Node A has no ID"))?,
+            node_b.record.id.clone().ok_or_else(|| anyhow!("Node B has no ID"))?,
+            link.int_a.clone(),
+            link.int_b.clone(),
+            bridge_a.clone(),
+            bridge_b.clone(),
+            veth_a.clone(),
+            veth_b.clone(),
+            lab_record.id.clone().ok_or_else(|| anyhow!("Lab has no ID"))?,
+        ).await?;
+
+        // Store link data for later use (still needed for infrastructure setup)
         let link_data = LabLinkData {
             index: link_index,
             kind: BridgeKind::P2pBridge,
@@ -304,8 +331,6 @@ pub async fn up(
             veth_a: veth_a.clone(),
             veth_b: veth_b.clone(),
         };
-
-        let _db_link = create_lab_link(&db, &lab_record, &link_data).await?;
 
         lab_link_data.push(link_data);
 
