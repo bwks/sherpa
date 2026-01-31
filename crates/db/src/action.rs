@@ -7,8 +7,15 @@ use surrealdb::engine::remote::ws::Client;
 
 use crate::helpers::{get_config_id, get_lab_id, get_node_id};
 use crate::node_config::get_node_config;
+use crate::node::create_node;
 
 /// Assign a lab node
+///
+/// This is a convenience wrapper around `create_node()` that accepts a `NodeModel`
+/// enum and automatically looks up the corresponding config. It also accepts a `DbLab`
+/// reference for convenience.
+///
+/// For more flexible node creation, use `create_node()` directly from the `node` module.
 pub async fn create_lab_node(
     db: &Surreal<Client>,
     name: &str,
@@ -20,28 +27,7 @@ pub async fn create_lab_node(
     let config_id = get_config_id(&config)?;
     let lab_id = get_lab_id(lab)?;
 
-    let node: Option<DbNode> = db
-        .create("node")
-        .content(DbNode {
-            id: None,
-            name: name.to_string(),
-            config: config_id,
-            index,
-            lab: lab_id.clone(),
-        })
-        .await
-        .context(format!(
-            "Error creating node:\n name: `{name}`\n lab_id: {lab_id}\n"
-        ))?;
-
-    node.ok_or_else(|| {
-        anyhow!(
-            "Node was not created:\n node name: `{}`\n lab name: {}\n lab id: {:?}\n",
-            name,
-            lab.name,
-            lab.id,
-        )
-    })
+    create_node(db, name, index, config_id, lab_id).await
 }
 
 /// Create a link record between two nodes

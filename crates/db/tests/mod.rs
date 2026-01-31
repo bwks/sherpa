@@ -39,4 +39,17 @@ mod lab;
 /// - Only DELETE tests: cargo test --package db user::delete_tests
 mod user;
 
+/// Integration tests for node CRUD operations
+///
+/// These tests require a running SurrealDB instance.
+/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
+///
+/// To run these tests:
+/// - All node tests: cargo test --package db node -- --ignored --test-threads=1
+/// - Only CREATE tests: cargo test --package db node::create_tests -- --ignored --test-threads=1
+/// - Only READ tests: cargo test --package db node::read_tests -- --ignored --test-threads=1
+/// - Only UPDATE tests: cargo test --package db node::update_tests -- --ignored --test-threads=1
+/// - Only DELETE tests: cargo test --package db node::delete_tests -- --ignored --test-threads=1
+mod node;
+
 use helper::{create_test_config, setup_db, teardown_db};
