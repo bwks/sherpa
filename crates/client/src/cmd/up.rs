@@ -265,7 +265,7 @@ pub async fn up(
         // Containers will be handled separately in the future
         let isolated_network = if matches!(node_data.kind, NodeKind::VirtualMachine) {
             println!("Creating blackhole network for node: {}", node.name);
-            let node_blackhole_network = IsolatedNetwork {
+            let node_isolated_network = IsolatedNetwork {
                 network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node.name, lab_id),
                 bridge_name: format!(
                     "{}{}-{}",
@@ -273,8 +273,8 @@ pub async fn up(
                 ),
             };
             // Store the network name before creating (to avoid borrow after move)
-            let network_name = node_blackhole_network.network_name.clone();
-            node_blackhole_network.create(&qemu_conn)?;
+            let network_name = node_isolated_network.network_name.clone();
+            node_isolated_network.create(&qemu_conn)?;
             Some(network_name)
         } else {
             None
