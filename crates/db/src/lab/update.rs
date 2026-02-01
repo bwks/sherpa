@@ -28,8 +28,9 @@ use crate::lab::validate_lab_id;
 /// # Example
 /// ```no_run
 /// # use db::{connect, get_lab, update_lab};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let mut lab = get_lab(&db, "lab-0001").await?;
 /// lab.name = "Updated Lab Name".to_string();
 /// let updated = update_lab(&db, lab).await?;

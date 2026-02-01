@@ -12,6 +12,7 @@ codegen-units = 1
 
 [dependencies]
 data = { path = "../data" }
+konst = { path = "../konst" }
 
 # Errors
 anyhow = "1.0.100"

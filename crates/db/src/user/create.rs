@@ -50,8 +50,9 @@ fn validate_username(username: &str) -> Result<()> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let user = create_user(&db, "alice".to_string(), vec![]).await?;
 /// assert_eq!(user.username, "alice");
 /// # Ok(())
@@ -99,8 +100,9 @@ pub async fn create_user(
 /// # Example
 /// ```no_run
 /// # use db::{connect, upsert_user};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
 /// // First call creates the user
 /// let user1 = upsert_user(&db, "bob".to_string(), vec!["key1".to_string()]).await?;

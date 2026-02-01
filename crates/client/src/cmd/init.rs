@@ -3,8 +3,9 @@ use data::Sherpa;
 use db::{apply_schema, connect, list_node_configs, seed_node_configs};
 use konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_MANIFEST_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH,
 };
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
@@ -100,7 +101,7 @@ pub async fn init(
     storage_pool.create(&qemu_conn)?;
 
     term_msg_highlight("Initializing Database");
-    let db = connect("localhost", 8000, "test", "test").await?;
+    let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 
     term_msg_underline("Applying Database Schema");
     apply_schema(&db).await?;

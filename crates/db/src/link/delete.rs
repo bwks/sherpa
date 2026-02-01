@@ -19,8 +19,9 @@ use crate::link::read::get_link;
 /// ```no_run
 /// # use db::{connect, delete_link};
 /// # use surrealdb::RecordId;
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let id: RecordId = ("link", "abc123").into();
 /// delete_link(&db, id).await?;
 /// # Ok(())
@@ -66,8 +67,9 @@ pub async fn delete_link_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()>
 /// ```no_run
 /// # use db::{connect, delete_links_by_lab};
 /// # use surrealdb::RecordId;
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let lab_id: RecordId = ("lab", "abc123").into();
 /// delete_links_by_lab(&db, lab_id).await?;
 /// # Ok(())
@@ -100,8 +102,9 @@ pub async fn delete_links_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Resu
 /// ```no_run
 /// # use db::{connect, delete_links_by_node};
 /// # use surrealdb::RecordId;
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let node_id: RecordId = ("node", "abc123").into();
 /// delete_links_by_node(&db, node_id).await?;
 /// # Ok(())

@@ -28,9 +28,10 @@ use crate::node::read::get_node;
 /// # Example
 /// ```no_run
 /// # use db::{connect, get_node, update_node};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let id: RecordId = ("node", "abc123").into();
 /// let mut node = get_node(&db, id).await?;
 /// node.name = "updated-node".to_string();

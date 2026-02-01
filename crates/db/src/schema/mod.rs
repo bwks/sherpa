@@ -21,10 +21,11 @@
 //!
 //! ```no_run
 //! use db::{connect, apply_schema};
+//! use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
-//!     let db = connect("localhost", 8000, "test", "test").await?;
+//!     let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 //!     apply_schema(&db).await?;
 //!     Ok(())
 //! }

@@ -44,6 +44,11 @@ pub const LAB_FILE_NAME: &str = "lab-info.toml";
 pub const BRIDGE_PREFIX: &str = "br";
 pub const VETH_PREFIX: &str = "ve";
 
+pub const SHERPA_DB_NAME: &str = "sherpa";
+pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
+pub const SHERPA_DB_SERVER: &str = "localhost";
+pub const SHERPA_DB_PORT: u16 = 8000;
+
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const _DEFAULT_STORAGE_POOL: &str = "default";

@@ -27,10 +27,11 @@ use surrealdb::{RecordId, Surreal};
 ///
 /// ```ignore
 /// use db::{create_node, connect};
+/// use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// use surrealdb::RecordId;
 ///
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let config_id: RecordId = ("node_config", "config1").into();
 /// let lab_id: RecordId = ("lab", "lab1").into();
 ///

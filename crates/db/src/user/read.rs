@@ -21,8 +21,9 @@ use surrealdb::Surreal;
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, get_user};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// create_user(&db, "alice".to_string(), vec![]).await?;
 /// 
 /// let user = get_user(&db, "alice").await?;
@@ -56,8 +57,9 @@ pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, get_user_by_id};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let created = create_user(&db, "alice".to_string(), vec![]).await?;
 /// let user_id = created.id.expect("User should have ID");
 /// 
@@ -89,8 +91,9 @@ pub async fn get_user_by_id(db: &Surreal<Client>, id: RecordId) -> Result<Option
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, list_users};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// create_user(&db, "alice".to_string(), vec![]).await?;
 /// create_user(&db, "bob".to_string(), vec![]).await?;
 /// 
@@ -122,8 +125,9 @@ pub async fn list_users(db: &Surreal<Client>) -> Result<Vec<DbUser>> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, count_users};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// 
 /// let initial_count = count_users(&db).await?;
 /// create_user(&db, "alice".to_string(), vec![]).await?;

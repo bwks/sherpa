@@ -29,9 +29,10 @@ use crate::link::read::get_link;
 /// # Example
 /// ```no_run
 /// # use db::{connect, get_link, update_link};
+/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect("localhost", 8000, "test", "test").await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let id: RecordId = ("link", "abc123").into();
 /// let mut link = get_link(&db, id).await?;
 /// link.int_a = "eth1".to_string();

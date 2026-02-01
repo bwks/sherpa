@@ -9,8 +9,8 @@ use container::{
 };
 use db::{connect, delete_lab, delete_lab_links, delete_lab_nodes};
 use konst::{
-    BRIDGE_PREFIX, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    VETH_PREFIX,
+    BRIDGE_PREFIX, SHERPA_BASE_DIR, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
+    SHERPA_DB_SERVER, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
 };
 use libvirt::{Qemu, delete_disk};
 use network::{delete_interface, find_interfaces_fuzzy};
@@ -99,7 +99,7 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     }
 
     // Database - use cascade delete to remove lab, nodes, and links
-    let db = connect("localhost", 8000, "test", "test").await?;
+    let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
     delete_lab_links(&db, lab_id).await?;
     delete_lab_nodes(&db, lab_id).await?;
     delete_lab(&db, lab_id).await?;
