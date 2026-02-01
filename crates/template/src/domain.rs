@@ -24,6 +24,7 @@ pub struct DomainTemplate {
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,
     pub lab_id: String,
+    pub management_network: String,
     pub isolated_network: String,
     pub reserved_network: String,
 }

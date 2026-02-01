@@ -74,6 +74,7 @@ pub async fn up(
     let sherpa_user = sherpa_user()?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let current_user = get_username()?;
+    let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
 
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
@@ -301,6 +302,7 @@ pub async fn up(
         node_setup_data.push(NodeSetupData {
             name: node.name.clone(),
             index: *node_idx,
+            management_network: management_network.clone(),
             isolated_network,
             reserved_network,
         });
@@ -1530,6 +1532,8 @@ pub async fn up(
                 .find(|setup| setup.name == node.name)
                 .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node.name))?;
 
+            let management_network = node_setup.management_network.clone();
+
             let isolated_network = node_setup
                 .isolated_network
                 .clone()
@@ -1557,6 +1561,7 @@ pub async fn up(
                 telnet_port: TELNET_PORT,
                 qemu_commands,
                 lab_id: lab_id.to_string(),
+                management_network,
                 isolated_network,
                 reserved_network,
             };

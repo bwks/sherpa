@@ -44,6 +44,7 @@ pub struct LabNodeData {
 pub struct NodeSetupData {
     pub name: String,
     pub index: u16,
+    pub management_network: String,
     pub isolated_network: Option<String>,
     pub reserved_network: Option<String>,
 }

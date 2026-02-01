@@ -124,7 +124,7 @@
       <alias name='ua-net-{{ name }}-mgmt-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_MANAGEMENT_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ management_network }}'/>
       <model type='{{ interface_type }}'/>
     </interface>
 
