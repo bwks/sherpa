@@ -72,6 +72,7 @@ pub async fn up(
     let qemu_conn = Arc::new(qemu.connect()?);
     let sherpa_user = sherpa_user()?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let current_user = get_username()?;
 
     term_msg_surround(&format!("Building environment - {lab_id}"));
 
@@ -81,8 +82,14 @@ pub async fn up(
     let mut config = load_config(&sherpa.config_file_path)?;
 
     // Connect to DB early to fetch node configs
-    let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-    let db_user = get_user(&db, "bradmin").await?;
+    let db = connect(
+        SHERPA_DB_SERVER,
+        SHERPA_DB_PORT,
+        SHERPA_DB_NAMESPACE,
+        SHERPA_DB_NAME,
+    )
+    .await?;
+    let db_user = get_user(&db, &current_user).await?;
 
     // Check if lab already exists
     if let Ok(lab) = get_lab(&db, lab_id).await {
