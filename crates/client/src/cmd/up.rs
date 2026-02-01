@@ -26,7 +26,8 @@ use konst::{
     SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE,
     SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
     SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -278,11 +279,30 @@ pub async fn up(
             None
         };
 
+        // Create reserved network for this node (VMs and Unikernels only)
+        let reserved_network = if matches!(node_data.kind, NodeKind::VirtualMachine) {
+            println!("Creating reserved network for node: {}", node.name);
+            let node_reserved_network = IsolatedNetwork {
+                network_name: format!("{}-{}-{}", SHERPA_RESERVED_NETWORK_NAME, node.name, lab_id),
+                bridge_name: format!(
+                    "{}{}-{}",
+                    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, node_idx, lab_id
+                ),
+            };
+            // Store the network name before creating (to avoid borrow after move)
+            let network_name = node_reserved_network.network_name.clone();
+            node_reserved_network.create(&qemu_conn)?;
+            Some(network_name)
+        } else {
+            None
+        };
+
         // Store node setup data for later use in DomainTemplate creation
         node_setup_data.push(NodeSetupData {
             name: node.name.clone(),
             index: *node_idx,
             isolated_network,
+            reserved_network,
         });
     }
 
@@ -1504,14 +1524,21 @@ pub async fn up(
         let node_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
 
         if node_model.kind == NodeKind::VirtualMachine {
-            // Get the isolated network name for this node from NodeSetupData
-            let isolated_network = node_setup_data
+            // Get the network names for this node from NodeSetupData
+            let node_setup = node_setup_data
                 .iter()
                 .find(|setup| setup.name == node.name)
-                .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node.name))?
+                .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node.name))?;
+
+            let isolated_network = node_setup
                 .isolated_network
                 .clone()
                 .ok_or_else(|| anyhow!("Isolated network not found for VM node: {}", node.name))?;
+
+            let reserved_network = node_setup
+                .reserved_network
+                .clone()
+                .ok_or_else(|| anyhow!("Reserved network not found for VM node: {}", node.name))?;
 
             let domain = DomainTemplate {
                 qemu_bin: config.qemu_bin.clone(),
@@ -1531,6 +1558,7 @@ pub async fn up(
                 qemu_commands,
                 lab_id: lab_id.to_string(),
                 isolated_network,
+                reserved_network,
             };
             domains.push(domain);
         }

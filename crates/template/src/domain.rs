@@ -25,6 +25,7 @@ pub struct DomainTemplate {
     pub qemu_commands: Vec<QemuCommand>,
     pub lab_id: String,
     pub isolated_network: String,
+    pub reserved_network: String,
 }
 
 pub struct BootServer {

@@ -133,7 +133,7 @@
       <alias name='ua-net-{{ name }}-reserved-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ isolated_network }}'/>
+      <source network='{{ reserved_network }}'/>
       <model type='{{ interface_type }}'/>
       <link state='up'/>
     </interface>
