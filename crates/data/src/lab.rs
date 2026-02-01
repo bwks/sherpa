@@ -40,6 +40,13 @@ pub struct LabNodeData {
     pub record: DbNode,
 }
 
+#[derive(Clone)]
+pub struct NodeSetupData {
+    pub name: String,
+    pub index: u16,
+    pub isolated_network: Option<String>,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LabLinkData {
     pub index: u16,

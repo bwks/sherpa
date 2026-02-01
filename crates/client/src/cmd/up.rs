@@ -6,8 +6,8 @@ use container::{create_docker_bridge_network, docker_connection, run_container};
 use data::{
     BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses, DiskDevices,
     DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, LabLinkData,
-    LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, OsVariant, QemuCommand,
-    Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
+    LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, NodeSetupData,
+    OsVariant, QemuCommand, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
 use db::{
     connect, create_lab, create_link, create_node, get_config_id, get_lab, get_lab_id, get_node_id,
@@ -206,6 +206,7 @@ pub async fn up(
     let mut domains: Vec<DomainTemplate> = vec![];
 
     let mut lab_node_data = vec![];
+    let mut node_setup_data: Vec<NodeSetupData> = vec![];
 
     for node in &manifest.nodes {
         let node_idx = node_id_map
@@ -257,6 +258,32 @@ pub async fn up(
                 vm_nodes.push(node.clone());
             }
         }
+
+        // Create isolated/blackhole network for this node (VMs and Unikernels only)
+        // Containers will be handled separately in the future
+        let isolated_network = if matches!(node_data.kind, NodeKind::VirtualMachine) {
+            println!("Creating blackhole network for node: {}", node.name);
+            let node_blackhole_network = IsolatedNetwork {
+                network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node.name, lab_id),
+                bridge_name: format!(
+                    "{}{}-{}",
+                    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, node_idx, lab_id
+                ),
+            };
+            // Store the network name before creating (to avoid borrow after move)
+            let network_name = node_blackhole_network.network_name.clone();
+            node_blackhole_network.create(&qemu_conn)?;
+            Some(network_name)
+        } else {
+            None
+        };
+
+        // Store node setup data for later use in DomainTemplate creation
+        node_setup_data.push(NodeSetupData {
+            name: node.name.clone(),
+            index: *node_idx,
+            isolated_network,
+        });
     }
 
     term_msg_underline("Lab Network");
@@ -299,13 +326,6 @@ pub async fn up(
         ipv4_netmask: lab_net.netmask(),
     };
     management_network.create(&qemu_conn)?;
-
-    println!("Creating network: {SHERPA_ISOLATED_NETWORK_NAME}-{lab_id}");
-    let isolated_network = IsolatedNetwork {
-        network_name: format!("{SHERPA_ISOLATED_NETWORK_NAME}-{lab_id}"),
-        bridge_name: format!("{SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
-    };
-    isolated_network.create(&qemu_conn)?;
 
     // Docker Networks
     create_docker_bridge_network(
@@ -1484,6 +1504,15 @@ pub async fn up(
         let node_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
 
         if node_model.kind == NodeKind::VirtualMachine {
+            // Get the isolated network name for this node from NodeSetupData
+            let isolated_network = node_setup_data
+                .iter()
+                .find(|setup| setup.name == node.name)
+                .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node.name))?
+                .isolated_network
+                .clone()
+                .ok_or_else(|| anyhow!("Isolated network not found for VM node: {}", node.name))?;
+
             let domain = DomainTemplate {
                 qemu_bin: config.qemu_bin.clone(),
                 name: node_name,
@@ -1501,6 +1530,7 @@ pub async fn up(
                 telnet_port: TELNET_PORT,
                 qemu_commands,
                 lab_id: lab_id.to_string(),
+                isolated_network,
             };
             domains.push(domain);
         }

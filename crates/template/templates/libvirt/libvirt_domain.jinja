@@ -133,7 +133,7 @@
       <alias name='ua-net-{{ name }}-reserved-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ isolated_network }}'/>
       <model type='{{ interface_type }}'/>
       <link state='up'/>
     </interface>
@@ -143,7 +143,7 @@
       <alias name='ua-net-{{ name }}-disabled-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ isolated_network }}'/>
       <model type='{{ interface_type }}'/>
       <link state='down'/>
     </interface>
