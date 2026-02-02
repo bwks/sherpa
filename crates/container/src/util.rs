@@ -7,8 +7,8 @@ use async_compression::tokio::write::GzipEncoder;
 use bollard::Docker;
 use bollard::models::{
     ContainerCreateBody, ContainerCreateResponse, ContainerSummary, EndpointIpamConfig,
-    EndpointSettings, HostConfig, Ipam, IpamConfig, Network, NetworkCreateRequest,
-    NetworkingConfig,
+    EndpointSettings, HostConfig, Ipam, IpamConfig, Network, NetworkConnectRequest,
+    NetworkCreateRequest, NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder, InspectContainerOptions,
@@ -105,27 +105,51 @@ pub async fn create_docker_bridge_network(
     Ok(())
 }
 
-/// Create a MACVLAN network. TODO: Thist needs work
+/// Create a Docker macvlan network that uses an existing Linux bridge.
+/// This allows Docker containers to attach to pre-created bridges used for VM-VM or VM-Container links.
+///
+/// # Arguments
+/// * `docker` - Docker connection
+/// * `parent_interface` - Name of the pre-existing Linux bridge (e.g., "bra0-12345")
+/// * `network_name` - Name for the Docker network (e.g., "sherpa-link-a0-12345")
+///
+/// # Notes
+/// * Uses macvlan driver which provides pure L2 connectivity without requiring IP addressing
+/// * No IPAM configuration - containers get no IPs on this network
+/// * Relies on the bridge already being created via rtnetlink
 pub async fn create_docker_macvlan_network(
     docker: &Docker,
-    name: &str,
     parent_interface: &str,
+    network_name: &str,
 ) -> Result<()> {
     let mut options = HashMap::new();
     options.insert("parent".to_string(), parent_interface.to_string());
 
     let create_request = NetworkCreateRequest {
-        name: name.to_owned(),
+        name: network_name.to_owned(),
         driver: Some("macvlan".to_owned()),
         options: Some(options),
         internal: Some(false),
+        ipam: None,
+        enable_ipv4: Some(false),
+        enable_ipv6: Some(false),
         ..Default::default()
     };
 
-    match docker.create_network(create_request).await {
-        Ok(response) => println!("Macvlan network created: {:?}", response),
-        Err(e) => eprintln!("Error creating macvlan network: {}", e),
-    }
+    docker
+        .create_network(create_request)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to create Docker macvlan network '{}' on bridge '{}'",
+                network_name, parent_interface
+            )
+        })?;
+
+    println!(
+        "Created Docker macvlan network '{}' on bridge '{}'",
+        network_name, parent_interface
+    );
 
     Ok(())
 }
@@ -145,7 +169,8 @@ pub async fn run_container(
     env_vars: Vec<String>,
     volumes: Vec<String>,
     capabilities: Vec<&str>,
-    network_attachments: Vec<ContainerNetworkAttachment>,
+    management_network: ContainerNetworkAttachment,
+    additional_networks: Vec<ContainerNetworkAttachment>,
     commands: Vec<String>,
     privileged: bool,
 ) -> Result<()> {
@@ -162,22 +187,20 @@ pub async fn run_container(
     // Commands
     let cmds = commands.iter().map(|s| s.to_string()).collect();
 
-    // Endpoint config for static IP on sherpa-management network
+    // Create container with only the first network (management network)
+    // This is attahced first to ensure ordering.
     let mut endpoints_config = HashMap::new();
-
-    for attachment in network_attachments {
-        endpoints_config.insert(
-            attachment.name,
-            EndpointSettings {
-                ipam_config: Some(EndpointIpamConfig {
-                    ipv4_address: attachment.ipv4_address,
-                    ipv6_address: None,
-                    link_local_ips: None,
-                }),
-                ..Default::default()
-            },
-        );
-    }
+    endpoints_config.insert(
+        management_network.name.clone(),
+        EndpointSettings {
+            ipam_config: Some(EndpointIpamConfig {
+                ipv4_address: management_network.ipv4_address.clone(),
+                ipv6_address: None,
+                link_local_ips: None,
+            }),
+            ..Default::default()
+        },
+    );
 
     let networking_config = NetworkingConfig {
         endpoints_config: Some(endpoints_config),
@@ -221,6 +244,34 @@ pub async fn run_container(
         .start_container(&id, None::<StartContainerOptions>)
         .await
         .with_context(|| format!("Error starting container {name}"))?;
+
+    // Attach remaining networks sequentially to preserve interface order
+    // Skip the first network since it was attached during container creation
+    for attachment in additional_networks.iter() {
+        let connect_request = NetworkConnectRequest {
+            container: Some(id.clone()),
+            endpoint_config: Some(EndpointSettings {
+                ipam_config: Some(EndpointIpamConfig {
+                    ipv4_address: attachment.ipv4_address.clone(),
+                    ipv6_address: None,
+                    link_local_ips: None,
+                }),
+                ..Default::default()
+            }),
+        };
+
+        docker
+            .connect_network(&attachment.name, connect_request)
+            .await
+            .with_context(|| {
+                format!(
+                    "Error connecting network {} to container {name}",
+                    attachment.name
+                )
+            })?;
+
+        println!("Connected network {} to container: {name}", attachment.name);
+    }
 
     // After starting the container:
     let inspect_options = Some(InspectContainerOptions { size: false });

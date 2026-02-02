@@ -2,7 +2,9 @@ use super::boot_containers::{create_boot_containers, create_ztp_files};
 use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
-use container::{create_docker_bridge_network, docker_connection, run_container};
+use container::{
+    create_docker_bridge_network, create_docker_macvlan_network, docker_connection, run_container,
+};
 use data::{
     BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses, DiskDevices,
     DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, LabLinkData,
@@ -439,6 +441,39 @@ pub async fn up(
         .await?;
         enslave_to_bridge(&veth_a, &bridge_a).await?;
         enslave_to_bridge(&veth_b, &bridge_b).await?;
+    }
+
+    // Create Docker networks for container-connected bridges
+    // This allows containers to attach to the pre-created Linux bridges
+    term_msg_underline("Creating Docker Networks for Container Links");
+    for link_data in &lab_link_data {
+        // Look up node_a in lab_node_data to get its kind
+        let node_a_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_a.id)
+            .ok_or_else(|| anyhow!("Node A not found in lab_node_data"))?;
+
+        // Look up node_b in lab_node_data to get its kind
+        let node_b_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_b.id)
+            .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
+
+        // Create Docker network for node_a if it's a container
+        if node_a_data.kind == NodeKind::Container {
+            let docker_net_name =
+                format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
+            create_docker_macvlan_network(&docker_conn, &link_data.bridge_a, &docker_net_name)
+                .await?;
+        }
+
+        // Create Docker network for node_b if it's a container
+        if node_b_data.kind == NodeKind::Container {
+            let docker_net_name =
+                format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
+            create_docker_macvlan_network(&docker_conn, &link_data.bridge_b, &docker_net_name)
+                .await?;
+        }
     }
 
     term_msg_underline("ZTP");
@@ -1656,6 +1691,58 @@ pub async fn up(
         )?;
     }
 
+    // Build container network attachment map for p2p links
+    // Maps container name -> list of Docker networks to attach
+    term_msg_underline("Building Container Link Network Map");
+    let mut container_link_networks: HashMap<String, Vec<ContainerNetworkAttachment>> =
+        HashMap::new();
+
+    for link_data in &lab_link_data {
+        // Look up node kinds
+        let node_a_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_a.id)
+            .ok_or_else(|| anyhow!("Node A not found in lab_node_data"))?;
+
+        let node_b_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_b.id)
+            .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
+
+        // Add network attachment for node_a if it's a container
+        if node_a_data.kind == NodeKind::Container {
+            let docker_net_name =
+                format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
+
+            container_link_networks
+                .entry(node_a_data.name.clone())
+                .or_insert_with(Vec::new)
+                .push(ContainerNetworkAttachment {
+                    name: docker_net_name,
+                    ipv4_address: None, // No IP - pure L2 connection
+                });
+        }
+
+        // Add network attachment for node_b if it's a container
+        if node_b_data.kind == NodeKind::Container {
+            let docker_net_name =
+                format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
+
+            container_link_networks
+                .entry(node_b_data.name.clone())
+                .or_insert_with(Vec::new)
+                .push(ContainerNetworkAttachment {
+                    name: docker_net_name,
+                    ipv4_address: None,
+                });
+        }
+    }
+
+    // Sort the network attachments for each container to ensure deterministic interface ordering
+    // for networks in container_link_networks.values_mut() {
+    //     networks.sort_by(|a, b| a.name.cmp(&b.name));
+    // }
+
     // Check if VMs are ready
     term_msg_underline("Checking Node Readiness");
     let start_time = Instant::now();
@@ -1709,14 +1796,18 @@ pub async fn up(
                 vec![]
             };
 
-            let mgmt_net_attachment = ContainerNetworkAttachment {
+            let management_network = ContainerNetworkAttachment {
                 name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                 ipv4_address: mgmt_ipv4,
             };
-            // let test_net_attachment = ContainerNetworkAttachment {
-            //     name: "brb0-723035d2".to_string(),
-            //     ipv4_address: None,
-            // };
+
+            // Build network attachments for this container
+            let mut additional_networks = vec![];
+
+            // Add p2p link networks if any exist for this container
+            if let Some(link_networks) = container_link_networks.get(&container.name) {
+                additional_networks.extend_from_slice(link_networks);
+            }
 
             run_container(
                 //
@@ -1726,7 +1817,8 @@ pub async fn up(
                 env_vars,
                 volumes,
                 vec![],
-                vec![mgmt_net_attachment], //test_net_attachment],
+                management_network,
+                additional_networks,
                 commands,
                 privileged,
             )

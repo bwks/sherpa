@@ -4,8 +4,8 @@ use askama::Template;
 use container::{Docker, run_container};
 use data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
 use konst::{
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, NODE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
 };
 use template::{DnsmasqTemplate, SonicLinuxUserTemplate};
@@ -99,10 +99,10 @@ pub async fn create_boot_containers(
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
-    let network_attachments = vec![ContainerNetworkAttachment {
+    let management_network = ContainerNetworkAttachment {
         name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         ipv4_address: Some(boot_server_ipv4),
-    }];
+    };
 
     run_container(
         docker_conn,
@@ -111,7 +111,8 @@ pub async fn create_boot_containers(
         dnsmasq_env_vars,
         dnsmasq_volumes,
         dnsmasq_capabilities,
-        network_attachments,
+        management_network,
+        vec![],
         vec![],
         false,
     )
