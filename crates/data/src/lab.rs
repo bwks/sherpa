@@ -62,3 +62,18 @@ pub struct LabLinkData {
     pub veth_a: String,
     pub veth_b: String,
 }
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LabBridgeData {
+    pub index: u16,
+    pub bridge_name: String,
+    pub network_name: String,
+    pub connections: Vec<BridgeConnection>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct BridgeConnection {
+    pub node_record: DbNode,
+    pub interface_name: String,
+    pub interface_index: u8,
+}

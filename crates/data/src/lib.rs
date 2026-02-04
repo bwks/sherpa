@@ -18,7 +18,7 @@ mod ztp;
 pub use config::{Config, ConfigurationManagement, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
-pub use db::{DbLab, DbLink, DbNode, DbUser};
+pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
@@ -29,7 +29,7 @@ pub use interface::{
     InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
     MgmtInterfaces,
 };
-pub use lab::{LabInfo, LabLinkData, LabNodeData, NodeSetupData};
+pub use lab::{BridgeConnection, LabBridgeData, LabInfo, LabLinkData, LabNodeData, NodeSetupData};
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, NetworkV4, SherpaNetwork};
 pub use node::{

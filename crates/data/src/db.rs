@@ -42,3 +42,13 @@ pub struct DbLink {
     pub veth_a: String,
     pub veth_b: String,
 }
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DbBridge {
+    pub id: Option<RecordId>,
+    pub index: u16,
+    pub bridge_name: String,
+    pub network_name: String,
+    pub lab: RecordId,
+    pub nodes: Vec<RecordId>,
+}

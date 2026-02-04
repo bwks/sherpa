@@ -14,6 +14,7 @@ pub struct Manifest {
     pub name: String,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
+    pub bridges: Option<Vec<Vec<String>>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ztp_server: Option<ZtpServer>,

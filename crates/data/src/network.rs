@@ -13,6 +13,7 @@ pub enum BridgeKind {
     P2pBridge,
     P2pUdp,
     P2pVeth,
+    SharedBridge,
 }
 impl fmt::Display for BridgeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -20,6 +21,7 @@ impl fmt::Display for BridgeKind {
             BridgeKind::P2pBridge => write!(f, "p2p_bridge"),
             BridgeKind::P2pUdp => write!(f, "p2p_udp"),
             BridgeKind::P2pVeth => write!(f, "p2p_veth"),
+            BridgeKind::SharedBridge => write!(f, "shared_bridge"),
         }
     }
 }

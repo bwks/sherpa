@@ -32,6 +32,7 @@
 //! ```
 
 mod apply;
+mod bridge;
 mod helpers;
 mod lab;
 mod link;

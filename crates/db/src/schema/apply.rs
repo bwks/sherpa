@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
+use super::bridge::generate_bridge_schema;
 use super::lab::generate_lab_schema;
 use super::link::generate_link_schema;
 use super::node::generate_node_schema;
@@ -106,6 +107,7 @@ pub async fn apply_schema(db: &Surreal<Client>) -> Result<()> {
     let lab_schema = generate_lab_schema();
     let node_schema = generate_node_schema();
     let link_schema = generate_link_schema();
+    let bridge_schema = generate_bridge_schema();
 
     // Apply schemas in dependency order
     apply_schema_section(db, "user", &user_schema).await?;
@@ -113,6 +115,7 @@ pub async fn apply_schema(db: &Surreal<Client>) -> Result<()> {
     apply_schema_section(db, "lab", &lab_schema).await?;
     apply_schema_section(db, "node", &node_schema).await?;
     apply_schema_section(db, "link", &link_schema).await?;
+    apply_schema_section(db, "bridge", &bridge_schema).await?;
 
     Ok(())
 }

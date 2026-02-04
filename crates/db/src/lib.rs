@@ -1,5 +1,6 @@
 mod connect;
 mod helpers;
+pub mod bridge;
 pub mod lab;
 pub mod link;
 pub mod node;
@@ -9,7 +10,7 @@ pub mod seed;
 pub mod user;
 
 pub use connect::connect;
-pub use data::{DbLab, DbLink, DbNode, DbUser, NodeConfig};
+pub use data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
@@ -50,4 +51,10 @@ pub use seed::node_config::seed_node_configs;
 pub use user::{
     count_users, create_user, delete_user, delete_user_by_username, delete_user_safe, get_user,
     get_user_by_id, list_users, update_user, upsert_user,
+};
+
+// Bridge CRUD operations
+pub use bridge::{
+    create_bridge, delete_bridge, delete_lab_bridges, get_bridge, get_bridge_by_index,
+    list_bridges,
 };
