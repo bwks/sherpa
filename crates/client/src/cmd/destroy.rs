@@ -14,7 +14,7 @@ use shared::konst::{
 };
 use libvirt::{Qemu, delete_disk};
 use network::{delete_interface, find_interfaces_fuzzy};
-use util::{dir_exists, file_exists, term_msg_surround};
+use shared::util::{dir_exists, file_exists, term_msg_surround};
 
 pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     term_msg_surround(&format!("Destroying environment - {lab_name}-{lab_id}"));

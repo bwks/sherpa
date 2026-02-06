@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{count_labs, create_lab, create_user, get_lab, upsert_lab, validate_lab_id};
-use data::DbLab;
+use shared::data::DbLab;
 
 use crate::helper::{setup_db, teardown_db};
 

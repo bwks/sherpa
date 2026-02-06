@@ -1,7 +1,7 @@
 //! CREATE operations for nodes
 
 use anyhow::{Context, Result, anyhow};
-use data::DbNode;
+use shared::data::DbNode;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::{RecordId, Surreal};
 

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::NodeModel;
-use util::split_node_int;
+use shared::data::NodeModel;
+use shared::util::split_node_int;
 
 /// Manifest Link
 #[derive(Clone, Debug, Deserialize, Serialize)]

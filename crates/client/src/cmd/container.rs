@@ -2,8 +2,8 @@ use anyhow::{Result, bail};
 use clap::Subcommand;
 
 use container::{docker_connection, list_images, pull_image};
-use data::Sherpa;
-use util::{load_config, term_msg_surround};
+use shared::data::Sherpa;
+use shared::util::{load_config, term_msg_surround};
 
 #[derive(Debug, Subcommand)]
 #[group(

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{create_lab, create_node, create_node_config, create_user, get_node, update_node};
-use data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 

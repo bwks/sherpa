@@ -2,7 +2,7 @@ use anyhow::Result;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING};
 
 use libvirt::Qemu;
-use util::term_msg_surround;
+use shared::util::term_msg_surround;
 
 pub fn resume(qemu: &Qemu, lab_id: &str) -> Result<()> {
     term_msg_surround("Resuming environment");

@@ -3,8 +3,8 @@ use std::env;
 use anyhow::{Result, anyhow};
 
 use super::ssh::get_ssh_public_key;
-use data::User;
-use shared::konst::{
+use crate::data::User;
+use crate::konst::{
     SHERPA_BASE_DIR, SHERPA_PASSWORD, SHERPA_SSH_DIR, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
 };
 

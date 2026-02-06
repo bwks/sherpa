@@ -5,8 +5,6 @@ edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
-data = { path = "../data" }
-util = { path = "../util" }
 
 # Errors
 anyhow = "1.0.100"

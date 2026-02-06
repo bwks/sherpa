@@ -1,5 +1,5 @@
 use anyhow::{anyhow, bail, Context, Result};
-use data::{DbLab, DbUser, RecordId};
+use shared::data::{DbLab, DbUser, RecordId};
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 

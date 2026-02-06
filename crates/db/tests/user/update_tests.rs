@@ -101,7 +101,7 @@ async fn test_update_user_without_id_fails() -> Result<()> {
 async fn test_update_nonexistent_user_fails() -> Result<()> {
     let db = setup_db("test_update_nonexistent_user").await?;
 
-    use data::DbUser;
+    use shared::data::DbUser;
     use surrealdb::RecordId;
 
     let fake_user = DbUser {

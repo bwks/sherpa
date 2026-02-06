@@ -3,7 +3,7 @@ use db::{
     create_lab, create_link, create_node, create_node_config, create_user, get_link_by_id,
     update_link,
 };
-use data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 

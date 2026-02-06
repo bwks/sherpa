@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use data::DbNode;
+use shared::data::DbNode;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 

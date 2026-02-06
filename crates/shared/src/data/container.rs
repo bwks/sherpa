@@ -2,7 +2,7 @@ use clap::ValueEnum;
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::konst::{
+use crate::konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_DNSMASQ_VERSION,
     CONTAINER_WEBDIR_NAME, CONTAINER_WEBDIR_REPO, CONTAINER_WEBDIR_VERSION,
 };

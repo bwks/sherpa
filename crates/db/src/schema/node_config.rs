@@ -23,7 +23,7 @@
 //! ## Relationships
 //! - One-to-many with `node` table (one config can be used by many nodes)
 
-use data::{
+use shared::data::{
     BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType, MgmtInterfaces,
     NodeKind, NodeModel, OsVariant, ZtpMethod,
 };

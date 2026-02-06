@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use data::{NetworkV4, User};
+use shared::data::{NetworkV4, User};
 
 #[derive(Template)]
 #[template(path = "juniper/juniper_junos.jinja", ext = "txt")]

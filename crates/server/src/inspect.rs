@@ -5,11 +5,11 @@ use serde_derive::{Deserialize, Serialize};
 use serde_json;
 use virt::storage_pool::StoragePool;
 
-use data::{Config, LabInfo, NodeModel};
 use libvirt::Qemu;
+use shared::data::{Config, LabInfo, NodeModel};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
+use shared::util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
 use topology::Node;
-use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct InpsectDevice {

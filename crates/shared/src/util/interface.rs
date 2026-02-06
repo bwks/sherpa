@@ -2,7 +2,7 @@ use std::str::FromStr;
 
 use anyhow::Result;
 
-use data::{
+use crate::data::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceKind, InterfaceTrait,

@@ -3,14 +3,14 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings,
-    HostConfig, NetworkConnectRequest, NetworkingConfig,
+    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
+    NetworkConnectRequest, NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
 
-use data::ContainerNetworkAttachment;
+use shared::data::ContainerNetworkAttachment;
 
 pub async fn run_container(
     docker: &Docker,

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use data::{DbLab, DbUser};
+use shared::data::{DbLab, DbUser};
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
@@ -116,7 +116,7 @@ pub async fn create_lab(
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, upsert_lab};
-/// # use data::{DbLab, RecordId};
+/// # use shared::data::{DbLab, RecordId};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;

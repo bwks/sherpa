@@ -6,7 +6,7 @@ use bollard::query_parameters::CreateImageOptionsBuilder;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
 
-use data::{Config as SherpaConfig, ContainerImage};
+use shared::data::{Config as SherpaConfig, ContainerImage};
 
 /// Pull a container image from an OCI registry and save to local Docker daemon
 /// Similar to `docker pull` command

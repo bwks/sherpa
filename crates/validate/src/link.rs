@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
-use data::NodeModel;
+use shared::data::NodeModel;
 use topology::{LinkDetailed, LinkExpanded, Node};
 
 /// Check if a device with a non-dedicated management interface

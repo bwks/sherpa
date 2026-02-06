@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use data::{DbUser, RecordId};
+use shared::data::{DbUser, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 

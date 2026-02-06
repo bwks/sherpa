@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use serde_derive::{Deserialize, Serialize};
 
-use data::NodeModel;
+use shared::data::NodeModel;
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub struct Node {

@@ -1,7 +1,7 @@
 /// CREATE operation tests for node_config
 use anyhow::Result;
-use data::NodeModel;
 use db::{create_node_config, list_node_configs, upsert_node_config};
+use shared::data::NodeModel;
 
 use crate::{create_test_config, setup_db, teardown_db};
 

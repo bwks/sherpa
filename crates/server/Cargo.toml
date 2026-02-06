@@ -10,9 +10,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 shared = { path = "../shared" }
-data = { path = "../data" }
 container = { path = "../container" }
-util = { path = "../util" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }

@@ -4,7 +4,7 @@ use db::{
     create_node_config, create_user, delete_link, delete_link_by_id, delete_links_by_lab,
     delete_links_by_node, get_link_by_id,
 };
-use data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 

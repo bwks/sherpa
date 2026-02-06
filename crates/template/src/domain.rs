@@ -1,6 +1,6 @@
 use askama::Template;
 
-use data::{
+use shared::data::{
     BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DiskBuses, DiskDevices,
     Interface, InterfaceType, MachineType, NodeDisk, QemuCommand,
 };

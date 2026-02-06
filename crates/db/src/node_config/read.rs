@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use data::{NodeConfig, NodeModel, RecordId};
+use shared::data::{NodeConfig, NodeModel, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 

@@ -17,14 +17,14 @@ use super::unikernel::UnikernelCommands;
 use super::up::up;
 use super::virtual_machine::VirtualMachineCommands;
 
-use data::Sherpa;
+use libvirt::Qemu;
+use shared::data::Sherpa;
 use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
 };
-use libvirt::Qemu;
+use shared::util::{get_id, load_config};
 use topology::Manifest;
-use util::{get_id, load_config};
 
 #[derive(Default, Debug, Parser)]
 #[command(name = "sherpa")]

@@ -1,6 +1,6 @@
 use askama::Template;
 
-use data::{ZtpMethod, ZtpRecord};
+use shared::data::{ZtpMethod, ZtpRecord};
 use shared::konst::{
     DNSMASQ_DIR, DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR,
 };

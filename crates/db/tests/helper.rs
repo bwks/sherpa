@@ -1,6 +1,6 @@
 use anyhow::Result;
-use data::{NodeConfig, NodeModel};
 use db::apply_schema;
+use shared::data::{DbLab, DbNode, NodeConfig, NodeModel};
 use std::time::{SystemTime, UNIX_EPOCH};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -21,10 +21,10 @@ fn generate_test_namespace(test_name: &str) -> String {
 pub async fn setup_db(namespace: &str) -> Result<Surreal<Client>> {
     let namespace = generate_test_namespace(namespace);
     let db = db::connect("localhost", 8000, &namespace, "test_cases").await?;
-    
+
     // Apply schema to ensure tables exist for tests
     apply_schema(&db).await?;
-    
+
     Ok(db)
 }
 
@@ -53,7 +53,7 @@ pub fn create_test_config(model: NodeModel) -> NodeConfig {
 }
 
 /// Test helper to create a node with a specific model
-/// 
+///
 /// This is a convenience wrapper for tests that handles the config lookup automatically.
 /// Equivalent to the old create_lab_node() but for test use only.
 pub async fn create_test_node_with_model(
@@ -61,18 +61,19 @@ pub async fn create_test_node_with_model(
     name: &str,
     index: u16,
     model: NodeModel,
-    lab: &data::DbLab,
-) -> Result<data::DbNode> {
+    lab: &DbLab,
+) -> Result<DbNode> {
     use db::{create_node, get_node_config_by_model_kind};
-    
+
     // Get the model kind from the NodeModel
     let config_template = NodeConfig::get_model(model.clone());
     let kind = config_template.kind.to_string();
-    
-    let config = get_node_config_by_model_kind(db, &model, &kind).await?
+
+    let config = get_node_config_by_model_kind(db, &model, &kind)
+        .await?
         .expect("Config should exist for this model");
     let config_id = config.id.clone().expect("Config should have an id");
     let lab_id = lab.id.clone().expect("Lab should have an id");
-    
+
     create_node(db, name, index, config_id, lab_id).await
 }

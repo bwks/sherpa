@@ -4,7 +4,7 @@ use db::{
     get_link_by_id, get_link_by_peers, list_links, list_links_by_lab, list_links_by_node,
     count_links, count_links_by_lab, count_links_by_node,
 };
-use data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 

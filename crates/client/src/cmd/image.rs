@@ -5,8 +5,8 @@ use anyhow::Result;
 use clap::Subcommand;
 
 use container::{docker_connection, list_images};
-use data::{NodeModel, Sherpa};
-use util::{
+use shared::data::{NodeModel, Sherpa};
+use shared::util::{
     copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
     term_msg_surround,
 };

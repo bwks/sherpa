@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use data::DbLab;
+use shared::data::DbLab;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 

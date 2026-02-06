@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use data::NodeConfig;
+use shared::data::NodeConfig;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -26,7 +26,7 @@ use crate::helpers::get_config_id;
 /// ```no_run
 /// # use db::{connect, create_node_config, update_node_config};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use data::{NodeModel, NodeConfig};
+/// # use shared::data::{NodeModel, NodeConfig};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// 

@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::NodeModel;
-use util::split_node_int;
+use shared::data::NodeModel;
+use shared::util::split_node_int;
 
 /// Bridge connection in manifest format
 /// Expected format: "node_name::interface_name"

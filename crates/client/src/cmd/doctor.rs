@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use util::{fix_permissions_recursive, term_msg_surround};
+use shared::util::{fix_permissions_recursive, term_msg_surround};
 
 pub fn doctor(boxes: bool, boxes_dir: &str) -> Result<()> {
     if boxes {

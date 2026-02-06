@@ -24,7 +24,7 @@
 //! - Many-to-one with `node` table (link connects two nodes)
 //! - Many-to-one with `lab` table (each link belongs to one lab)
 
-use data::BridgeKind;
+use shared::data::BridgeKind;
 
 use super::helpers::vec_to_str;
 

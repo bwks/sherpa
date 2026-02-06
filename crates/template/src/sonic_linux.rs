@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use askama::Template;
 use serde_json::json;
 
-use data::{NetworkV4, User};
+use shared::data::{NetworkV4, User};
 use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
 
 #[derive(Template)]

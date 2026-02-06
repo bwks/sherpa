@@ -1,7 +1,7 @@
 use askama::Template;
 use std::net::Ipv4Addr;
 
-use data::{Dns, NetworkV4, User};
+use shared::data::{Dns, NetworkV4, User};
 
 #[derive(Template)]
 #[template(path = "arista/arista_veos.jinja", ext = "txt")]

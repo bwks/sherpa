@@ -6,9 +6,9 @@ use serde_derive::{Deserialize, Serialize};
 
 use shared::konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
 
-use util::base64_encode;
+use shared::util::base64_encode;
 
-use data::NetworkV4;
+use shared::data::NetworkV4;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {

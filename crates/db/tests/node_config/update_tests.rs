@@ -1,6 +1,6 @@
 /// UPDATE operation tests for node_config
 use anyhow::Result;
-use data::NodeModel;
+use shared::data::NodeModel;
 use db::{create_node_config, get_node_config_by_id, update_node_config};
 
 use crate::{create_test_config, setup_db, teardown_db};

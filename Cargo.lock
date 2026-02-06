@@ -982,12 +982,10 @@ dependencies = [
  "anyhow",
  "async-compression",
  "bollard",
- "data",
  "futures",
  "futures-util",
  "shared",
  "tokio",
- "util",
 ]
 
 [[package]]
@@ -1215,25 +1213,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "data"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "askama",
- "clap",
- "ipnet",
- "serde",
- "serde_derive",
- "serde_json",
- "shared",
- "strum",
- "strum_macros",
- "surrealdb",
- "thiserror 2.0.17",
- "toml",
-]
-
-[[package]]
 name = "data-encoding"
 version = "2.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1244,7 +1223,6 @@ name = "db"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "data",
  "serde",
  "shared",
  "surrealdb",
@@ -2534,7 +2512,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "shared",
- "util",
  "virt",
 ]
 
@@ -4464,6 +4441,29 @@ dependencies = [
 [[package]]
 name = "shared"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "askama",
+ "base64 0.22.1",
+ "clap",
+ "getifaddrs",
+ "ipnet",
+ "md5",
+ "rand 0.8.5",
+ "reqwest 0.11.27",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "sha2",
+ "shellexpand",
+ "ssh-key",
+ "strum",
+ "strum_macros",
+ "surrealdb",
+ "thiserror 2.0.17",
+ "toml",
+ "twox-hash",
+]
 
 [[package]]
 name = "shellexpand"
@@ -4483,7 +4483,6 @@ dependencies = [
  "async-compression",
  "clap",
  "container",
- "data",
  "db",
  "futures",
  "futures-util",
@@ -4503,7 +4502,6 @@ dependencies = [
  "toml",
  "toml_edit 0.22.27",
  "topology",
- "util",
  "validate",
  "virt",
 ]
@@ -4518,7 +4516,6 @@ dependencies = [
  "axum",
  "clap",
  "container",
- "data",
  "futures",
  "futures-util",
  "libvirt",
@@ -4538,7 +4535,6 @@ dependencies = [
  "topology",
  "tracing",
  "tracing-subscriber",
- "util",
  "validate",
  "virt",
 ]
@@ -5052,7 +5048,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "askama",
- "data",
  "ipnet",
  "serde",
  "serde_derive",
@@ -5060,7 +5055,6 @@ dependencies = [
  "serde_yaml",
  "shared",
  "topology",
- "util",
 ]
 
 [[package]]
@@ -5353,13 +5347,12 @@ name = "topology"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "data",
  "petname",
  "serde",
  "serde_derive",
+ "shared",
  "toml",
  "toml_edit 0.22.27",
- "util",
 ]
 
 [[package]]
@@ -5638,26 +5631,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
-name = "util"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "data",
- "getifaddrs",
- "ipnet",
- "md5",
- "rand 0.8.5",
- "reqwest 0.11.27",
- "sha2",
- "shared",
- "shellexpand",
- "ssh-key",
- "toml",
- "twox-hash",
-]
-
-[[package]]
 name = "uuid"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5674,7 +5647,7 @@ name = "validate"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "data",
+ "shared",
  "topology",
 ]
 

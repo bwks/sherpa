@@ -1,5 +1,5 @@
 use anyhow::Result;
-use data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel};
 use db::{
     count_labs, create_lab, create_node_config, create_user, delete_lab,
     delete_lab_by_id, delete_lab_cascade, delete_lab_safe, get_lab,

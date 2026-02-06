@@ -5,7 +5,7 @@ use virt::storage_vol::StorageVol;
 
 use shared::konst::SHERPA_STORAGE_POOL;
 use libvirt::Qemu;
-use util::term_msg_surround;
+use shared::util::term_msg_surround;
 
 pub fn clean(qemu: &Qemu, all: bool, disks: bool, networks: bool, lab_id: &str) -> Result<()> {
     if all {

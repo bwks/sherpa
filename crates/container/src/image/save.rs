@@ -3,7 +3,7 @@ use std::process::Command;
 use anyhow::Result;
 
 use shared::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
-use util::{create_dir, dir_exists};
+use shared::util::{create_dir, dir_exists};
 
 /// Save a local container image the ".tmp/" directory.
 pub fn save_container_image(image: &str, version: &str) -> Result<()> {

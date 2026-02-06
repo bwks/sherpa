@@ -2,7 +2,7 @@ use anyhow::Result;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
-use data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel};
 
 use crate::node_config::upsert_node_config;
 

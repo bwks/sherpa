@@ -1,4 +1,4 @@
-use shared::konst::BASE_PORT;
+use crate::konst::BASE_PORT;
 
 /// Returns a high port number based from id
 pub fn id_to_port(id: u8) -> u16 {

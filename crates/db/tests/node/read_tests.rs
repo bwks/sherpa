@@ -3,7 +3,7 @@ use db::{
     count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_config, create_user,
     get_node, get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab,
 };
-use data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel};
 
 use crate::helper::{setup_db, teardown_db};
 

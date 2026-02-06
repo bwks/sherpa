@@ -1,5 +1,5 @@
 use anyhow::{Result, anyhow};
-use data::{DbLab, DbNode, DbUser, NodeConfig, RecordId};
+use shared::data::{DbLab, DbNode, DbUser, NodeConfig, RecordId};
 
 /// Get a user's id from a user record.
 pub fn get_user_id(user: &DbUser) -> Result<RecordId> {

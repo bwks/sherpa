@@ -1,10 +1,9 @@
 /// DELETE operation tests for node_config
 use anyhow::Result;
-use data::{DbUser, NodeModel};
 use db::{
-    count_node_configs, create_lab, create_node_config, delete_node_config,
-    get_node_config_by_id,
+    count_node_configs, create_lab, create_node_config, delete_node_config, get_node_config_by_id,
 };
+use shared::data::{DbUser, NodeModel};
 
 use crate::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
 
@@ -126,7 +125,8 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         .expect("Created config should have ID");
 
     // Create a node that references this config
-    let node = create_test_node_with_model(&db, "win-server-01", 1, NodeModel::WindowsServer, &lab).await?;
+    let node = create_test_node_with_model(&db, "win-server-01", 1, NodeModel::WindowsServer, &lab)
+        .await?;
 
     // Verify the node references our config
     assert_eq!(

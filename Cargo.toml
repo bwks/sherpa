@@ -10,12 +10,10 @@ resolver = "3"
 members = [
   "crates/client",
   "crates/container",
-  "crates/data",
   "crates/libvirt",
   "crates/server",
   "crates/template",
   "crates/topology",
-  "crates/util",
   "crates/validate",
   "crates/network",
   "crates/db",

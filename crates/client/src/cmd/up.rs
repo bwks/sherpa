@@ -5,19 +5,19 @@ use askama::Template;
 use container::{
     create_docker_bridge_network, create_docker_macvlan_network, docker_connection, run_container,
 };
-use data::{
-    BridgeInterface, BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection,
-    InterfaceData, InterfaceState, LabInfo, LabLinkData, LabNodeData, NetworkV4, NodeConnection,
-    NodeDisk, NodeInterface, NodeKind, NodeModel, NodeSetupData, OsVariant, PeerInterface,
-    PeerSide, QemuCommand, RecordId, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
-};
 use db::{
     connect, create_bridge as create_db_bridge, create_lab, create_link, create_node,
     get_config_id, get_lab, get_lab_id, get_node_id, get_user, list_node_configs,
 };
 use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
 use network::{create_bridge, create_veth_pair, enslave_to_bridge};
+use shared::data::{
+    BridgeInterface, BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection,
+    InterfaceData, InterfaceState, LabInfo, LabLinkData, LabNodeData, NetworkV4, NodeConfig,
+    NodeConnection, NodeDisk, NodeInterface, NodeKind, NodeModel, NodeSetupData, OsVariant,
+    PeerInterface, PeerSide, QemuCommand, RecordId, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
+};
 use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -35,6 +35,14 @@ use shared::konst::{
     SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
+};
+use shared::util::{
+    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
+    create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
+    get_free_subnet, get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port,
+    interface_from_idx, interface_to_idx, load_config, load_file, parse_interface_kind,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, split_node_int,
+    term_msg_surround, term_msg_underline,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -54,14 +62,6 @@ use template::{
 use topology::{
     BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed, LinkDetailed, LinkExpanded,
     Manifest, Node, VolumeMount,
-};
-use util::{
-    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
-    get_free_subnet, get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port,
-    interface_from_idx, interface_to_idx, load_config, load_file, parse_interface_kind,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, split_node_int,
-    term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
@@ -156,9 +156,8 @@ pub async fn up(
     // Create two HashMaps:
     // 1. By model only (for validation and pyats - uses first config found for each model)
     // 2. By (model, kind) tuple (for creation - precise lookup)
-    let mut node_config_by_model: HashMap<NodeModel, data::NodeConfig> = HashMap::new();
-    let mut node_config_map: HashMap<(NodeModel, data::NodeKind), data::NodeConfig> =
-        HashMap::new();
+    let mut node_config_by_model: HashMap<NodeModel, NodeConfig> = HashMap::new();
+    let mut node_config_map: HashMap<(NodeModel, NodeKind), NodeConfig> = HashMap::new();
 
     for nc in node_configs_list {
         node_config_by_model

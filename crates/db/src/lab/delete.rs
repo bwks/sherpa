@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use data::{DbLab, DbLink, DbNode, RecordId};
+use shared::data::{DbLab, DbLink, DbNode, RecordId};
 use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
 
@@ -62,7 +62,7 @@ pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_lab_by_id};
-/// # use data::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;

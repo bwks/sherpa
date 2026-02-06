@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use data::{NodeConfig, RecordId};
+use shared::data::{NodeConfig, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -25,7 +25,7 @@ use surrealdb::engine::remote::ws::Client;
 /// ```no_run
 /// # use db::{connect, create_node_config, delete_node_config};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use data::{NodeModel, NodeConfig};
+/// # use shared::data::{NodeModel, NodeConfig};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// 

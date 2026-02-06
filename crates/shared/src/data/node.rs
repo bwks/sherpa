@@ -11,7 +11,7 @@ use strum_macros::EnumIter;
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
-use shared::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
+use crate::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
 #[derive(
     Default, PartialEq, Eq, Hash, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter,

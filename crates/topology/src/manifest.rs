@@ -7,8 +7,8 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
-use data::{ConfigurationManagement, NodeModel, ZtpServer};
-use util::load_file as load_file_util;
+use shared::data::{ConfigurationManagement, NodeModel, ZtpServer};
+use shared::util::load_file as load_file_util;
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {

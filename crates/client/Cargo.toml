@@ -5,9 +5,7 @@ edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
-data = { path = "../data" }
 container = { path = "../container" }
-util = { path = "../util" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }

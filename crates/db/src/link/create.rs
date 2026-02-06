@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use data::{BridgeKind, DbLink, RecordId};
+use shared::data::{BridgeKind, DbLink, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -34,7 +34,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_link};
-/// # use data::BridgeKind;
+/// # use shared::data::BridgeKind;
 /// # use surrealdb::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use data::{NodeConfig, NodeModel, ZtpRecord};
+use shared::data::{NodeConfig, NodeModel, ZtpRecord};
 use topology::Manifest;
 
 #[derive(Debug, Serialize, Deserialize)]

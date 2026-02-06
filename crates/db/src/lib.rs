@@ -10,7 +10,7 @@ pub mod seed;
 pub mod user;
 
 pub use connect::connect;
-pub use data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
+pub use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
 // Helper functions for extracting IDs safely
 pub use helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use data::Sherpa;
+use shared::data::Sherpa;
 use db::{apply_schema, connect, list_node_configs, seed_node_configs};
 use shared::konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
@@ -10,7 +10,7 @@ use shared::konst::{
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use ssh_key::Algorithm;
 use topology::Manifest;
-use util::{
+use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
     term_msg_highlight, term_msg_surround, term_msg_underline,
 };
