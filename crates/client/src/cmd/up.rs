@@ -77,6 +77,43 @@ fn find_bridge_interface(
     None
 }
 
+fn process_manifest_links(
+    manifest_links: &Option<Vec<topology::Link2>>,
+    manifest_nodes: &Vec<topology::Node>,
+) -> Result<Vec<topology::LinkDetailed>> {
+    let manifest_links = manifest_links.clone().unwrap_or_default();
+    // links from manifest links
+    let links = manifest_links
+        .iter()
+        .map(|x: &topology::Link2| x.expand())
+        .collect::<Result<Vec<topology::LinkExpanded>>>()?;
+
+    let mut links_detailed = vec![];
+    for (link_idx, link) in links.iter().enumerate() {
+        let mut this_link = topology::LinkDetailed::default();
+        for device in manifest_nodes.iter() {
+            let device_model = device.model.clone();
+            if link.node_a == device.name {
+                let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
+                this_link.node_a = device.name.clone();
+                this_link.node_a_model = device_model;
+                this_link.int_a = link.int_a.clone();
+                this_link.int_a_idx = int_idx;
+                this_link.link_idx = link_idx as u16
+            } else if link.node_b == device.name {
+                let int_idx = util::interface_to_idx(&device_model, &link.int_b)?;
+                this_link.node_b = device.name.clone();
+                this_link.node_b_model = device_model;
+                this_link.int_b = link.int_b.clone();
+                this_link.int_b_idx = int_idx;
+                this_link.link_idx = link_idx as u16
+            }
+        }
+        links_detailed.push(this_link)
+    }
+    Ok(links_detailed)
+}
+
 pub async fn up(
     sherpa: &data::Sherpa,
     qemu: &libvirt::Qemu,
@@ -143,36 +180,7 @@ pub async fn up(
         .map(|x: &topology::Bridge| x.parse_links())
         .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
 
-    let manifest_links = manifest.links.clone().unwrap_or_default();
-    // links from manifest links
-    let links = manifest_links
-        .iter()
-        .map(|x: &topology::Link2| x.expand())
-        .collect::<Result<Vec<topology::LinkExpanded>>>()?;
-
-    let mut links_detailed = vec![];
-    for (link_idx, link) in links.iter().enumerate() {
-        let mut this_link = topology::LinkDetailed::default();
-        for device in manifest.nodes.iter() {
-            let device_model = device.model.clone();
-            if link.node_a == device.name {
-                let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
-                this_link.node_a = device.name.clone();
-                this_link.node_a_model = device_model;
-                this_link.int_a = link.int_a.clone();
-                this_link.int_a_idx = int_idx;
-                this_link.link_idx = link_idx as u16
-            } else if link.node_b == device.name {
-                let int_idx = util::interface_to_idx(&device_model, &link.int_b)?;
-                this_link.node_b = device.name.clone();
-                this_link.node_b_model = device_model;
-                this_link.int_b = link.int_b.clone();
-                this_link.int_b_idx = int_idx;
-                this_link.link_idx = link_idx as u16
-            }
-        }
-        links_detailed.push(this_link)
-    }
+    let links_detailed = process_manifest_links(&manifest.links, &manifest.nodes)?;
 
     /*
             pub struct BridgeExpanded {
@@ -227,9 +235,9 @@ pub async fn up(
     }
 
     // Connection Validators
-    if !links.is_empty() {
+    if !links_detailed.is_empty() {
         validate::check_duplicate_interface_link(&links_detailed)?;
-        validate::check_link_device(&manifest.nodes, &links)?;
+        validate::check_link_device(&manifest.nodes, &links_detailed)?;
     };
 
     println!("Manifest Ok");

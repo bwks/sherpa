@@ -61,7 +61,7 @@ fn check_device_interface(
 }
 
 /// Check devices defined in links are defined as top level devices
-pub fn check_link_device(devices: &[Node], links: &Vec<LinkExpanded>) -> Result<()> {
+pub fn check_link_device(devices: &[Node], links: &Vec<LinkDetailed>) -> Result<()> {
     let unique_devices: Vec<String> = devices.iter().map(|d| d.name.clone()).collect();
     let mut unique_device_link: HashSet<String> = HashSet::new();
     for link in links {
