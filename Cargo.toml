@@ -9,7 +9,6 @@ opt-level = 3
 resolver = "3"
 members = [
   "crates/client",
-  "crates/konst",
   "crates/container",
   "crates/data",
   "crates/libvirt",
@@ -20,5 +19,6 @@ members = [
   "crates/validate",
   "crates/network",
   "crates/db",
+  "crates/shared",
 ]
 default-members = ["crates/client"]

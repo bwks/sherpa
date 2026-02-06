@@ -6,7 +6,50 @@ use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{BridgeKind, DbNode, NodeKind, NodeModel};
+use super::{BridgeKind, DbNode, InterfaceKind, NodeKind, NodeModel};
+
+#[derive(Clone, Debug)]
+pub enum PeerSide {
+    A,
+    B,
+}
+
+#[derive(Clone, Debug)]
+pub struct PeerInterface {
+    pub node: String,
+    pub interface: InterfaceKind,
+    pub index: u8,
+    pub side: PeerSide,
+}
+
+#[derive(Clone, Debug)]
+pub struct BridgeInterface {
+    pub name: String,
+}
+
+#[derive(Clone, Debug)]
+pub enum InterfaceState {
+    Enabled,
+    Disabled,
+}
+
+#[derive(Clone, Debug)]
+pub enum NodeInterface {
+    Management,
+    Reserved,
+    Disabled,
+    Peer(PeerInterface),
+    Bridge(BridgeInterface),
+}
+
+#[derive(Clone, Debug)]
+pub struct InterfaceData {
+    pub name: String,
+    pub kind: InterfaceKind,
+    pub index: u8,
+    pub state: InterfaceState,
+    pub data: NodeInterface,
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct LabInfo {
@@ -40,13 +83,14 @@ pub struct LabNodeData {
     pub record: DbNode,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct NodeSetupData {
     pub name: String,
     pub index: u16,
     pub management_network: String,
     pub isolated_network: Option<String>,
     pub reserved_network: Option<String>,
+    pub interfaces: Vec<InterfaceData>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

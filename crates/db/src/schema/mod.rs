@@ -21,7 +21,7 @@
 //!
 //! ```no_run
 //! use db::{connect, apply_schema};
-//! use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+//! use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {

@@ -4,7 +4,7 @@ use anyhow::{Result, anyhow};
 
 use super::ssh::get_ssh_public_key;
 use data::User;
-use konst::{
+use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_PASSWORD, SHERPA_SSH_DIR, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
 };
 

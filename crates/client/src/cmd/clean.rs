@@ -3,7 +3,7 @@ use anyhow::Result;
 use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 
-use konst::SHERPA_STORAGE_POOL;
+use shared::konst::SHERPA_STORAGE_POOL;
 use libvirt::Qemu;
 use util::term_msg_surround;
 

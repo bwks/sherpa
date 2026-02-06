@@ -1,7 +1,7 @@
 use askama::Template;
 
 use data::ZtpRecord;
-use konst::{
+use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_DOMAIN_NAME, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE,
     SHERPA_USERNAME,
 };

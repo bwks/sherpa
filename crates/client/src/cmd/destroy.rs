@@ -8,7 +8,7 @@ use container::{
     delete_network, docker_connection, kill_container, list_containers, list_networks,
 };
 use db::{connect, delete_lab, delete_lab_links, delete_lab_nodes};
-use konst::{
+use shared::konst::{
     BRIDGE_PREFIX, SHERPA_BASE_DIR, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
     SHERPA_DB_SERVER, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
 };
@@ -91,6 +91,7 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
     for interface in lab_intefaces {
         if interface.starts_with(&format!("{}a", BRIDGE_PREFIX))
             || interface.starts_with(&format!("{}b", BRIDGE_PREFIX))
+            || interface.starts_with(&format!("{}i", BRIDGE_PREFIX))
             || interface.starts_with(&format!("{}a", VETH_PREFIX))
         {
             delete_interface(&interface).await?;

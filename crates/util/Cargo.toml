@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 data = { path = "../data" }
-konst = { path = "../konst" }
+shared = { path = "../shared" }
 
 toml = "0.8.19"
 

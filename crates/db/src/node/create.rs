@@ -27,7 +27,7 @@ use surrealdb::{RecordId, Surreal};
 ///
 /// ```ignore
 /// use db::{create_node, connect};
-/// use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// use surrealdb::RecordId;
 ///
 /// # async fn example() -> anyhow::Result<()> {

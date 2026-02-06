@@ -6,7 +6,7 @@ use serde_json;
 use virt::storage_pool::StoragePool;
 
 use data::{Config, LabInfo, NodeModel};
-use konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
+use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use libvirt::Qemu;
 use topology::Node;
 use util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};

@@ -11,7 +11,7 @@ use strum_macros::EnumIter;
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
-use konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
+use shared::konst::{MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
 #[derive(
     Default, PartialEq, Eq, Hash, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
@@ -602,7 +602,7 @@ impl NodeConfig {
             ztp_password: None,
             ztp_method: ZtpMethod::None,
             ztp_password_auth: false,
-            first_interface_index: 0,
+            first_interface_index: 1,
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
@@ -666,11 +666,11 @@ impl NodeConfig {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethod::Cdrom,
+            ztp_method: ZtpMethod::None,
             ztp_password_auth: false,
-            first_interface_index: 0,
+            first_interface_index: 1,
             dedicated_management_interface: true,
-            management_interface: MgmtInterfaces::Management0_0,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }
     }

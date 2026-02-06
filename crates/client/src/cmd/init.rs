@@ -1,7 +1,7 @@
 use anyhow::Result;
 use data::Sherpa;
 use db::{apply_schema, connect, list_node_configs, seed_node_configs};
-use konst::{
+use shared::konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_MANIFEST_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,

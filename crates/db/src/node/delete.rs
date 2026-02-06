@@ -25,7 +25,7 @@ use crate::node::read::get_node;
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_node};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
@@ -78,7 +78,7 @@ pub async fn delete_node_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()>
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_nodes_by_lab};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
@@ -114,7 +114,7 @@ pub async fn delete_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Resu
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_node_links};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
@@ -154,7 +154,7 @@ pub async fn delete_node_links(db: &Surreal<Client>, node_id: RecordId) -> Resul
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_node_cascade};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
@@ -192,7 +192,7 @@ pub async fn delete_node_cascade(db: &Surreal<Client>, id: RecordId) -> Result<(
 /// # Example
 /// ```no_run
 /// # use db::{connect, delete_node_safe};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use surrealdb::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;

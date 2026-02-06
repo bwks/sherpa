@@ -5,7 +5,7 @@ use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
-use konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
+use shared::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {

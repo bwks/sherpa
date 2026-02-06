@@ -15,7 +15,7 @@ interface Management0/0
 hostname {{ hostname }}
 !
 username enable_1 privilege 15
-enable password {{ konst::SHERPA_PASSWORD }}
+enable password {{ shared::konst::SHERPA_PASSWORD }}
 username {{ user.username }} privilege 15
 {%- if let Some(password) = user.password %} 
 username {{ user.username }} password {{ password }}

@@ -4,6 +4,7 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
+use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
 use data::{ConfigurationManagement, NodeModel, ZtpServer};
@@ -14,7 +15,7 @@ pub struct Manifest {
     pub name: String,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
-    pub bridges: Option<Vec<Vec<String>>>,
+    pub bridges: Option<Vec<Bridge>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ztp_server: Option<ZtpServer>,

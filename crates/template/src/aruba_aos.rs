@@ -3,7 +3,7 @@ use std::net::Ipv4Addr;
 use askama::Template;
 
 use data::{Dns, NetworkV4, User};
-use konst::SHERPA_PASSWORD;
+use shared::konst::SHERPA_PASSWORD;
 
 #[derive(Template)]
 #[template(path = "aruba/aruba_aoscx.jinja", ext = "txt")]

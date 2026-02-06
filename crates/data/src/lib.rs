@@ -29,7 +29,10 @@ pub use interface::{
     InterfaceTrait, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
     MgmtInterfaces,
 };
-pub use lab::{BridgeConnection, LabBridgeData, LabInfo, LabLinkData, LabNodeData, NodeSetupData};
+pub use lab::{
+    BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabInfo,
+    LabLinkData, LabNodeData, NodeInterface, NodeSetupData, PeerInterface, PeerSide,
+};
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, NetworkV4, SherpaNetwork};
 pub use node::{

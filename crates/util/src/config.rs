@@ -7,7 +7,7 @@ use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
 use data::{Config, ConfigurationManagement, ContainerImage, VmProviders, ZtpServer};
-use konst::{
+use shared::konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };

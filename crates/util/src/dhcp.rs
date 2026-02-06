@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use super::get_ipv4_addr;
 use data::{Config, DhcpLease};
-use konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_IP_INDEX};
+use shared::konst::{DHCP_LEASES_FILE, DHCP_URI_DIR, HTTP_PORT, SHERPA_MANAGEMENT_IP_INDEX};
 
 pub async fn get_dhcp_leases(config: &Config) -> Result<Vec<DhcpLease>> {
     let lab_router = get_ipv4_addr(&config.management_prefix_ipv4, SHERPA_MANAGEMENT_IP_INDEX)?;

@@ -18,7 +18,7 @@ use super::up::up;
 use super::virtual_machine::VirtualMachineCommands;
 
 use data::Sherpa;
-use konst::{
+use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
 };

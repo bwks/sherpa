@@ -6,16 +6,19 @@ use container::{
     create_docker_bridge_network, create_docker_macvlan_network, docker_connection, run_container,
 };
 use data::{
-    BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses, DiskDevices,
-    DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection, LabInfo, LabLinkData,
-    LabNodeData, NetworkV4, NodeConnection, NodeDisk, NodeKind, NodeModel, NodeSetupData,
-    OsVariant, QemuCommand, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
+    BridgeInterface, BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses,
+    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection,
+    InterfaceData, InterfaceState, LabInfo, LabLinkData, LabNodeData, NetworkV4, NodeConnection,
+    NodeDisk, NodeInterface, NodeKind, NodeModel, NodeSetupData, OsVariant, PeerInterface,
+    PeerSide, QemuCommand, RecordId, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
 };
 use db::{
-    connect, create_lab, create_link, create_node, get_config_id, get_lab, get_lab_id, get_node_id,
-    get_user, list_node_configs,
+    connect, create_bridge as create_db_bridge, create_lab, create_link, create_node,
+    get_config_id, get_lab, get_lab_id, get_node_id, get_user, list_node_configs,
 };
-use konst::{
+use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
+use network::{create_bridge, create_veth_pair, enslave_to_bridge};
+use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
@@ -33,8 +36,6 @@ use konst::{
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
-use network::{create_bridge, create_veth_pair, enslave_to_bridge};
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::thread;
@@ -50,18 +51,63 @@ use template::{
     JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp, SshConfigTemplate,
     Unit as IgnitionUnit, User as IgnitionUser,
 };
-use topology::{LinkDetailed, LinkExpanded, Manifest, Node, VolumeMount};
+use topology::{
+    BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed, LinkDetailed, LinkExpanded,
+    Manifest, Node, VolumeMount,
+};
 use util::{
     base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
     create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
     get_free_subnet, get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port,
-    interface_from_idx, interface_to_idx, load_config, load_file, pub_ssh_key_to_md5_hash,
-    pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, term_msg_surround, term_msg_underline,
+    interface_from_idx, interface_to_idx, load_config, load_file, parse_interface_kind,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, split_node_int,
+    term_msg_surround, term_msg_underline,
 };
 use validate::{
     check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
     check_link_device, check_mgmt_usage, tcp_connect,
 };
+
+fn find_interface_link(
+    node_name: &str,
+    interface_idx: u8,
+    links_detailed: &Vec<LinkDetailed>,
+) -> Option<(usize, String, NodeModel, u8, PeerSide)> {
+    for link in links_detailed {
+        if link.node_a == node_name && link.int_a_idx == interface_idx {
+            return Some((
+                link.link_idx as usize,
+                link.node_b.clone(),
+                link.node_b_model.clone(),
+                link.int_b_idx,
+                PeerSide::A,
+            ));
+        }
+        if link.node_b == node_name && link.int_b_idx == interface_idx {
+            return Some((
+                link.link_idx as usize,
+                link.node_a.clone(),
+                link.node_a_model.clone(),
+                link.int_a_idx,
+                PeerSide::B,
+            ));
+        }
+    }
+    None
+}
+
+fn find_bridge_interface(
+    node_name: &str,
+    interface_idx: u8,
+    bridge_connections: &Vec<BridgeLinkDetailed>,
+) -> Option<u8> {
+    for (bridge_idx, conn) in bridge_connections.iter().enumerate() {
+        if conn.node_name == node_name && conn.interface_index == interface_idx {
+            return Some(bridge_idx as u8);
+        }
+    }
+    None
+}
 
 pub async fn up(
     sherpa: &Sherpa,
@@ -122,8 +168,14 @@ pub async fn up(
     }
 
     term_msg_underline("Validating Manifest");
-    let manifest_links = manifest.links.clone().unwrap_or_default();
 
+    let manifest_bridges = manifest.bridges.clone().unwrap_or_default();
+    let bridges = manifest_bridges
+        .iter()
+        .map(|x| x.parse_links())
+        .collect::<Result<Vec<BridgeExpanded>>>()?;
+
+    let manifest_links = manifest.links.clone().unwrap_or_default();
     // links from manifest links
     let links = manifest_links
         .iter()
@@ -152,6 +204,31 @@ pub async fn up(
             }
         }
         links_detailed.push(this_link)
+    }
+
+    /*
+            pub struct BridgeExpanded {
+                pub name: String,
+                pub links: Vec<BridgeLink>,
+            }
+            pub struct BridgeLink {
+                pub node: String,
+                pub interface: String,
+        }
+    */
+    let mut bridges_detailed: Vec<BridgeLinkDetailed> = vec![];
+    for bridge in bridges.iter() {
+        for link in bridge.links.iter() {
+            if let Some(node) = manifest.nodes.iter().find(|n| n.name == link.node) {
+                let interface_idx = interface_to_idx(&node.model, &link.interface)?;
+                bridges_detailed.push(BridgeLinkDetailed {
+                    node_name: link.node.clone(),
+                    node_model: node.model.clone(),
+                    interface_name: link.interface.clone(),
+                    interface_index: interface_idx,
+                });
+            }
+        }
     }
 
     // Device Validators
@@ -233,6 +310,83 @@ pub async fn up(
                 )
             })?;
 
+        // Process nodes to build a vector of a nodes links
+        let mut node_interfaces: Vec<InterfaceData> = vec![];
+
+        // For each interface type of a node, add an entry to the node_interfaces vector.
+        // The first interface is always the  management interface if there is a dedicated mgmt or first interface if not.
+        // Then add reserved interfaces if the node has them
+        // Then if the interface is a p2p peer
+        // Then if the interface is connected to a bridge
+        // Else The interface is disabled.
+
+        // Determine management interface index
+        let mgmt_interface_idx = if node_config.dedicated_management_interface {
+            // Dedicated management doesn't participate in numbering
+            255 // Using 255 as sentinel value for dedicated mgmt
+        } else {
+            node_config.first_interface_index
+        };
+
+        // Populate interface vector for all interfaces
+        for interface_idx in node_config.first_interface_index..node_config.interface_count {
+            // Get interface name for this index
+            let interface_name = interface_from_idx(&node_data.model, interface_idx)?;
+
+            // Parse interface kind
+            let interface_kind = parse_interface_kind(&node_data.model, &interface_name)?;
+
+            // Determine interface type and state
+            let (interface_data, interface_state) = if !node_config.dedicated_management_interface
+                && interface_idx == mgmt_interface_idx
+            {
+                // This is the management interface (only for non-dedicated management)
+                (NodeInterface::Management, InterfaceState::Enabled)
+            } else if interface_idx
+                < (node_config.first_interface_index + node_config.reserved_interface_count)
+            {
+                // This is a reserved interface
+                (NodeInterface::Reserved, InterfaceState::Enabled)
+            } else if let Some((_link_idx, peer_node, peer_model, peer_int_idx, side)) =
+                find_interface_link(&node.name, interface_idx, &links_detailed)
+            {
+                // This interface is part of a P2P link
+                // Use interface_to_idx to get the peer's actual interface string name, then parse
+                let peer_interface_name = interface_from_idx(&peer_model, peer_int_idx)?;
+                let peer_interface_kind = parse_interface_kind(&peer_model, &peer_interface_name)?;
+
+                let peer_interface = PeerInterface {
+                    node: peer_node,
+                    interface: peer_interface_kind,
+                    index: peer_int_idx,
+                    side,
+                };
+                (NodeInterface::Peer(peer_interface), InterfaceState::Enabled)
+            } else if let Some(bridge_idx) =
+                find_bridge_interface(&node.name, interface_idx, &bridges_detailed)
+            {
+                // This interface is connected to a shared bridge
+                let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id);
+                let bridge_interface = BridgeInterface { name: bridge_name };
+                (
+                    NodeInterface::Bridge(bridge_interface),
+                    InterfaceState::Enabled,
+                )
+            } else {
+                // This interface is disabled
+                (NodeInterface::Disabled, InterfaceState::Disabled)
+            };
+
+            // Create and add InterfaceData
+            node_interfaces.push(InterfaceData {
+                name: interface_name,
+                kind: interface_kind,
+                index: interface_idx,
+                state: interface_state,
+                data: interface_data,
+            });
+        }
+
         let lab_node = create_node(
             &db,
             &node.name,
@@ -307,6 +461,7 @@ pub async fn up(
             management_network: management_network.clone(),
             isolated_network,
             reserved_network,
+            interfaces: node_interfaces,
         });
     }
 
@@ -475,6 +630,55 @@ pub async fn up(
                 .await?;
         }
     }
+
+    /*
+    pub struct BridgeLinkDetailed {
+        pub node_name: String,
+        pub node_model: NodeModel,
+        pub interface_name: String,
+        pub interface_index: u8,
+    }
+    pub struct BridgeExpanded {
+        pub name: String,
+        pub links: Vec<BridgeLink>,
+    }
+            */
+    // Create shared bridges for multi-host connections
+    for (idx, bridge) in bridges.iter().enumerate() {
+        term_msg_underline("Creating Shared Bridges");
+        let mut bridge_nodes = vec![];
+        let bridge_index = idx as u16;
+        let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
+        let network_name = format!("sherpa-bridge{}-{}-{}", bridge_index, bridge.name, lab_id);
+
+        println!(
+            "Creating shared bridge #{} - {} ({} connections)",
+            bridge_index,
+            bridge_name,
+            bridge.links.len()
+        );
+
+        create_bridge(&bridge_name, &network_name).await?;
+
+        for link in bridge.links.iter() {
+            if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node) {
+                bridge_nodes.push(get_node_id(&node_data.record)?);
+            }
+        }
+        // Create bridge record in database
+        create_db_bridge(
+            &db,
+            bridge_index,
+            bridge_name,
+            network_name,
+            lab_record_id.clone(),
+            bridge_nodes,
+        )
+        .await?;
+    }
+
+    // println!("NODE DATA: \n{:#?}", node_setup_data);
+    println!("BRIDGE DATA: \n{:#?}", bridges_detailed);
 
     term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {

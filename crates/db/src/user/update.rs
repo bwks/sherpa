@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use data::DbUser;
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::helpers::get_user_id;
 
@@ -29,18 +29,18 @@ use crate::helpers::get_user_id;
 /// # Example
 /// ```no_run
 /// # use db::{connect, create_user, update_user};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// // Create a user
 /// let user = create_user(&db, "alice".to_string(), vec![]).await?;
-/// 
+///
 /// // Update the user
 /// let mut updated_user = user.clone();
 /// updated_user.ssh_keys = vec!["ssh-rsa AAAA...".to_string()];
 /// let result = update_user(&db, updated_user).await?;
-/// 
+///
 /// assert_eq!(result.ssh_keys.len(), 1);
 /// # Ok(())
 /// # }

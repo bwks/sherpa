@@ -2,7 +2,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
+use shared::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use util::{create_dir, dir_exists};
 
 /// Save a local container image the ".tmp/" directory.

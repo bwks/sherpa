@@ -4,7 +4,7 @@ use askama::Template;
 use serde_json::json;
 
 use data::{NetworkV4, User};
-use konst::{NODE_CONFIGS_DIR, HTTP_PORT};
+use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]

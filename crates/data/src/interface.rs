@@ -122,8 +122,6 @@ pub enum MgmtInterfaces {
     Management1, // Management1 - eos
     #[serde(rename = "MgmtEth0/RP0/CPU0/0")]
     MgmtEth0Rp0Cpu0_0, // MgmtEth0/RP0/CPU0/0 - xr9kv
-    #[serde(rename = "Vlan1")]
-    Vlan1, // Vlan1 - iosvl2
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -139,7 +137,6 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::Management1 => write!(f, "Management1"),
             MgmtInterfaces::Management0_0 => write!(f, "Management0/0"),
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
-            MgmtInterfaces::Vlan1 => write!(f, "Vlan1"),
         }
     }
 }
@@ -175,12 +172,15 @@ pub enum InterfaceKind {
     Ethernet(EthernetInt),
     ArubaAoscx(ArubaAoscxInt),
     AristaVeos(AristaVeosInt),
+    AristaCeos(AristaCeosInt),
     CiscoIosv(CiscoIosvInt),
     CiscoIosvl2(CiscoIosvl2Int),
     CiscoAsav(CiscoAsavInt),
+    CiscoFtdv(CiscoFtdvInt),
     CiscoCsr1000v(CiscoCsr1000vInt),
     CiscoCat8000v(CiscoCat8000vInt),
     CiscoCat9000v(CiscoCat9000vInt),
+    CiscoIosxrv9000(CiscoIosxrv9000Int),
     CiscoNexus9000v(CiscoNexus9300vInt),
     JuniperVrouter(JuniperVrouterInt),
     JuniperVswitch(JuniperVswitchInt),
@@ -193,6 +193,7 @@ interface_enum!(
     ArubaAoscxInt,
     "ArubaAoscx",
     [
+        Mgmt => 0, "mgmt",
         E1_1_1 => 1, "1/1/1",
         E1_1_2 => 2, "1/1/2",
         E1_1_3 => 3, "1/1/3",
@@ -312,6 +313,7 @@ interface_enum!(
     CumulusLinuxInt,
     "CumulusLinuxInt",
     [
+        Eth0 => 0, "eth0",
         Swp1 => 1, "swp1",
         Swp2 => 2, "swp2",
         Swp3 => 3, "swp3",
@@ -371,6 +373,7 @@ interface_enum!(
     AristaVeosInt,
     "AristaVeos",
     [
+        Management1 => 0, "Management1",
         Eth1 => 1, "eth1",
         Eth2 => 2, "eth2",
         Eth3 => 3, "eth3",
@@ -429,6 +432,7 @@ interface_enum!(
     AristaCeosInt,
     "AristaCeos",
     [
+        Management0 => 0, "Management0",
         Eth1 => 1, "eth1",
         Eth2 => 2, "eth2",
         Eth3 => 3, "eth3",
@@ -534,37 +538,38 @@ interface_enum!(
     CiscoIosxrv9000Int,
     "CiscoIosxrv9000Int",
     [
-        Gig0_0_0_0 => 0, "gig0/0/0/0",
-        Gig0_0_0_1 => 1, "gig0/0/0/1",
-        Gig0_0_0_2 => 2, "gig0/0/0/2",
-        Gig0_0_0_3 => 3, "gig0/0/0/3",
-        Gig0_0_0_4 => 4, "gig0/0/0/4",
-        Gig0_0_0_5 => 5, "gig0/0/0/5",
-        Gig0_0_0_6 => 6, "gig0/0/0/6",
-        Gig0_0_0_7 => 7, "gig0/0/0/7",
-        Gig0_0_0_8 => 8, "gig0/0/0/8",
-        Gig0_0_0_9 => 9, "gig0/0/0/9",
-        Gig0_0_0_10 => 10, "gig0/0/0/10",
-        Gig0_0_0_11 => 11, "gig0/0/0/11",
-        Gig0_0_0_12 => 12, "gig0/0/0/12",
-        Gig0_0_0_13 => 13, "gig0/0/0/13",
-        Gig0_0_0_14 => 14, "gig0/0/0/14",
-        Gig0_0_0_15 => 15, "gig0/0/0/15",
-        Gig0_0_0_16 => 16, "gig0/0/0/16",
-        Gig0_0_0_17 => 17, "gig0/0/0/17",
-        Gig0_0_0_18 => 18, "gig0/0/0/18",
-        Gig0_0_0_19 => 19, "gig0/0/0/19",
-        Gig0_0_0_20 => 20, "gig0/0/0/20",
-        Gig0_0_0_21 => 21, "gig0/0/0/21",
-        Gig0_0_0_22 => 22, "gig0/0/0/22",
-        Gig0_0_0_23 => 23, "gig0/0/0/23",
-        Gig0_0_0_24 => 24, "gig0/0/0/24",
-        Gig0_0_0_25 => 25, "gig0/0/0/25",
-        Gig0_0_0_26 => 26, "gig0/0/0/26",
-        Gig0_0_0_27 => 27, "gig0/0/0/27",
-        Gig0_0_0_28 => 28, "gig0/0/0/28",
-        Gig0_0_0_29 => 29, "gig0/0/0/29",
-        Gig0_0_0_30 => 30, "gig0/0/0/30"
+        MgmtEth0Rp0Cpu0_0 => 0, "MgmtEth0/RP0/CPU0/0",
+        Reserved1 => 1, "reserved1",
+        Reserved2 => 2, "reserved2",
+        Gig0_0_0_0 => 3, "gig0/0/0/0",
+        Gig0_0_0_1 => 4, "gig0/0/0/1",
+        Gig0_0_0_2 => 5, "gig0/0/0/2",
+        Gig0_0_0_3 => 6, "gig0/0/0/3",
+        Gig0_0_0_4 => 7, "gig0/0/0/4",
+        Gig0_0_0_5 => 8, "gig0/0/0/5",
+        Gig0_0_0_6 => 9, "gig0/0/0/6",
+        Gig0_0_0_7 => 10, "gig0/0/0/7",
+        Gig0_0_0_8 => 11, "gig0/0/0/8",
+        Gig0_0_0_9 => 12, "gig0/0/0/9",
+        Gig0_0_0_10 => 13, "gig0/0/0/10",
+        Gig0_0_0_11 => 14, "gig0/0/0/11",
+        Gig0_0_0_12 => 15, "gig0/0/0/12",
+        Gig0_0_0_13 => 16, "gig0/0/0/13",
+        Gig0_0_0_14 => 17, "gig0/0/0/14",
+        Gig0_0_0_15 => 18, "gig0/0/0/15",
+        Gig0_0_0_16 => 19, "gig0/0/0/16",
+        Gig0_0_0_17 => 20, "gig0/0/0/17",
+        Gig0_0_0_18 => 21, "gig0/0/0/18",
+        Gig0_0_0_19 => 22, "gig0/0/0/19",
+        Gig0_0_0_20 => 23, "gig0/0/0/20",
+        Gig0_0_0_21 => 24, "gig0/0/0/21",
+        Gig0_0_0_22 => 25, "gig0/0/0/22",
+        Gig0_0_0_23 => 26, "gig0/0/0/23",
+        Gig0_0_0_24 => 27, "gig0/0/0/24",
+        Gig0_0_0_25 => 28, "gig0/0/0/25",
+        Gig0_0_0_26 => 29, "gig0/0/0/26",
+        Gig0_0_0_27 => 30, "gig0/0/0/27",
+        Gig0_0_0_28 => 31, "gig0/0/0/28"
     ]
 );
 
@@ -572,14 +577,15 @@ interface_enum!(
     CiscoAsavInt,
     "CiscoAsav",
     [
-        Gig0_0 => 0, "gig0/0",
-        Gig0_1 => 1, "gig0/1",
-        Gig0_2 => 2, "gig0/2",
-        Gig0_3 => 3, "gig0/3",
-        Gig0_4 => 4, "gig0/4",
-        Gig0_5 => 5, "gig0/5",
-        Gig0_6 => 6, "gig0/6",
-        Gig0_7 => 7, "gig0/7"
+        Mgmt0 => 0, "Management0/0",
+        Gig0_0 => 1, "gig0/0",
+        Gig0_1 => 2, "gig0/1",
+        Gig0_2 => 3, "gig0/2",
+        Gig0_3 => 4, "gig0/3",
+        Gig0_4 => 5, "gig0/4",
+        Gig0_5 => 6, "gig0/5",
+        Gig0_6 => 7, "gig0/6",
+        Gig0_7 => 8, "gig0/7"
     ]
 );
 
@@ -587,14 +593,16 @@ interface_enum!(
     CiscoFtdvInt,
     "CiscoFtdv",
     [
-        Gig0_0 => 0, "gig0/0",
-        Gig0_1 => 1, "gig0/1",
-        Gig0_2 => 2, "gig0/2",
-        Gig0_3 => 3, "gig0/3",
-        Gig0_4 => 4, "gig0/4",
-        Gig0_5 => 5, "gig0/5",
-        Gig0_6 => 6, "gig0/6",
-        Gig0_7 => 7, "gig0/7"
+        Management0_0 => 0, "Management0/0",
+        Reserved1 => 1, "reserved1",
+        Gig0_0 => 2, "gig0/0",
+        Gig0_1 => 3, "gig0/1",
+        Gig0_2 => 4, "gig0/2",
+        Gig0_3 => 5, "gig0/3",
+        Gig0_4 => 6, "gig0/4",
+        Gig0_5 => 7, "gig0/5",
+        Gig0_6 => 8, "gig0/6",
+        Gig0_7 => 9, "gig0/7"
     ]
 );
 
@@ -602,44 +610,44 @@ interface_enum!(
     CiscoCsr1000vInt,
     "CiscoCsr1000v",
     [
-        Gig1 => 1, "gig1",
-        Gig2 => 2, "gig2",
-        Gig3 => 3, "gig3",
-        Gig4 => 4, "gig4",
-        Gig5 => 5, "gig5",
-        Gig6 => 6, "gig6",
-        Gig7 => 7, "gig7",
-        Gig8 => 8, "gig8",
-        Gig9 => 9, "gig9",
-        Gig10 => 10, "gig10",
-        Gig11 => 11, "gig11",
-        Gig12 => 12, "gig12",
-        Gig13 => 13, "gig13",
-        Gig14 => 14, "gig14",
-        Gig15 => 15, "gig15",
-        Gig16 => 16, "gig16"
+        Gig1 => 0, "gig1",
+        Gig2 => 1, "gig2",
+        Gig3 => 2, "gig3",
+        Gig4 => 3, "gig4",
+        Gig5 => 4, "gig5",
+        Gig6 => 5, "gig6",
+        Gig7 => 6, "gig7",
+        Gig8 => 7, "gig8",
+        Gig9 => 8, "gig9",
+        Gig10 => 9, "gig10",
+        Gig11 => 10, "gig11",
+        Gig12 => 11, "gig12",
+        Gig13 => 12, "gig13",
+        Gig14 => 13, "gig14",
+        Gig15 => 14, "gig15",
+        Gig16 => 15, "gig16"
     ]
 );
 interface_enum!(
     CiscoCat8000vInt,
     "CiscoCat8000v",
     [
-        Gig1 => 1, "gig1",
-        Gig2 => 2, "gig2",
-        Gig3 => 3, "gig3",
-        Gig4 => 4, "gig4",
-        Gig5 => 5, "gig5",
-        Gig6 => 6, "gig6",
-        Gig7 => 7, "gig7",
-        Gig8 => 8, "gig8",
-        Gig9 => 9, "gig9",
-        Gig10 => 10, "gig10",
-        Gig11 => 11, "gig11",
-        Gig12 => 12, "gig12",
-        Gig13 => 13, "gig13",
-        Gig14 => 14, "gig14",
-        Gig15 => 15, "gig15",
-        Gig16 => 16, "gig16"
+        Gig1 => 0, "gig1",
+        Gig2 => 1, "gig2",
+        Gig3 => 2, "gig3",
+        Gig4 => 3, "gig4",
+        Gig5 => 4, "gig5",
+        Gig6 => 5, "gig6",
+        Gig7 => 6, "gig7",
+        Gig8 => 7, "gig8",
+        Gig9 => 8, "gig9",
+        Gig10 => 9, "gig10",
+        Gig11 => 10, "gig11",
+        Gig12 => 11, "gig12",
+        Gig13 => 12, "gig13",
+        Gig14 => 13, "gig14",
+        Gig15 => 14, "gig15",
+        Gig16 => 15, "gig16"
     ]
 );
 
@@ -647,6 +655,7 @@ interface_enum!(
     CiscoCat9000vInt,
     "CiscoCat9000v",
     [
+        Gig0_0_0 => 0, "gig0/0/0",
         Gig0_0_1 => 1, "gig0/0/1",
         Gig0_0_2 => 2, "gig0/0/2",
         Gig0_0_3 => 3, "gig0/0/3",
@@ -662,6 +671,7 @@ interface_enum!(
     CiscoNexus9300vInt,
     "CiscoNexus9300v",
     [
+        Mgmt0 => 0, "mgmt0",
         Eth1_1 => 1, "eth1/1",
         Eth1_2 => 2, "eth1/2",
         Eth1_3 => 3, "eth1/3",
@@ -732,16 +742,17 @@ interface_enum!(
     JuniperVrouterInt,
     "JuniperVrouter",
     [
-        Ge0_0_0 => 0, "ge-0/0/0",
-        Ge0_0_1 => 1, "ge-0/0/1",
-        Ge0_0_2 => 2, "ge-0/0/2",
-        Ge0_0_3 => 3, "ge-0/0/3",
-        Ge0_0_4 => 4, "ge-0/0/4",
-        Ge0_0_5 => 5, "ge-0/0/5",
-        Ge0_0_6 => 6, "ge-0/0/6",
-        Ge0_0_7 => 7, "ge-0/0/7",
-        Ge0_0_8 => 8, "ge-0/0/8",
-        Ge0_0_9 => 9, "ge-0/0/9"
+        Fxp0 => 0, "fxp0",
+        Ge0_0_0 => 1, "ge-0/0/0",
+        Ge0_0_1 => 2, "ge-0/0/1",
+        Ge0_0_2 => 3, "ge-0/0/2",
+        Ge0_0_3 => 4, "ge-0/0/3",
+        Ge0_0_4 => 5, "ge-0/0/4",
+        Ge0_0_5 => 6, "ge-0/0/5",
+        Ge0_0_6 => 7, "ge-0/0/6",
+        Ge0_0_7 => 8, "ge-0/0/7",
+        Ge0_0_8 => 9, "ge-0/0/8",
+        Ge0_0_9 => 10, "ge-0/0/9"
     ]
 );
 
@@ -749,16 +760,17 @@ interface_enum!(
     JuniperVswitchInt,
     "JuniperVswitch",
     [
-        Ge0_0_0 => 0, "ge-0/0/0",
-        Ge0_0_1 => 1, "ge-0/0/1",
-        Ge0_0_2 => 2, "ge-0/0/2",
-        Ge0_0_3 => 3, "ge-0/0/3",
-        Ge0_0_4 => 4, "ge-0/0/4",
-        Ge0_0_5 => 5, "ge-0/0/5",
-        Ge0_0_6 => 6, "ge-0/0/6",
-        Ge0_0_7 => 7, "ge-0/0/7",
-        Ge0_0_8 => 8, "ge-0/0/8",
-        Ge0_0_9 => 9, "ge-0/0/9"
+        Fxp0 => 0, "fxp0",
+        Ge0_0_0 => 1, "ge-0/0/0",
+        Ge0_0_1 => 2, "ge-0/0/1",
+        Ge0_0_2 => 3, "ge-0/0/2",
+        Ge0_0_3 => 4, "ge-0/0/3",
+        Ge0_0_4 => 5, "ge-0/0/4",
+        Ge0_0_5 => 6, "ge-0/0/5",
+        Ge0_0_6 => 7, "ge-0/0/6",
+        Ge0_0_7 => 8, "ge-0/0/7",
+        Ge0_0_8 => 9, "ge-0/0/8",
+        Ge0_0_9 => 10, "ge-0/0/9"
     ]
 );
 
@@ -766,18 +778,19 @@ interface_enum!(
     JuniperVevolvedInt,
     "JuniperVevolved",
     [
-        Et0_0_0 => 0, "et-0/0/0",
-        Et0_0_1 => 1, "et-0/0/1",
-        Et0_0_2 => 2, "et-0/0/2",
-        Et0_0_3 => 3, "et-0/0/3",
-        Et0_0_4 => 4, "et-0/0/4",
-        Et0_0_5 => 5, "et-0/0/5",
-        Et0_0_6 => 6, "et-0/0/6",
-        Et0_0_7 => 7, "et-0/0/7",
-        Et0_0_8 => 8, "et-0/0/8",
-        Et0_0_9 => 9, "et-0/0/9",
-        Et0_0_10 => 10, "et-0/0/10",
-        Et0_0_11 => 11, "et-0/0/11"
+        Re0Mgmt0 => 0, "re0:mgmt-0",
+        Et0_0_0 => 1, "et-0/0/0",
+        Et0_0_1 => 2, "et-0/0/1",
+        Et0_0_2 => 3, "et-0/0/2",
+        Et0_0_3 => 4, "et-0/0/3",
+        Et0_0_4 => 5, "et-0/0/4",
+        Et0_0_5 => 6, "et-0/0/5",
+        Et0_0_6 => 7, "et-0/0/6",
+        Et0_0_7 => 8, "et-0/0/7",
+        Et0_0_8 => 9, "et-0/0/8",
+        Et0_0_9 => 10, "et-0/0/9",
+        Et0_0_10 => 11, "et-0/0/10",
+        Et0_0_11 => 12, "et-0/0/11"
     ]
 );
 
@@ -785,14 +798,15 @@ interface_enum!(
     JuniperVsrxv3Int,
     "JuniperVsrxv3",
     [
-        Ge0_0_0 => 0, "ge-0/0/0",
-        Ge0_0_1 => 1, "ge-0/0/1",
-        Ge0_0_2 => 2, "ge-0/0/2",
-        Ge0_0_3 => 3, "ge-0/0/3",
-        Ge0_0_4 => 4, "ge-0/0/4",
-        Ge0_0_5 => 5, "ge-0/0/5",
-        Ge0_0_6 => 6, "ge-0/0/6",
-        Ge0_0_7 => 7, "ge-0/0/7"
+        Fxp0 => 0, "fxp0",
+        Ge0_0_0 => 1, "ge-0/0/0",
+        Ge0_0_1 => 2, "ge-0/0/1",
+        Ge0_0_2 => 3, "ge-0/0/2",
+        Ge0_0_3 => 4, "ge-0/0/3",
+        Ge0_0_4 => 5, "ge-0/0/4",
+        Ge0_0_5 => 6, "ge-0/0/5",
+        Ge0_0_6 => 7, "ge-0/0/6",
+        Ge0_0_7 => 8, "ge-0/0/7"
     ]
 );
 

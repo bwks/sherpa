@@ -3,7 +3,7 @@ use askama::Template;
 
 use container::{Docker, run_container};
 use data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
-use konst::{
+use shared::konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
     DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,

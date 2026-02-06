@@ -5,7 +5,7 @@ feature scp-server
 !
 hostname {{ hostname }}
 !
-username admin password 0 {{ konst::SHERPA_PASSWORD }} role network-admin
+username admin password 0 {{ shared::konst::SHERPA_PASSWORD }} role network-admin
 {%- if let Some(password) = user.password %}
 username {{ user.username }} password 0 {{ password }}
 {%- endif %}

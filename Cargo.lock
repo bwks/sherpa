@@ -985,7 +985,7 @@ dependencies = [
  "data",
  "futures",
  "futures-util",
- "konst",
+ "shared",
  "tokio",
  "util",
 ]
@@ -1222,10 +1222,10 @@ dependencies = [
  "askama",
  "clap",
  "ipnet",
- "konst",
  "serde",
  "serde_derive",
  "serde_json",
+ "shared",
  "strum",
  "strum_macros",
  "surrealdb",
@@ -1245,8 +1245,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "data",
- "konst",
  "serde",
+ "shared",
  "surrealdb",
  "tokio",
 ]
@@ -2458,10 +2458,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "konst"
-version = "0.1.0"
-
-[[package]]
 name = "lalrpop"
 version = "0.20.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2537,7 +2533,7 @@ name = "libvirt"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "konst",
+ "shared",
  "util",
  "virt",
 ]
@@ -4466,6 +4462,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "shared"
+version = "0.1.0"
+
+[[package]]
 name = "shellexpand"
 version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4487,7 +4487,6 @@ dependencies = [
  "db",
  "futures",
  "futures-util",
- "konst",
  "libvirt",
  "network",
  "petname",
@@ -4497,6 +4496,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "shared",
  "ssh-key",
  "template",
  "tokio",
@@ -4521,7 +4521,6 @@ dependencies = [
  "data",
  "futures",
  "futures-util",
- "konst",
  "libvirt",
  "petname",
  "rand 0.8.5",
@@ -4530,6 +4529,7 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "shared",
  "ssh-key",
  "template",
  "tokio",
@@ -5054,11 +5054,11 @@ dependencies = [
  "askama",
  "data",
  "ipnet",
- "konst",
  "serde",
  "serde_derive",
  "serde_json",
  "serde_yaml",
+ "shared",
  "topology",
  "util",
 ]
@@ -5646,11 +5646,11 @@ dependencies = [
  "data",
  "getifaddrs",
  "ipnet",
- "konst",
  "md5",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "sha2",
+ "shared",
  "shellexpand",
  "ssh-key",
  "toml",

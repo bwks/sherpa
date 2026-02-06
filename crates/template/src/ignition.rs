@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
-use konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
+use shared::konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
 
 use util::base64_encode;
 

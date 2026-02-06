@@ -7,56 +7,65 @@ use util::split_node_int;
 /// Bridge connection in manifest format
 /// Expected format: "node_name::interface_name"
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct BridgeConnection {
-    pub node_name: String,
-    pub interface_name: String,
+pub struct BridgeLink {
+    pub node: String,
+    pub interface: String,
 }
 
-impl BridgeConnection {
+impl BridgeLink {
     /// Parse a bridge connection string in format "node_name::interface_name"
     pub fn parse(connection_str: &str) -> Result<Self> {
-        let conn_str = connection_str.to_string();
-        let (node_name, interface_name) = split_node_int(&conn_str)?;
-        Ok(Self {
-            node_name,
-            interface_name,
-        })
+        let (node, interface) = split_node_int(connection_str)?;
+        Ok(Self { node, interface })
     }
 }
 
 /// Bridge with parsed connections
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct Bridge {
-    pub connections: Vec<String>,
+    pub name: String,
+    pub links: Vec<String>,
 }
 
 impl Bridge {
-    /// Parse all connections in this bridge
-    pub fn parse_connections(&self) -> Result<Vec<BridgeConnection>> {
-        self.connections
+    /// Parse all links in this bridge
+    pub fn parse_links(&self) -> Result<BridgeExpanded> {
+        let bridge_links = self
+            .links
             .iter()
-            .map(|conn| BridgeConnection::parse(conn))
-            .collect()
+            .map(|conn| BridgeLink::parse(conn))
+            .collect::<Result<Vec<BridgeLink>>>()?;
+
+        Ok(BridgeExpanded {
+            name: self.name.clone(),
+            links: bridge_links,
+        })
     }
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct BridgeExpanded {
+    pub name: String,
+    pub links: Vec<BridgeLink>,
 }
 
 /// Expanded bridge connection with node and interface details
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct BridgeConnectionExpanded {
+pub struct BridgeLinkExpanded {
     pub node_name: String,
-    pub interface_name: String,
+    pub interface_idx: u8,
 }
 
 /// Detailed bridge with resolved node models and interface indices
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct BridgeDetailed {
-    pub connections: Vec<BridgeConnectionDetailed>,
+    pub connections: Vec<BridgeLinkDetailed>,
     pub bridge_index: u16,
 }
 
 /// Detailed bridge connection with all resolved information
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct BridgeConnectionDetailed {
+pub struct BridgeLinkDetailed {
     pub node_name: String,
     pub node_model: NodeModel,
     pub interface_name: String,

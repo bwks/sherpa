@@ -2,7 +2,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_SSH_CONFIG_FILE};
+use shared::konst::{SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_SSH_CONFIG_FILE};
 use util::term_msg_surround;
 
 pub async fn ssh(lab_id: &str, name: &str) -> Result<()> {

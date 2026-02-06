@@ -9,7 +9,7 @@ tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
-konst = { path = "../konst" }
+shared = { path = "../shared" }
 data = { path = "../data" }
 container = { path = "../container" }
 util = { path = "../util" }

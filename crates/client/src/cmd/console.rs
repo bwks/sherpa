@@ -3,7 +3,7 @@ use std::process::Command;
 
 use anyhow::Result;
 
-use konst::{BOOT_SERVER_NAME, TELNET_PORT};
+use shared::konst::{BOOT_SERVER_NAME, TELNET_PORT};
 use topology::Manifest;
 use util::{get_ip, term_msg_surround};
 

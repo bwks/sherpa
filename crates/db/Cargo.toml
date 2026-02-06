@@ -12,7 +12,7 @@ codegen-units = 1
 
 [dependencies]
 data = { path = "../data" }
-konst = { path = "../konst" }
+shared = { path = "../shared" }
 
 # Errors
 anyhow = "1.0.100"

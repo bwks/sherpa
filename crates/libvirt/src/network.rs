@@ -5,7 +5,7 @@ use anyhow::Result;
 use virt::connect::Connect;
 use virt::network::Network;
 
-use konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
+use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
 
 pub struct BridgeNetwork {
     pub network_name: String,

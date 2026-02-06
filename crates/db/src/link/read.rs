@@ -20,7 +20,7 @@ use surrealdb::Surreal;
 /// ```no_run
 /// # use db::{connect, get_link};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let id: RecordId = ("link", "abc123").into();
@@ -73,7 +73,7 @@ pub async fn get_link_by_id(db: &Surreal<Client>, id: RecordId) -> Result<DbLink
 /// ```no_run
 /// # use db::{connect, get_link_by_peers};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let node_a_id: RecordId = ("node", "node1").into();
@@ -129,7 +129,7 @@ pub async fn get_link_by_peers(
 /// # Example
 /// ```no_run
 /// # use db::{connect, list_links};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let links = list_links(&db).await?;
@@ -162,7 +162,7 @@ pub async fn list_links(db: &Surreal<Client>) -> Result<Vec<DbLink>> {
 /// ```no_run
 /// # use db::{connect, list_links_by_lab};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let lab_id: RecordId = ("lab", "lab1").into();
@@ -200,7 +200,7 @@ pub async fn list_links_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result
 /// ```no_run
 /// # use db::{connect, list_links_by_node};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let node_id: RecordId = ("node", "node1").into();
@@ -234,7 +234,7 @@ pub async fn list_links_by_node(db: &Surreal<Client>, node_id: RecordId) -> Resu
 /// # Example
 /// ```no_run
 /// # use db::{connect, count_links};
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let count = count_links(&db).await?;
@@ -268,7 +268,7 @@ pub async fn count_links(db: &Surreal<Client>) -> Result<usize> {
 /// ```no_run
 /// # use db::{connect, count_links_by_lab};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let lab_id: RecordId = ("lab", "lab1").into();
@@ -306,7 +306,7 @@ pub async fn count_links_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Resul
 /// ```no_run
 /// # use db::{connect, count_links_by_node};
 /// # use surrealdb::RecordId;
-/// # use konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
+/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let node_id: RecordId = ("node", "node1").into();
