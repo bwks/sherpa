@@ -1,6 +1,6 @@
+pub mod bridge;
 mod connect;
 mod helpers;
-pub mod bridge;
 pub mod lab;
 pub mod link;
 pub mod node;
@@ -55,6 +55,5 @@ pub use user::{
 
 // Bridge CRUD operations
 pub use bridge::{
-    create_bridge, delete_bridge, delete_lab_bridges, get_bridge, get_bridge_by_index,
-    list_bridges,
+    create_bridge, delete_bridge, delete_lab_bridges, get_bridge, get_bridge_by_index, list_bridges,
 };

@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 /// Get a node by its RecordId (surrogate key)
 ///
@@ -90,19 +90,10 @@ pub async fn get_node_by_name_and_lab(
         .bind(("name", name.to_string()))
         .bind(("lab_id", lab_id.clone()))
         .await
-        .context(format!(
-            "Failed to query node by name and lab: {}",
-            name
-        ))?;
+        .context(format!("Failed to query node by name and lab: {}", name))?;
 
     let node: Option<DbNode> = response.take(0)?;
-    node.ok_or_else(|| {
-        anyhow!(
-            "Node not found with name '{}' in lab: {}",
-            name,
-            lab_id
-        )
-    })
+    node.ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {}", name, lab_id))
 }
 
 /// List all nodes in the database

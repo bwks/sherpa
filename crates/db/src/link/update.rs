@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::DbLink;
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::link::read::get_link;
 
@@ -80,14 +80,14 @@ pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
     }
 
     // Perform update
-    let updated: Option<DbLink> = db
-        .update(id.clone())
-        .content(link.clone())
-        .await
-        .context(format!(
-            "Failed to update link: node_a={}, node_b={}",
-            link.node_a, link.node_b
-        ))?;
+    let updated: Option<DbLink> =
+        db.update(id.clone())
+            .content(link.clone())
+            .await
+            .context(format!(
+                "Failed to update link: node_a={}, node_b={}",
+                link.node_a, link.node_b
+            ))?;
 
     updated.ok_or_else(|| {
         anyhow!(

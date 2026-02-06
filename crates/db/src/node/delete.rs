@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLink, DbNode, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::node::read::get_node;
 
@@ -197,7 +197,7 @@ pub async fn delete_node_cascade(db: &Surreal<Client>, id: RecordId) -> Result<(
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let id: RecordId = ("node", "abc123").into();
-/// 
+///
 /// match delete_node_safe(&db, id).await {
 ///     Ok(_) => println!("Node deleted successfully"),
 ///     Err(e) => println!("Cannot delete node: {}", e),

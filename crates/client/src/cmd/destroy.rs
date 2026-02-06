@@ -8,12 +8,12 @@ use container::{
     delete_network, docker_connection, kill_container, list_containers, list_networks,
 };
 use db::{connect, delete_lab, delete_lab_links, delete_lab_nodes};
+use libvirt::{Qemu, delete_disk};
+use network::{delete_interface, find_interfaces_fuzzy};
 use shared::konst::{
     BRIDGE_PREFIX, SHERPA_BASE_DIR, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
     SHERPA_DB_SERVER, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
 };
-use libvirt::{Qemu, delete_disk};
-use network::{delete_interface, find_interfaces_fuzzy};
 use shared::util::{dir_exists, file_exists, term_msg_surround};
 
 pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {

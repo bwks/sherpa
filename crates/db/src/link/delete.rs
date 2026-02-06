@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use shared::data::{DbLink, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::link::read::get_link;
 

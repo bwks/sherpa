@@ -1,19 +1,19 @@
 use anyhow::Result;
-use shared::data::Sherpa;
 use db::{apply_schema, connect, list_node_configs, seed_node_configs};
+use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
+use shared::data::Sherpa;
 use shared::konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_MANIFEST_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH,
 };
-use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
-use ssh_key::Algorithm;
-use topology::Manifest;
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
     term_msg_highlight, term_msg_surround, term_msg_underline,
 };
+use ssh_key::Algorithm;
+use topology::Manifest;
 
 pub async fn init(
     sherpa: &Sherpa,
@@ -101,7 +101,13 @@ pub async fn init(
     storage_pool.create(&qemu_conn)?;
 
     term_msg_highlight("Initializing Database");
-    let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+    let db = connect(
+        SHERPA_DB_SERVER,
+        SHERPA_DB_PORT,
+        SHERPA_DB_NAMESPACE,
+        SHERPA_DB_NAME,
+    )
+    .await?;
 
     term_msg_underline("Applying Database Schema");
     apply_schema(&db).await?;

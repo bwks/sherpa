@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 /// Get a lab by its lab_id (business key)
 ///
@@ -108,19 +108,10 @@ pub async fn get_lab_by_name_and_user(
         .bind(("name", name.to_string()))
         .bind(("user_id", user_id.clone()))
         .await
-        .context(format!(
-            "Failed to query lab by name and user: {}",
-            name
-        ))?;
+        .context(format!("Failed to query lab by name and user: {}", name))?;
 
     let db_lab: Option<DbLab> = response.take(0)?;
-    db_lab.ok_or_else(|| {
-        anyhow!(
-            "Lab not found with name '{}' for user: {}",
-            name,
-            user_id
-        )
-    })
+    db_lab.ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {}", name, user_id))
 }
 
 /// List all labs in the database

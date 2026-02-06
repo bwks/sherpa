@@ -41,10 +41,7 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
     let result = update_lab(&db, lab).await;
 
     assert!(result.is_err(), "Should fail without ID");
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("without id field"));
+    assert!(result.unwrap_err().to_string().contains("without id field"));
 
     teardown_db(&db).await?;
     Ok(())
@@ -176,10 +173,12 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
     let result = update_lab(&db, lab).await;
 
     assert!(result.is_err(), "Should fail on invalid lab_id validation");
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("exactly 8 characters"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("exactly 8 characters")
+    );
 
     teardown_db(&db).await?;
     Ok(())

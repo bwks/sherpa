@@ -455,10 +455,10 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
 
     let count_lab1_after = count_links_by_lab(&db, lab1.id.clone().unwrap()).await?;
     let count_lab2_after = count_links_by_lab(&db, lab2.id.clone().unwrap()).await?;
-    
+
     // lab1 should have 0 links
     assert_eq!(count_lab1_after, 0);
-    
+
     // lab2 should still have 1 link
     assert_eq!(count_lab2_after, 1);
 

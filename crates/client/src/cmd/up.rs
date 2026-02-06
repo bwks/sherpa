@@ -1,23 +1,18 @@
-use super::boot_containers::{create_boot_containers, create_ztp_files};
+use std::collections::HashMap;
+use std::sync::Arc;
+use std::thread;
+use std::thread::sleep;
+use std::time::{Duration, Instant};
+
 use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
-use container::{
-    create_docker_bridge_network, create_docker_macvlan_network, docker_connection, run_container,
-};
-use db::{
-    connect, create_bridge as create_db_bridge, create_lab, create_link, create_node,
-    get_config_id, get_lab, get_lab_id, get_node_id, get_user, list_node_configs,
-};
-use libvirt::{IsolatedNetwork, NatNetwork, Qemu, clone_disk, create_vm};
-use network::{create_bridge, create_veth_pair, enslave_to_bridge};
-use shared::data::{
-    BridgeInterface, BridgeKind, CloneDisk, ConnectionTypes, ContainerNetworkAttachment, DiskBuses,
-    DiskDevices, DiskDrivers, DiskFormats, DiskTargets, Interface, InterfaceConnection,
-    InterfaceData, InterfaceState, LabInfo, LabLinkData, LabNodeData, NetworkV4, NodeConfig,
-    NodeConnection, NodeDisk, NodeInterface, NodeKind, NodeModel, NodeSetupData, OsVariant,
-    PeerInterface, PeerSide, QemuCommand, RecordId, Sherpa, SherpaNetwork, ZtpMethod, ZtpRecord,
-};
+use super::boot_containers::{create_boot_containers, create_ztp_files};
+use container;
+use db;
+use libvirt;
+use network;
+use shared::data;
 use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -36,43 +31,16 @@ use shared::konst::{
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
-use shared::util::{
-    base64_encode, base64_encode_file, copy_file, copy_to_dos_image, copy_to_ext4_image,
-    create_config_archive, create_dir, create_file, create_ztp_iso, dasher, default_dns,
-    get_free_subnet, get_ip, get_ipv4_addr, get_ssh_public_key, get_username, id_to_port,
-    interface_from_idx, interface_to_idx, load_config, load_file, parse_interface_kind,
-    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, random_mac, sherpa_user, split_node_int,
-    term_msg_surround, term_msg_underline,
-};
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::thread;
-use std::thread::sleep;
-use std::time::{Duration, Instant};
-use template::{
-    AristaCeosZtpTemplate, AristaVeosZtpTemplate, ArubaAoscxTemplate, CiscoAsavZtpTemplate,
-    CiscoFtdvZtpTemplate, CiscoFxosIpMode, CiscoIosXeZtpTemplate, CiscoIosvZtpTemplate,
-    CiscoIosvl2ZtpTemplate, CiscoIosxrZtpTemplate, CiscoIseZtpTemplate, CiscoNxosZtpTemplate,
-    CloudInitConfig, CloudInitNetwork, CloudInitUser, Contents as IgnitionFileContents,
-    CumulusLinuxZtpTemplate, DomainTemplate, File as IgnitionFile,
-    FileParams as IgnitionFileParams, FileSystem as IgnitionFileSystem, IgnitionConfig,
-    JunipervJunosZtpTemplate, MetaDataConfig, PyatsInventory, SonicLinuxZtp, SshConfigTemplate,
-    Unit as IgnitionUnit, User as IgnitionUser,
-};
-use topology::{
-    BridgeDetailed, BridgeExpanded, BridgeLink, BridgeLinkDetailed, LinkDetailed, LinkExpanded,
-    Manifest, Node, VolumeMount,
-};
-use validate::{
-    check_duplicate_device, check_duplicate_interface_link, check_interface_bounds,
-    check_link_device, check_mgmt_usage, tcp_connect,
-};
+use shared::util;
+use template;
+use topology;
+use validate;
 
 fn find_interface_link(
     node_name: &str,
     interface_idx: u8,
-    links_detailed: &Vec<LinkDetailed>,
-) -> Option<(usize, String, NodeModel, u8, PeerSide)> {
+    links_detailed: &Vec<topology::LinkDetailed>,
+) -> Option<(usize, String, data::NodeModel, u8, data::PeerSide)> {
     for link in links_detailed {
         if link.node_a == node_name && link.int_a_idx == interface_idx {
             return Some((
@@ -80,7 +48,7 @@ fn find_interface_link(
                 link.node_b.clone(),
                 link.node_b_model.clone(),
                 link.int_b_idx,
-                PeerSide::A,
+                data::PeerSide::A,
             ));
         }
         if link.node_b == node_name && link.int_b_idx == interface_idx {
@@ -89,7 +57,7 @@ fn find_interface_link(
                 link.node_a.clone(),
                 link.node_a_model.clone(),
                 link.int_a_idx,
-                PeerSide::B,
+                data::PeerSide::B,
             ));
         }
     }
@@ -99,7 +67,7 @@ fn find_interface_link(
 fn find_bridge_interface(
     node_name: &str,
     interface_idx: u8,
-    bridge_connections: &Vec<BridgeLinkDetailed>,
+    bridge_connections: &Vec<topology::BridgeLinkDetailed>,
 ) -> Option<u8> {
     for (bridge_idx, conn) in bridge_connections.iter().enumerate() {
         if conn.node_name == node_name && conn.interface_index == interface_idx {
@@ -110,39 +78,39 @@ fn find_bridge_interface(
 }
 
 pub async fn up(
-    sherpa: &Sherpa,
-    qemu: &Qemu,
+    sherpa: &data::Sherpa,
+    qemu: &libvirt::Qemu,
     _lab_name: &str,
     lab_id: &str,
-    manifest: &Manifest,
+    manifest: &topology::Manifest,
 ) -> Result<()> {
     // Setup
-    let docker_conn = docker_connection()?;
+    let docker_conn = container::docker_connection()?;
     let qemu_conn = Arc::new(qemu.connect()?);
-    let sherpa_user = sherpa_user()?;
+    let sherpa_user = util::sherpa_user()?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
-    let current_user = get_username()?;
+    let current_user = util::get_username()?;
     let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
 
-    term_msg_surround(&format!("Building environment - {lab_id}"));
+    util::term_msg_surround(&format!("Building environment - {lab_id}"));
 
     println!("Loading config");
     let sherpa = sherpa.clone();
 
-    let mut config = load_config(&sherpa.config_file_path)?;
+    let mut config = util::load_config(&sherpa.config_file_path)?;
 
     // Connect to DB early to fetch node configs
-    let db = connect(
+    let db = db::connect(
         SHERPA_DB_SERVER,
         SHERPA_DB_PORT,
         SHERPA_DB_NAMESPACE,
         SHERPA_DB_NAME,
     )
     .await?;
-    let db_user = get_user(&db, &current_user).await?;
+    let db_user = db::get_user(&db, &current_user).await?;
 
     // Check if lab already exists
-    if let Ok(lab) = get_lab(&db, lab_id).await {
+    if let Ok(lab) = db::get_lab(&db, lab_id).await {
         return Err(anyhow!(
             "Lab already exists. Please use a different lab ID or destory the existing lab first.\n Lab name: {}\n Lab id: {}",
             lab.name,
@@ -151,13 +119,14 @@ pub async fn up(
     }
 
     // Bulk fetch all node configs from database
-    let node_configs_list = list_node_configs(&db).await?;
+    let node_configs_list = db::list_node_configs(&db).await?;
 
     // Create two HashMaps:
     // 1. By model only (for validation and pyats - uses first config found for each model)
     // 2. By (model, kind) tuple (for creation - precise lookup)
-    let mut node_config_by_model: HashMap<NodeModel, NodeConfig> = HashMap::new();
-    let mut node_config_map: HashMap<(NodeModel, NodeKind), NodeConfig> = HashMap::new();
+    let mut node_config_by_model: HashMap<data::NodeModel, data::NodeConfig> = HashMap::new();
+    let mut node_config_map: HashMap<(data::NodeModel, data::NodeKind), data::NodeConfig> =
+        HashMap::new();
 
     for nc in node_configs_list {
         node_config_by_model
@@ -166,35 +135,35 @@ pub async fn up(
         node_config_map.insert((nc.model.clone(), nc.kind.clone()), nc);
     }
 
-    term_msg_underline("Validating Manifest");
+    util::term_msg_underline("Validating Manifest");
 
     let manifest_bridges = manifest.bridges.clone().unwrap_or_default();
     let bridges = manifest_bridges
         .iter()
-        .map(|x| x.parse_links())
-        .collect::<Result<Vec<BridgeExpanded>>>()?;
+        .map(|x: &topology::Bridge| x.parse_links())
+        .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
 
     let manifest_links = manifest.links.clone().unwrap_or_default();
     // links from manifest links
     let links = manifest_links
         .iter()
-        .map(|x| x.expand())
-        .collect::<Result<Vec<LinkExpanded>>>()?;
+        .map(|x: &topology::Link2| x.expand())
+        .collect::<Result<Vec<topology::LinkExpanded>>>()?;
 
     let mut links_detailed = vec![];
     for (link_idx, link) in links.iter().enumerate() {
-        let mut this_link = LinkDetailed::default();
+        let mut this_link = topology::LinkDetailed::default();
         for device in manifest.nodes.iter() {
             let device_model = device.model.clone();
             if link.node_a == device.name {
-                let int_idx = interface_to_idx(&device_model, &link.int_a)?;
+                let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
                 this_link.node_a = device.name.clone();
                 this_link.node_a_model = device_model;
                 this_link.int_a = link.int_a.clone();
                 this_link.int_a_idx = int_idx;
                 this_link.link_idx = link_idx as u16
             } else if link.node_b == device.name {
-                let int_idx = interface_to_idx(&device_model, &link.int_b)?;
+                let int_idx = util::interface_to_idx(&device_model, &link.int_b)?;
                 this_link.node_b = device.name.clone();
                 this_link.node_b_model = device_model;
                 this_link.int_b = link.int_b.clone();
@@ -215,12 +184,12 @@ pub async fn up(
                 pub interface: String,
         }
     */
-    let mut bridges_detailed: Vec<BridgeLinkDetailed> = vec![];
+    let mut bridges_detailed: Vec<topology::BridgeLinkDetailed> = vec![];
     for bridge in bridges.iter() {
         for link in bridge.links.iter() {
             if let Some(node) = manifest.nodes.iter().find(|n| n.name == link.node) {
-                let interface_idx = interface_to_idx(&node.model, &link.interface)?;
-                bridges_detailed.push(BridgeLinkDetailed {
+                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
+                bridges_detailed.push(topology::BridgeLinkDetailed {
                     node_name: link.node.clone(),
                     node_model: node.model.clone(),
                     interface_name: link.interface.clone(),
@@ -231,7 +200,7 @@ pub async fn up(
     }
 
     // Device Validators
-    check_duplicate_device(&manifest.nodes)?;
+    validate::check_duplicate_device(&manifest.nodes)?;
 
     let mut ztp_records = vec![];
 
@@ -241,14 +210,14 @@ pub async fn up(
             .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", node.model))?;
 
         if !node_model.dedicated_management_interface {
-            check_mgmt_usage(
+            validate::check_mgmt_usage(
                 &node.name,
                 node_model.first_interface_index,
                 &links_detailed,
             )?;
         }
 
-        check_interface_bounds(
+        validate::check_interface_bounds(
             &node.name,
             &node_model.model,
             node_model.first_interface_index,
@@ -259,15 +228,15 @@ pub async fn up(
 
     // Connection Validators
     if !links.is_empty() {
-        check_duplicate_interface_link(&links_detailed)?;
-        check_link_device(&manifest.nodes, &links)?;
+        validate::check_duplicate_interface_link(&links_detailed)?;
+        validate::check_link_device(&manifest.nodes, &links)?;
     };
 
     println!("Manifest Ok");
 
     // Create lab record in database
-    let lab_record = create_lab(&db, &manifest.name, lab_id, &db_user).await?;
-    let lab_record_id = get_lab_id(&lab_record)?;
+    let lab_record = db::create_lab(&db, &manifest.name, lab_id, &db_user).await?;
+    let lab_record_id = db::get_lab_id(&lab_record)?;
 
     // Create a mapping of node name to node id.
     // Nodes have an id based on their order in the list of nodes
@@ -279,14 +248,14 @@ pub async fn up(
         .map(|(idx, device)| (device.name.clone(), idx as u16 + 1))
         .collect();
 
-    let mut container_nodes: Vec<Node> = vec![];
-    let mut unikernel_nodes: Vec<Node> = vec![];
-    let mut vm_nodes: Vec<Node> = vec![];
-    let mut clone_disks: Vec<CloneDisk> = vec![];
-    let mut domains: Vec<DomainTemplate> = vec![];
+    let mut container_nodes: Vec<topology::Node> = vec![];
+    let mut unikernel_nodes: Vec<topology::Node> = vec![];
+    let mut vm_nodes: Vec<topology::Node> = vec![];
+    let mut clone_disks: Vec<data::CloneDisk> = vec![];
+    let mut domains: Vec<template::DomainTemplate> = vec![];
 
     let mut lab_node_data = vec![];
-    let mut node_setup_data: Vec<NodeSetupData> = vec![];
+    let mut node_setup_data: Vec<data::NodeSetupData> = vec![];
 
     for node in &manifest.nodes {
         let node_idx = node_id_map
@@ -310,7 +279,7 @@ pub async fn up(
             })?;
 
         // Process nodes to build a vector of a nodes links
-        let mut node_interfaces: Vec<InterfaceData> = vec![];
+        let mut node_interfaces: Vec<data::InterfaceData> = vec![];
 
         // For each interface type of a node, add an entry to the node_interfaces vector.
         // The first interface is always the  management interface if there is a dedicated mgmt or first interface if not.
@@ -330,54 +299,64 @@ pub async fn up(
         // Populate interface vector for all interfaces
         for interface_idx in node_config.first_interface_index..node_config.interface_count {
             // Get interface name for this index
-            let interface_name = interface_from_idx(&node_data.model, interface_idx)?;
+            let interface_name = util::interface_from_idx(&node_data.model, interface_idx)?;
 
             // Parse interface kind
-            let interface_kind = parse_interface_kind(&node_data.model, &interface_name)?;
+            let interface_kind = util::parse_interface_kind(&node_data.model, &interface_name)?;
 
             // Determine interface type and state
             let (interface_data, interface_state) = if !node_config.dedicated_management_interface
                 && interface_idx == mgmt_interface_idx
             {
                 // This is the management interface (only for non-dedicated management)
-                (NodeInterface::Management, InterfaceState::Enabled)
+                (
+                    data::NodeInterface::Management,
+                    data::InterfaceState::Enabled,
+                )
             } else if interface_idx
                 < (node_config.first_interface_index + node_config.reserved_interface_count)
             {
                 // This is a reserved interface
-                (NodeInterface::Reserved, InterfaceState::Enabled)
+                (data::NodeInterface::Reserved, data::InterfaceState::Enabled)
             } else if let Some((_link_idx, peer_node, peer_model, peer_int_idx, side)) =
                 find_interface_link(&node.name, interface_idx, &links_detailed)
             {
                 // This interface is part of a P2P link
-                // Use interface_to_idx to get the peer's actual interface string name, then parse
-                let peer_interface_name = interface_from_idx(&peer_model, peer_int_idx)?;
-                let peer_interface_kind = parse_interface_kind(&peer_model, &peer_interface_name)?;
+                // Use util::interface_to_idx to get the peer's actual interface string name, then parse
+                let peer_interface_name = util::interface_from_idx(&peer_model, peer_int_idx)?;
+                let peer_interface_kind =
+                    util::parse_interface_kind(&peer_model, &peer_interface_name)?;
 
-                let peer_interface = PeerInterface {
+                let peer_interface = data::PeerInterface {
                     node: peer_node,
                     interface: peer_interface_kind,
                     index: peer_int_idx,
                     side,
                 };
-                (NodeInterface::Peer(peer_interface), InterfaceState::Enabled)
+                (
+                    data::NodeInterface::Peer(peer_interface),
+                    data::InterfaceState::Enabled,
+                )
             } else if let Some(bridge_idx) =
                 find_bridge_interface(&node.name, interface_idx, &bridges_detailed)
             {
                 // This interface is connected to a shared bridge
                 let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id);
-                let bridge_interface = BridgeInterface { name: bridge_name };
+                let bridge_interface = data::BridgeInterface { name: bridge_name };
                 (
-                    NodeInterface::Bridge(bridge_interface),
-                    InterfaceState::Enabled,
+                    data::NodeInterface::Bridge(bridge_interface),
+                    data::InterfaceState::Enabled,
                 )
             } else {
                 // This interface is disabled
-                (NodeInterface::Disabled, InterfaceState::Disabled)
+                (
+                    data::NodeInterface::Disabled,
+                    data::InterfaceState::Disabled,
+                )
             };
 
             // Create and add InterfaceData
-            node_interfaces.push(InterfaceData {
+            node_interfaces.push(data::InterfaceData {
                 name: interface_name,
                 kind: interface_kind,
                 index: interface_idx,
@@ -386,16 +365,16 @@ pub async fn up(
             });
         }
 
-        let lab_node = create_node(
+        let lab_node = db::create_node(
             &db,
             &node.name,
             *node_idx,
-            get_config_id(node_config)?,
+            db::get_config_id(node_config)?,
             lab_record_id.clone(),
         )
         .await?;
 
-        lab_node_data.push(LabNodeData {
+        lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),
             model: node_data.model.clone(),
             kind: node_data.kind.clone(),
@@ -405,22 +384,22 @@ pub async fn up(
 
         // Handle Containers, NanoVM's and regular VM's
         match node_data.kind {
-            NodeKind::Container => {
+            data::NodeKind::Container => {
                 container_nodes.push(node.clone());
             }
-            NodeKind::Unikernel => {
+            data::NodeKind::Unikernel => {
                 unikernel_nodes.push(node.clone());
             }
-            NodeKind::VirtualMachine => {
+            data::NodeKind::VirtualMachine => {
                 vm_nodes.push(node.clone());
             }
         }
 
         // Create isolated/blackhole network for this node (VMs and Unikernels only)
         // Containers will be handled separately in the future
-        let isolated_network = if matches!(node_data.kind, NodeKind::VirtualMachine) {
+        let isolated_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
             println!("Creating blackhole network for node: {}", node.name);
-            let node_isolated_network = IsolatedNetwork {
+            let node_isolated_network = libvirt::IsolatedNetwork {
                 network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node.name, lab_id),
                 bridge_name: format!(
                     "{}{}-{}",
@@ -436,9 +415,9 @@ pub async fn up(
         };
 
         // Create reserved network for this node (VMs and Unikernels only)
-        let reserved_network = if matches!(node_data.kind, NodeKind::VirtualMachine) {
+        let reserved_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
             println!("Creating reserved network for node: {}", node.name);
-            let node_reserved_network = IsolatedNetwork {
+            let node_reserved_network = libvirt::IsolatedNetwork {
                 network_name: format!("{}-{}-{}", SHERPA_RESERVED_NETWORK_NAME, node.name, lab_id),
                 bridge_name: format!(
                     "{}{}-{}",
@@ -453,8 +432,8 @@ pub async fn up(
             None
         };
 
-        // Store node setup data for later use in DomainTemplate creation
-        node_setup_data.push(NodeSetupData {
+        // Store node setup data for later use in template::DomainTemplate creation
+        node_setup_data.push(data::NodeSetupData {
             name: node.name.clone(),
             index: *node_idx,
             management_network: management_network.clone(),
@@ -464,13 +443,13 @@ pub async fn up(
         });
     }
 
-    term_msg_underline("Lab Network");
-    let lab_net = get_free_subnet(&config.management_prefix_ipv4.to_string())?;
-    let gateway_ip = get_ipv4_addr(&lab_net, 1)?;
-    let lab_router_ip = get_ipv4_addr(&lab_net, 2)?;
-    let lab_info = LabInfo {
+    util::term_msg_underline("Lab Network");
+    let lab_net = util::get_free_subnet(&config.management_prefix_ipv4.to_string())?;
+    let gateway_ip = util::get_ipv4_addr(&lab_net, 1)?;
+    let lab_router_ip = util::get_ipv4_addr(&lab_net, 2)?;
+    let lab_info = data::LabInfo {
         id: lab_id.to_string(),
-        user: get_username()?,
+        user: util::get_username()?,
         name: manifest.name.clone(),
         ipv4_network: lab_net,
         ipv4_gateway: gateway_ip,
@@ -478,11 +457,11 @@ pub async fn up(
     };
 
     println!("{}", lab_info);
-    create_dir(&format!("{lab_dir}"))?;
-    create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
+    util::create_dir(&format!("{lab_dir}"))?;
+    util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
-    let mgmt_net = SherpaNetwork {
-        v4: NetworkV4 {
+    let mgmt_net = data::SherpaNetwork {
+        v4: data::NetworkV4 {
             prefix: lab_net,
             first: gateway_ip,
             last: lab_net.broadcast(),
@@ -493,11 +472,11 @@ pub async fn up(
             prefix_length: lab_net.prefix_len(),
         },
     };
-    let dns = default_dns(&lab_net)?;
+    let dns = util::default_dns(&lab_net)?;
 
     println!("Creating network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}");
     // Libvirt networks
-    let management_network = NatNetwork {
+    let management_network = libvirt::NatNetwork {
         network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
         ipv4_address: gateway_ip,
@@ -506,7 +485,7 @@ pub async fn up(
     management_network.create(&qemu_conn)?;
 
     // Docker Networks
-    create_docker_bridge_network(
+    container::create_docker_bridge_network(
         &docker_conn,
         &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         Some(lab_net.to_string()),
@@ -521,7 +500,7 @@ pub async fn up(
     // Each end of the connection has a bridge created, with a veth pair
     // connecting the bridges. This allows the targetting of the bridge
     // interface for packet captures.
-    term_msg_underline("Creating Point-to-Point Links");
+    util::term_msg_underline("Creating Point-to-Point Links");
     for (idx, link) in links_detailed.iter().enumerate() {
         let node_a = lab_node_data
             .iter()
@@ -540,12 +519,12 @@ pub async fn up(
         let veth_b = format!("{}b{}-{}", VETH_PREFIX, link.link_idx, lab_id);
 
         // Create the link in the database
-        let _db_link = create_link(
+        let _db_link = db::create_link(
             &db,
             link.link_idx,
-            BridgeKind::P2pBridge,
-            get_node_id(&node_a.record)?,
-            get_node_id(&node_b.record)?,
+            data::BridgeKind::P2pBridge,
+            db::get_node_id(&node_a.record)?,
+            db::get_node_id(&node_b.record)?,
             link.int_a.clone(),
             link.int_b.clone(),
             bridge_a.clone(),
@@ -557,9 +536,9 @@ pub async fn up(
         .await?;
 
         // Store link data for later use (still needed for infrastructure setup)
-        let link_data = LabLinkData {
+        let link_data = data::LabLinkData {
             index: link.link_idx,
-            kind: BridgeKind::P2pBridge,
+            kind: data::BridgeKind::P2pBridge,
             node_a: node_a.record.clone(),
             node_b: node_b.record.clone(),
             int_a: link.int_a.clone(),
@@ -576,30 +555,30 @@ pub async fn up(
             "Creating link #{} - {}::{} <-> {}::{}",
             idx, link.node_a, link.int_a, link.node_b, link.int_b
         );
-        create_bridge(
+        network::create_bridge(
             &bridge_a,
             &format!("{}-bridge-{}::{}", lab_id, link.node_a, link.int_a),
         )
         .await?;
-        create_bridge(
+        network::create_bridge(
             &bridge_b,
             &format!("{}-bridge-{}::{}", lab_id, link.node_b, link.int_b),
         )
         .await?;
-        create_veth_pair(
+        network::create_veth_pair(
             &veth_a,
             &veth_b,
             &format!("{}-veth-{}::{}", lab_id, link.node_a, link.int_a),
             &format!("{}-veth-{}::{}", lab_id, link.node_b, link.int_b),
         )
         .await?;
-        enslave_to_bridge(&veth_a, &bridge_a).await?;
-        enslave_to_bridge(&veth_b, &bridge_b).await?;
+        network::enslave_to_bridge(&veth_a, &bridge_a).await?;
+        network::enslave_to_bridge(&veth_b, &bridge_b).await?;
     }
 
     // Create Docker networks for container-connected bridges
     // This allows containers to attach to the pre-created Linux bridges
-    term_msg_underline("Creating Docker Networks for Container Links");
+    util::term_msg_underline("Creating Docker Networks for Container Links");
     for link_data in &lab_link_data {
         // Look up node_a in lab_node_data to get its kind
         let node_a_data = lab_node_data
@@ -614,19 +593,27 @@ pub async fn up(
             .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
 
         // Create Docker network for node_a if it's a container
-        if node_a_data.kind == NodeKind::Container {
+        if node_a_data.kind == data::NodeKind::Container {
             let docker_net_name =
                 format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-            create_docker_macvlan_network(&docker_conn, &link_data.bridge_a, &docker_net_name)
-                .await?;
+            container::create_docker_macvlan_network(
+                &docker_conn,
+                &link_data.bridge_a,
+                &docker_net_name,
+            )
+            .await?;
         }
 
         // Create Docker network for node_b if it's a container
-        if node_b_data.kind == NodeKind::Container {
+        if node_b_data.kind == data::NodeKind::Container {
             let docker_net_name =
                 format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-            create_docker_macvlan_network(&docker_conn, &link_data.bridge_b, &docker_net_name)
-                .await?;
+            container::create_docker_macvlan_network(
+                &docker_conn,
+                &link_data.bridge_b,
+                &docker_net_name,
+            )
+            .await?;
         }
     }
 
@@ -644,7 +631,7 @@ pub async fn up(
             */
     // Create shared bridges for multi-host connections
     for (idx, bridge) in bridges.iter().enumerate() {
-        term_msg_underline("Creating Shared Bridges");
+        util::term_msg_underline("Creating Shared Bridges");
         let mut bridge_nodes = vec![];
         let bridge_index = idx as u16;
         let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
@@ -657,15 +644,15 @@ pub async fn up(
             bridge.links.len()
         );
 
-        create_bridge(&bridge_name, &network_name).await?;
+        network::create_bridge(&bridge_name, &network_name).await?;
 
         for link in bridge.links.iter() {
             if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node) {
-                bridge_nodes.push(get_node_id(&node_data.record)?);
+                bridge_nodes.push(db::get_node_id(&node_data.record)?);
             }
         }
         // Create bridge record in database
-        create_db_bridge(
+        db::create_bridge(
             &db,
             bridge_index,
             bridge_name,
@@ -679,7 +666,7 @@ pub async fn up(
     // println!("NODE DATA: \n{:#?}", node_setup_data);
     println!("BRIDGE DATA: \n{:#?}", bridges_detailed);
 
-    term_msg_underline("ZTP");
+    util::term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {
         config.ztp_server.enable = manifest.ztp_server.clone().unwrap().enable
     }
@@ -702,11 +689,11 @@ pub async fn up(
         let user = sherpa_user.clone();
         let dir = format!("{}/{}", lab_dir, node.name);
 
-        node.ipv4_address = Some(get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?);
+        node.ipv4_address = Some(util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?);
 
         match node.model {
-            NodeModel::AristaCeos => {
-                let arista_template = AristaCeosZtpTemplate {
+            data::NodeModel::AristaCeos => {
+                let arista_template = template::AristaCeosZtpTemplate {
                     hostname: node.name.clone(),
                     user: user.clone(),
                     dns: dns.clone(),
@@ -715,12 +702,12 @@ pub async fn up(
                 };
                 let rendered_template = arista_template.render()?;
                 let ztp_config = format!("{dir}/{}.conf", node.name);
-                let ztp_volume = VolumeMount {
+                let ztp_volume = topology::VolumeMount {
                     src: ztp_config.clone(),
                     dst: ARISTA_CEOS_ZTP_VOLUME_MOUNT.to_string(),
                 };
-                create_dir(&dir)?;
-                create_file(&ztp_config, rendered_template)?;
+                util::create_dir(&dir)?;
+                util::create_file(&ztp_config, rendered_template)?;
 
                 node.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
                 node.privileged = Some(true);
@@ -738,7 +725,7 @@ pub async fn up(
                         .collect(),
                 );
             }
-            NodeModel::NokiaSrlinux => {
+            data::NodeModel::NokiaSrlinux => {
                 node.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
                 node.privileged = Some(true);
                 node.environment_variables = Some(
@@ -754,7 +741,7 @@ pub async fn up(
                         .collect(),
                 );
             }
-            NodeModel::SurrealDb => {
+            data::NodeModel::SurrealDb => {
                 node.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
 
                 node.commands = Some(
@@ -782,32 +769,32 @@ pub async fn up(
             .get(&node.model)
             .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
 
-        let mut disks: Vec<NodeDisk> = vec![];
+        let mut disks: Vec<data::NodeDisk> = vec![];
         let node_name = format!("{}-{}", node.name, lab_id);
 
         let hdd_bus = node_model.hdd_bus.clone();
         let cdrom_bus = node_model.cdrom_bus.clone();
 
-        let mac_address = random_mac(KVM_OUI);
-        ztp_records.push(ZtpRecord {
+        let mac_address = util::random_mac(KVM_OUI);
+        ztp_records.push(data::ZtpRecord {
             node_name: node.name.clone().to_owned(),
             config_file: format!("{}.conf", &node.name),
-            ipv4_address: get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?,
+            ipv4_address: util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?,
             mac_address: mac_address.to_string(),
             ztp_method: node_model.ztp_method.clone(),
             ssh_port: 22,
         });
 
-        let mut interfaces: Vec<Interface> = vec![];
+        let mut interfaces: Vec<data::Interface> = vec![];
 
         // Management Interfaces
         if node_model.dedicated_management_interface {
-            interfaces.push(Interface {
-                name: dasher(&node_model.management_interface.to_string()),
+            interfaces.push(data::Interface {
+                name: util::dasher(&node_model.management_interface.to_string()),
                 num: 0,
                 mtu: node_model.interface_mtu,
                 mac_address: mac_address.to_string(),
-                connection_type: ConnectionTypes::Management,
+                connection_type: data::ConnectionTypes::Management,
                 interface_connection: None,
             });
         }
@@ -815,12 +802,12 @@ pub async fn up(
         // Reserved Interfaces
         if node_model.reserved_interface_count > 0 {
             for i in node_model.first_interface_index..node_model.reserved_interface_count {
-                interfaces.push(Interface {
+                interfaces.push(data::Interface {
                     name: format!("int{i}"),
                     num: i,
                     mtu: node_model.interface_mtu,
-                    mac_address: random_mac(KVM_OUI),
-                    connection_type: ConnectionTypes::Reserved,
+                    mac_address: util::random_mac(KVM_OUI),
+                    connection_type: data::ConnectionTypes::Reserved,
                     interface_connection: None,
                 });
             }
@@ -835,12 +822,12 @@ pub async fn up(
             // When node does not have a dedicated management interface the first_interface_index
             // Is assigned as a management interface
             if !node_model.dedicated_management_interface && i == node_model.first_interface_index {
-                interfaces.push(Interface {
-                    name: dasher(&node_model.management_interface.to_string()),
+                interfaces.push(data::Interface {
+                    name: util::dasher(&node_model.management_interface.to_string()),
                     num: node_model.first_interface_index,
                     mtu: node_model.interface_mtu,
                     mac_address: mac_address.to_string(),
-                    connection_type: ConnectionTypes::Management,
+                    connection_type: data::ConnectionTypes::Management,
                     interface_connection: None,
                 });
                 continue;
@@ -855,28 +842,28 @@ pub async fn up(
                             anyhow::anyhow!("Connection dev_b not found: {}", l.node_b)
                         })?;
                         let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
-                        let interface_connection = InterfaceConnection {
+                        let interface_connection = data::InterfaceConnection {
                             local_id,
-                            local_port: id_to_port(i),
-                            local_loopback: get_ip(local_id as u8).to_string(),
+                            local_port: util::id_to_port(i),
+                            local_loopback: util::get_ip(local_id as u8).to_string(),
                             source_id: source_id.to_owned(),
-                            source_port: id_to_port(l.int_b_idx),
-                            source_loopback: get_ip(source_id.to_owned() as u8).to_string(),
+                            source_port: util::id_to_port(l.int_b_idx),
+                            source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
                         };
-                        // interfaces.push(Interface {
-                        //     name: dasher(&l.int_a),
+                        // interfaces.push(data::Interface {
+                        //     name: util::dasher(&l.int_a),
                         //     num: i,
                         //     mtu: node_model.interface_mtu,
-                        //     mac_address: random_mac(KVM_OUI),
-                        //     connection_type: ConnectionTypes::Peer,
+                        //     mac_address: util::random_mac(KVM_OUI),
+                        //     connection_type: data::ConnectionTypes::Peer,
                         //     interface_connection: Some(interface_connection),
                         // });
-                        interfaces.push(Interface {
+                        interfaces.push(data::Interface {
                             name: format!("{}a{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
                             num: i,
                             mtu: node_model.interface_mtu,
-                            mac_address: random_mac(KVM_OUI),
-                            connection_type: ConnectionTypes::PeerBridge,
+                            mac_address: util::random_mac(KVM_OUI),
+                            connection_type: data::ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
                         });
                         p2p_connection = true;
@@ -887,28 +874,28 @@ pub async fn up(
                             anyhow::anyhow!("Connection dev_a not found: {}", l.node_a)
                         })?;
                         let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
-                        let interface_connection = InterfaceConnection {
+                        let interface_connection = data::InterfaceConnection {
                             local_id,
-                            local_port: id_to_port(i),
-                            local_loopback: get_ip(local_id as u8).to_string(),
+                            local_port: util::id_to_port(i),
+                            local_loopback: util::get_ip(local_id as u8).to_string(),
                             source_id: source_id.to_owned(),
-                            source_port: id_to_port(l.int_a_idx),
-                            source_loopback: get_ip(source_id.to_owned() as u8).to_string(),
+                            source_port: util::id_to_port(l.int_a_idx),
+                            source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
                         };
-                        // interfaces.push(Interface {
-                        //     name: dasher(&l.int_b),
+                        // interfaces.push(data::Interface {
+                        //     name: util::dasher(&l.int_b),
                         //     num: i,
                         //     mtu: node_model.interface_mtu,
-                        //     mac_address: random_mac(KVM_OUI),
-                        //     connection_type: ConnectionTypes::Peer,
+                        //     mac_address: util::random_mac(KVM_OUI),
+                        //     connection_type: data::ConnectionTypes::Peer,
                         //     interface_connection: Some(interface_connection),
                         // });
-                        interfaces.push(Interface {
+                        interfaces.push(data::Interface {
                             name: format!("{}b{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
                             num: i,
                             mtu: node_model.interface_mtu,
-                            mac_address: random_mac(KVM_OUI),
-                            connection_type: ConnectionTypes::PeerBridge,
+                            mac_address: util::random_mac(KVM_OUI),
+                            connection_type: data::ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
                         });
                         p2p_connection = true;
@@ -917,22 +904,22 @@ pub async fn up(
                 }
                 if !p2p_connection {
                     // Interface not defined in manifest so disable.
-                    interfaces.push(Interface {
-                        name: dasher(&interface_from_idx(&node.model, i)?),
+                    interfaces.push(data::Interface {
+                        name: util::dasher(&util::interface_from_idx(&node.model, i)?),
                         num: i,
                         mtu: node_model.interface_mtu,
-                        mac_address: random_mac(KVM_OUI),
-                        connection_type: ConnectionTypes::Disabled,
+                        mac_address: util::random_mac(KVM_OUI),
+                        connection_type: data::ConnectionTypes::Disabled,
                         interface_connection: None,
                     })
                 }
             } else {
-                interfaces.push(Interface {
-                    name: dasher(&interface_from_idx(&node.model, i)?),
+                interfaces.push(data::Interface {
+                    name: util::dasher(&util::interface_from_idx(&node.model, i)?),
                     num: i,
                     mtu: node_model.interface_mtu,
-                    mac_address: random_mac(KVM_OUI),
-                    connection_type: ConnectionTypes::Disabled,
+                    mac_address: util::random_mac(KVM_OUI),
+                    connection_type: data::ConnectionTypes::Disabled,
                     interface_connection: None,
                 })
             }
@@ -940,14 +927,14 @@ pub async fn up(
 
         // Only Virtual machines have a boot disk to clone.
         let vm_boot_disk = match node_model.kind {
-            NodeKind::VirtualMachine => {
+            data::NodeKind::VirtualMachine => {
                 let src_boot_disk = format!(
                     "{}/{}/{}/virtioa.qcow2",
                     sherpa.images_dir, node_model.model, node_model.version
                 );
                 let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-hdd.qcow2");
 
-                clone_disks.push(CloneDisk {
+                clone_disks.push(data::CloneDisk {
                     src: src_boot_disk.clone(),
                     dst: dst_boot_disk.clone(),
                 });
@@ -988,32 +975,34 @@ pub async fn up(
                 .find(|r| r.node_name == node.name)
                 .map(|r| r.ipv4_address);
             match node_model.ztp_method {
-                ZtpMethod::CloudInit => {
-                    term_msg_underline("Creating Cloud-Init disks");
+                data::ZtpMethod::CloudInit => {
+                    util::term_msg_underline("Creating Cloud-Init disks");
                     // generate the template
                     println!("Creating Cloud-Init config {}", node.name);
                     let dir = format!("{lab_dir}/{node_name}");
-                    let mut cloud_init_user = CloudInitUser::sherpa()?;
+                    let mut cloud_init_user = template::CloudInitUser::sherpa()?;
 
                     match node.model {
-                        NodeModel::CentosLinux
-                        | NodeModel::AlmaLinux
-                        | NodeModel::RockyLinux
-                        | NodeModel::FedoraLinux
-                        | NodeModel::OpensuseLinux
-                        | NodeModel::RedhatLinux
-                        | NodeModel::SuseLinux
-                        | NodeModel::UbuntuLinux
-                        | NodeModel::FreeBsd
-                        | NodeModel::OpenBsd => {
+                        data::NodeModel::CentosLinux
+                        | data::NodeModel::AlmaLinux
+                        | data::NodeModel::RockyLinux
+                        | data::NodeModel::FedoraLinux
+                        | data::NodeModel::OpensuseLinux
+                        | data::NodeModel::RedhatLinux
+                        | data::NodeModel::SuseLinux
+                        | data::NodeModel::UbuntuLinux
+                        | data::NodeModel::FreeBsd
+                        | data::NodeModel::OpenBsd => {
                             let (admin_group, shell) = match node_model.os_variant {
-                                OsVariant::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
+                                data::OsVariant::Bsd => {
+                                    ("wheel".to_string(), "/bin/sh".to_string())
+                                }
                                 _ => ("sudo".to_string(), "/bin/bash".to_string()),
                             };
                             cloud_init_user.groups = vec![admin_group];
                             cloud_init_user.shell = shell;
 
-                            let cloud_init_config = CloudInitConfig {
+                            let cloud_init_config = template::CloudInitConfig {
                                 hostname: node.name.clone(),
                                 fqdn: format!("{}.{}", node.name.clone(), SHERPA_DOMAIN_NAME),
                                 manage_etc_hosts: true,
@@ -1027,26 +1016,26 @@ pub async fn up(
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                             let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
-                            create_dir(&dir)?;
-                            create_file(&user_data, user_data_config)?;
-                            create_file(&meta_data, "".to_string())?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&user_data, user_data_config)?;
+                            util::create_file(&meta_data, "".to_string())?;
 
                             if node_ipv4_address.is_some() {
-                                let ztp_interface = CloudInitNetwork::ztp_interface(
+                                let ztp_interface = template::CloudInitNetwork::ztp_interface(
                                     // This should always be Some
                                     node_ipv4_address.unwrap(),
                                     mac_address,
                                     mgmt_net.v4.clone(),
                                 );
                                 let cloud_network_config = ztp_interface.to_string()?;
-                                create_file(&network_config, cloud_network_config)?;
+                                util::create_file(&network_config, cloud_network_config)?;
                             }
 
-                            create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                            util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
 
-                        NodeModel::AlpineLinux => {
-                            let meta_data = MetaDataConfig {
+                        data::NodeModel::AlpineLinux => {
+                            let meta_data = template::MetaDataConfig {
                                 instance_id: format!("iid-{}", node.name.clone(),),
                                 local_hostname: format!(
                                     "{}.{}",
@@ -1056,7 +1045,7 @@ pub async fn up(
                             };
                             cloud_init_user.shell = "/bin/sh".to_string();
                             cloud_init_user.groups = vec!["wheel".to_string()];
-                            let cloud_init_config = CloudInitConfig {
+                            let cloud_init_config = template::CloudInitConfig {
                                 hostname: node.name.clone(),
                                 fqdn: format!("{}.{}", node.name.clone(), SHERPA_DOMAIN_NAME),
                                 manage_etc_hosts: true,
@@ -1071,22 +1060,22 @@ pub async fn up(
                             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                             let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
-                            create_dir(&dir)?;
-                            create_file(&user_data, user_data_config)?;
-                            create_file(&meta_data, meta_data_config)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&user_data, user_data_config)?;
+                            util::create_file(&meta_data, meta_data_config)?;
 
                             if node_ipv4_address.is_some() {
-                                let ztp_interface = CloudInitNetwork::ztp_interface(
+                                let ztp_interface = template::CloudInitNetwork::ztp_interface(
                                     // This should always be Some
                                     node_ipv4_address.unwrap(),
                                     mac_address,
                                     mgmt_net.v4.clone(),
                                 );
                                 let cloud_network_config = ztp_interface.to_string()?;
-                                create_file(&network_config, cloud_network_config)?;
+                                util::create_file(&network_config, cloud_network_config)?;
                             }
 
-                            create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
+                            util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?
                         }
                         _ => {
                             anyhow::bail!(
@@ -1098,34 +1087,35 @@ pub async fn up(
                     src_cdrom_iso = Some(format!("{lab_dir}/{node_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}.iso"));
                 }
-                ZtpMethod::Cdrom => {
-                    term_msg_underline("Creating ZTP disks");
+                data::ZtpMethod::Cdrom => {
+                    util::term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", node.name);
                     let mut user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{node_name}");
 
                     match node.model {
-                        NodeModel::CiscoCsr1000v
-                        | NodeModel::CiscoCat8000v
-                        | NodeModel::CiscoCat9000v => {
-                            let license_boot_command = if node.model == NodeModel::CiscoCat8000v {
-                                Some(
-                                    "license boot level network-premier addon dna-premier"
-                                        .to_string(),
-                                )
-                            } else if node.model == NodeModel::CiscoCat9000v {
-                                Some(
-                                    "license boot level network-advantage addon dna-advantage"
-                                        .to_string(),
-                                )
-                            } else {
-                                None
-                            };
+                        data::NodeModel::CiscoCsr1000v
+                        | data::NodeModel::CiscoCat8000v
+                        | data::NodeModel::CiscoCat9000v => {
+                            let license_boot_command =
+                                if node.model == data::NodeModel::CiscoCat8000v {
+                                    Some(
+                                        "license boot level network-premier addon dna-premier"
+                                            .to_string(),
+                                    )
+                                } else if node.model == data::NodeModel::CiscoCat9000v {
+                                    Some(
+                                        "license boot level network-advantage addon dna-advantage"
+                                            .to_string(),
+                                    )
+                                } else {
+                                    None
+                                };
 
-                            let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
-                            let t = CiscoIosXeZtpTemplate {
+                            let t = template::CiscoIosXeZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1137,14 +1127,15 @@ pub async fn up(
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
                             let ztp_config = format!("{dir}/{c}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        NodeModel::CiscoAsav => {
-                            let key_hash = pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
+                        data::NodeModel::CiscoAsav => {
+                            let key_hash =
+                                util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
-                            let t = CiscoAsavZtpTemplate {
+                            let t = template::CiscoAsavZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 dns: dns.clone(),
@@ -1153,12 +1144,12 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        NodeModel::CiscoNexus9300v => {
-                            let t = CiscoNxosZtpTemplate {
+                        data::NodeModel::CiscoNexus9300v => {
+                            let t = template::CiscoNxosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 dns: dns.clone(),
@@ -1167,12 +1158,12 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        NodeModel::CiscoIosxrv9000 => {
-                            let t = CiscoIosxrZtpTemplate {
+                        data::NodeModel::CiscoIosxrv9000 => {
+                            let t = template::CiscoIosxrZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 dns: dns.clone(),
@@ -1181,17 +1172,17 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        NodeModel::CiscoFtdv => {
-                            let t = CiscoFtdvZtpTemplate {
+                        data::NodeModel::CiscoFtdv => {
+                            let t = template::CiscoFtdvZtpTemplate {
                                 eula: "accept".to_string(),
                                 hostname: node.name.clone(),
                                 admin_password: SHERPA_PASSWORD.to_string(),
                                 dns1: Some(mgmt_net.v4.boot_server),
-                                ipv4_mode: Some(CiscoFxosIpMode::Manual),
+                                ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
                                 ipv4_addr: node_ipv4_address,
                                 ipv4_gw: Some(mgmt_net.v4.first),
                                 ipv4_mask: Some(mgmt_net.v4.subnet_mask),
@@ -1200,14 +1191,14 @@ pub async fn up(
                             };
                             let rendered_template = serde_json::to_string(&t)?;
                             let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
-                        NodeModel::JuniperVsrxv3
-                        | NodeModel::JuniperVrouter
-                        | NodeModel::JuniperVswitch => {
-                            let t = JunipervJunosZtpTemplate {
+                        data::NodeModel::JuniperVsrxv3
+                        | data::NodeModel::JuniperVrouter
+                        | data::NodeModel::JuniperVswitch => {
+                            let t = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1216,9 +1207,9 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
-                            create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?
                         }
                         _ => {
                             anyhow::bail!(
@@ -1230,15 +1221,15 @@ pub async fn up(
                     src_cdrom_iso = Some(format!("{lab_dir}/{node_name}/{ZTP_ISO}"));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.iso"));
                 }
-                ZtpMethod::Tftp => {
+                data::ZtpMethod::Tftp => {
                     // generate the template
                     println!("Creating ZTP config {}", node.name);
                     let user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{ZTP_DIR}/{TFTP_DIR}");
 
                     match node.model {
-                        NodeModel::AristaVeos => {
-                            let arista_template = AristaVeosZtpTemplate {
+                        data::NodeModel::AristaVeos => {
+                            let arista_template = template::AristaVeosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user: user.clone(),
                                 dns: dns.clone(),
@@ -1247,11 +1238,11 @@ pub async fn up(
                             };
                             let rendered_template = arista_template.render()?;
                             let ztp_config = format!("{dir}/{}.conf", node.name);
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
                         }
-                        NodeModel::ArubaAoscx => {
-                            let aruba_template = ArubaAoscxTemplate {
+                        data::NodeModel::ArubaAoscx => {
+                            let aruba_template = template::ArubaAoscxTemplate {
                                 hostname: node.name.clone(),
                                 user: user.clone(),
                                 dns: dns.clone(),
@@ -1260,11 +1251,11 @@ pub async fn up(
                             };
                             let aruba_rendered_template = aruba_template.render()?;
                             let ztp_config = format!("{dir}/{}.conf", node.name);
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, aruba_rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, aruba_rendered_template)?;
                         }
-                        NodeModel::JuniperVevolved => {
-                            let juniper_template = JunipervJunosZtpTemplate {
+                        data::NodeModel::JuniperVevolved => {
+                            let juniper_template = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user: sherpa_user.clone(),
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1273,51 +1264,53 @@ pub async fn up(
                             };
                             let juniper_rendered_template = juniper_template.render()?;
                             let ztp_config = format!("{dir}/{}.conf", node.name);
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, juniper_rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, juniper_rendered_template)?;
                         }
                         _ => {
                             anyhow::bail!("Tftp ZTP method not supported for {}", node_model.model);
                         }
                     }
                 }
-                ZtpMethod::Http => {
+                data::ZtpMethod::Http => {
                     // generate the template
                     println!("Creating ZTP config {}", node.name);
                     let _user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
 
                     match node.model {
-                        NodeModel::SonicLinux => {
-                            let sonic_ztp_file_map =
-                                SonicLinuxZtp::file_map(&node.name, &mgmt_net.v4.boot_server);
+                        data::NodeModel::SonicLinux => {
+                            let sonic_ztp_file_map = template::SonicLinuxZtp::file_map(
+                                &node.name,
+                                &mgmt_net.v4.boot_server,
+                            );
 
                             let ztp_init = format!("{dir}/{}.conf", &node.name);
-                            let sonic_ztp = SonicLinuxZtp {
+                            let sonic_ztp = template::SonicLinuxZtp {
                                 hostname: node.name.clone(),
                                 mgmt_ipv4: mgmt_net.v4.clone(),
                                 mgmt_ipv4_address: node_ipv4_address,
                             };
                             let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
-                            create_dir(&dir)?;
-                            create_file(&ztp_init, sonic_ztp_file_map)?;
-                            create_file(&ztp_config, sonic_ztp.config())?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_init, sonic_ztp_file_map)?;
+                            util::create_file(&ztp_config, sonic_ztp.config())?;
                         }
                         _ => {
                             anyhow::bail!("HTTP ZTP method not supported for {}", node_model.model);
                         }
                     }
                 }
-                ZtpMethod::Disk => {
+                data::ZtpMethod::Disk => {
                     println!("Creating ZTP config {}", node.name);
                     let mut user = sherpa_user.clone();
 
                     let dir = format!("{lab_dir}/{node_name}");
                     match node.model {
-                        NodeModel::CiscoIosv => {
-                            let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                        data::NodeModel::CiscoIosv => {
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
-                            let t = CiscoIosvZtpTemplate {
+                            let t = template::CiscoIosvZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1328,8 +1321,8 @@ pub async fn up(
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSV_ZTP_CONFIG;
                             let ztp_config = format!("{dir}/{c}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
                             // clone disk
                             let src_disk = format!(
                                 "{}/{}/{}",
@@ -1338,18 +1331,18 @@ pub async fn up(
                             let dst_disk = format!("{dir}/{node_name}-cfg.img");
 
                             // Create a copy of the disk base image
-                            copy_file(&src_disk, &dst_disk)?;
+                            util::copy_file(&src_disk, &dst_disk)?;
                             // copy file to disk disk
-                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+                            util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
-                        NodeModel::CiscoIosvl2 => {
-                            let key_hash = pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                        data::NodeModel::CiscoIosvl2 => {
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
-                            let t = CiscoIosvl2ZtpTemplate {
+                            let t = template::CiscoIosvl2ZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1360,8 +1353,8 @@ pub async fn up(
                             let rendered_template = t.render()?;
                             let c = CISCO_IOSV_ZTP_CONFIG;
                             let ztp_config = format!("{dir}/{c}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
                             // clone disk
                             let src_disk = format!(
                                 "{}/{}/{}",
@@ -1370,16 +1363,16 @@ pub async fn up(
                             let dst_disk = format!("{dir}/{node_name}-cfg.img");
 
                             // Create a copy of the hdd base image
-                            copy_file(&src_disk, &dst_disk)?;
+                            util::copy_file(&src_disk, &dst_disk)?;
                             // copy file to hdd disk
-                            copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+                            util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
-                        NodeModel::CiscoIse => {
-                            let t = CiscoIseZtpTemplate {
+                        data::NodeModel::CiscoIse => {
+                            let t = template::CiscoIseZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 dns: dns.clone(),
@@ -1388,8 +1381,8 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
 
                             // clone disk
                             let src_disk = format!(
@@ -1399,9 +1392,9 @@ pub async fn up(
                             let dst_disk = format!("{dir}/{node_name}-cfg.img");
 
                             // Create a copy of the hdd base image
-                            copy_file(&src_disk, &dst_disk)?;
+                            util::copy_file(&src_disk, &dst_disk)?;
                             // copy file to hdd disk
-                            copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
+                            util::copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.to_owned());
                             dst_config_disk =
@@ -1412,15 +1405,15 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethod::Usb => {
+                data::ZtpMethod::Usb => {
                     // generate the template
                     println!("Creating ZTP config {}", node.name);
                     let user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{node_name}");
 
                     match node_model.model {
-                        NodeModel::CumulusLinux => {
-                            let t = CumulusLinuxZtpTemplate {
+                        data::NodeModel::CumulusLinux => {
+                            let t = template::CumulusLinuxZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 dns: dns.clone(),
@@ -1429,8 +1422,8 @@ pub async fn up(
                             };
                             let rendered_template = t.render()?;
                             let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
@@ -1440,16 +1433,16 @@ pub async fn up(
                             let dst_usb = format!("{dir}/cfg.img");
 
                             // Create a copy of the usb base image
-                            copy_file(&src_usb, &dst_usb)?;
+                            util::copy_file(&src_usb, &dst_usb)?;
                             // copy file to USB disk
-                            copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
+                            util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
-                        NodeModel::JuniperVevolved => {
-                            let t = JunipervJunosZtpTemplate {
+                        data::NodeModel::JuniperVevolved => {
+                            let t = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
                                 mgmt_interface: node_model.management_interface.to_string(),
@@ -1460,8 +1453,8 @@ pub async fn up(
                             let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
                             let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
 
-                            create_dir(&dir)?;
-                            create_file(&ztp_config, rendered_template)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
                             // clone USB disk
                             let src_usb = format!(
                                 "{}/{}/{}",
@@ -1470,14 +1463,14 @@ pub async fn up(
                             let dst_usb = format!("{dir}/cfg.img");
 
                             // Create a copy of the usb base image
-                            copy_file(&src_usb, &dst_usb)?;
+                            util::copy_file(&src_usb, &dst_usb)?;
 
                             // Create tar.gz config file
-                            create_config_archive(&ztp_config, &ztp_config_tgz)?;
+                            util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
 
                             // copy file to USB disk
-                            copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
-                            // copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
+                            util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
+                            // util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
                             src_usb_disk = Some(dst_usb.to_owned());
                             dst_usb_disk =
@@ -1488,8 +1481,8 @@ pub async fn up(
                         }
                     }
                 }
-                ZtpMethod::Ignition => {
-                    term_msg_underline("Creating ZTP disks");
+                data::ZtpMethod::Ignition => {
+                    util::term_msg_underline("Creating ZTP disks");
                     // generate the template
                     println!("Creating ZTP config {}", node.name);
                     let user = sherpa_user.clone();
@@ -1513,7 +1506,7 @@ pub async fn up(
                         .flatten() // Flattens Option<Vec<File>> to individual &File items
                         .map(|file| -> Result<String> {
                             // file is now &File
-                            let ssh_key = get_ssh_public_key(&file.source)?;
+                            let ssh_key = util::get_ssh_public_key(&file.source)?;
                             Ok(format!(
                                 "{} {} {}",
                                 ssh_key.algorithm,
@@ -1526,91 +1519,93 @@ pub async fn up(
                     authorized_keys.extend(manifest_authorized_keys);
                     authorized_keys.extend(manifest_authorized_key_files);
 
-                    let ignition_user = IgnitionUser {
+                    let ignition_user = template::IgnitionUser {
                         name: user.username.clone(),
                         password_hash: SHERPA_PASSWORD_HASH.to_owned(),
                         ssh_authorized_keys: authorized_keys,
                         groups: vec!["wheel".to_owned(), "docker".to_owned()],
                     };
-                    let hostname_file = IgnitionFile {
+                    let hostname_file = template::IgnitionFile {
                         path: "/etc/hostname".to_owned(),
                         mode: 644,
-                        contents: IgnitionFileContents::new(&format!("data:,{dev_name}",)),
+                        contents: template::IgnitionFileContents::new(
+                            &format!("data:,{dev_name}",),
+                        ),
                         ..Default::default()
                     };
                     // files
-                    let disable_update = IgnitionFile::disable_updates();
+                    let disable_update = template::IgnitionFile::disable_updates();
                     let sudo_config_base64 =
-                        base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
-                    let sudo_config_file = IgnitionFile {
+                        util::base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
+                    let sudo_config_file = template::IgnitionFile {
                         path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
                         mode: 440,
-                        contents: IgnitionFileContents::new(&format!(
+                        contents: template::IgnitionFileContents::new(&format!(
                             "data:;base64,{sudo_config_base64}"
                         )),
                         ..Default::default()
                     };
-                    let manifest_text_files: Vec<IgnitionFile> = node
+                    let manifest_text_files: Vec<template::IgnitionFile> = node
                         .text_files
                         .iter() // Iterator over Option<Vec<File>>
                         .flatten() // Flattens Option<Vec<File>> to individual &File items
                         .map(|file| {
-                            let encoded_file = base64_encode_file(&file.source)?;
+                            let encoded_file = util::base64_encode_file(&file.source)?;
 
-                            Ok(IgnitionFile {
+                            Ok(template::IgnitionFile {
                                 path: file.destination.clone(),
                                 mode: file.permissions,
                                 overwrite: None,
-                                contents: IgnitionFileContents::new(&format!(
+                                contents: template::IgnitionFileContents::new(&format!(
                                     "data:;base64,{encoded_file}"
                                 )),
-                                user: Some(IgnitionFileParams {
+                                user: Some(template::IgnitionFileParams {
                                     name: file.user.clone(),
                                 }),
-                                group: Some(IgnitionFileParams {
+                                group: Some(template::IgnitionFileParams {
                                     name: file.group.clone(),
                                 }),
                             })
                         })
-                        .collect::<Result<Vec<IgnitionFile>>>()?;
+                        .collect::<Result<Vec<template::IgnitionFile>>>()?;
 
                     let manifest_binary_disk_files = node.binary_files.clone().unwrap_or(vec![]);
 
-                    let manifest_systemd_units: Vec<IgnitionUnit> = node
+                    let manifest_systemd_units: Vec<template::IgnitionUnit> = node
                         .systemd_units
                         .iter() // Iterator over Option<Vec<File>>
                         .flatten() // Flattens Option<Vec<File>> to individual &File items
                         .map(|file| {
-                            let file_contents = load_file(file.source.as_str())?;
-                            Ok(IgnitionUnit {
+                            let file_contents = util::load_file(file.source.as_str())?;
+                            Ok(template::IgnitionUnit {
                                 name: file.name.clone(),
                                 enabled: Some(file.enabled),
                                 contents: Some(file_contents),
                                 ..Default::default()
                             })
                         })
-                        .collect::<Result<Vec<IgnitionUnit>>>()?;
+                        .collect::<Result<Vec<template::IgnitionUnit>>>()?;
 
                     match node.model {
-                        NodeModel::FlatcarLinux => {
+                        data::NodeModel::FlatcarLinux => {
                             let mut units = vec![];
-                            units.push(IgnitionUnit::mount_container_disk());
+                            units.push(template::IgnitionUnit::mount_container_disk());
                             units.extend(manifest_systemd_units);
 
-                            let container_disk = IgnitionFileSystem::default();
+                            let container_disk = template::IgnitionFileSystem::default();
 
                             let mut files = vec![sudo_config_file, hostname_file, disable_update];
                             files.extend(manifest_text_files);
 
                             if node_ipv4_address.is_some() {
-                                files.push(IgnitionFile::ztp_interface(
+                                files.push(template::IgnitionFile::ztp_interface(
                                     // This should always be Some
                                     node_ipv4_address.unwrap(),
                                     mgmt_net.v4.clone(),
                                 )?);
                             }
 
-                            let ignition_config = IgnitionConfig::new(
+                            let ignition_config = template::IgnitionConfig::new(
                                 vec![ignition_user],
                                 files,
                                 vec![],
@@ -1623,8 +1618,8 @@ pub async fn up(
                             let dst_ztp_file =
                                 format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.ign");
 
-                            create_dir(&dir)?;
-                            create_file(&src_ztp_file, flatcar_config)?;
+                            util::create_dir(&dir)?;
+                            util::create_file(&src_ztp_file, flatcar_config)?;
 
                             // Copy a blank disk to to .tmp directory
                             let src_data_disk = format!(
@@ -1635,7 +1630,7 @@ pub async fn up(
                             );
                             let dst_disk = format!("{dir}/{node_name}-{CONTAINER_DISK_NAME}");
 
-                            copy_file(&src_data_disk, &dst_disk)?;
+                            util::copy_file(&src_data_disk, &dst_disk)?;
 
                             let disk_files: Vec<&str> = manifest_binary_disk_files
                                 .iter()
@@ -1644,7 +1639,7 @@ pub async fn up(
 
                             // Copy to container image into the container disk
                             if !disk_files.is_empty() {
-                                copy_to_ext4_image(disk_files, &dst_disk, "/")?;
+                                util::copy_to_ext4_image(disk_files, &dst_disk, "/")?;
                             }
 
                             src_config_disk = Some(dst_disk.to_owned());
@@ -1668,62 +1663,62 @@ pub async fn up(
         }
         // ISO
         if let (Some(src_cdrom_iso), Some(dst_cdrom_iso)) = (src_cdrom_iso, dst_cdrom_iso) {
-            clone_disks.push(CloneDisk {
+            clone_disks.push(data::CloneDisk {
                 // These should always have a value.
                 src: src_cdrom_iso,
                 dst: dst_cdrom_iso.clone(),
             });
-            disks.push(NodeDisk {
-                disk_device: DiskDevices::Cdrom,
-                driver_name: DiskDrivers::Qemu,
-                driver_format: DiskFormats::Raw,
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::Cdrom,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
                 src_file: dst_cdrom_iso.clone(),
-                target_dev: DiskTargets::target(&cdrom_bus, disks.len() as u8)?,
+                target_dev: data::DiskTargets::target(&cdrom_bus, disks.len() as u8)?,
                 target_bus: cdrom_bus.clone(),
             });
         }
 
         // Hdd
         if let Some(vm_boot_disk) = vm_boot_disk {
-            disks.push(NodeDisk {
-                disk_device: DiskDevices::File,
-                driver_name: DiskDrivers::Qemu,
-                driver_format: DiskFormats::Qcow2,
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Qcow2,
                 src_file: vm_boot_disk.clone(),
-                target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+                target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
                 target_bus: hdd_bus.clone(),
             });
         }
 
         // Data Disk
         if let (Some(src_config_disk), Some(dst_config_disk)) = (src_config_disk, dst_config_disk) {
-            clone_disks.push(CloneDisk {
+            clone_disks.push(data::CloneDisk {
                 src: src_config_disk,
                 dst: dst_config_disk.clone(),
             });
-            disks.push(NodeDisk {
-                disk_device: DiskDevices::File,
-                driver_name: DiskDrivers::Qemu,
-                driver_format: DiskFormats::Raw,
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
                 src_file: dst_config_disk.clone(),
-                target_dev: DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+                target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
                 target_bus: hdd_bus.clone(),
             });
         }
 
         // USB
         if let (Some(src_usb_disk), Some(dst_usb_disk)) = (src_usb_disk, dst_usb_disk) {
-            clone_disks.push(CloneDisk {
+            clone_disks.push(data::CloneDisk {
                 src: src_usb_disk,
                 dst: dst_usb_disk.clone(),
             });
-            disks.push(NodeDisk {
-                disk_device: DiskDevices::File,
-                driver_name: DiskDrivers::Qemu,
-                driver_format: DiskFormats::Raw,
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
                 src_file: dst_usb_disk.clone(),
-                target_dev: DiskTargets::target(&DiskBuses::Usb, disks.len() as u8)?,
-                target_bus: DiskBuses::Usb,
+                target_dev: data::DiskTargets::target(&data::DiskBuses::Usb, disks.len() as u8)?,
+                target_bus: data::DiskBuses::Usb,
             });
         }
 
@@ -1731,27 +1726,27 @@ pub async fn up(
         if let (Some(src_ignition_disk), Some(dst_ignition_disk)) =
             (src_ignition_disk, dst_ignition_disk.clone())
         {
-            clone_disks.push(CloneDisk {
+            clone_disks.push(data::CloneDisk {
                 src: src_ignition_disk,
                 dst: dst_ignition_disk.clone(),
             });
-            disks.push(NodeDisk {
-                disk_device: DiskDevices::File,
-                driver_name: DiskDrivers::Qemu,
-                driver_format: DiskFormats::Raw,
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
                 src_file: dst_ignition_disk.clone(),
-                target_dev: DiskTargets::target(&DiskBuses::Sata, disks.len() as u8)?,
-                target_bus: DiskBuses::Sata,
+                target_dev: data::DiskTargets::target(&data::DiskBuses::Sata, disks.len() as u8)?,
+                target_bus: data::DiskBuses::Sata,
             });
         }
 
         let qemu_commands = match node_model.model {
-            NodeModel::JuniperVrouter => QemuCommand::juniper_vrouter(),
-            NodeModel::JuniperVswitch => QemuCommand::juniper_vswitch(),
-            NodeModel::JuniperVevolved => QemuCommand::juniper_vevolved(),
-            NodeModel::FlatcarLinux => {
+            data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
+            data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
+            data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
+            data::NodeModel::FlatcarLinux => {
                 if let Some(dst_ignition_disk) = dst_ignition_disk {
-                    QemuCommand::ignition_config(&dst_ignition_disk)
+                    data::QemuCommand::ignition_config(&dst_ignition_disk)
                 } else {
                     vec![]
                 }
@@ -1763,7 +1758,7 @@ pub async fn up(
 
         let node_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
 
-        if node_model.kind == NodeKind::VirtualMachine {
+        if node_model.kind == data::NodeKind::VirtualMachine {
             // Get the network names for this node from NodeSetupData
             let node_setup = node_setup_data
                 .iter()
@@ -1782,7 +1777,7 @@ pub async fn up(
                 .clone()
                 .ok_or_else(|| anyhow!("Reserved network not found for VM node: {}", node.name))?;
 
-            let domain = DomainTemplate {
+            let domain = template::DomainTemplate {
                 qemu_bin: config.qemu_bin.clone(),
                 name: node_name,
                 memory: node.memory.unwrap_or(node_model.memory),
@@ -1795,7 +1790,7 @@ pub async fn up(
                 disks,
                 interfaces,
                 interface_type: node_model.interface_type.clone(),
-                loopback_ipv4: get_ip(node_id as u8).to_string(),
+                loopback_ipv4: util::get_ip(node_id as u8).to_string(),
                 telnet_port: TELNET_PORT,
                 qemu_commands,
                 lab_id: lab_id.to_string(),
@@ -1811,14 +1806,14 @@ pub async fn up(
     create_boot_containers(&docker_conn, &mgmt_net, lab_id).await?;
 
     // Clone disks in parallel
-    term_msg_underline("Cloning Disks");
+    util::term_msg_underline("Cloning Disks");
     let disk_handles: Vec<_> = clone_disks
         .into_iter()
         .map(|disk| {
             let qemu_conn = Arc::clone(&qemu_conn);
             thread::spawn(move || -> Result<()> {
                 println!("Cloning disk \n  from: {} \n    to: {}", disk.src, disk.dst);
-                clone_disk(&qemu_conn, &disk.src, &disk.dst).with_context(|| {
+                libvirt::clone_disk(&qemu_conn, &disk.src, &disk.dst).with_context(|| {
                     format!("Failed to clone disk from: {} to: {}", disk.src, disk.dst)
                 })?;
                 println!("Cloned disk \n  from: {} \n    to: {}", disk.src, disk.dst);
@@ -1835,7 +1830,7 @@ pub async fn up(
     }
 
     // Build domains in parallel
-    term_msg_underline("Creating Node Configs");
+    util::term_msg_underline("Creating Node Configs");
 
     let vm_handles: Vec<_> = domains
         .into_iter()
@@ -1847,7 +1842,7 @@ pub async fn up(
                     .with_context(|| format!("Failed to render XML for VM: {}", domain.name))?;
 
                 println!("Creating VM: {}", domain.name);
-                create_vm(&qemu_conn, &rendered_xml)
+                libvirt::create_vm(&qemu_conn, &rendered_xml)
                     .with_context(|| format!("Failed to create VM: {}", domain.name))?;
                 println!("Created VM: {}", domain.name);
                 Ok(())
@@ -1871,8 +1866,8 @@ pub async fn up(
             .unwrap_or(false);
 
         if pyats_enabled {
-            term_msg_underline("Creating PyATS Testbed File");
-            let pyats_inventory = PyatsInventory::from_manifest(
+            util::term_msg_underline("Creating PyATS Testbed File");
+            let pyats_inventory = template::PyatsInventory::from_manifest(
                 manifest,
                 &node_config_by_model,
                 &ztp_records,
@@ -1880,15 +1875,15 @@ pub async fn up(
                 config.ztp_server.password.clone(),
             )?;
             let pyats_yaml = pyats_inventory.to_yaml()?;
-            create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
+            util::create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
         }
 
-        term_msg_underline("Creating SSH Config File");
-        let ssh_config_template = SshConfigTemplate {
+        util::term_msg_underline("Creating SSH Config File");
+        let ssh_config_template = template::SshConfigTemplate {
             ztp_records: ztp_records.clone(),
         };
         let rendered_template = ssh_config_template.render()?;
-        create_file(
+        util::create_file(
             &format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"),
             rendered_template,
         )?;
@@ -1896,8 +1891,8 @@ pub async fn up(
 
     // Build container network attachment map for p2p links
     // Maps container name -> list of Docker networks to attach
-    term_msg_underline("Building Container Link Network Map");
-    let mut container_link_networks: HashMap<String, Vec<ContainerNetworkAttachment>> =
+    util::term_msg_underline("Building Container Link Network Map");
+    let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
         HashMap::new();
 
     for link_data in &lab_link_data {
@@ -1913,28 +1908,28 @@ pub async fn up(
             .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
 
         // Add network attachment for node_a if it's a container
-        if node_a_data.kind == NodeKind::Container {
+        if node_a_data.kind == data::NodeKind::Container {
             let docker_net_name =
                 format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
 
             container_link_networks
                 .entry(node_a_data.name.clone())
                 .or_insert_with(Vec::new)
-                .push(ContainerNetworkAttachment {
+                .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None, // No IP - pure L2 connection
                 });
         }
 
         // Add network attachment for node_b if it's a container
-        if node_b_data.kind == NodeKind::Container {
+        if node_b_data.kind == data::NodeKind::Container {
             let docker_net_name =
                 format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
 
             container_link_networks
                 .entry(node_b_data.name.clone())
                 .or_insert_with(Vec::new)
-                .push(ContainerNetworkAttachment {
+                .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
                 });
@@ -1947,7 +1942,7 @@ pub async fn up(
     // }
 
     // Check if VMs are ready
-    term_msg_underline("Checking Node Readiness");
+    util::term_msg_underline("Checking Node Readiness");
     let start_time = Instant::now();
     let timeout = Duration::from_secs(READINESS_TIMEOUT); // 10 minutes
     let mut connected_nodes = std::collections::HashSet::new();
@@ -1999,7 +1994,7 @@ pub async fn up(
                 vec![]
             };
 
-            let management_network = ContainerNetworkAttachment {
+            let management_network = data::ContainerNetworkAttachment {
                 name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                 ipv4_address: mgmt_ipv4,
             };
@@ -2012,7 +2007,7 @@ pub async fn up(
                 additional_networks.extend_from_slice(link_networks);
             }
 
-            run_container(
+            container::run_container(
                 //
                 &docker_conn,
                 &container_name,
@@ -2038,11 +2033,11 @@ pub async fn up(
             }
 
             if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
-                match tcp_connect(&vm_data.ipv4_address.to_string(), SSH_PORT)? {
+                match validate::tcp_connect(&vm_data.ipv4_address.to_string(), SSH_PORT)? {
                     true => {
                         println!("{} - Ready", &vm.name);
                         connected_nodes.insert(vm.name.clone());
-                        node_ip_map.push(NodeConnection {
+                        node_ip_map.push(data::NodeConnection {
                             name: vm.name.clone(),
                             ip_address: vm_data.ipv4_address.to_string(),
                             ssh_port: SSH_PORT,

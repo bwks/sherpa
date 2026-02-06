@@ -1,9 +1,9 @@
 use anyhow::Result;
-use shared::data::{NodeConfig, NodeModel};
 use db::{
-    count_labs, create_lab, create_node_config, create_user, delete_lab,
-    delete_lab_by_id, delete_lab_cascade, delete_lab_safe, get_lab,
+    count_labs, create_lab, create_node_config, create_user, delete_lab, delete_lab_by_id,
+    delete_lab_cascade, delete_lab_safe, get_lab,
 };
+use shared::data::{NodeConfig, NodeModel};
 
 use crate::helper::{create_test_node_with_model, setup_db, teardown_db};
 

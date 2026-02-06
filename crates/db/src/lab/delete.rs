@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbLink, DbNode, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::helpers::get_lab_id;
 use crate::lab::get_lab;
@@ -217,7 +217,7 @@ pub async fn delete_lab_cascade(db: &Surreal<Client>, lab_id: &str) -> Result<()
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// match delete_lab_safe(&db, "lab-0001").await {
 ///     Ok(_) => println!("Lab deleted successfully"),
 ///     Err(e) => println!("Cannot delete lab: {}", e),

@@ -1,10 +1,10 @@
 /// READ operation tests for node_config
 use anyhow::Result;
-use shared::data::NodeModel;
 use db::{
     count_node_configs, create_node_config, get_node_config_by_id, get_node_config_by_model_kind,
     list_node_configs,
 };
+use shared::data::NodeModel;
 
 use crate::{create_test_config, setup_db, teardown_db};
 

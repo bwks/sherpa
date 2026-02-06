@@ -4,8 +4,8 @@ use std::process::Command;
 use anyhow::Result;
 
 use shared::konst::{BOOT_SERVER_NAME, TELNET_PORT};
-use topology::Manifest;
 use shared::util::{get_ip, term_msg_surround};
+use topology::Manifest;
 
 pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));

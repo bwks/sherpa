@@ -41,7 +41,7 @@ pub async fn upsert_node_config(db: &Surreal<Client>, config: NodeConfig) -> Res
         // Update existing record, preserving the auto-generated ID
         let mut updated_config = config.clone();
         updated_config.id = existing_config.id.clone();
-        
+
         let updated: Option<NodeConfig> = db
             .update(existing_config.id.unwrap())
             .content(updated_config)

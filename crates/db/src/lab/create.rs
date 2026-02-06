@@ -1,7 +1,7 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbUser};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::helpers::get_user_id;
 
@@ -170,30 +170,36 @@ mod tests {
     fn test_validate_lab_id_too_short() {
         let result = validate_lab_id("lab-01");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("exactly 8 characters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 8 characters")
+        );
     }
 
     #[test]
     fn test_validate_lab_id_too_long() {
         let result = validate_lab_id("lab-00001");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("exactly 8 characters"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("exactly 8 characters")
+        );
     }
 
     #[test]
     fn test_validate_lab_id_invalid_chars() {
         let result = validate_lab_id("lab_0001");
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("alphanumeric characters and hyphens"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("alphanumeric characters and hyphens")
+        );
     }
 
     #[test]

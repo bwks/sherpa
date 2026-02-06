@@ -1,7 +1,7 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use shared::data::{DbLab, DbUser, RecordId};
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::helpers::get_user_id;
 
@@ -28,11 +28,11 @@ use crate::helpers::get_user_id;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// // Create a user
 /// let user = create_user(&db, "alice".to_string(), vec![]).await?;
 /// let user_id = user.id.expect("User should have ID");
-/// 
+///
 /// // Delete it (will cascade delete all labs owned by this user)
 /// delete_user(&db, user_id).await?;
 /// # Ok(())
@@ -40,13 +40,10 @@ use crate::helpers::get_user_id;
 /// ```
 pub async fn delete_user(db: &Surreal<Client>, id: RecordId) -> Result<()> {
     // Execute DELETE query
-    let deleted: Option<DbUser> = db
-        .delete(id.clone())
-        .await
-        .context(format!(
-            "Failed to delete user: {:?}\nNote: This will cascade delete all labs owned by this user",
-            id
-        ))?;
+    let deleted: Option<DbUser> = db.delete(id.clone()).await.context(format!(
+        "Failed to delete user: {:?}\nNote: This will cascade delete all labs owned by this user",
+        id
+    ))?;
 
     // Verify the record was found and deleted
     deleted.ok_or_else(|| anyhow!("User not found for deletion: {:?}", id))?;
@@ -77,9 +74,9 @@ pub async fn delete_user(db: &Surreal<Client>, id: RecordId) -> Result<()> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// create_user(&db, "alice".to_string(), vec![]).await?;
-/// 
+///
 /// // Delete by username
 /// delete_user_by_username(&db, "alice").await?;
 /// # Ok(())
@@ -126,13 +123,13 @@ pub async fn delete_user_by_username(db: &Surreal<Client>, username: &str) -> Re
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// let user = create_user(&db, "alice".to_string(), vec![]).await?;
 /// let user_id = user.id.clone().expect("User should have ID");
-/// 
+///
 /// // Create a lab for this user
 /// create_lab(&db, "test-lab", "lab-001", &user).await?;
-/// 
+///
 /// // This will fail because user owns a lab
 /// let result = delete_user_safe(&db, user_id).await;
 /// assert!(result.is_err());
@@ -154,10 +151,7 @@ pub async fn delete_user_safe(db: &Surreal<Client>, id: RecordId) -> Result<()> 
         .query("SELECT * FROM lab WHERE user = $user_id")
         .bind(("user_id", id.clone()))
         .await
-        .context(format!(
-            "Failed to check labs for user: {:?}",
-            id
-        ))?;
+        .context(format!("Failed to check labs for user: {:?}", id))?;
 
     let labs: Vec<DbLab> = response.take(0)?;
 

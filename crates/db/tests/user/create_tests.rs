@@ -51,7 +51,7 @@ async fn test_create_user_duplicate_username_fails() -> Result<()> {
 
     assert!(result.is_err(), "Should fail on duplicate username");
     let error_msg = result.unwrap_err().to_string();
-    
+
     // Verify the error is about creating the user (the underlying DB error may be masked by context)
     println!("Duplicate username error: {}", error_msg);
     assert!(

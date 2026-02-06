@@ -29,11 +29,11 @@ use crate::helpers::get_config_id;
 /// # use shared::data::{NodeModel, NodeConfig};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// 
+///
 /// // Create a config first
 /// let test_config = NodeConfig::get_model(NodeModel::AristaVeos);
 /// let created = create_node_config(&db, test_config).await?;
-/// 
+///
 /// // Update it
 /// let mut config = created.clone();
 /// config.memory = 4096;  // Modify a field

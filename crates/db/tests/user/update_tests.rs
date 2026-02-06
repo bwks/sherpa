@@ -40,11 +40,7 @@ async fn test_update_user_ssh_keys() -> Result<()> {
 
     // Add more keys
     let mut updated_user = user.clone();
-    updated_user.ssh_keys = vec![
-        "key1".to_string(),
-        "key2".to_string(),
-        "key3".to_string(),
-    ];
+    updated_user.ssh_keys = vec!["key1".to_string(), "key2".to_string(), "key3".to_string()];
 
     let result = update_user(&db, updated_user).await?;
     assert_eq!(result.ssh_keys.len(), 3);

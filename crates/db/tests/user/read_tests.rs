@@ -133,11 +133,7 @@ async fn test_count_users() -> Result<()> {
 
     let new_count = count_users(&db).await?;
 
-    assert_eq!(
-        new_count,
-        initial_count + 2,
-        "Count should increase by 2"
-    );
+    assert_eq!(new_count, initial_count + 2, "Count should increase by 2");
 
     teardown_db(&db).await?;
     Ok(())

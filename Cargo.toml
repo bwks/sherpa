@@ -10,13 +10,13 @@ resolver = "3"
 members = [
   "crates/client",
   "crates/container",
+  "crates/db",
+  "crates/network",
   "crates/libvirt",
   "crates/server",
+  "crates/shared",
   "crates/template",
   "crates/topology",
   "crates/validate",
-  "crates/network",
-  "crates/db",
-  "crates/shared",
 ]
 default-members = ["crates/client"]

@@ -181,7 +181,9 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
     assert!(result.is_err());
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("immutable") || err_msg.contains("cannot change") || err_msg.contains("lab")
+        err_msg.contains("immutable")
+            || err_msg.contains("cannot change")
+            || err_msg.contains("lab")
     );
 
     teardown_db(&db).await?;
@@ -396,7 +398,7 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
     if result.is_ok() {
         panic!("Update should have failed due to unique constraint violation, but it succeeded!");
     }
-    
+
     // If it fails, that's expected - the error message format may vary
     eprintln!("Update correctly failed with: {}", result.unwrap_err());
 

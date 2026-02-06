@@ -14,17 +14,9 @@ async fn test_get_node_by_id_success() -> Result<()> {
 
     let user = create_user(&db, "alice".to_string(), vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
-    let created = create_node(
-        &db,
-        "node1",
-        1,
-        config.id.unwrap(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
+    let created = create_node(&db, "node1", 1, config.id.unwrap(), lab.id.clone().unwrap()).await?;
 
     let node_id = created.id.clone().unwrap();
     let retrieved = get_node_by_id(&db, node_id).await?;
@@ -63,8 +55,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
 
     let user = create_user(&db, "bob".to_string(), vec![]).await?;
     let lab = create_lab(&db, "Bob's Lab", "lab-0002", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let created = create_node(
         &db,
@@ -127,8 +118,7 @@ async fn test_list_nodes_returns_all() -> Result<()> {
 
     let user = create_user(&db, "diana".to_string(), vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0004", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create multiple nodes
     create_node(
@@ -188,8 +178,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
     let user = create_user(&db, "frank".to_string(), vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0006", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0007", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create nodes in lab1
     create_node(
@@ -249,8 +238,7 @@ async fn test_count_nodes_accurate() -> Result<()> {
 
     let user = create_user(&db, "grace".to_string(), vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0008", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create nodes
     for i in 1..=5 {
@@ -296,8 +284,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
     let user = create_user(&db, "ian".to_string(), vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0010", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0011", &user).await?;
-    let config =
-        create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create nodes in lab1
     for i in 1..=3 {
