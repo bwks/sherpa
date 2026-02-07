@@ -33,7 +33,7 @@ use shared::konst::{
 };
 use shared::util;
 use template;
-use topology;
+use topology::{self, BridgeDetailed};
 use validate;
 
 fn find_interface_link(
@@ -67,11 +67,13 @@ fn find_interface_link(
 fn find_bridge_interface(
     node_name: &str,
     interface_idx: u8,
-    bridge_connections: &Vec<topology::BridgeLinkDetailed>,
+    bridge_connections: &Vec<topology::BridgeDetailed>,
 ) -> Option<u8> {
-    for (bridge_idx, conn) in bridge_connections.iter().enumerate() {
-        if conn.node_name == node_name && conn.interface_index == interface_idx {
-            return Some(bridge_idx as u8);
+    for bridge in bridge_connections.iter() {
+        for (idx, conn) in bridge.links.iter().enumerate() {
+            if conn.node_name == node_name && conn.interface_index == interface_idx {
+                return Some(idx as u8);
+            }
         }
     }
     None
@@ -112,6 +114,66 @@ fn process_manifest_links(
         links_detailed.push(this_link)
     }
     Ok(links_detailed)
+}
+
+fn process_manifest_bridges(
+    manifest_bridges: &Option<Vec<topology::Bridge>>,
+    manifest_nodes: &Vec<topology::Node>,
+) -> Result<Vec<topology::BridgeDetailed>> {
+    let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
+    let bridges = manifest_bridges
+        .iter()
+        .map(|x: &topology::Bridge| x.parse_links())
+        .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
+
+    let mut bridges_detailed: Vec<topology::BridgeDetailed> = vec![];
+    for (idx, bridge) in bridges.iter().enumerate() {
+        let mut bridge_links = vec![];
+        for link in bridge.links.iter() {
+            if let Some(node) = manifest_nodes.iter().find(|n| n.name == link.node) {
+                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
+                bridge_links.push(topology::BridgeLinkDetailed {
+                    node_name: link.node.clone(),
+                    node_model: node.model.clone(),
+                    interface_name: link.interface.clone(),
+                    interface_index: interface_idx,
+                });
+            }
+        }
+        bridges_detailed.push(BridgeDetailed {
+            name: bridge.name.clone(),
+            index: idx as u16,
+            links: bridge_links,
+        })
+    }
+    Ok(bridges_detailed)
+}
+
+fn node_isolated_network_data(
+    node_name: &str,
+    node_index: u16,
+    lab_id: &str,
+) -> data::LabIsolatedNetwork {
+    data::LabIsolatedNetwork {
+        network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node_name, lab_id),
+        bridge_name: format!(
+            "{}{}-{}",
+            SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, node_index, lab_id
+        ),
+    }
+}
+fn node_reserved_network_data(
+    node_name: &str,
+    node_index: u16,
+    lab_id: &str,
+) -> data::LabReservedNetwork {
+    data::LabReservedNetwork {
+        network_name: format!("{}-{}-{}", SHERPA_RESERVED_NETWORK_NAME, node_name, lab_id),
+        bridge_name: format!(
+            "{}{}-{}",
+            SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, node_index, lab_id
+        ),
+    }
 }
 
 pub async fn up(
@@ -174,48 +236,17 @@ pub async fn up(
 
     util::term_msg_underline("Validating Manifest");
 
-    let manifest_bridges = manifest.bridges.clone().unwrap_or_default();
-    let bridges = manifest_bridges
-        .iter()
-        .map(|x: &topology::Bridge| x.parse_links())
-        .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
-
-    let links_detailed = process_manifest_links(&manifest.links, &manifest.nodes)?;
-
-    /*
-            pub struct BridgeExpanded {
-                pub name: String,
-                pub links: Vec<BridgeLink>,
-            }
-            pub struct BridgeLink {
-                pub node: String,
-                pub interface: String,
-        }
-    */
-    let mut bridges_detailed: Vec<topology::BridgeLinkDetailed> = vec![];
-    for bridge in bridges.iter() {
-        for link in bridge.links.iter() {
-            if let Some(node) = manifest.nodes.iter().find(|n| n.name == link.node) {
-                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
-                bridges_detailed.push(topology::BridgeLinkDetailed {
-                    node_name: link.node.clone(),
-                    node_model: node.model.clone(),
-                    interface_name: link.interface.clone(),
-                    interface_index: interface_idx,
-                });
-            }
-        }
-    }
-
     // Device Validators
     validate::check_duplicate_device(&manifest.nodes)?;
 
+    let links_detailed = process_manifest_links(&manifest.links, &manifest.nodes)?;
+    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &manifest.nodes)?;
     let mut ztp_records = vec![];
 
     for node in &manifest.nodes {
         let node_model = node_config_by_model
             .get(&node.model)
-            .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", node.model))?;
+            .ok_or_else(|| anyhow!("Device model not found: {}", node.model))?;
 
         if !node_model.dedicated_management_interface {
             validate::check_mgmt_usage(
@@ -263,23 +294,30 @@ pub async fn up(
     let mut domains: Vec<template::DomainTemplate> = vec![];
 
     let mut lab_node_data = vec![];
-    let mut node_setup_data: Vec<data::NodeSetupData> = vec![];
+    let mut node_setup_data = vec![];
 
-    for node in &manifest.nodes {
-        let node_idx = node_id_map
-            .get(&node.name)
-            .ok_or_else(|| anyhow::anyhow!("Node not found in node ID map: {}", node.name))?;
+    for (idx, node) in manifest.nodes.iter().enumerate() {
+        let node_idx = idx as u16;
 
         // Get node config from our by-model HashMap (for determining kind)
-        let node_data = node_config_by_model
-            .get(&node.model)
-            .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
+        let node_data = node_config_by_model.get(&node.model).ok_or_else(|| {
+            anyhow!(
+                "Node model not found. Node: {} - Model: {}",
+                node.name,
+                node.model,
+            )
+        })?;
+
+        // Get a vector in node interfaces.
+        let node_interfaces = util::node_model_interfaces(&node.model);
+
+        // println!("STR:\n {:#?}", node_interfaces);
 
         // Look up the precise node config from HashMap using model+kind
         let node_config = node_config_map
             .get(&(node.model.clone(), node_data.kind.clone()))
             .ok_or_else(|| {
-                anyhow::anyhow!(
+                anyhow!(
                     "Node config not found for model {} and kind {}",
                     node.model,
                     node_data.kind
@@ -287,86 +325,80 @@ pub async fn up(
             })?;
 
         // Process nodes to build a vector of a nodes links
-        let mut node_interfaces: Vec<data::InterfaceData> = vec![];
+        let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
 
-        // For each interface type of a node, add an entry to the node_interfaces vector.
-        // The first interface is always the  management interface if there is a dedicated mgmt or first interface if not.
-        // Then add reserved interfaces if the node has them
-        // Then if the interface is a p2p peer
-        // Then if the interface is connected to a bridge
-        // Else The interface is disabled.
-
-        // Determine management interface index
-        let mgmt_interface_idx = if node_config.dedicated_management_interface {
-            // Dedicated management doesn't participate in numbering
-            255 // Using 255 as sentinel value for dedicated mgmt
-        } else {
-            node_config.first_interface_index
-        };
+        // It matters not, if the device has a dedicated MGMT interface.
+        // The MGMT interface is always index 0. (The first interface)
+        let _mgmt_interface_idx = 0;
+        // The first data interface is either 1 or the first interface after the
+        // nubmer of reserved interfaces.
+        let first_data_interface_idx = 1 + node_config.reserved_interface_count;
 
         // Populate interface vector for all interfaces
-        for interface_idx in node_config.first_interface_index..node_config.interface_count {
-            // Get interface name for this index
-            let interface_name = util::interface_from_idx(&node_data.model, interface_idx)?;
+        for (idx, interface) in node_interfaces.iter().enumerate() {
+            // convert usize to u8 to match interface idx
+            let idx = idx as u8;
 
-            // Parse interface kind
-            let interface_kind = util::parse_interface_kind(&node_data.model, &interface_name)?;
+            let interface_name = interface;
+            let interface_idx = idx;
+            let mut interface_state = data::InterfaceState::Enabled;
+            let mut interface_data = data::NodeInterface::Disabled;
 
-            // Determine interface type and state
-            let (interface_data, interface_state) = if !node_config.dedicated_management_interface
-                && interface_idx == mgmt_interface_idx
-            {
-                // This is the management interface (only for non-dedicated management)
-                (
-                    data::NodeInterface::Management,
-                    data::InterfaceState::Enabled,
-                )
-            } else if interface_idx
-                < (node_config.first_interface_index + node_config.reserved_interface_count)
-            {
-                // This is a reserved interface
-                (data::NodeInterface::Reserved, data::InterfaceState::Enabled)
-            } else if let Some((_link_idx, peer_node, peer_model, peer_int_idx, side)) =
-                find_interface_link(&node.name, interface_idx, &links_detailed)
-            {
-                // This interface is part of a P2P link
-                // Use util::interface_to_idx to get the peer's actual interface string name, then parse
-                let peer_interface_name = util::interface_from_idx(&peer_model, peer_int_idx)?;
-                let peer_interface_kind =
-                    util::parse_interface_kind(&peer_model, &peer_interface_name)?;
-
-                let peer_interface = data::PeerInterface {
-                    node: peer_node,
-                    interface: peer_interface_kind,
-                    index: peer_int_idx,
-                    side,
-                };
-                (
-                    data::NodeInterface::Peer(peer_interface),
-                    data::InterfaceState::Enabled,
-                )
-            } else if let Some(bridge_idx) =
-                find_bridge_interface(&node.name, interface_idx, &bridges_detailed)
-            {
-                // This interface is connected to a shared bridge
-                let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id);
-                let bridge_interface = data::BridgeInterface { name: bridge_name };
-                (
-                    data::NodeInterface::Bridge(bridge_interface),
-                    data::InterfaceState::Enabled,
-                )
+            if idx == 0 {
+                // MGMT interface
+                interface_data = data::NodeInterface::Management;
+            } else if idx < first_data_interface_idx {
+                // Reserved interface
+                interface_data = data::NodeInterface::Reserved;
             } else {
-                // This interface is disabled
-                (
-                    data::NodeInterface::Disabled,
-                    data::InterfaceState::Disabled,
-                )
-            };
+                // Data interfaces
+
+                // P2P Interface
+                for link in links_detailed.iter() {
+                    if link.node_a == node.name && link.int_a == *interface_name {
+                        interface_data = data::NodeInterface::Peer(data::PeerInterface {
+                            this_node: link.node_a.clone(),
+                            this_interface: link.int_a.clone(),
+                            this_index: link.int_a_idx,
+                            this_side: data::PeerSide::A,
+                            peer_node: link.node_b.clone(),
+                            peer_interface: link.int_b.clone(),
+                            peer_index: link.int_b_idx,
+                            peer_side: data::PeerSide::B,
+                        })
+                    } else if link.node_b == node.name && link.int_b == *interface_name {
+                        interface_data = data::NodeInterface::Peer(data::PeerInterface {
+                            this_node: link.node_b.clone(),
+                            this_interface: link.int_b.clone(),
+                            this_index: link.int_b_idx,
+                            this_side: data::PeerSide::B,
+                            peer_node: link.node_a.clone(),
+                            peer_interface: link.int_a.clone(),
+                            peer_index: link.int_a_idx,
+                            peer_side: data::PeerSide::A,
+                        })
+                    }
+                }
+
+                // Bridge Interface
+                for bridge in bridges_detailed.iter() {
+                    for link in bridge.links.iter() {
+                        if link.node_name == node.name && link.interface_name == *interface_name {
+                            //
+                            interface_data = data::NodeInterface::Bridge(data::BridgeInterface {
+                                name: bridge.name.clone(),
+                            })
+                        }
+                    }
+                }
+
+                // All other interfaces are Disabled.
+                interface_state = data::InterfaceState::Disabled;
+            }
 
             // Create and add InterfaceData
-            node_interfaces.push(data::InterfaceData {
-                name: interface_name,
-                kind: interface_kind,
+            node_interfaces_detailed.push(data::InterfaceData {
+                name: interface_name.to_string(),
                 index: interface_idx,
                 state: interface_state,
                 data: interface_data,
@@ -376,7 +408,7 @@ pub async fn up(
         let lab_node = db::create_node(
             &db,
             &node.name,
-            *node_idx,
+            node_idx,
             db::get_config_id(node_config)?,
             lab_record_id.clone(),
         )
@@ -386,7 +418,7 @@ pub async fn up(
             name: node.name.clone(),
             model: node_data.model.clone(),
             kind: node_data.kind.clone(),
-            index: *node_idx,
+            index: node_idx,
             record: lab_node,
         });
 
@@ -403,53 +435,53 @@ pub async fn up(
             }
         }
 
-        // Create isolated/blackhole network for this node (VMs and Unikernels only)
-        // Containers will be handled separately in the future
-        let isolated_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
-            println!("Creating blackhole network for node: {}", node.name);
-            let node_isolated_network = libvirt::IsolatedNetwork {
-                network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node.name, lab_id),
-                bridge_name: format!(
-                    "{}{}-{}",
-                    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, node_idx, lab_id
-                ),
-            };
-            // Store the network name before creating (to avoid borrow after move)
-            let network_name = node_isolated_network.network_name.clone();
-            node_isolated_network.create(&qemu_conn)?;
-            Some(network_name)
+        // All VM nodes have an isolated bridge created for unused interfaces.
+        let node_isolated_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
+            Some(node_isolated_network_data(&node.name, node_idx, lab_id))
+        } else {
+            None
+        };
+        // If a VM has reserved interfaces create a reserved bridge
+        // TODO: Add logic for checking for node_config with reserved interfaces.
+        let node_reserved_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
+            Some(node_reserved_network_data(&node.name, node_idx, lab_id))
         } else {
             None
         };
 
-        // Create reserved network for this node (VMs and Unikernels only)
-        let reserved_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
-            println!("Creating reserved network for node: {}", node.name);
-            let node_reserved_network = libvirt::IsolatedNetwork {
-                network_name: format!("{}-{}-{}", SHERPA_RESERVED_NETWORK_NAME, node.name, lab_id),
-                bridge_name: format!(
-                    "{}{}-{}",
-                    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, node_idx, lab_id
-                ),
+        // Create isolated network for this node (VMs and Unikernels only)
+        // Containers will be handled separately in the future
+        if let Some(network) = node_isolated_network.clone() {
+            println!("Creating isolated network for node: {}", node.name);
+            let node_isolated_network = libvirt::IsolatedNetwork {
+                network_name: network.network_name,
+                bridge_name: network.bridge_name,
             };
-            // Store the network name before creating (to avoid borrow after move)
-            let network_name = node_reserved_network.network_name.clone();
+            node_isolated_network.create(&qemu_conn)?;
+        };
+
+        // Create reserved network for this node (VMs and Unikernels only)
+        if let Some(network) = node_reserved_network.clone() {
+            println!("Creating reserved network for node: {}", node.name);
+            let node_reserved_network = libvirt::ReservedNetwork {
+                network_name: network.network_name,
+                bridge_name: network.bridge_name,
+            };
             node_reserved_network.create(&qemu_conn)?;
-            Some(network_name)
-        } else {
-            None
         };
 
         // Store node setup data for later use in template::DomainTemplate creation
         node_setup_data.push(data::NodeSetupData {
             name: node.name.clone(),
-            index: *node_idx,
+            index: node_idx,
             management_network: management_network.clone(),
-            isolated_network,
-            reserved_network,
-            interfaces: node_interfaces,
+            isolated_network: node_isolated_network,
+            reserved_network: node_reserved_network,
+            interfaces: node_interfaces_detailed,
         });
     }
+
+    println!("node_setup_data: {:#?}", node_setup_data);
 
     util::term_msg_underline("Lab Network");
     let lab_net = util::get_free_subnet(&config.management_prefix_ipv4.to_string())?;
@@ -638,7 +670,7 @@ pub async fn up(
     }
             */
     // Create shared bridges for multi-host connections
-    for (idx, bridge) in bridges.iter().enumerate() {
+    for (idx, bridge) in bridges_detailed.iter().enumerate() {
         util::term_msg_underline("Creating Shared Bridges");
         let mut bridge_nodes = vec![];
         let bridge_index = idx as u16;
@@ -655,7 +687,7 @@ pub async fn up(
         network::create_bridge(&bridge_name, &network_name).await?;
 
         for link in bridge.links.iter() {
-            if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node) {
+            if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node_name) {
                 bridge_nodes.push(db::get_node_id(&node_data.record)?);
             }
         }
@@ -688,7 +720,7 @@ pub async fn up(
     for node in &mut container_nodes {
         let node_idx = node_id_map
             .get(&node.name)
-            .ok_or_else(|| anyhow::anyhow!("Node not found in node ID map: {}", node.name))?;
+            .ok_or_else(|| anyhow!("Node not found in node ID map: {}", node.name))?;
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
@@ -768,14 +800,14 @@ pub async fn up(
     for node in &vm_nodes {
         let node_idx = node_id_map
             .get(&node.name)
-            .ok_or_else(|| anyhow::anyhow!("Node not found in node ID map: {}", node.name))?;
+            .ok_or_else(|| anyhow!("Node not found in node ID map: {}", node.name))?;
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
         // Get node config from HashMap for O(1) lookup
         let node_model = node_config_by_model
             .get(&node.model)
-            .ok_or_else(|| anyhow::anyhow!("Node model not found: {}", node.model))?;
+            .ok_or_else(|| anyhow!("Node model not found: {}", node.model))?;
 
         let mut disks: Vec<data::NodeDisk> = vec![];
         let node_name = format!("{}-{}", node.name, lab_id);
@@ -846,9 +878,9 @@ pub async fn up(
                 for l in links_detailed.iter() {
                     // node is source in manifest
                     if l.node_a == node.name && i == l.int_a_idx {
-                        let source_id = node_id_map.get(&l.node_b).ok_or_else(|| {
-                            anyhow::anyhow!("Connection dev_b not found: {}", l.node_b)
-                        })?;
+                        let source_id = node_id_map
+                            .get(&l.node_b)
+                            .ok_or_else(|| anyhow!("Connection dev_b not found: {}", l.node_b))?;
                         let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
                         let interface_connection = data::InterfaceConnection {
                             local_id,
@@ -878,9 +910,9 @@ pub async fn up(
                         break;
                     // node is destination in manifest
                     } else if l.node_b == node.name && i == l.int_b_idx {
-                        let source_id = node_id_map.get(&l.node_a).ok_or_else(|| {
-                            anyhow::anyhow!("Connection dev_a not found: {}", l.node_a)
-                        })?;
+                        let source_id = node_id_map
+                            .get(&l.node_a)
+                            .ok_or_else(|| anyhow!("Connection dev_a not found: {}", l.node_a))?;
                         let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
                         let interface_connection = data::InterfaceConnection {
                             local_id,
@@ -1803,8 +1835,8 @@ pub async fn up(
                 qemu_commands,
                 lab_id: lab_id.to_string(),
                 management_network,
-                isolated_network,
-                reserved_network,
+                isolated_network: isolated_network.network_name,
+                reserved_network: reserved_network.network_name,
             };
             domains.push(domain);
         }
@@ -1834,7 +1866,7 @@ pub async fn up(
     for handle in disk_handles {
         handle
             .join()
-            .map_err(|e| anyhow::anyhow!("Error cloning disk: {:?}", e))??;
+            .map_err(|e| anyhow!("Error cloning disk: {:?}", e))??;
     }
 
     // Build domains in parallel
@@ -1862,7 +1894,7 @@ pub async fn up(
     for handle in vm_handles {
         handle
             .join()
-            .map_err(|e| anyhow::anyhow!("Error creating VM: {:?}", e))??;
+            .map_err(|e| anyhow!("Error creating VM: {:?}", e))??;
     }
 
     if !ztp_records.is_empty() {

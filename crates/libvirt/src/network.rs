@@ -68,6 +68,38 @@ impl IsolatedNetwork {
     }
 }
 
+pub struct ReservedNetwork {
+    pub network_name: String,
+    pub bridge_name: String,
+}
+
+impl ReservedNetwork {
+    /// Create an reserved bridge for control traffic in a VM.
+    pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        let network_name = &self.network_name;
+        let bridge_name = &self.bridge_name;
+        let network_xml = format!(
+            r#"
+      <network>
+        <name>{network_name}</name>
+        <mtu size="{MTU_JUMBO_NET}"/>
+        <bridge name='{bridge_name}' stp='on' delay='0'/>
+        <forward mode='none'/>
+        <port isolated='no'/>
+      </network>
+      "#
+        );
+
+        let network = Network::define_xml(qemu_conn, &network_xml)?;
+        network.create()?;
+        network.set_autostart(true)?;
+
+        println!("Network created and started: {}", &self.network_name);
+
+        Ok(())
+    }
+}
+
 pub struct NatNetwork {
     pub network_name: String,
     pub bridge_name: String,

@@ -39,6 +39,16 @@ macro_rules! interface_enum {
                 $variant,
             )*
         }
+        impl $enum_name {
+            /// Returns a vector of all interface names for this enum
+            pub fn all_interfaces() -> Vec<String> {
+                vec![
+                    $(
+                        $name.to_string(),
+                    )*
+                ]
+            }
+        }
 
         impl InterfaceTrait for $enum_name {
             fn to_idx(&self) -> u8 {
@@ -165,28 +175,6 @@ pub struct Interface {
     pub mtu: u16,
     pub connection_type: ConnectionTypes,
     pub interface_connection: Option<InterfaceConnection>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum InterfaceKind {
-    Ethernet(EthernetInt),
-    ArubaAoscx(ArubaAoscxInt),
-    AristaVeos(AristaVeosInt),
-    AristaCeos(AristaCeosInt),
-    CiscoIosv(CiscoIosvInt),
-    CiscoIosvl2(CiscoIosvl2Int),
-    CiscoAsav(CiscoAsavInt),
-    CiscoFtdv(CiscoFtdvInt),
-    CiscoCsr1000v(CiscoCsr1000vInt),
-    CiscoCat8000v(CiscoCat8000vInt),
-    CiscoCat9000v(CiscoCat9000vInt),
-    CiscoIosxrv9000(CiscoIosxrv9000Int),
-    CiscoNexus9000v(CiscoNexus9300vInt),
-    JuniperVrouter(JuniperVrouterInt),
-    JuniperVswitch(JuniperVswitchInt),
-    JuniperVevolved(JuniperVevolvedInt),
-    JuniperVsrxv3(JuniperVsrxv3Int),
-    CumulusLinux(CumulusLinuxInt),
 }
 
 interface_enum!(

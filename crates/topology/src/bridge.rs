@@ -59,8 +59,9 @@ pub struct BridgeLinkExpanded {
 /// Detailed bridge with resolved node models and interface indices
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct BridgeDetailed {
-    pub connections: Vec<BridgeLinkDetailed>,
-    pub bridge_index: u16,
+    pub name: String,
+    pub index: u16,
+    pub links: Vec<BridgeLinkDetailed>,
 }
 
 /// Detailed bridge connection with all resolved information

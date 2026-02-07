@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{BridgeKind, DbNode, InterfaceKind, NodeKind, NodeModel};
+use super::{BridgeKind, DbNode, NodeKind, NodeModel};
 
 #[derive(Clone, Debug)]
 pub enum PeerSide {
@@ -16,10 +16,14 @@ pub enum PeerSide {
 
 #[derive(Clone, Debug)]
 pub struct PeerInterface {
-    pub node: String,
-    pub interface: InterfaceKind,
-    pub index: u8,
-    pub side: PeerSide,
+    pub this_node: String,
+    pub this_interface: String,
+    pub this_index: u8,
+    pub this_side: PeerSide,
+    pub peer_node: String,
+    pub peer_interface: String,
+    pub peer_index: u8,
+    pub peer_side: PeerSide,
 }
 
 #[derive(Clone, Debug)]
@@ -45,7 +49,6 @@ pub enum NodeInterface {
 #[derive(Clone, Debug)]
 pub struct InterfaceData {
     pub name: String,
-    pub kind: InterfaceKind,
     pub index: u8,
     pub state: InterfaceState,
     pub data: NodeInterface,
@@ -88,8 +91,8 @@ pub struct NodeSetupData {
     pub name: String,
     pub index: u16,
     pub management_network: String,
-    pub isolated_network: Option<String>,
-    pub reserved_network: Option<String>,
+    pub isolated_network: Option<LabIsolatedNetwork>,
+    pub reserved_network: Option<LabReservedNetwork>,
     pub interfaces: Vec<InterfaceData>,
 }
 
@@ -120,4 +123,16 @@ pub struct BridgeConnection {
     pub node_record: DbNode,
     pub interface_name: String,
     pub interface_index: u8,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LabIsolatedNetwork {
+    pub network_name: String,
+    pub bridge_name: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LabReservedNetwork {
+    pub network_name: String,
+    pub bridge_name: String,
 }
