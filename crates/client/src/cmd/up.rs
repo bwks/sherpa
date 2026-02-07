@@ -192,21 +192,15 @@ pub async fn up(
     manifest: &topology::Manifest,
 ) -> Result<()> {
     // Setup
-    let docker_conn = container::docker_connection()?;
-    let qemu_conn = Arc::new(qemu.connect()?);
+    util::term_msg_surround(&format!("Building environment - {lab_id}"));
+
     let sherpa_user = util::sherpa_user()?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let current_user = util::get_username()?;
     let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
 
-    util::term_msg_surround(&format!("Building environment - {lab_id}"));
-
-    println!("Loading config");
-    let sherpa = sherpa.clone();
-
-    let mut config = util::load_config(&sherpa.config_file_path)?;
-
-    // Connect to DB early to fetch node configs
+    let docker_conn = container::docker_connection()?;
+    let qemu_conn = Arc::new(qemu.connect()?);
     let db = db::connect(
         SHERPA_DB_SERVER,
         SHERPA_DB_PORT,
@@ -224,6 +218,11 @@ pub async fn up(
             lab_id,
         ));
     }
+
+    println!("Loading config");
+    let sherpa = sherpa.clone();
+
+    let mut config = util::load_config(&sherpa.config_file_path)?;
 
     // Bulk fetch all node configs from database
     let node_configs_list = db::list_node_configs(&db).await?;
