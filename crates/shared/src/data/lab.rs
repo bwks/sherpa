@@ -16,13 +16,16 @@ pub enum PeerSide {
 
 #[derive(Clone, Debug)]
 pub struct PeerInterface {
+    pub link_index: u16,
     pub this_node: String,
+    pub this_node_index: u16,
     pub this_interface: String,
-    pub this_index: u8,
+    pub this_interface_index: u8,
     pub this_side: PeerSide,
     pub peer_node: String,
+    pub peer_node_index: u16,
     pub peer_interface: String,
-    pub peer_index: u8,
+    pub peer_interface_index: u8,
     pub peer_side: PeerSide,
 }
 

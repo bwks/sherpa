@@ -43,26 +43,58 @@ fn find_interface_link(
 ) -> Option<data::NodeInterface> {
     let mut interface_data = None;
     for link in links_detailed {
+        // pub struct LinkDetailed {
+        //     pub node_a: String,
+        //     pub node_a_model: NodeModel,
+        //     pub int_a: String,
+        //     pub int_a_idx: u8,
+        //     pub node_b: String,
+        //     pub node_b_model: NodeModel,
+        //     pub int_b: String,
+        //     pub int_b_idx: u8,
+        //     pub link_idx: u16,
+        // }
+
+        // pub struct PeerInterface {
+        //     pub link_index: u16,
+        //     pub this_node: String,
+        //     pub this_node_index: u16,
+        //     pub this_interface: String,
+        //     pub this_interface_index: u8,
+        //     pub this_side: PeerSide,
+        //     pub peer_node: String,
+        //     pub peer_node_index: u16,
+        //     pub peer_interface: String,
+        //     pub peer_interface_index: u8,
+        //     pub peer_side: PeerSide,
+        // }
+
         if link.node_a == node_name && link.int_a == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
+                link_index: link.link_idx,
                 this_node: link.node_a.clone(),
+                this_node_index: link.node_a_idx,
                 this_interface: link.int_a.clone(),
-                this_index: link.int_a_idx,
+                this_interface_index: link.int_a_idx,
                 this_side: data::PeerSide::A,
                 peer_node: link.node_b.clone(),
+                peer_node_index: link.node_b_idx,
                 peer_interface: link.int_b.clone(),
-                peer_index: link.int_b_idx,
+                peer_interface_index: link.int_b_idx,
                 peer_side: data::PeerSide::B,
             }))
         } else if link.node_b == node_name && link.int_b == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
+                link_index: link.link_idx,
                 this_node: link.node_b.clone(),
+                this_node_index: link.node_b_idx,
                 this_interface: link.int_b.clone(),
-                this_index: link.int_b_idx,
+                this_interface_index: link.int_b_idx,
                 this_side: data::PeerSide::B,
                 peer_node: link.node_a.clone(),
+                peer_node_index: link.node_a_idx,
                 peer_interface: link.int_a.clone(),
-                peer_index: link.int_a_idx,
+                peer_interface_index: link.int_a_idx,
                 peer_side: data::PeerSide::A,
             }))
         }
@@ -90,7 +122,7 @@ fn find_bridge_interface(
 
 fn process_manifest_links(
     manifest_links: &Option<Vec<topology::Link2>>,
-    manifest_nodes: &Vec<topology::Node>,
+    manifest_nodes: &Vec<topology::NodeExpanded>,
 ) -> Result<Vec<topology::LinkDetailed>> {
     let manifest_links = manifest_links.clone().unwrap_or_default();
     // links from manifest links
@@ -104,20 +136,33 @@ fn process_manifest_links(
         let mut this_link = topology::LinkDetailed::default();
         for device in manifest_nodes.iter() {
             let device_model = device.model.clone();
+            // let device_index = manifest_nodes.iter().map()
             if link.node_a == device.name {
                 let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
+                let peer_node = manifest_nodes
+                    .iter()
+                    .find(|n| n.name == link.node_b)
+                    .ok_or_else(|| anyhow!("Peer node not found: {}", link.node_b))?;
                 this_link.node_a = device.name.clone();
+                this_link.node_a_idx = device.index;
                 this_link.node_a_model = device_model;
                 this_link.int_a = link.int_a.clone();
                 this_link.int_a_idx = int_idx;
-                this_link.link_idx = link_idx as u16
+                this_link.link_idx = link_idx as u16;
+                this_link.node_b_idx = peer_node.index;
             } else if link.node_b == device.name {
+                let peer_node = manifest_nodes
+                    .iter()
+                    .find(|n| n.name == link.node_a)
+                    .ok_or_else(|| anyhow!("Peer node not found: {}", link.node_a))?;
                 let int_idx = util::interface_to_idx(&device_model, &link.int_b)?;
                 this_link.node_b = device.name.clone();
+                this_link.node_b_idx = device.index;
                 this_link.node_b_model = device_model;
                 this_link.int_b = link.int_b.clone();
                 this_link.int_b_idx = int_idx;
-                this_link.link_idx = link_idx as u16
+                this_link.link_idx = link_idx as u16;
+                this_link.node_a_idx = peer_node.index;
             }
         }
         links_detailed.push(this_link)
@@ -125,9 +170,37 @@ fn process_manifest_links(
     Ok(links_detailed)
 }
 
+fn process_manifest_nodes(manifest_nodes: &Vec<topology::Node>) -> Vec<topology::NodeExpanded> {
+    let nodes_expanded = manifest_nodes
+        .iter()
+        .enumerate()
+        .map(|(idx, node)| topology::NodeExpanded {
+            name: node.name.clone(),
+            model: node.model.clone(),
+            // Node indexes start from 1. This aligns with IP address assignment
+            index: idx as u16 + 1,
+            version: node.version.clone(),
+            memory: node.memory,
+            cpu_count: node.cpu_count,
+            ipv4_address: node.ipv4_address,
+            ssh_authorized_keys: node.ssh_authorized_keys.clone(),
+            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
+            text_files: node.text_files.clone(),
+            binary_files: node.binary_files.clone(),
+            systemd_units: node.systemd_units.clone(),
+            image: node.image.clone(),
+            privileged: node.privileged,
+            environment_variables: node.environment_variables.clone(),
+            volumes: node.volumes.clone(),
+            commands: node.commands.clone(),
+        })
+        .collect();
+    nodes_expanded
+}
+
 fn process_manifest_bridges(
     manifest_bridges: &Option<Vec<topology::Bridge>>,
-    manifest_nodes: &Vec<topology::Node>,
+    manifest_nodes: &Vec<topology::NodeExpanded>,
 ) -> Result<Vec<topology::BridgeDetailed>> {
     let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
     let bridges = manifest_bridges
@@ -252,11 +325,12 @@ pub async fn up(
     // Device Validators
     validate::check_duplicate_device(&manifest.nodes)?;
 
-    let links_detailed = process_manifest_links(&manifest.links, &manifest.nodes)?;
-    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &manifest.nodes)?;
+    let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;
+    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded)?;
     let mut ztp_records = vec![];
 
-    for node in &manifest.nodes {
+    for node in &nodes_expanded {
         let node_config = get_node_config(&node.model, &node_configs)?;
 
         if !node_config.dedicated_management_interface {
@@ -288,18 +362,16 @@ pub async fn up(
     let lab_record = db::create_lab(&db, &manifest.name, lab_id, &db_user).await?;
     let lab_record_id = db::get_lab_id(&lab_record)?;
 
-    let mut container_nodes: Vec<topology::Node> = vec![];
-    let mut unikernel_nodes: Vec<topology::Node> = vec![];
-    let mut vm_nodes: Vec<topology::Node> = vec![];
+    let mut container_nodes: Vec<topology::NodeExpanded> = vec![];
+    let mut unikernel_nodes: Vec<topology::NodeExpanded> = vec![];
+    let mut vm_nodes: Vec<topology::NodeExpanded> = vec![];
     let mut clone_disks: Vec<data::CloneDisk> = vec![];
     let mut domains: Vec<template::DomainTemplate> = vec![];
 
     let mut lab_node_data = vec![];
     let mut node_setup_data = vec![];
 
-    for (idx, node) in manifest.nodes.iter().enumerate() {
-        let node_idx = idx as u16;
-
+    for node in nodes_expanded.iter() {
         // Look up the precise node config from HashMap using model+kind
         let node_config = get_node_config(&node.model, &node_configs)?;
 
@@ -365,7 +437,7 @@ pub async fn up(
         let lab_node = db::create_node(
             &db,
             &node.name,
-            node_idx,
+            node.index,
             db::get_config_id(&node_config)?,
             lab_record_id.clone(),
         )
@@ -375,7 +447,7 @@ pub async fn up(
             name: node.name.clone(),
             model: node_config.model.clone(),
             kind: node_config.kind.clone(),
-            index: node_idx,
+            index: node.index,
             record: lab_node,
         });
 
@@ -394,14 +466,15 @@ pub async fn up(
 
         // All VM nodes have an isolated bridge created for unused interfaces.
         let node_isolated_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine) {
-            Some(node_isolated_network_data(&node.name, node_idx, lab_id))
+            Some(node_isolated_network_data(&node.name, node.index, lab_id))
         } else {
             None
         };
         // If a VM has reserved interfaces create a reserved bridge
-        // TODO: Add logic for checking for node_config with reserved interfaces.
-        let node_reserved_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine) {
-            Some(node_reserved_network_data(&node.name, node_idx, lab_id))
+        let node_reserved_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine)
+            && node_config.reserved_interface_count > 0
+        {
+            Some(node_reserved_network_data(&node.name, node.index, lab_id))
         } else {
             None
         };
@@ -430,7 +503,7 @@ pub async fn up(
         // Store node setup data for later use in template::DomainTemplate creation
         node_setup_data.push(data::NodeSetupData {
             name: node.name.clone(),
-            index: node_idx,
+            index: node.index,
             management_network: management_network.clone(),
             isolated_network: node_isolated_network,
             reserved_network: node_reserved_network,
@@ -762,142 +835,217 @@ pub async fn up(
 
         let mut interfaces: Vec<data::Interface> = vec![];
 
-        // Management Interfaces
-        if node_config.dedicated_management_interface {
-            interfaces.push(data::Interface {
-                name: util::dasher(&node_config.management_interface.to_string()),
-                num: 0,
-                mtu: node_config.interface_mtu,
-                mac_address: mac_address.to_string(),
-                connection_type: data::ConnectionTypes::Management,
-                interface_connection: None,
-            });
-        }
-
-        // Reserved Interfaces
-        if node_config.reserved_interface_count > 0 {
-            for i in node_config.first_interface_index..node_config.reserved_interface_count {
-                interfaces.push(data::Interface {
-                    name: format!("int{i}"),
-                    num: i,
-                    mtu: node_config.interface_mtu,
-                    mac_address: util::random_mac(KVM_OUI),
-                    connection_type: data::ConnectionTypes::Reserved,
-                    interface_connection: None,
-                });
-            }
-        }
-
-        let end_iface_index = if node_config.first_interface_index == 0 {
-            node_config.interface_count - 1
-        } else {
-            node_config.interface_count
-        };
-        for i in node_config.first_interface_index..=end_iface_index {
-            // When node does not have a dedicated management interface the first_interface_index
-            // Is assigned as a management interface
-            if !node_config.dedicated_management_interface && i == node_config.first_interface_index
-            {
-                interfaces.push(data::Interface {
-                    name: util::dasher(&node_config.management_interface.to_string()),
-                    num: node_config.first_interface_index,
-                    mtu: node_config.interface_mtu,
-                    mac_address: mac_address.to_string(),
-                    connection_type: data::ConnectionTypes::Management,
-                    interface_connection: None,
-                });
-                continue;
-            }
-            // node to node links
-            if !links_detailed.is_empty() {
-                let mut p2p_connection = false;
-                for l in links_detailed.iter() {
-                    // node is source in manifest
-                    if l.node_a == node.name && i == l.int_a_idx {
-                        let source_id = l.int_b_idx as u16;
-                        let local_id = l.int_a_idx as u16;
-
-                        let interface_connection = data::InterfaceConnection {
-                            local_id,
-                            local_port: util::id_to_port(i),
-                            local_loopback: util::get_ip(local_id as u8).to_string(),
-                            source_id: source_id.to_owned(),
-                            source_port: util::id_to_port(l.int_b_idx),
-                            source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
-                        };
-                        // interfaces.push(data::Interface {
-                        //     name: util::dasher(&l.int_a),
-                        //     num: i,
-                        //     mtu: node_model.interface_mtu,
-                        //     mac_address: util::random_mac(KVM_OUI),
-                        //     connection_type: data::ConnectionTypes::Peer,
-                        //     interface_connection: Some(interface_connection),
-                        // });
-                        interfaces.push(data::Interface {
-                            name: format!("{}a{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
-                            num: i,
-                            mtu: node_config.interface_mtu,
-                            mac_address: util::random_mac(KVM_OUI),
-                            connection_type: data::ConnectionTypes::PeerBridge,
-                            interface_connection: Some(interface_connection),
-                        });
-                        p2p_connection = true;
-                        break;
-                    // node is destination in manifest
-                    } else if l.node_b == node.name && i == l.int_b_idx {
-                        let source_id = l.int_a_idx as u16;
-                        let local_id = l.int_b_idx as u16;
-
-                        let interface_connection = data::InterfaceConnection {
-                            local_id,
-                            local_port: util::id_to_port(i),
-                            local_loopback: util::get_ip(local_id as u8).to_string(),
-                            source_id: source_id.to_owned(),
-                            source_port: util::id_to_port(l.int_a_idx),
-                            source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
-                        };
-                        // interfaces.push(data::Interface {
-                        //     name: util::dasher(&l.int_b),
-                        //     num: i,
-                        //     mtu: node_model.interface_mtu,
-                        //     mac_address: util::random_mac(KVM_OUI),
-                        //     connection_type: data::ConnectionTypes::Peer,
-                        //     interface_connection: Some(interface_connection),
-                        // });
-                        interfaces.push(data::Interface {
-                            name: format!("{}b{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
-                            num: i,
-                            mtu: node_config.interface_mtu,
-                            mac_address: util::random_mac(KVM_OUI),
-                            connection_type: data::ConnectionTypes::PeerBridge,
-                            interface_connection: Some(interface_connection),
-                        });
-                        p2p_connection = true;
-                        break;
-                    }
-                }
-                if !p2p_connection {
-                    // Interface not defined in manifest so disable.
+        for interface in node_data.interfaces.iter() {
+            match &interface.data {
+                data::NodeInterface::Management => {
+                    //
                     interfaces.push(data::Interface {
-                        name: util::dasher(&util::interface_from_idx(&node.model, i)?),
-                        num: i,
+                        name: util::dasher(&node_config.management_interface.to_string()),
+                        num: interface.index,
+                        mtu: node_config.interface_mtu,
+                        mac_address: mac_address.to_string(),
+                        connection_type: data::ConnectionTypes::Management,
+                        interface_connection: None,
+                    });
+                }
+                data::NodeInterface::Reserved => {
+                    interfaces.push(data::Interface {
+                        name: format!("int{}", interface.index),
+                        num: interface.index,
+                        mtu: node_config.interface_mtu,
+                        mac_address: util::random_mac(KVM_OUI),
+                        connection_type: data::ConnectionTypes::Reserved,
+                        interface_connection: None,
+                    });
+                }
+                data::NodeInterface::Bridge(bridge) => {
+                    // TODO: Add bridge connection
+                }
+                data::NodeInterface::Peer(peer) => {
+                    // TODO: Validate if this is the node id, not the interface id
+                    let local_id = peer.this_node_index as u8;
+                    let source_id = peer.peer_node_index as u8;
+
+                    let interface_connection = data::InterfaceConnection {
+                        local_id: peer.this_node_index,
+                        local_port: util::id_to_port(local_id),
+                        local_loopback: util::get_ip(local_id).to_string(),
+                        source_id: peer.peer_node_index,
+                        source_port: util::id_to_port(source_id),
+                        source_loopback: util::get_ip(source_id).to_string(),
+                    };
+                    // TODO: This is from UDP P2P links add this functionality
+                    // interfaces.push(data::Interface {
+                    //     name: util::dasher(&l.int_a),
+                    //     num: i,
+                    //     mtu: node_model.interface_mtu,
+                    //     mac_address: util::random_mac(KVM_OUI),
+                    //     connection_type: data::ConnectionTypes::Peer,
+                    //     interface_connection: Some(interface_connection),
+                    // });
+
+                    interfaces.push(data::Interface {
+                        name: format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id),
+                        num: peer.this_interface_index,
+                        mtu: node_config.interface_mtu,
+                        mac_address: util::random_mac(KVM_OUI),
+                        connection_type: data::ConnectionTypes::PeerBridge,
+                        interface_connection: Some(interface_connection),
+                    });
+                }
+                data::NodeInterface::Disabled => {
+                    //
+                    interfaces.push(data::Interface {
+                        name: util::dasher(&util::interface_from_idx(
+                            &node.model,
+                            interface.index,
+                        )?),
+                        num: interface.index,
                         mtu: node_config.interface_mtu,
                         mac_address: util::random_mac(KVM_OUI),
                         connection_type: data::ConnectionTypes::Disabled,
                         interface_connection: None,
                     })
                 }
-            } else {
-                interfaces.push(data::Interface {
-                    name: util::dasher(&util::interface_from_idx(&node.model, i)?),
-                    num: i,
-                    mtu: node_config.interface_mtu,
-                    mac_address: util::random_mac(KVM_OUI),
-                    connection_type: data::ConnectionTypes::Disabled,
-                    interface_connection: None,
-                })
             }
         }
+
+        // // Management Interfaces
+        // if node_config.dedicated_management_interface {
+        //     interfaces.push(data::Interface {
+        //         name: util::dasher(&node_config.management_interface.to_string()),
+        //         num: 0,
+        //         mtu: node_config.interface_mtu,
+        //         mac_address: mac_address.to_string(),
+        //         connection_type: data::ConnectionTypes::Management,
+        //         interface_connection: None,
+        //     });
+        // }
+
+        // // Reserved Interfaces
+        // if node_config.reserved_interface_count > 0 {
+        //     for i in node_config.first_interface_index..node_config.reserved_interface_count {
+        //         interfaces.push(data::Interface {
+        //             name: format!("int{i}"),
+        //             num: i,
+        //             mtu: node_config.interface_mtu,
+        //             mac_address: util::random_mac(KVM_OUI),
+        //             connection_type: data::ConnectionTypes::Reserved,
+        //             interface_connection: None,
+        //         });
+        //     }
+        // }
+
+        // let end_iface_index = if node_config.first_interface_index == 0 {
+        //     node_config.interface_count - 1
+        // } else {
+        //     node_config.interface_count
+        // };
+        // for i in node_config.first_interface_index..=end_iface_index {
+        //     // When node does not have a dedicated management interface the first_interface_index
+        //     // Is assigned as a management interface
+        //     if !node_config.dedicated_management_interface && i == node_config.first_interface_index
+        //     {
+        //         interfaces.push(data::Interface {
+        //             name: util::dasher(&node_config.management_interface.to_string()),
+        //             num: node_config.first_interface_index,
+        //             mtu: node_config.interface_mtu,
+        //             mac_address: mac_address.to_string(),
+        //             connection_type: data::ConnectionTypes::Management,
+        //             interface_connection: None,
+        //         });
+        //         continue;
+        //     }
+        //     // node to node links
+        //     if !links_detailed.is_empty() {
+        //         let mut p2p_connection = false;
+        //         for l in links_detailed.iter() {
+        //             // node is source in manifest
+        //             if l.node_a == node.name && i == l.int_a_idx {
+        //                 let source_id = l.int_b_idx as u16;
+        //                 let local_id = l.int_a_idx as u16;
+
+        //                 let interface_connection = data::InterfaceConnection {
+        //                     local_id,
+        //                     local_port: util::id_to_port(i),
+        //                     local_loopback: util::get_ip(local_id as u8).to_string(),
+        //                     source_id: source_id.to_owned(),
+        //                     source_port: util::id_to_port(l.int_b_idx),
+        //                     source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
+        //                 };
+        //                 // interfaces.push(data::Interface {
+        //                 //     name: util::dasher(&l.int_a),
+        //                 //     num: i,
+        //                 //     mtu: node_model.interface_mtu,
+        //                 //     mac_address: util::random_mac(KVM_OUI),
+        //                 //     connection_type: data::ConnectionTypes::Peer,
+        //                 //     interface_connection: Some(interface_connection),
+        //                 // });
+        //                 interfaces.push(data::Interface {
+        //                     name: format!("{}a{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
+        //                     num: i,
+        //                     mtu: node_config.interface_mtu,
+        //                     mac_address: util::random_mac(KVM_OUI),
+        //                     connection_type: data::ConnectionTypes::PeerBridge,
+        //                     interface_connection: Some(interface_connection),
+        //                 });
+        //                 p2p_connection = true;
+        //                 break;
+        //             // node is destination in manifest
+        //             } else if l.node_b == node.name && i == l.int_b_idx {
+        //                 let source_id = l.int_a_idx as u16;
+        //                 let local_id = l.int_b_idx as u16;
+
+        //                 let interface_connection = data::InterfaceConnection {
+        //                     local_id,
+        //                     local_port: util::id_to_port(i),
+        //                     local_loopback: util::get_ip(local_id as u8).to_string(),
+        //                     source_id: source_id.to_owned(),
+        //                     source_port: util::id_to_port(l.int_a_idx),
+        //                     source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
+        //                 };
+        //                 // interfaces.push(data::Interface {
+        //                 //     name: util::dasher(&l.int_b),
+        //                 //     num: i,
+        //                 //     mtu: node_model.interface_mtu,
+        //                 //     mac_address: util::random_mac(KVM_OUI),
+        //                 //     connection_type: data::ConnectionTypes::Peer,
+        //                 //     interface_connection: Some(interface_connection),
+        //                 // });
+        //                 interfaces.push(data::Interface {
+        //                     name: format!("{}b{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
+        //                     num: i,
+        //                     mtu: node_config.interface_mtu,
+        //                     mac_address: util::random_mac(KVM_OUI),
+        //                     connection_type: data::ConnectionTypes::PeerBridge,
+        //                     interface_connection: Some(interface_connection),
+        //                 });
+        //                 p2p_connection = true;
+        //                 break;
+        //             }
+        //         }
+        //         if !p2p_connection {
+        //             // Interface not defined in manifest so disable.
+        //             interfaces.push(data::Interface {
+        //                 name: util::dasher(&util::interface_from_idx(&node.model, i)?),
+        //                 num: i,
+        //                 mtu: node_config.interface_mtu,
+        //                 mac_address: util::random_mac(KVM_OUI),
+        //                 connection_type: data::ConnectionTypes::Disabled,
+        //                 interface_connection: None,
+        //             })
+        //         }
+        //     } else {
+        //         interfaces.push(data::Interface {
+        //             name: util::dasher(&util::interface_from_idx(&node.model, i)?),
+        //             num: i,
+        //             mtu: node_config.interface_mtu,
+        //             mac_address: util::random_mac(KVM_OUI),
+        //             connection_type: data::ConnectionTypes::Disabled,
+        //             interface_connection: None,
+        //         })
+        //     }
+        // }
 
         // Only Virtual machines have a boot disk to clone.
         let vm_boot_disk = match node_config.kind {
@@ -1743,22 +1891,21 @@ pub async fn up(
 
         if node_config.kind == data::NodeKind::VirtualMachine {
             // Get the network names for this node from NodeSetupData
-            let node_setup = node_setup_data
-                .iter()
-                .find(|setup| setup.name == node.name)
-                .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node.name))?;
+            let node_data = get_node_data(&node.name, &node_setup_data)?;
 
-            let management_network = node_setup.management_network.clone();
+            let management_network = node_data.management_network.clone();
 
-            let isolated_network = node_setup
+            let isolated_network = node_data
                 .isolated_network
                 .clone()
                 .ok_or_else(|| anyhow!("Isolated network not found for VM node: {}", node.name))?;
 
-            let reserved_network = node_setup
-                .reserved_network
-                .clone()
-                .ok_or_else(|| anyhow!("Reserved network not found for VM node: {}", node.name))?;
+            let reserved_network =
+                if let Some(reserved_network) = node_data.reserved_network.clone() {
+                    reserved_network.network_name
+                } else {
+                    "".to_string()
+                };
 
             let domain = template::DomainTemplate {
                 qemu_bin: config.qemu_bin.clone(),
@@ -1779,7 +1926,7 @@ pub async fn up(
                 lab_id: lab_id.to_string(),
                 management_network,
                 isolated_network: isolated_network.network_name,
-                reserved_network: reserved_network.network_name,
+                reserved_network: reserved_network,
             };
             domains.push(domain);
         }

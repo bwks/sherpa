@@ -24,10 +24,12 @@ pub struct LinkExpanded {
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct LinkDetailed {
     pub node_a: String,
+    pub node_a_idx: u16,
     pub node_a_model: NodeModel,
     pub int_a: String,
     pub int_a_idx: u8,
     pub node_b: String,
+    pub node_b_idx: u16,
     pub node_b_model: NodeModel,
     pub int_b: String,
     pub int_b_idx: u8,
