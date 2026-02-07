@@ -38,45 +38,54 @@ use validate;
 
 fn find_interface_link(
     node_name: &str,
-    interface_idx: u8,
+    interface_name: &str,
     links_detailed: &Vec<topology::LinkDetailed>,
-) -> Option<(usize, String, data::NodeModel, u8, data::PeerSide)> {
+) -> Option<data::NodeInterface> {
+    let mut interface_data = None;
     for link in links_detailed {
-        if link.node_a == node_name && link.int_a_idx == interface_idx {
-            return Some((
-                link.link_idx as usize,
-                link.node_b.clone(),
-                link.node_b_model.clone(),
-                link.int_b_idx,
-                data::PeerSide::A,
-            ));
-        }
-        if link.node_b == node_name && link.int_b_idx == interface_idx {
-            return Some((
-                link.link_idx as usize,
-                link.node_a.clone(),
-                link.node_a_model.clone(),
-                link.int_a_idx,
-                data::PeerSide::B,
-            ));
+        if link.node_a == node_name && link.int_a == *interface_name {
+            interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
+                this_node: link.node_a.clone(),
+                this_interface: link.int_a.clone(),
+                this_index: link.int_a_idx,
+                this_side: data::PeerSide::A,
+                peer_node: link.node_b.clone(),
+                peer_interface: link.int_b.clone(),
+                peer_index: link.int_b_idx,
+                peer_side: data::PeerSide::B,
+            }))
+        } else if link.node_b == node_name && link.int_b == *interface_name {
+            interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
+                this_node: link.node_b.clone(),
+                this_interface: link.int_b.clone(),
+                this_index: link.int_b_idx,
+                this_side: data::PeerSide::B,
+                peer_node: link.node_a.clone(),
+                peer_interface: link.int_a.clone(),
+                peer_index: link.int_a_idx,
+                peer_side: data::PeerSide::A,
+            }))
         }
     }
-    None
+    interface_data
 }
 
 fn find_bridge_interface(
     node_name: &str,
-    interface_idx: u8,
+    interface_name: &str,
     bridge_connections: &Vec<topology::BridgeDetailed>,
-) -> Option<u8> {
+) -> Option<data::NodeInterface> {
+    let mut interface_data = None;
     for bridge in bridge_connections.iter() {
-        for (idx, conn) in bridge.links.iter().enumerate() {
-            if conn.node_name == node_name && conn.interface_index == interface_idx {
-                return Some(idx as u8);
+        for link in bridge.links.iter() {
+            if link.node_name == node_name && link.interface_name == *interface_name {
+                interface_data = Some(data::NodeInterface::Bridge(data::BridgeInterface {
+                    name: bridge.name.clone(),
+                }))
             }
         }
     }
-    None
+    interface_data
 }
 
 fn process_manifest_links(
@@ -176,6 +185,17 @@ fn node_reserved_network_data(
     }
 }
 
+fn get_node_config(
+    node_model: &data::NodeModel,
+    data: &Vec<data::NodeConfig>,
+) -> Result<data::NodeConfig> {
+    Ok(data
+        .iter()
+        .find(|x| &x.model == node_model)
+        .ok_or_else(|| anyhow!("Node config not found for model: {}", node_model))?
+        .clone())
+}
+
 fn get_node_data(node_name: &str, data: &Vec<data::NodeSetupData>) -> Result<data::NodeSetupData> {
     Ok(data
         .iter()
@@ -225,21 +245,7 @@ pub async fn up(
     let mut config = util::load_config(&sherpa.config_file_path)?;
 
     // Bulk fetch all node configs from database
-    let node_configs_list = db::list_node_configs(&db).await?;
-
-    // Create two HashMaps:
-    // 1. By model only (for validation and pyats - uses first config found for each model)
-    // 2. By (model, kind) tuple (for creation - precise lookup)
-    let mut node_config_by_model: HashMap<data::NodeModel, data::NodeConfig> = HashMap::new();
-    let mut node_config_map: HashMap<(data::NodeModel, data::NodeKind), data::NodeConfig> =
-        HashMap::new();
-
-    for nc in node_configs_list {
-        node_config_by_model
-            .entry(nc.model.clone())
-            .or_insert(nc.clone());
-        node_config_map.insert((nc.model.clone(), nc.kind.clone()), nc);
-    }
+    let node_configs = db::list_node_configs(&db).await?;
 
     util::term_msg_underline("Validating Manifest");
 
@@ -251,23 +257,21 @@ pub async fn up(
     let mut ztp_records = vec![];
 
     for node in &manifest.nodes {
-        let node_model = node_config_by_model
-            .get(&node.model)
-            .ok_or_else(|| anyhow!("Device model not found: {}", node.model))?;
+        let node_config = get_node_config(&node.model, &node_configs)?;
 
-        if !node_model.dedicated_management_interface {
+        if !node_config.dedicated_management_interface {
             validate::check_mgmt_usage(
                 &node.name,
-                node_model.first_interface_index,
+                node_config.first_interface_index,
                 &links_detailed,
             )?;
         }
 
         validate::check_interface_bounds(
             &node.name,
-            &node_model.model,
-            node_model.first_interface_index,
-            node_model.interface_count,
+            &node_config.model,
+            node_config.first_interface_index,
+            node_config.interface_count,
             &links_detailed,
         )?;
     }
@@ -296,30 +300,11 @@ pub async fn up(
     for (idx, node) in manifest.nodes.iter().enumerate() {
         let node_idx = idx as u16;
 
-        // Get node config from our by-model HashMap (for determining kind)
-        let node_data = node_config_by_model.get(&node.model).ok_or_else(|| {
-            anyhow!(
-                "Node model not found. Node: {} - Model: {}",
-                node.name,
-                node.model,
-            )
-        })?;
+        // Look up the precise node config from HashMap using model+kind
+        let node_config = get_node_config(&node.model, &node_configs)?;
 
         // Get a vector in node interfaces.
         let node_interfaces = util::node_model_interfaces(&node.model);
-
-        // println!("STR:\n {:#?}", node_interfaces);
-
-        // Look up the precise node config from HashMap using model+kind
-        let node_config = node_config_map
-            .get(&(node.model.clone(), node_data.kind.clone()))
-            .ok_or_else(|| {
-                anyhow!(
-                    "Node config not found for model {} and kind {}",
-                    node.model,
-                    node_data.kind
-                )
-            })?;
 
         // Process nodes to build a vector of a nodes links
         let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
@@ -351,42 +336,17 @@ pub async fn up(
                 // Data interfaces
 
                 // P2P Interface
-                for link in links_detailed.iter() {
-                    if link.node_a == node.name && link.int_a == *interface_name {
-                        interface_data = data::NodeInterface::Peer(data::PeerInterface {
-                            this_node: link.node_a.clone(),
-                            this_interface: link.int_a.clone(),
-                            this_index: link.int_a_idx,
-                            this_side: data::PeerSide::A,
-                            peer_node: link.node_b.clone(),
-                            peer_interface: link.int_b.clone(),
-                            peer_index: link.int_b_idx,
-                            peer_side: data::PeerSide::B,
-                        })
-                    } else if link.node_b == node.name && link.int_b == *interface_name {
-                        interface_data = data::NodeInterface::Peer(data::PeerInterface {
-                            this_node: link.node_b.clone(),
-                            this_interface: link.int_b.clone(),
-                            this_index: link.int_b_idx,
-                            this_side: data::PeerSide::B,
-                            peer_node: link.node_a.clone(),
-                            peer_interface: link.int_a.clone(),
-                            peer_index: link.int_a_idx,
-                            peer_side: data::PeerSide::A,
-                        })
-                    }
+                if let Some(data) =
+                    find_interface_link(&node.name, &interface_name, &links_detailed)
+                {
+                    interface_data = data
                 }
 
                 // Bridge Interface
-                for bridge in bridges_detailed.iter() {
-                    for link in bridge.links.iter() {
-                        if link.node_name == node.name && link.interface_name == *interface_name {
-                            //
-                            interface_data = data::NodeInterface::Bridge(data::BridgeInterface {
-                                name: bridge.name.clone(),
-                            })
-                        }
-                    }
+                if let Some(data) =
+                    find_bridge_interface(&node.name, &interface_name, &bridges_detailed)
+                {
+                    interface_data = data
                 }
 
                 // All other interfaces are Disabled.
@@ -406,21 +366,21 @@ pub async fn up(
             &db,
             &node.name,
             node_idx,
-            db::get_config_id(node_config)?,
+            db::get_config_id(&node_config)?,
             lab_record_id.clone(),
         )
         .await?;
 
         lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),
-            model: node_data.model.clone(),
-            kind: node_data.kind.clone(),
+            model: node_config.model.clone(),
+            kind: node_config.kind.clone(),
             index: node_idx,
             record: lab_node,
         });
 
         // Handle Containers, NanoVM's and regular VM's
-        match node_data.kind {
+        match node_config.kind {
             data::NodeKind::Container => {
                 container_nodes.push(node.clone());
             }
@@ -433,14 +393,14 @@ pub async fn up(
         }
 
         // All VM nodes have an isolated bridge created for unused interfaces.
-        let node_isolated_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
+        let node_isolated_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine) {
             Some(node_isolated_network_data(&node.name, node_idx, lab_id))
         } else {
             None
         };
         // If a VM has reserved interfaces create a reserved bridge
         // TODO: Add logic for checking for node_config with reserved interfaces.
-        let node_reserved_network = if matches!(node_data.kind, data::NodeKind::VirtualMachine) {
+        let node_reserved_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine) {
             Some(node_reserved_network_data(&node.name, node_idx, lab_id))
         } else {
             None
@@ -782,16 +742,13 @@ pub async fn up(
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
-        // Get node config from HashMap for O(1) lookup
-        let node_model = node_config_by_model
-            .get(&node.model)
-            .ok_or_else(|| anyhow!("Node model not found: {}", node.model))?;
+        let node_config = get_node_config(&node.model, &node_configs)?;
 
         let mut disks: Vec<data::NodeDisk> = vec![];
         let node_name = format!("{}-{}", node.name, lab_id);
 
-        let hdd_bus = node_model.hdd_bus.clone();
-        let cdrom_bus = node_model.cdrom_bus.clone();
+        let hdd_bus = node_config.hdd_bus.clone();
+        let cdrom_bus = node_config.cdrom_bus.clone();
 
         let mac_address = util::random_mac(KVM_OUI);
         ztp_records.push(data::ZtpRecord {
@@ -799,18 +756,18 @@ pub async fn up(
             config_file: format!("{}.conf", &node.name),
             ipv4_address: util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?,
             mac_address: mac_address.to_string(),
-            ztp_method: node_model.ztp_method.clone(),
+            ztp_method: node_config.ztp_method.clone(),
             ssh_port: 22,
         });
 
         let mut interfaces: Vec<data::Interface> = vec![];
 
         // Management Interfaces
-        if node_model.dedicated_management_interface {
+        if node_config.dedicated_management_interface {
             interfaces.push(data::Interface {
-                name: util::dasher(&node_model.management_interface.to_string()),
+                name: util::dasher(&node_config.management_interface.to_string()),
                 num: 0,
-                mtu: node_model.interface_mtu,
+                mtu: node_config.interface_mtu,
                 mac_address: mac_address.to_string(),
                 connection_type: data::ConnectionTypes::Management,
                 interface_connection: None,
@@ -818,12 +775,12 @@ pub async fn up(
         }
 
         // Reserved Interfaces
-        if node_model.reserved_interface_count > 0 {
-            for i in node_model.first_interface_index..node_model.reserved_interface_count {
+        if node_config.reserved_interface_count > 0 {
+            for i in node_config.first_interface_index..node_config.reserved_interface_count {
                 interfaces.push(data::Interface {
                     name: format!("int{i}"),
                     num: i,
-                    mtu: node_model.interface_mtu,
+                    mtu: node_config.interface_mtu,
                     mac_address: util::random_mac(KVM_OUI),
                     connection_type: data::ConnectionTypes::Reserved,
                     interface_connection: None,
@@ -831,19 +788,20 @@ pub async fn up(
             }
         }
 
-        let end_iface_index = if node_model.first_interface_index == 0 {
-            node_model.interface_count - 1
+        let end_iface_index = if node_config.first_interface_index == 0 {
+            node_config.interface_count - 1
         } else {
-            node_model.interface_count
+            node_config.interface_count
         };
-        for i in node_model.first_interface_index..=end_iface_index {
+        for i in node_config.first_interface_index..=end_iface_index {
             // When node does not have a dedicated management interface the first_interface_index
             // Is assigned as a management interface
-            if !node_model.dedicated_management_interface && i == node_model.first_interface_index {
+            if !node_config.dedicated_management_interface && i == node_config.first_interface_index
+            {
                 interfaces.push(data::Interface {
-                    name: util::dasher(&node_model.management_interface.to_string()),
-                    num: node_model.first_interface_index,
-                    mtu: node_model.interface_mtu,
+                    name: util::dasher(&node_config.management_interface.to_string()),
+                    num: node_config.first_interface_index,
+                    mtu: node_config.interface_mtu,
                     mac_address: mac_address.to_string(),
                     connection_type: data::ConnectionTypes::Management,
                     interface_connection: None,
@@ -878,7 +836,7 @@ pub async fn up(
                         interfaces.push(data::Interface {
                             name: format!("{}a{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
                             num: i,
-                            mtu: node_model.interface_mtu,
+                            mtu: node_config.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
@@ -909,7 +867,7 @@ pub async fn up(
                         interfaces.push(data::Interface {
                             name: format!("{}b{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
                             num: i,
-                            mtu: node_model.interface_mtu,
+                            mtu: node_config.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::PeerBridge,
                             interface_connection: Some(interface_connection),
@@ -923,7 +881,7 @@ pub async fn up(
                     interfaces.push(data::Interface {
                         name: util::dasher(&util::interface_from_idx(&node.model, i)?),
                         num: i,
-                        mtu: node_model.interface_mtu,
+                        mtu: node_config.interface_mtu,
                         mac_address: util::random_mac(KVM_OUI),
                         connection_type: data::ConnectionTypes::Disabled,
                         interface_connection: None,
@@ -933,7 +891,7 @@ pub async fn up(
                 interfaces.push(data::Interface {
                     name: util::dasher(&util::interface_from_idx(&node.model, i)?),
                     num: i,
-                    mtu: node_model.interface_mtu,
+                    mtu: node_config.interface_mtu,
                     mac_address: util::random_mac(KVM_OUI),
                     connection_type: data::ConnectionTypes::Disabled,
                     interface_connection: None,
@@ -942,11 +900,11 @@ pub async fn up(
         }
 
         // Only Virtual machines have a boot disk to clone.
-        let vm_boot_disk = match node_model.kind {
+        let vm_boot_disk = match node_config.kind {
             data::NodeKind::VirtualMachine => {
                 let src_boot_disk = format!(
                     "{}/{}/{}/virtioa.qcow2",
-                    sherpa.images_dir, node_model.model, node_model.version
+                    sherpa.images_dir, node_config.model, node_config.version
                 );
                 let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-hdd.qcow2");
 
@@ -961,11 +919,11 @@ pub async fn up(
         };
 
         // CDROM ISO
-        let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &node_model.cdrom {
+        let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &node_config.cdrom {
             Some(src_iso) => {
                 let src = format!(
                     "{}/{}/{}/{}",
-                    sherpa.images_dir, node_model.model, node_model.version, src_iso
+                    sherpa.images_dir, node_config.model, node_config.version, src_iso
                 );
                 let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}.iso");
                 (Some(src), Some(dst))
@@ -982,7 +940,7 @@ pub async fn up(
         // Ignition Config
         let (mut src_ignition_disk, mut dst_ignition_disk) = (None::<String>, None::<String>);
 
-        if node_model.ztp_enable {
+        if node_config.ztp_enable {
             // vm_nodes.push(node.clone());
             // TODO: Update this to use the assigned IP if
             // an IP is not user defined.
@@ -990,7 +948,7 @@ pub async fn up(
                 .iter()
                 .find(|r| r.node_name == node.name)
                 .map(|r| r.ipv4_address);
-            match node_model.ztp_method {
+            match node_config.ztp_method {
                 data::ZtpMethod::CloudInit => {
                     util::term_msg_underline("Creating Cloud-Init disks");
                     // generate the template
@@ -1009,7 +967,7 @@ pub async fn up(
                         | data::NodeModel::UbuntuLinux
                         | data::NodeModel::FreeBsd
                         | data::NodeModel::OpenBsd => {
-                            let (admin_group, shell) = match node_model.os_variant {
+                            let (admin_group, shell) = match node_config.os_variant {
                                 data::OsVariant::Bsd => {
                                     ("wheel".to_string(), "/bin/sh".to_string())
                                 }
@@ -1096,7 +1054,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "CDROM ZTP method not supported for {}",
-                                node_model.model
+                                node_config.model
                             );
                         }
                     }
@@ -1134,7 +1092,7 @@ pub async fn up(
                             let t = template::CiscoIosXeZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 dns: dns.clone(),
                                 license_boot_command,
                                 mgmt_ipv4_address: node_ipv4_address,
@@ -1217,7 +1175,7 @@ pub async fn up(
                             let t = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 mgmt_ipv4_address: node_ipv4_address,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
                             };
@@ -1230,7 +1188,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "CDROM ZTP method not supported for {}",
-                                node_model.model
+                                node_config.model
                             );
                         }
                     };
@@ -1274,7 +1232,7 @@ pub async fn up(
                             let juniper_template = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user: sherpa_user.clone(),
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 mgmt_ipv4_address: node_ipv4_address,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
                             };
@@ -1284,7 +1242,10 @@ pub async fn up(
                             util::create_file(&ztp_config, juniper_rendered_template)?;
                         }
                         _ => {
-                            anyhow::bail!("Tftp ZTP method not supported for {}", node_model.model);
+                            anyhow::bail!(
+                                "Tftp ZTP method not supported for {}",
+                                node_config.model
+                            );
                         }
                     }
                 }
@@ -1313,7 +1274,10 @@ pub async fn up(
                             util::create_file(&ztp_config, sonic_ztp.config())?;
                         }
                         _ => {
-                            anyhow::bail!("HTTP ZTP method not supported for {}", node_model.model);
+                            anyhow::bail!(
+                                "HTTP ZTP method not supported for {}",
+                                node_config.model
+                            );
                         }
                     }
                 }
@@ -1329,7 +1293,7 @@ pub async fn up(
                             let t = template::CiscoIosvZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 dns: dns.clone(),
                                 mgmt_ipv4_address: node_ipv4_address,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1361,7 +1325,7 @@ pub async fn up(
                             let t = template::CiscoIosvl2ZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 dns: dns.clone(),
                                 mgmt_ipv4_address: node_ipv4_address,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1417,7 +1381,10 @@ pub async fn up(
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
                         _ => {
-                            anyhow::bail!("Disk ZTP method not supported for {}", node_model.model);
+                            anyhow::bail!(
+                                "Disk ZTP method not supported for {}",
+                                node_config.model
+                            );
                         }
                     }
                 }
@@ -1427,7 +1394,7 @@ pub async fn up(
                     let user = sherpa_user.clone();
                     let dir = format!("{lab_dir}/{node_name}");
 
-                    match node_model.model {
+                    match node_config.model {
                         data::NodeModel::CumulusLinux => {
                             let t = template::CumulusLinuxZtpTemplate {
                                 hostname: node.name.clone(),
@@ -1461,7 +1428,7 @@ pub async fn up(
                             let t = template::JunipervJunosZtpTemplate {
                                 hostname: node.name.clone(),
                                 user,
-                                mgmt_interface: node_model.management_interface.to_string(),
+                                mgmt_interface: node_config.management_interface.to_string(),
                                 mgmt_ipv4_address: node_ipv4_address,
                                 mgmt_ipv4: mgmt_net.v4.clone(),
                             };
@@ -1493,7 +1460,7 @@ pub async fn up(
                                 Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name}-cfg.img"));
                         }
                         _ => {
-                            anyhow::bail!("USB ZTP method not supported for {}", node_model.model);
+                            anyhow::bail!("USB ZTP method not supported for {}", node_config.model);
                         }
                     }
                 }
@@ -1669,7 +1636,7 @@ pub async fn up(
                         _ => {
                             anyhow::bail!(
                                 "Ignition ZTP method not supported for {}",
-                                node_model.model
+                                node_config.model
                             );
                         }
                     }
@@ -1756,7 +1723,7 @@ pub async fn up(
             });
         }
 
-        let qemu_commands = match node_model.model {
+        let qemu_commands = match node_config.model {
             data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
             data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
             data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
@@ -1774,7 +1741,7 @@ pub async fn up(
 
         let node_id = node_data.index;
 
-        if node_model.kind == data::NodeKind::VirtualMachine {
+        if node_config.kind == data::NodeKind::VirtualMachine {
             // Get the network names for this node from NodeSetupData
             let node_setup = node_setup_data
                 .iter()
@@ -1796,16 +1763,16 @@ pub async fn up(
             let domain = template::DomainTemplate {
                 qemu_bin: config.qemu_bin.clone(),
                 name: node_name,
-                memory: node.memory.unwrap_or(node_model.memory),
-                cpu_architecture: node_model.cpu_architecture.clone(),
-                cpu_model: node_model.cpu_model.clone(),
-                machine_type: node_model.machine_type.clone(),
-                cpu_count: node.cpu_count.unwrap_or(node_model.cpu_count),
-                vmx_enabled: node_model.vmx_enabled,
-                bios: node_model.bios.clone(),
+                memory: node.memory.unwrap_or(node_config.memory),
+                cpu_architecture: node_config.cpu_architecture.clone(),
+                cpu_model: node_config.cpu_model.clone(),
+                machine_type: node_config.machine_type.clone(),
+                cpu_count: node.cpu_count.unwrap_or(node_config.cpu_count),
+                vmx_enabled: node_config.vmx_enabled,
+                bios: node_config.bios.clone(),
                 disks,
                 interfaces,
-                interface_type: node_model.interface_type.clone(),
+                interface_type: node_config.interface_type.clone(),
                 loopback_ipv4: util::get_ip(node_id as u8).to_string(),
                 telnet_port: TELNET_PORT,
                 qemu_commands,
@@ -1881,18 +1848,18 @@ pub async fn up(
             .map(|c| c.pyats)
             .unwrap_or(false);
 
-        if pyats_enabled {
-            util::term_msg_underline("Creating PyATS Testbed File");
-            let pyats_inventory = template::PyatsInventory::from_manifest(
-                manifest,
-                &node_config_by_model,
-                &ztp_records,
-                config.ztp_server.username.clone(),
-                config.ztp_server.password.clone(),
-            )?;
-            let pyats_yaml = pyats_inventory.to_yaml()?;
-            util::create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
-        }
+        // if pyats_enabled {
+        //     util::term_msg_underline("Creating PyATS Testbed File");
+        //     let pyats_inventory = template::PyatsInventory::from_manifest(
+        //         manifest,
+        //         &node_configs,
+        //         &ztp_records,
+        //         config.ztp_server.username.clone(),
+        //         config.ztp_server.password.clone(),
+        //     )?;
+        //     let pyats_yaml = pyats_inventory.to_yaml()?;
+        //     util::create_file(&format!("{lab_dir}/testbed.yaml"), pyats_yaml)?;
+        // }
 
         util::term_msg_underline("Creating SSH Config File");
         let ssh_config_template = template::SshConfigTemplate {
