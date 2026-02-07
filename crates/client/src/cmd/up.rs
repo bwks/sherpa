@@ -176,6 +176,14 @@ fn node_reserved_network_data(
     }
 }
 
+fn get_node_data(node_name: &str, data: &Vec<data::NodeSetupData>) -> Result<data::NodeSetupData> {
+    Ok(data
+        .iter()
+        .find(|x| x.name == node_name)
+        .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node_name))?
+        .clone())
+}
+
 pub async fn up(
     sherpa: &data::Sherpa,
     qemu: &libvirt::Qemu,
@@ -276,16 +284,6 @@ pub async fn up(
     // Create lab record in database
     let lab_record = db::create_lab(&db, &manifest.name, lab_id, &db_user).await?;
     let lab_record_id = db::get_lab_id(&lab_record)?;
-
-    // Create a mapping of node name to node id.
-    // Nodes have an id based on their order in the list of nodes
-    // from the manifest file.
-    let node_id_map: HashMap<String, u16> = manifest
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, device)| (device.name.clone(), idx as u16 + 1))
-        .collect();
 
     let mut container_nodes: Vec<topology::Node> = vec![];
     let mut unikernel_nodes: Vec<topology::Node> = vec![];
@@ -481,8 +479,6 @@ pub async fn up(
         });
     }
 
-    println!("node_setup_data: {:#?}", node_setup_data);
-
     util::term_msg_underline("Lab Network");
     let lab_net = util::get_free_subnet(&config.management_prefix_ipv4.to_string())?;
     let gateway_ip = util::get_ipv4_addr(&lab_net, 1)?;
@@ -657,18 +653,6 @@ pub async fn up(
         }
     }
 
-    /*
-    pub struct BridgeLinkDetailed {
-        pub node_name: String,
-        pub node_model: NodeModel,
-        pub interface_name: String,
-        pub interface_index: u8,
-    }
-    pub struct BridgeExpanded {
-        pub name: String,
-        pub links: Vec<BridgeLink>,
-    }
-            */
     // Create shared bridges for multi-host connections
     for (idx, bridge) in bridges_detailed.iter().enumerate() {
         util::term_msg_underline("Creating Shared Bridges");
@@ -703,9 +687,6 @@ pub async fn up(
         .await?;
     }
 
-    // println!("NODE DATA: \n{:#?}", node_setup_data);
-    println!("BRIDGE DATA: \n{:#?}", bridges_detailed);
-
     util::term_msg_underline("ZTP");
     if manifest.ztp_server.is_some() {
         config.ztp_server.enable = manifest.ztp_server.clone().unwrap().enable
@@ -718,9 +699,8 @@ pub async fn up(
 
     // Containers
     for node in &mut container_nodes {
-        let node_idx = node_id_map
-            .get(&node.name)
-            .ok_or_else(|| anyhow!("Node not found in node ID map: {}", node.name))?;
+        let node_data = get_node_data(&node.name, &node_setup_data)?;
+        let node_idx = node_data.index;
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
@@ -798,9 +778,8 @@ pub async fn up(
 
     // Virtual Machines
     for node in &vm_nodes {
-        let node_idx = node_id_map
-            .get(&node.name)
-            .ok_or_else(|| anyhow!("Node not found in node ID map: {}", node.name))?;
+        let node_data = get_node_data(&node.name, &node_setup_data)?;
+        let node_idx = node_data.index;
 
         let node_ip_idx = 10 + node_idx.to_owned() as u32;
 
@@ -878,10 +857,9 @@ pub async fn up(
                 for l in links_detailed.iter() {
                     // node is source in manifest
                     if l.node_a == node.name && i == l.int_a_idx {
-                        let source_id = node_id_map
-                            .get(&l.node_b)
-                            .ok_or_else(|| anyhow!("Connection dev_b not found: {}", l.node_b))?;
-                        let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
+                        let source_id = l.int_b_idx as u16;
+                        let local_id = l.int_a_idx as u16;
+
                         let interface_connection = data::InterfaceConnection {
                             local_id,
                             local_port: util::id_to_port(i),
@@ -910,10 +888,9 @@ pub async fn up(
                         break;
                     // node is destination in manifest
                     } else if l.node_b == node.name && i == l.int_b_idx {
-                        let source_id = node_id_map
-                            .get(&l.node_a)
-                            .ok_or_else(|| anyhow!("Connection dev_a not found: {}", l.node_a))?;
-                        let local_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
+                        let source_id = l.int_a_idx as u16;
+                        let local_id = l.int_b_idx as u16;
+
                         let interface_connection = data::InterfaceConnection {
                             local_id,
                             local_port: util::id_to_port(i),
@@ -1796,7 +1773,7 @@ pub async fn up(
             }
         };
 
-        let node_id = node_id_map.get(&node.name).unwrap().to_owned(); // should never error
+        let node_id = node_data.index;
 
         if node_model.kind == data::NodeKind::VirtualMachine {
             // Get the network names for this node from NodeSetupData
