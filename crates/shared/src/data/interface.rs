@@ -161,10 +161,11 @@ impl MgmtInterfaces {
 pub enum ConnectionTypes {
     #[default]
     Disabled, // Disable interface
-    Management, // Connects to management bridge
-    Peer,       // Peered with another device
-    PeerBridge, // Peered with another device via a bridge
-    Reserved,   // Reserved interfaces used by the virtual platform
+    Management,   // Connects to management bridge
+    Peer,         // Peered with another device
+    PeerBridge,   // Peered with another device via a bridge
+    SharedBridge, // Attached to a shared bridge
+    Reserved,     // Reserved interfaces used by the virtual platform
 }
 
 #[derive(Debug, Deserialize, Serialize)]

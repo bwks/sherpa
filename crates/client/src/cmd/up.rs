@@ -43,32 +43,6 @@ fn find_interface_link(
 ) -> Option<data::NodeInterface> {
     let mut interface_data = None;
     for link in links_detailed {
-        // pub struct LinkDetailed {
-        //     pub node_a: String,
-        //     pub node_a_model: NodeModel,
-        //     pub int_a: String,
-        //     pub int_a_idx: u8,
-        //     pub node_b: String,
-        //     pub node_b_model: NodeModel,
-        //     pub int_b: String,
-        //     pub int_b_idx: u8,
-        //     pub link_idx: u16,
-        // }
-
-        // pub struct PeerInterface {
-        //     pub link_index: u16,
-        //     pub this_node: String,
-        //     pub this_node_index: u16,
-        //     pub this_interface: String,
-        //     pub this_interface_index: u8,
-        //     pub this_side: PeerSide,
-        //     pub peer_node: String,
-        //     pub peer_node_index: u16,
-        //     pub peer_interface: String,
-        //     pub peer_interface_index: u8,
-        //     pub peer_side: PeerSide,
-        // }
-
         if link.node_a == node_name && link.int_a == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
                 link_index: link.link_idx,
@@ -112,7 +86,7 @@ fn find_bridge_interface(
         for link in bridge.links.iter() {
             if link.node_name == node_name && link.interface_name == *interface_name {
                 interface_data = Some(data::NodeInterface::Bridge(data::BridgeInterface {
-                    name: bridge.name.clone(),
+                    name: bridge.bridge_name.clone(),
                 }))
             }
         }
@@ -201,6 +175,7 @@ fn process_manifest_nodes(manifest_nodes: &Vec<topology::Node>) -> Vec<topology:
 fn process_manifest_bridges(
     manifest_bridges: &Option<Vec<topology::Bridge>>,
     manifest_nodes: &Vec<topology::NodeExpanded>,
+    lab_id: &str,
 ) -> Result<Vec<topology::BridgeDetailed>> {
     let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
     let bridges = manifest_bridges
@@ -210,6 +185,11 @@ fn process_manifest_bridges(
 
     let mut bridges_detailed: Vec<topology::BridgeDetailed> = vec![];
     for (idx, bridge) in bridges.iter().enumerate() {
+        let bridge_index = idx as u16;
+        let manifest_name = bridge.name.clone();
+        let bridge_name = format!("{}s{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
+        let libvirt_name = format!("sherpa-bridge{}-{}-{}", bridge_index, bridge.name, lab_id);
+
         let mut bridge_links = vec![];
         for link in bridge.links.iter() {
             if let Some(node) = manifest_nodes.iter().find(|n| n.name == link.node) {
@@ -223,8 +203,10 @@ fn process_manifest_bridges(
             }
         }
         bridges_detailed.push(BridgeDetailed {
-            name: bridge.name.clone(),
-            index: idx as u16,
+            manifest_name,
+            bridge_name,
+            libvirt_name,
+            index: bridge_index,
             links: bridge_links,
         })
     }
@@ -327,7 +309,7 @@ pub async fn up(
 
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;
-    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded)?;
+    let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)?;
     let mut ztp_records = vec![];
 
     for node in &nodes_expanded {
@@ -686,21 +668,18 @@ pub async fn up(
     }
 
     // Create shared bridges for multi-host connections
-    for (idx, bridge) in bridges_detailed.iter().enumerate() {
+    for bridge in bridges_detailed.iter() {
         util::term_msg_underline("Creating Shared Bridges");
         let mut bridge_nodes = vec![];
-        let bridge_index = idx as u16;
-        let bridge_name = format!("{}i{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
-        let network_name = format!("sherpa-bridge{}-{}-{}", bridge_index, bridge.name, lab_id);
 
         println!(
             "Creating shared bridge #{} - {} ({} connections)",
-            bridge_index,
-            bridge_name,
+            bridge.index,
+            bridge.manifest_name,
             bridge.links.len()
         );
 
-        network::create_bridge(&bridge_name, &network_name).await?;
+        network::create_bridge(&bridge.bridge_name, &bridge.libvirt_name).await?;
 
         for link in bridge.links.iter() {
             if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node_name) {
@@ -710,9 +689,9 @@ pub async fn up(
         // Create bridge record in database
         db::create_bridge(
             &db,
-            bridge_index,
-            bridge_name,
-            network_name,
+            bridge.index,
+            bridge.bridge_name.clone(),
+            bridge.libvirt_name.clone(),
             lab_record_id.clone(),
             bridge_nodes,
         )
@@ -859,7 +838,14 @@ pub async fn up(
                     });
                 }
                 data::NodeInterface::Bridge(bridge) => {
-                    // TODO: Add bridge connection
+                    interfaces.push(data::Interface {
+                        name: bridge.name.clone(),
+                        num: interface.index,
+                        mtu: node_config.interface_mtu,
+                        mac_address: util::random_mac(KVM_OUI),
+                        connection_type: data::ConnectionTypes::SharedBridge,
+                        interface_connection: None,
+                    });
                 }
                 data::NodeInterface::Peer(peer) => {
                     // TODO: Validate if this is the node id, not the interface id
@@ -909,143 +895,6 @@ pub async fn up(
                 }
             }
         }
-
-        // // Management Interfaces
-        // if node_config.dedicated_management_interface {
-        //     interfaces.push(data::Interface {
-        //         name: util::dasher(&node_config.management_interface.to_string()),
-        //         num: 0,
-        //         mtu: node_config.interface_mtu,
-        //         mac_address: mac_address.to_string(),
-        //         connection_type: data::ConnectionTypes::Management,
-        //         interface_connection: None,
-        //     });
-        // }
-
-        // // Reserved Interfaces
-        // if node_config.reserved_interface_count > 0 {
-        //     for i in node_config.first_interface_index..node_config.reserved_interface_count {
-        //         interfaces.push(data::Interface {
-        //             name: format!("int{i}"),
-        //             num: i,
-        //             mtu: node_config.interface_mtu,
-        //             mac_address: util::random_mac(KVM_OUI),
-        //             connection_type: data::ConnectionTypes::Reserved,
-        //             interface_connection: None,
-        //         });
-        //     }
-        // }
-
-        // let end_iface_index = if node_config.first_interface_index == 0 {
-        //     node_config.interface_count - 1
-        // } else {
-        //     node_config.interface_count
-        // };
-        // for i in node_config.first_interface_index..=end_iface_index {
-        //     // When node does not have a dedicated management interface the first_interface_index
-        //     // Is assigned as a management interface
-        //     if !node_config.dedicated_management_interface && i == node_config.first_interface_index
-        //     {
-        //         interfaces.push(data::Interface {
-        //             name: util::dasher(&node_config.management_interface.to_string()),
-        //             num: node_config.first_interface_index,
-        //             mtu: node_config.interface_mtu,
-        //             mac_address: mac_address.to_string(),
-        //             connection_type: data::ConnectionTypes::Management,
-        //             interface_connection: None,
-        //         });
-        //         continue;
-        //     }
-        //     // node to node links
-        //     if !links_detailed.is_empty() {
-        //         let mut p2p_connection = false;
-        //         for l in links_detailed.iter() {
-        //             // node is source in manifest
-        //             if l.node_a == node.name && i == l.int_a_idx {
-        //                 let source_id = l.int_b_idx as u16;
-        //                 let local_id = l.int_a_idx as u16;
-
-        //                 let interface_connection = data::InterfaceConnection {
-        //                     local_id,
-        //                     local_port: util::id_to_port(i),
-        //                     local_loopback: util::get_ip(local_id as u8).to_string(),
-        //                     source_id: source_id.to_owned(),
-        //                     source_port: util::id_to_port(l.int_b_idx),
-        //                     source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
-        //                 };
-        //                 // interfaces.push(data::Interface {
-        //                 //     name: util::dasher(&l.int_a),
-        //                 //     num: i,
-        //                 //     mtu: node_model.interface_mtu,
-        //                 //     mac_address: util::random_mac(KVM_OUI),
-        //                 //     connection_type: data::ConnectionTypes::Peer,
-        //                 //     interface_connection: Some(interface_connection),
-        //                 // });
-        //                 interfaces.push(data::Interface {
-        //                     name: format!("{}a{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
-        //                     num: i,
-        //                     mtu: node_config.interface_mtu,
-        //                     mac_address: util::random_mac(KVM_OUI),
-        //                     connection_type: data::ConnectionTypes::PeerBridge,
-        //                     interface_connection: Some(interface_connection),
-        //                 });
-        //                 p2p_connection = true;
-        //                 break;
-        //             // node is destination in manifest
-        //             } else if l.node_b == node.name && i == l.int_b_idx {
-        //                 let source_id = l.int_a_idx as u16;
-        //                 let local_id = l.int_b_idx as u16;
-
-        //                 let interface_connection = data::InterfaceConnection {
-        //                     local_id,
-        //                     local_port: util::id_to_port(i),
-        //                     local_loopback: util::get_ip(local_id as u8).to_string(),
-        //                     source_id: source_id.to_owned(),
-        //                     source_port: util::id_to_port(l.int_a_idx),
-        //                     source_loopback: util::get_ip(source_id.to_owned() as u8).to_string(),
-        //                 };
-        //                 // interfaces.push(data::Interface {
-        //                 //     name: util::dasher(&l.int_b),
-        //                 //     num: i,
-        //                 //     mtu: node_model.interface_mtu,
-        //                 //     mac_address: util::random_mac(KVM_OUI),
-        //                 //     connection_type: data::ConnectionTypes::Peer,
-        //                 //     interface_connection: Some(interface_connection),
-        //                 // });
-        //                 interfaces.push(data::Interface {
-        //                     name: format!("{}b{}-{}", BRIDGE_PREFIX, l.link_idx, lab_id),
-        //                     num: i,
-        //                     mtu: node_config.interface_mtu,
-        //                     mac_address: util::random_mac(KVM_OUI),
-        //                     connection_type: data::ConnectionTypes::PeerBridge,
-        //                     interface_connection: Some(interface_connection),
-        //                 });
-        //                 p2p_connection = true;
-        //                 break;
-        //             }
-        //         }
-        //         if !p2p_connection {
-        //             // Interface not defined in manifest so disable.
-        //             interfaces.push(data::Interface {
-        //                 name: util::dasher(&util::interface_from_idx(&node.model, i)?),
-        //                 num: i,
-        //                 mtu: node_config.interface_mtu,
-        //                 mac_address: util::random_mac(KVM_OUI),
-        //                 connection_type: data::ConnectionTypes::Disabled,
-        //                 interface_connection: None,
-        //             })
-        //         }
-        //     } else {
-        //         interfaces.push(data::Interface {
-        //             name: util::dasher(&util::interface_from_idx(&node.model, i)?),
-        //             num: i,
-        //             mtu: node_config.interface_mtu,
-        //             mac_address: util::random_mac(KVM_OUI),
-        //             connection_type: data::ConnectionTypes::Disabled,
-        //             interface_connection: None,
-        //         })
-        //     }
-        // }
 
         // Only Virtual machines have a boot disk to clone.
         let vm_boot_disk = match node_config.kind {

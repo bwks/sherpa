@@ -148,6 +148,14 @@
       <link state='down'/>
     </interface>
 
+    {%     when ConnectionTypes::SharedBridge %}
+    <interface type='bridge'>
+      <alias name='ua-net-{{ name }}-shared-bridge-{{ interface.name }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source bridge='{{ interface.name }}'/>
+      <model type='{{ interface_type }}'/>
+    </interface>
+
     {%     when ConnectionTypes::Peer %}
     {%       match interface.interface_connection %}
     {%         when Some with (interface_connection) %}
