@@ -92,6 +92,7 @@ pub async fn destroy(qemu: &Qemu, lab_name: &str, lab_id: &str) -> Result<()> {
         if interface.starts_with(&format!("{}a", BRIDGE_PREFIX))
             || interface.starts_with(&format!("{}b", BRIDGE_PREFIX))
             || interface.starts_with(&format!("{}i", BRIDGE_PREFIX))
+            || interface.starts_with(&format!("{}s", BRIDGE_PREFIX))
             || interface.starts_with(&format!("{}a", VETH_PREFIX))
         {
             delete_interface(&interface).await?;

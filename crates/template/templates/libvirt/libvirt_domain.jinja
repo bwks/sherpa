@@ -148,7 +148,7 @@
       <link state='down'/>
     </interface>
 
-    {%     when ConnectionTypes::SharedBridge %}
+    {%     when ConnectionTypes::PrivateBridge %}
     <interface type='bridge'>
       <alias name='ua-net-{{ name }}-shared-bridge-{{ interface.name }}'/>
       <mac address='{{ interface.mac_address }}'/>

@@ -843,7 +843,7 @@ pub async fn up(
                         num: interface.index,
                         mtu: node_config.interface_mtu,
                         mac_address: util::random_mac(KVM_OUI),
-                        connection_type: data::ConnectionTypes::SharedBridge,
+                        connection_type: data::ConnectionTypes::PrivateBridge,
                         interface_connection: None,
                     });
                 }
