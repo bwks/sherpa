@@ -67,7 +67,7 @@ DEFINE FIELD ztp_password ON TABLE node_config TYPE string DEFAULT "";
 DEFINE FIELD ztp_password_auth ON TABLE node_config TYPE bool;
 
 -- Interface Configuration
-DEFINE FIELD interface_count ON TABLE node_config TYPE number
+DEFINE FIELD data_interface_count ON TABLE node_config TYPE number
     ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
 DEFINE FIELD interface_prefix ON TABLE node_config TYPE string;
 DEFINE FIELD interface_type ON TABLE node_config TYPE string
@@ -185,7 +185,7 @@ INSERT INTO node_config {
     ztp_username: "",
     ztp_password: "",
     ztp_password_auth: false,
-    interface_count: 52,
+    data_interface_count: 52,
     interface_prefix: "Eth",
     interface_type: "virtio",
     interface_mtu: 1500,
@@ -217,7 +217,7 @@ INSERT INTO node_config {
     ztp_username: "",
     ztp_password: "",
     ztp_password_auth: false,
-    interface_count: 52,
+    data_interface_count: 52,
     interface_prefix: "eth",
     interface_type: "virtio",
     interface_mtu: 1500,
@@ -243,7 +243,7 @@ INSERT INTO node_config {
 -- ztp_enable = true
 -- ztp_method = "cdrom"
 -- ztp_password_auth = false
--- interface_count = 16
+-- data_interface_count = 16
 -- interface_prefix = "Gig"
 -- interface_type = "virtio"
 -- interface_mtu = 9216
@@ -274,7 +274,7 @@ INSERT INTO node_config {
     ztp_username: "sherpa",
     ztp_password: "",
     ztp_password_auth: false,
-    interface_count: 16,
+    data_interface_count: 16,
     interface_prefix: "eth",
     interface_type: "virtio",
     interface_mtu: 9216,

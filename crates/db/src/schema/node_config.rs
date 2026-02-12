@@ -12,7 +12,7 @@
 //! - Memory: `memory` (in MB)
 //! - Storage: `hdd_bus`, `cdrom`, `cdrom_bus`
 //! - Zero Touch Provisioning: `ztp_enable`, `ztp_method`, `ztp_username`, `ztp_password`, `ztp_password_auth`
-//! - Network interfaces: `interface_count`, `interface_prefix`, `interface_type`, `interface_mtu`,
+//! - Network interfaces: `data_interface_count`, `interface_prefix`, `interface_type`, `interface_mtu`,
 //!   `first_interface_index`, `dedicated_management_interface`, `management_interface`, `reserved_interface_count`
 //!
 //! ## Constraints
@@ -124,7 +124,7 @@ DEFINE FIELD ztp_username ON TABLE node_config TYPE option<string>;
 DEFINE FIELD ztp_password ON TABLE node_config TYPE option<string>;
 DEFINE FIELD ztp_password_auth ON TABLE node_config TYPE bool;
 
-DEFINE FIELD interface_count ON TABLE node_config TYPE number
+DEFINE FIELD data_interface_count ON TABLE node_config TYPE number
     ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
 DEFINE FIELD interface_prefix ON TABLE node_config TYPE string;
 DEFINE FIELD interface_type ON TABLE node_config TYPE string

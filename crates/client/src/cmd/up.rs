@@ -316,18 +316,17 @@ pub async fn up(
         let node_config = get_node_config(&node.model, &node_configs)?;
 
         if !node_config.dedicated_management_interface {
-            validate::check_mgmt_usage(
-                &node.name,
-                node_config.first_interface_index,
-                &links_detailed,
-            )?;
+            // Calculate the first data interface index consistently
+            let first_data_interface_idx = 1 + node_config.reserved_interface_count;
+            validate::check_mgmt_usage(&node.name, first_data_interface_idx, &links_detailed)?;
         }
 
         validate::check_interface_bounds(
             &node.name,
             &node_config.model,
-            node_config.first_interface_index,
-            node_config.interface_count,
+            node_config.data_interface_count,
+            node_config.reserved_interface_count,
+            node_config.dedicated_management_interface,
             &links_detailed,
         )?;
     }
@@ -358,8 +357,6 @@ pub async fn up(
         let node_config = get_node_config(&node.model, &node_configs)?;
 
         // Get a vector in node interfaces.
-        let node_interfaces = util::node_model_interfaces(&node.model);
-
         // Process nodes to build a vector of a nodes links
         let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
 
@@ -367,15 +364,18 @@ pub async fn up(
         // The MGMT interface is always index 0. (The first interface)
         let _mgmt_interface_idx = 0;
         // The first data interface is either 1 or the first interface after the
-        // nubmer of reserved interfaces.
+        // number of reserved interfaces.
         let first_data_interface_idx = 1 + node_config.reserved_interface_count;
 
-        // Populate interface vector for all interfaces
-        for (idx, interface) in node_interfaces.iter().enumerate() {
-            // convert usize to u8 to match interface idx
-            let idx = idx as u8;
+        // Calculate the maximum interface index to create based on data_interface_count
+        // data_interface_count represents the number of data interfaces (not including mgmt/reserved)
+        // Total interfaces = 1 (mgmt) + reserved_interface_count + data_interface_count
+        let max_interface_idx = first_data_interface_idx + node_config.data_interface_count - 1;
 
-            let interface_name = interface;
+        // Populate interface vector for only the configured number of interfaces
+        for idx in 0..=max_interface_idx {
+            let interface_name = util::interface_from_idx(&node.model, idx)?;
+
             let interface_idx = idx;
             let mut interface_state = data::InterfaceState::Enabled;
             let mut interface_data = data::NodeInterface::Disabled;

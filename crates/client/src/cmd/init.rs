@@ -24,7 +24,6 @@ pub async fn init(
 ) -> Result<()> {
     term_msg_surround("Sherpa Initializing");
     let qemu_conn = qemu.connect()?;
-
     let sherpa = sherpa.clone();
 
     term_msg_highlight("Creating Files");

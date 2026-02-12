@@ -19,7 +19,7 @@ async fn test_update_node_config_success() -> Result<()> {
     let mut updated_config = created.clone();
     updated_config.memory = 4096;
     updated_config.cpu_count = 4;
-    updated_config.interface_count = 24;
+    updated_config.data_interface_count = 24;
 
     // Update the config
     let result = update_node_config(&db, updated_config).await?;
@@ -28,7 +28,7 @@ async fn test_update_node_config_success() -> Result<()> {
     assert_eq!(result.memory, 4096, "Memory should be updated");
     assert_eq!(result.cpu_count, 4, "CPU count should be updated");
     assert_eq!(
-        result.interface_count, 24,
+        result.data_interface_count, 24,
         "Interface count should be updated"
     );
     assert_eq!(result.id, original_id, "ID should remain unchanged");

@@ -116,7 +116,7 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
     assert!(ubuntu_config.id.is_some());
     assert!(ubuntu_config.cpu_count > 0);
     assert!(ubuntu_config.memory > 0);
-    assert!(ubuntu_config.interface_count > 0);
+    assert!(ubuntu_config.data_interface_count > 0);
     assert!(!ubuntu_config.interface_prefix.is_empty());
 
     teardown_db(&db).await?;
