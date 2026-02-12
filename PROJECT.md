@@ -42,6 +42,10 @@
 - Nokia SR Linux container node.
 - Unikernel node.
 
+## Node Config Database Table
+- Add the ability to track multiple node versions in the database.
+- When importing a node image, the node_config should also be imported into the database.
+
 ## Testing
 - There a many tests to add.
 

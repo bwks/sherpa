@@ -1144,7 +1144,7 @@ impl NodeConfig {
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
+            bios: BiosTypes::Uefi,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::Virtio,
