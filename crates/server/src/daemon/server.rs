@@ -1,8 +1,11 @@
 use anyhow::Result;
+use axum::routing::get;
 use std::fs::OpenOptions;
 use std::sync::Arc;
 
 use crate::api::build_router;
+use crate::api::websocket;
+use crate::daemon::state::AppState;
 use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPAD_HOST, SHERPAD_LOG_FILE, SHERPAD_PORT,
 };
@@ -35,8 +38,15 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
     tracing::info!("Starting sherpad server");
 
-    // Build the router
-    let app = build_router();
+    // Create application state
+    let state = AppState::new();
+
+    // Build the router with REST endpoints
+    let app = build_router()
+        // Add WebSocket route
+        .route("/ws", get(websocket::handler::ws_handler))
+        // Attach state to all routes
+        .with_state(state);
 
     // Bind to configured host:port
     let addr = format!("{}:{}", SHERPAD_HOST, SHERPAD_PORT);
