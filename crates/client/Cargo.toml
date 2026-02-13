@@ -17,7 +17,7 @@ db = { path = "../db" }
 anyhow = "1.0.100"
 
 # CLI
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.16", features = ["derive", "env"] }
 
 # Serialization/Deserialization
 serde = "1.0.208"
@@ -46,6 +46,15 @@ futures-util = "0.3.31"
 
 # http client
 reqwest = "0.11.27"
+
+# WebSocket client
+tokio-tungstenite = "0.24"
+
+# UUID for RPC request IDs
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
 
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }

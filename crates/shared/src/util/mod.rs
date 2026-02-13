@@ -2,6 +2,7 @@ mod config;
 mod dhcp;
 mod dns;
 mod encode;
+mod env;
 mod file_system;
 mod interface;
 mod ip;
@@ -18,6 +19,7 @@ pub use config::{create_config, default_config, load_config};
 pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;
 pub use encode::{base64_encode, base64_encode_file};
+pub use env::get_server_url;
 pub use file_system::{
     check_file_size, copy_file, copy_to_dos_image, copy_to_ext4_image, create_config_archive,
     create_dir, create_file, create_symlink, create_ztp_iso, delete_dirs, dir_exists, expand_path,

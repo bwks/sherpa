@@ -11,6 +11,7 @@ use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
+use super::inspect_ws::inspect_ws;
 use super::resume::resume;
 use super::ssh::ssh;
 use super::unikernel::UnikernelCommands;
@@ -22,9 +23,9 @@ use libvirt::Qemu;
 use shared::data::Sherpa;
 use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
-    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
+    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR, SHERPAD_HOST, SHERPAD_PORT,
 };
-use shared::util::{get_id, load_config};
+use shared::util::{get_id, get_server_url, load_config};
 use topology::Manifest;
 
 #[derive(Default, Debug, Parser)]
@@ -33,6 +34,10 @@ use topology::Manifest;
 #[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Sherpa - Network Lab Management", long_about = None)]
 pub struct Cli {
+    /// Remote server URL for WebSocket RPC (e.g., ws://localhost:3030/ws)
+    #[arg(long, global = true, env = "SHERPA_SERVER_URL")]
+    server_url: Option<String>,
+
     #[clap(subcommand)]
     commands: Commands,
 }
@@ -64,6 +69,9 @@ enum Commands {
     Destroy,
     /// Inspect environment
     Inspect,
+    /// Inspect environment via WebSocket RPC (experimental)
+    #[command(name = "inspectws")]
+    InspectWs,
 
     /// Validate configurations
     Validate {
@@ -182,6 +190,21 @@ impl Cli {
                 let lab_name = manifest.name.clone();
                 let config = load_config(&sherpa.config_file_path)?;
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
+            }
+            Commands::InspectWs => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
+                let lab_name = manifest.name.clone();
+                let config = load_config(&sherpa.config_file_path)?;
+
+                // Resolve server URL (CLI > env > config > default)
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .or_else(|| config.server_connection.url.clone())
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+
+                inspect_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
             Commands::Validate { manifest } => {
                 // Default to manifest.toml if no specific flag provided

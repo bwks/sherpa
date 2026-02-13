@@ -6,7 +6,9 @@ use anyhow::Result;
 use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
-use crate::data::{Config, ConfigurationManagement, ContainerImage, VmProviders, ZtpServer};
+use crate::data::{
+    Config, ConfigurationManagement, ContainerImage, ServerConnection, VmProviders, ZtpServer,
+};
 use crate::konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
@@ -55,5 +57,6 @@ pub fn default_config() -> Config {
         management_prefix_ipv4: mgmt_prefix_ipv4,
         configuration_management: ConfigurationManagement::default(),
         ztp_server,
+        server_connection: ServerConnection::default(),
     }
 }

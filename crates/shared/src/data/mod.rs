@@ -5,6 +5,7 @@ mod db;
 mod dhcp;
 mod disk;
 mod dns;
+mod inspect;
 mod interface;
 mod lab;
 mod mapping;
@@ -15,13 +16,14 @@ mod ssh;
 mod user;
 mod ztp;
 
-pub use config::{Config, ConfigurationManagement, Sherpa, ZtpServer};
+pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
+pub use inspect::{DeviceInfo, InspectResponse};
 pub use interface::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,

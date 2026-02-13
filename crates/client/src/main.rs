@@ -1,4 +1,5 @@
 mod cmd;
+mod ws_client;
 
 use std::process::ExitCode;
 

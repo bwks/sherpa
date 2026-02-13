@@ -1,33 +1,11 @@
 use anyhow::{Context, Result};
-use serde::{Deserialize, Serialize};
-use shared::data::{LabInfo, NodeKind, NodeModel};
+use shared::data::{DeviceInfo, InspectResponse, LabInfo, NodeKind, NodeModel};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
 use std::str::FromStr;
 use virt::storage_pool::StoragePool;
 
 use crate::daemon::state::AppState;
-
-/// Response structure for inspect operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InspectResponse {
-    pub lab_name: String,
-    pub lab_id: String,
-    pub lab_info: LabInfo,
-    pub devices: Vec<DeviceInfo>,
-    pub inactive_devices: Vec<String>,
-}
-
-/// Information about a single device/node
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeviceInfo {
-    pub name: String,
-    pub model: NodeModel,
-    pub kind: NodeKind,
-    pub active: bool,
-    pub mgmt_ip: String,
-    pub disks: Vec<String>,
-}
 
 /// Inspect a lab and return its current state
 ///

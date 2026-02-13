@@ -185,3 +185,8 @@ pub const SHERPAD_PID_FILE: &str = "sherpad.pid";
 pub const SHERPAD_LOG_FILE: &str = "sherpad.log";
 pub const SHERPAD_HOST: &str = "127.0.0.1";
 pub const SHERPAD_PORT: u16 = 3030;
+
+// Emojis
+pub const EMOJI_GOOD: &str = "✅";
+pub const EMOJI_BAD: &str = "❌";
+pub const EMOJI_WARN: &str = "⚠️";

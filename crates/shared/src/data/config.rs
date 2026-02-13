@@ -5,7 +5,7 @@ use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
-use crate::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
+use crate::konst::{SHERPAD_HOST, SHERPAD_PORT, SHERPA_PASSWORD, SHERPA_USERNAME};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {
@@ -33,6 +33,24 @@ pub struct ConfigurationManagement {
     pub nornir: bool,
 }
 
+/// Server connection configuration for WebSocket RPC
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct ServerConnection {
+    /// WebSocket URL (e.g., ws://localhost:3030/ws)
+    pub url: Option<String>,
+    /// Connection timeout in seconds
+    pub timeout_secs: u64,
+}
+
+impl Default for ServerConnection {
+    fn default() -> Self {
+        Self {
+            url: Some(format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT)),
+            timeout_secs: 3,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub name: String,
@@ -45,6 +63,8 @@ pub struct Config {
     pub ztp_server: ZtpServer,
     pub configuration_management: ConfigurationManagement,
     pub container_images: Vec<ContainerImage>,
+    #[serde(default)]
+    pub server_connection: ServerConnection,
 }
 
 #[derive(Clone, Debug)]

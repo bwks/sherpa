@@ -4631,9 +4631,12 @@ dependencies = [
  "ssh-key",
  "template",
  "tokio",
+ "tokio-tungstenite 0.24.0",
  "toml",
  "toml_edit 0.22.27",
  "topology",
+ "tracing",
+ "uuid",
  "validate",
  "virt",
 ]
