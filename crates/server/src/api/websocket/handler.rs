@@ -150,9 +150,13 @@ async fn handle_client_message(
             // Spawn async task to handle RPC
             tokio::spawn(async move {
                 // Call RPC router
-                let response =
-                    crate::api::websocket::rpc::handle_rpc_request(id, method, params, &state_clone)
-                        .await;
+                let response = crate::api::websocket::rpc::handle_rpc_request(
+                    id,
+                    method,
+                    params,
+                    &state_clone,
+                )
+                .await;
 
                 // Send response back to client (get connection from registry)
                 if let Some(conn) = state_clone.connections.get(&connection_id) {
