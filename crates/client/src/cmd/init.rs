@@ -1,5 +1,5 @@
-use anyhow::Result;
-use db::{apply_schema, connect, list_node_configs, seed_node_configs};
+use anyhow::{Context, Result};
+use db::{apply_schema, connect, list_node_configs, seed_node_configs, upsert_user};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use shared::data::Sherpa;
 use shared::konst::{
@@ -9,8 +9,9 @@ use shared::konst::{
     SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
-    create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    term_msg_highlight, term_msg_surround, term_msg_underline,
+    create_config, create_dir, default_config, file_exists, find_user_ssh_keys,
+    generate_ssh_keypair, get_username, term_msg_highlight, term_msg_surround,
+    term_msg_underline,
 };
 use ssh_key::Algorithm;
 use topology::Manifest;
@@ -133,6 +134,29 @@ pub async fn init(
             );
             create_dir(&model_dir)?;
         }
+    }
+
+    // Create database user for current system user
+    term_msg_underline("Creating Database User");
+    
+    let username = get_username()
+        .context("Failed to detect current username for database user creation")?;
+    
+    let ssh_keys = find_user_ssh_keys();
+    
+    upsert_user(&db, username.clone(), ssh_keys.clone())
+        .await
+        .context(format!("Failed to create database user '{}'", username))?;
+    
+    if ssh_keys.is_empty() {
+        println!("Created database user: {} (no SSH keys found)", username);
+    } else {
+        println!(
+            "Created database user: {} ({} SSH key{} added)",
+            username,
+            ssh_keys.len(),
+            if ssh_keys.len() == 1 { "" } else { "s" }
+        );
     }
 
     Ok(())

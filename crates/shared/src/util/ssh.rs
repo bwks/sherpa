@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use base64::{Engine as _, engine::general_purpose};
+use base64::{Engine, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
@@ -120,6 +120,49 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     fs::set_permissions(private_key_path, perms)?;
 
     Ok(())
+}
+
+/// Find SSH public keys in the current user's home directory
+///
+/// Searches for common SSH key files in ~/.ssh/:
+/// - id_rsa.pub
+/// - id_ed25519.pub  
+/// - id_ecdsa.pub
+///
+/// Returns a vector of key contents as raw strings (suitable for database storage).
+/// Returns an empty vector if no keys are found.
+///
+/// # Example
+/// ```no_run
+/// use shared::util::find_user_ssh_keys;
+///
+/// let keys = find_user_ssh_keys();
+/// println!("Found {} SSH keys", keys.len());
+/// ```
+pub fn find_user_ssh_keys() -> Vec<String> {
+    let mut keys = Vec::new();
+
+    // Get home directory
+    let home = match std::env::var("HOME") {
+        Ok(h) if !h.is_empty() => h,
+        _ => return keys, // No HOME set, return empty
+    };
+
+    let ssh_dir = format!("{}/.ssh", home);
+
+    // Look for common SSH key files
+    for key_type in &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"] {
+        let key_path = format!("{}/{}", ssh_dir, key_type);
+
+        if let Ok(content) = std::fs::read_to_string(&key_path) {
+            let trimmed = content.trim();
+            if !trimmed.is_empty() {
+                keys.push(trimmed.to_string());
+            }
+        }
+    }
+
+    keys
 }
 
 #[cfg(test)]
