@@ -1,5 +1,5 @@
 [package]
-name = "sherpa-server"
+name = "sherpad"
 version = "0.1.0"
 edition = "2024"
 
@@ -18,6 +18,9 @@ validate = { path = "../validate" }
 
 # Errors
 anyhow = "1.0.100"
+
+# Process/Signal management
+nix = { version = "0.29", features = ["signal", "process"] }
 
 # CLI
 clap = { version = "4.5.16", features = ["derive"] }
@@ -54,3 +57,7 @@ virt = { version = "0.4.1", features = ["qemu"] }
 
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.25.0"

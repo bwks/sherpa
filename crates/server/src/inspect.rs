@@ -2,16 +2,16 @@ use std::str::FromStr;
 
 use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
-use serde_json;
 use virt::storage_pool::StoragePool;
 
 use libvirt::Qemu;
 use shared::data::{Config, LabInfo, NodeModel};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
-use shared::util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
+use shared::util::{get_dhcp_leases, load_file};
 use topology::Node;
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct InpsectDevice {
     name: String,
     model: NodeModel,
@@ -21,12 +21,14 @@ struct InpsectDevice {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct InspectData {
     lab_name: String,
     lab_id: String,
     devices: Vec<InpsectDevice>,
 }
 
+#[allow(dead_code)]
 pub async fn inspect(
     qemu: &Qemu,
     lab_name: &str,

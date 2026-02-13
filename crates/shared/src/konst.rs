@@ -7,6 +7,8 @@ pub const SHERPA_IMAGES_DIR: &str = "images";
 pub const SHERPA_CONTAINERS_DIR: &str = "containers";
 pub const SHERPA_BINS_DIR: &str = "bins";
 pub const SHERPA_LABS_DIR: &str = "labs";
+pub const SHERPA_RUN_DIR: &str = "run";
+pub const SHERPA_LOG_DIR: &str = "logs";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
@@ -177,3 +179,9 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
     SHERPA_PASSWORD,
     "memory",
 ];
+
+// Sherpad daemon constants
+pub const SHERPAD_PID_FILE: &str = "sherpad.pid";
+pub const SHERPAD_LOG_FILE: &str = "sherpad.log";
+pub const SHERPAD_HOST: &str = "127.0.0.1";
+pub const SHERPAD_PORT: u16 = 3030;
