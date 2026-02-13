@@ -12,6 +12,7 @@ use bollard::query_parameters::{
 
 use shared::data::ContainerNetworkAttachment;
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_container(
     docker: &Docker,
     name: &str,
@@ -131,16 +132,16 @@ pub async fn run_container(
     if let Some(state) = &details.state {
         println!(
             "Container status: {}",
-            if state.status.is_some() {
-                state.status.unwrap().to_string()
+            if let Some(status) = &state.status {
+                status.to_string()
             } else {
                 "unknown".to_string()
             }
         );
         println!(
             "Exit code: {}",
-            if state.exit_code.is_some() {
-                state.exit_code.unwrap().to_string()
+            if let Some(exit_code) = state.exit_code {
+                exit_code.to_string()
             } else {
                 "unknown".to_string()
             }

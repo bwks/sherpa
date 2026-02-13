@@ -2,7 +2,6 @@ use std::str::FromStr;
 
 use anyhow::{Result, bail};
 use serde_derive::{Deserialize, Serialize};
-use serde_json;
 use virt::storage_pool::StoragePool;
 
 use libvirt::Qemu;

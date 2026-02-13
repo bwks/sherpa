@@ -5,25 +5,26 @@ use anyhow::{Result, bail};
 use shared::data::NodeModel;
 use topology::{LinkDetailed, Node};
 
-/// Check if a device with a non-dedicated management interface
-/// has the first interface defined in a connection
+/// Checks if any links use the management interface (index 0) on a node.
+/// Returns an error if a link attempts to use the management interface.
+/// This validation only applies to nodes without dedicated management interfaces.
 pub fn check_mgmt_usage(
     device_name: &str,
-    first_interface_index: u8,
+    mgmt_interface_index: u8,
     links: &Vec<LinkDetailed>,
 ) -> Result<()> {
     for link in links {
-        let (device, interface) = // no-fmt
+        let (device, interface_idx, interface_name) = // no-fmt
         if device_name == link.node_a {
-            (device_name, link.int_a_idx)
+            (device_name, link.int_a_idx, link.int_a.clone())
         } else if device_name == link.node_b {
-            (device_name, link.int_b_idx)
+            (device_name, link.int_b_idx, link.int_b.clone())
         } else {
             continue; // this will skip to the next loop if device not matched in link
         };
-        if device_name == device && first_interface_index == interface {
+        if device_name == device && mgmt_interface_index == interface_idx {
             bail!(
-                "Manifest link - '{device}' interface '{interface}' overlaps with management interface",
+                "Manifest link - '{device}' interface '{interface_name}' overlaps with management interface",
             );
         }
     }
@@ -100,30 +101,30 @@ pub fn check_interface_bounds(
     let max_interface_idx = first_data_interface_idx + data_interface_count - 1;
 
     for link in links {
-        let (device, interface) = // no-fmt
+        let (device, interface_idx, interface_name) = // no-fmt
         if device_name == link.node_a {
-            (device_name, link.int_a_idx)
+            (device_name, link.int_a_idx, link.int_a.clone())
         } else if device_name == link.node_b {
-            (device_name, link.int_b_idx)
+            (device_name, link.int_b_idx, link.int_b.clone())
         } else {
             continue; // this will skip to the next loop if device not matched in link
         };
 
         // Check if interface is in valid range
-        if interface == 0 {
+        if interface_idx == 0 {
             if dedicated_management_interface {
                 bail!(
-                    "Manifest link - device '{device}' interface index 0 is the dedicated management interface and cannot be used for links"
+                    "Manifest link - device '{device}' interface '{interface_name}' is the management interface and cannot be used in links"
                 )
             }
             // If not dedicated, index 0 can be used for data, so it's valid
-        } else if interface > 0 && interface < first_data_interface_idx {
+        } else if interface_idx > 0 && interface_idx < first_data_interface_idx {
             bail!(
-                "Manifest link - device '{device}' interface index '{interface}' is a reserved interface (reserved_count: {reserved_interface_count}) and cannot be used for links"
+                "Manifest link - device '{device}' interface index '{interface_name}' is a reserved interface (reserved_count: {reserved_interface_count}) and cannot be used in links"
             )
-        } else if interface > max_interface_idx {
+        } else if interface_idx > max_interface_idx {
             bail!(
-                "Manifest link - device '{device}' interface index '{interface}' exceeds the maximum interface index '{max_interface_idx}' for device model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
+                "Manifest link - device '{device}' interface index '{interface_name}' exceeds the maximum interface index '{max_interface_idx}' for device model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
             )
         }
     }
@@ -305,5 +306,32 @@ mod tests {
         let result = check_interface_bounds("rocky1", &NodeModel::RockyLinux, 1, 0, true, &links);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_mgmt_usage_blocks_eth0() {
+        // Test: eth0 (index 0) should be blocked as management interface
+        let links = vec![create_link("node1", 0, "node2", 1)];
+
+        let result = check_mgmt_usage("node1", 0, &links);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("management interface"));
+    }
+
+    #[test]
+    fn test_check_mgmt_usage_allows_eth1() -> Result<()> {
+        // Test: eth1 (index 1) should be allowed for data links
+        let links = vec![create_link("node1", 1, "node2", 1)];
+
+        check_mgmt_usage("node1", 0, &links)
+    }
+
+    #[test]
+    fn test_check_mgmt_usage_allows_higher_interfaces() -> Result<()> {
+        // Test: eth2, eth3, etc. should all be allowed
+        let links = vec![create_link("node1", 2, "node2", 3)];
+
+        check_mgmt_usage("node1", 0, &links)
     }
 }

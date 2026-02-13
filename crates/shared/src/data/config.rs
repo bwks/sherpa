@@ -23,21 +23,14 @@ impl Default for ZtpServer {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct ConfigurationManagement {
+    #[serde(default)]
     pub ansible: bool,
+    #[serde(default)]
     pub pyats: bool,
+    #[serde(default)]
     pub nornir: bool,
-}
-
-impl Default for ConfigurationManagement {
-    fn default() -> Self {
-        Self {
-            pyats: false,
-            ansible: false,
-            nornir: false,
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]

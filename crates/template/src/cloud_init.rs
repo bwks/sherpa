@@ -60,7 +60,7 @@ impl CloudInitNetwork {
         );
         Self {
             version: 2,
-            ethernets: ethernets,
+            ethernets,
         }
     }
 }

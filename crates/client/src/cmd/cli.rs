@@ -134,7 +134,7 @@ impl Cli {
             images_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}"),
             containers_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_CONTAINERS_DIR}"),
             bins_dir: format!("{SHERPA_BASE_DIR}/{SHERPA_BINS_DIR}"),
-            config_dir: config_dir,
+            config_dir,
         };
         match &cli.commands {
             Commands::Init {

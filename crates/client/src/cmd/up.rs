@@ -8,10 +8,6 @@ use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
 use super::boot_containers::{create_boot_containers, create_ztp_files};
-use container;
-use db;
-use libvirt;
-use network;
 use shared::data;
 use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
@@ -32,9 +28,7 @@ use shared::konst::{
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
-use template;
 use topology::{self, BridgeDetailed};
-use validate;
 
 fn find_interface_link(
     node_name: &str,
@@ -79,7 +73,7 @@ fn find_interface_link(
 fn find_bridge_interface(
     node_name: &str,
     interface_name: &str,
-    bridge_connections: &Vec<topology::BridgeDetailed>,
+    bridge_connections: &[topology::BridgeDetailed],
 ) -> Option<data::NodeInterface> {
     let mut interface_data = None;
     for bridge in bridge_connections.iter() {
@@ -96,7 +90,7 @@ fn find_bridge_interface(
 
 fn process_manifest_links(
     manifest_links: &Option<Vec<topology::Link2>>,
-    manifest_nodes: &Vec<topology::NodeExpanded>,
+    manifest_nodes: &[topology::NodeExpanded],
 ) -> Result<Vec<topology::LinkDetailed>> {
     let manifest_links = manifest_links.clone().unwrap_or_default();
     // links from manifest links
@@ -144,7 +138,7 @@ fn process_manifest_links(
     Ok(links_detailed)
 }
 
-fn process_manifest_nodes(manifest_nodes: &Vec<topology::Node>) -> Vec<topology::NodeExpanded> {
+fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
     let nodes_expanded = manifest_nodes
         .iter()
         .enumerate()
@@ -316,9 +310,8 @@ pub async fn up(
         let node_config = get_node_config(&node.model, &node_configs)?;
 
         if !node_config.dedicated_management_interface {
-            // Calculate the first data interface index consistently
-            let first_data_interface_idx = 1 + node_config.reserved_interface_count;
-            validate::check_mgmt_usage(&node.name, first_data_interface_idx, &links_detailed)?;
+            // Management interface is always at index 0 for non-dedicated management devices
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed)?;
         }
 
         validate::check_interface_bounds(
@@ -1775,7 +1768,7 @@ pub async fn up(
                 lab_id: lab_id.to_string(),
                 management_network,
                 isolated_network: isolated_network.network_name,
-                reserved_network: reserved_network,
+                reserved_network,
             };
             domains.push(domain);
         }
@@ -1838,13 +1831,13 @@ pub async fn up(
 
     if !ztp_records.is_empty() {
         // Check manifest's config_management setting, defaulting to false if not present
-        let pyats_enabled = manifest
+        let _pyats_enabled = manifest
             .config_management
             .as_ref()
             .map(|c| c.pyats)
             .unwrap_or(false);
 
-        // if pyats_enabled {
+        // if _pyats_enabled {
         //     util::term_msg_underline("Creating PyATS Testbed File");
         //     let pyats_inventory = template::PyatsInventory::from_manifest(
         //         manifest,

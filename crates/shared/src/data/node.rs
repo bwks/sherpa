@@ -1164,7 +1164,7 @@ impl NodeConfig {
             ztp_method: ZtpMethod::CloudInit,
             ztp_password_auth: false,
             first_interface_index: 0,
-            dedicated_management_interface: true,
+            dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
         }

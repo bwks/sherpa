@@ -7,6 +7,9 @@
 - Allow for user defined credential including passwords
   and SSH public keys.
 
+## Validate Command
+- Add a valiate command to validate the manifest
+
 ## Sherpa Server
 - sherpad service systemd definition.
 
