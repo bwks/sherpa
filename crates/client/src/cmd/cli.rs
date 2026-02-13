@@ -6,6 +6,7 @@ use super::clean::clean;
 use super::console::console;
 use super::container::{ContainerCommands, parse_container_commands};
 use super::destroy::destroy;
+use super::destroy_ws::destroy_ws;
 use super::doctor::doctor;
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
@@ -67,6 +68,9 @@ enum Commands {
     Resume,
     /// Destroy environment
     Destroy,
+    /// Destroy environment via WebSocket RPC (experimental)
+    #[command(name = "destroyws")]
+    DestroyWs,
     /// Inspect environment
     Inspect,
     /// Inspect environment via WebSocket RPC (experimental)
@@ -183,6 +187,21 @@ impl Cli {
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
                 destroy(&qemu, &lab_name, &lab_id).await?;
+            }
+            Commands::DestroyWs => {
+                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                let lab_id = get_id(&manifest.name)?;
+                let lab_name = manifest.name.clone();
+                let config = load_config(&sherpa.config_file_path)?;
+
+                // Resolve server URL (CLI > env > config > default)
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .or_else(|| config.server_connection.url.clone())
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+
+                destroy_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
             Commands::Inspect => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

@@ -4659,6 +4659,7 @@ dependencies = [
  "futures",
  "futures-util",
  "libvirt",
+ "network",
  "nix 0.29.0",
  "petname",
  "rand 0.8.5",

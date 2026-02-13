@@ -14,6 +14,7 @@ container = { path = "../container" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
+network = { path = "../network" }
 validate = { path = "../validate" }
 db = { path = "../db" }
 

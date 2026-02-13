@@ -4,6 +4,7 @@ mod cli;
 mod console;
 mod container;
 mod destroy;
+mod destroy_ws;
 mod doctor;
 mod down;
 mod image;

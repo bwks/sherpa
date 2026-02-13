@@ -2,6 +2,7 @@ mod config;
 mod container;
 mod cpu;
 mod db;
+mod destroy;
 mod dhcp;
 mod disk;
 mod dns;
@@ -20,6 +21,7 @@ pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, ZtpS
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
+pub use destroy::{DestroyError, DestroyResponse, DestroySummary};
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
