@@ -15,6 +15,7 @@ use super::resume::resume;
 use super::ssh::ssh;
 use super::unikernel::UnikernelCommands;
 use super::up::up;
+use super::validate::validate_manifest;
 use super::virtual_machine::VirtualMachineCommands;
 
 use libvirt::Qemu;
@@ -63,6 +64,13 @@ enum Commands {
     Destroy,
     /// Inspect environment
     Inspect,
+
+    /// Validate configurations
+    Validate {
+        /// Path to manifest file to validate (defaults to manifest.toml)
+        #[arg(long)]
+        manifest: Option<String>,
+    },
 
     /// Fix up environment
     Doctor {
@@ -174,6 +182,11 @@ impl Cli {
                 let lab_name = manifest.name.clone();
                 let config = load_config(&sherpa.config_file_path)?;
                 inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
+            }
+            Commands::Validate { manifest } => {
+                // Default to manifest.toml if no specific flag provided
+                let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
+                validate_manifest(manifest_path)?;
             }
             Commands::Doctor { boxes } => {
                 doctor(*boxes, &sherpa.images_dir)?;

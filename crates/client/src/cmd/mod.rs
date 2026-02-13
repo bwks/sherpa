@@ -9,10 +9,12 @@ mod down;
 mod image;
 mod init;
 mod inspect;
+mod manifest_processing;
 mod resume;
 mod ssh;
 mod unikernel;
 mod up;
+mod validate;
 mod virtual_machine;
 
 pub use cli::Cli;
