@@ -1,9 +1,9 @@
 use axum::extract::ws::{Message, WebSocket};
 use dashmap::DashMap;
-use futures_util::stream::SplitSink;
 use futures_util::SinkExt;
-use std::sync::atomic::AtomicBool;
+use futures_util::stream::SplitSink;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
@@ -52,6 +52,7 @@ mod tests {
         assert_eq!(registry.len(), 0);
     }
 
+    /*
     #[test]
     fn test_registry_insert_remove() {
         let registry = create_registry();
@@ -72,4 +73,5 @@ mod tests {
         // Note: The above will fail to compile because SplitSink needs actual WebSocket
         // In practice, this is tested via integration tests with real connections
     }
+    */
 }

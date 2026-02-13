@@ -57,7 +57,7 @@ pub struct InterfaceData {
     pub data: NodeInterface,
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LabInfo {
     pub id: String,
     pub name: String,

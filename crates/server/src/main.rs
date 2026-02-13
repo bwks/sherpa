@@ -2,6 +2,7 @@ mod api;
 mod cli;
 mod daemon;
 mod inspect;
+mod services;
 
 use anyhow::Result;
 use clap::Parser;

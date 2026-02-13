@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
 use std::sync::Arc;
@@ -7,8 +7,10 @@ use crate::api::build_router;
 use crate::api::websocket;
 use crate::daemon::state::AppState;
 use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPAD_HOST, SHERPAD_LOG_FILE, SHERPAD_PORT,
+    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR, SHERPAD_HOST,
+    SHERPAD_LOG_FILE, SHERPAD_PORT,
 };
+use shared::util::load_config;
 
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
@@ -38,8 +40,15 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
     tracing::info!("Starting sherpad server");
 
-    // Create application state
-    let state = AppState::new();
+    // Load configuration
+    let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
+    let config = load_config(&config_path)
+        .with_context(|| format!("Failed to load config from {}", config_path))?;
+
+    // Create application state (includes db, libvirt, docker connections)
+    let state = AppState::new(config)
+        .await
+        .context("Failed to initialize application state")?;
 
     // Build the router with REST endpoints
     let app = build_router()

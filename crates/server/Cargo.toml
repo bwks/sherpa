@@ -15,6 +15,7 @@ topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
 validate = { path = "../validate" }
+db = { path = "../db" }
 
 # Errors
 anyhow = "1.0.100"
@@ -69,6 +70,12 @@ reqwest = "0.11.27"
 
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }
+
+# Docker
+bollard = "0.19.3"
+
+# Database
+surrealdb = "2.4.1"
 
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }

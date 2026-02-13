@@ -134,6 +134,36 @@ async fn handle_client_message(
             // Keepalive response - no action needed
             tracing::trace!("Received pong from client {}", connection.id);
         }
+        ClientMessage::RpcRequest { id, method, params } => {
+            // Handle RPC request asynchronously
+            tracing::info!(
+                "RPC request received: method={}, id={}, connection={}",
+                method,
+                id,
+                connection.id
+            );
+
+            // Clone what we need for the async task
+            let connection_id = connection.id;
+            let state_clone = state.clone();
+
+            // Spawn async task to handle RPC
+            tokio::spawn(async move {
+                // Call RPC router
+                let response =
+                    crate::api::websocket::rpc::handle_rpc_request(id, method, params, &state_clone)
+                        .await;
+
+                // Send response back to client (get connection from registry)
+                if let Some(conn) = state_clone.connections.get(&connection_id) {
+                    if let Ok(json) = serde_json::to_string(&response) {
+                        if let Err(e) = conn.send(Message::Text(json.into())).await {
+                            tracing::error!("Failed to send RPC response: {:?}", e);
+                        }
+                    }
+                }
+            });
+        }
     }
 
     Ok(())

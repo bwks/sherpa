@@ -2,6 +2,18 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// RPC error information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RpcError {
+    /// JSON-RPC error code
+    pub code: i32,
+    /// Human-readable error message
+    pub message: String,
+    /// Additional debug context (file:line, stack trace)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+}
+
 /// Message sent from server to client
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -34,6 +46,15 @@ pub enum ServerMessage {
 
     /// Ping for keepalive
     Ping,
+
+    /// RPC response
+    RpcResponse {
+        id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<RpcError>,
+    },
 }
 
 /// Log levels matching tracing levels
@@ -59,6 +80,13 @@ pub enum ClientMessage {
 
     /// Ping response
     Pong,
+
+    /// RPC request
+    RpcRequest {
+        id: String,
+        method: String,
+        params: serde_json::Value,
+    },
 }
 
 #[cfg(test)]
@@ -103,5 +131,54 @@ mod tests {
         let level = LogLevel::Warn;
         let json = serde_json::to_string(&level).unwrap();
         assert_eq!(json, "\"warn\"");
+    }
+
+    #[test]
+    fn test_rpc_request_deserialization() {
+        let json = r#"{"type":"rpc_request","id":"test-001","method":"inspect","params":{"lab_id":"abc123"}}"#;
+        let msg: ClientMessage = serde_json::from_str(json).unwrap();
+        match msg {
+            ClientMessage::RpcRequest { id, method, params } => {
+                assert_eq!(id, "test-001");
+                assert_eq!(method, "inspect");
+                assert_eq!(params.get("lab_id").unwrap().as_str().unwrap(), "abc123");
+            }
+            _ => panic!("Expected RpcRequest"),
+        }
+    }
+
+    #[test]
+    fn test_rpc_response_success_serialization() {
+        let msg = ServerMessage::RpcResponse {
+            id: "test-001".to_string(),
+            result: Some(serde_json::json!({"status": "ok"})),
+            error: None,
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"rpc_response\""));
+        assert!(json.contains("\"id\":\"test-001\""));
+        assert!(json.contains("\"result\""));
+        assert!(!json.contains("\"error\""));
+    }
+
+    #[test]
+    fn test_rpc_response_error_serialization() {
+        let msg = ServerMessage::RpcResponse {
+            id: "test-002".to_string(),
+            result: None,
+            error: Some(RpcError {
+                code: -32603,
+                message: "Internal error".to_string(),
+                context: Some("file.rs:123".to_string()),
+            }),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"rpc_response\""));
+        assert!(json.contains("\"id\":\"test-002\""));
+        assert!(json.contains("\"error\""));
+        assert!(json.contains("\"code\":-32603"));
+        assert!(json.contains("\"message\":\"Internal error\""));
     }
 }
