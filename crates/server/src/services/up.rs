@@ -3,7 +3,6 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -35,7 +34,7 @@ use shared::konst::{
     SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
-use topology::{self, BridgeDetailed};
+// use topology::{self, BridgeDetailed};
 
 // ============================================================================
 // Helper Functions (ported from client)
