@@ -364,7 +364,7 @@ pub async fn up_lab(
             .context(format!("Node config not found for model: {}", node.model))?;
 
         if !node_config.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed).context(format!(
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed).context(format!(
                 "Management interface validation failed for node: {}",
                 node.name
             ))?;
@@ -377,6 +377,7 @@ pub async fn up_lab(
             node_config.reserved_interface_count,
             node_config.dedicated_management_interface,
             &links_detailed,
+            &bridges_detailed,
         )
         .context(format!(
             "Interface bounds validation failed for node: {}",
@@ -386,10 +387,16 @@ pub async fn up_lab(
 
     // Connection Validators
     if !links_detailed.is_empty() {
-        validate::check_duplicate_interface_link(&links_detailed)
+        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)
             .context("Duplicate interface link validation failed")?;
         validate::check_link_device(&manifest.nodes, &links_detailed)
             .context("Link device validation failed")?;
+    }
+    
+    // Bridge Validators
+    if !bridges_detailed.is_empty() {
+        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)
+            .context("Bridge device validation failed")?;
     }
 
     progress.send_status("Manifest validation complete".to_string())?;

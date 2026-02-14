@@ -8,7 +8,9 @@ use anyhow::{Context, Result, anyhow};
 use askama::Template;
 
 use super::boot_containers::{create_boot_containers, create_ztp_files};
-use super::manifest_processing::{get_node_config, process_manifest_links, process_manifest_nodes};
+use super::manifest_processing::{
+    get_node_config, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
+};
 use shared::data;
 use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
@@ -29,7 +31,7 @@ use shared::konst::{
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
-use topology::{self, BridgeDetailed};
+use topology;
 
 fn find_interface_link(
     node_name: &str,
@@ -87,47 +89,6 @@ fn find_bridge_interface(
         }
     }
     interface_data
-}
-
-fn process_manifest_bridges(
-    manifest_bridges: &Option<Vec<topology::Bridge>>,
-    manifest_nodes: &Vec<topology::NodeExpanded>,
-    lab_id: &str,
-) -> Result<Vec<topology::BridgeDetailed>> {
-    let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
-    let bridges = manifest_bridges
-        .iter()
-        .map(|x: &topology::Bridge| x.parse_links())
-        .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
-
-    let mut bridges_detailed: Vec<topology::BridgeDetailed> = vec![];
-    for (idx, bridge) in bridges.iter().enumerate() {
-        let bridge_index = idx as u16;
-        let manifest_name = bridge.name.clone();
-        let bridge_name = format!("{}s{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
-        let libvirt_name = format!("sherpa-bridge{}-{}-{}", bridge_index, bridge.name, lab_id);
-
-        let mut bridge_links = vec![];
-        for link in bridge.links.iter() {
-            if let Some(node) = manifest_nodes.iter().find(|n| n.name == link.node) {
-                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
-                bridge_links.push(topology::BridgeLinkDetailed {
-                    node_name: link.node.clone(),
-                    node_model: node.model.clone(),
-                    interface_name: link.interface.clone(),
-                    interface_index: interface_idx,
-                });
-            }
-        }
-        bridges_detailed.push(BridgeDetailed {
-            manifest_name,
-            bridge_name,
-            libvirt_name,
-            index: bridge_index,
-            links: bridge_links,
-        })
-    }
-    Ok(bridges_detailed)
 }
 
 fn node_isolated_network_data(
@@ -223,7 +184,7 @@ pub async fn up(
 
         if !node_config.dedicated_management_interface {
             // Management interface is always at index 0 for non-dedicated management devices
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed)?;
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
         }
 
         validate::check_interface_bounds(
@@ -233,14 +194,20 @@ pub async fn up(
             node_config.reserved_interface_count,
             node_config.dedicated_management_interface,
             &links_detailed,
+            &bridges_detailed,
         )?;
     }
 
     // Connection Validators
     if !links_detailed.is_empty() {
-        validate::check_duplicate_interface_link(&links_detailed)?;
+        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
         validate::check_link_device(&manifest.nodes, &links_detailed)?;
     };
+    
+    // Bridge Validators
+    if !bridges_detailed.is_empty() {
+        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)?;
+    }
 
     println!("Manifest Ok");
 

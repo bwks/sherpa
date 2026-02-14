@@ -1,6 +1,7 @@
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 use shared::data;
+use shared::konst::BRIDGE_PREFIX;
 use shared::util;
 use topology;
 
@@ -94,4 +95,48 @@ pub fn get_node_config(
         .find(|x| &x.model == node_model)
         .ok_or_else(|| anyhow!("Node config not found for model: {}", node_model))?
         .clone())
+}
+
+/// Process manifest bridges into detailed bridge format with resolved interface indices
+pub fn process_manifest_bridges(
+    manifest_bridges: &Option<Vec<topology::Bridge>>,
+    manifest_nodes: &Vec<topology::NodeExpanded>,
+    lab_id: &str,
+) -> Result<Vec<topology::BridgeDetailed>> {
+    let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
+    let bridges = manifest_bridges
+        .iter()
+        .map(|x: &topology::Bridge| x.parse_links())
+        .collect::<Result<Vec<topology::BridgeExpanded>>>()?;
+
+    let mut bridges_detailed: Vec<topology::BridgeDetailed> = vec![];
+    for (idx, bridge) in bridges.iter().enumerate() {
+        let bridge_index = idx as u16;
+        let manifest_name = bridge.name.clone();
+        let bridge_name = format!("{}s{}-{}", BRIDGE_PREFIX, bridge_index, lab_id);
+        let libvirt_name = format!("sherpa-bridge{}-{}-{}", bridge_index, bridge.name, lab_id);
+
+        let mut bridge_links = vec![];
+        for link in bridge.links.iter() {
+            if let Some(node) = manifest_nodes.iter().find(|n| n.name == link.node) {
+                let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
+                bridge_links.push(topology::BridgeLinkDetailed {
+                    node_name: link.node.clone(),
+                    node_model: node.model.clone(),
+                    interface_name: link.interface.clone(),
+                    interface_index: interface_idx,
+                });
+            }
+        }
+
+        bridges_detailed.push(topology::BridgeDetailed {
+            manifest_name,
+            bridge_name,
+            libvirt_name,
+            index: bridge_index,
+            links: bridge_links,
+        });
+    }
+
+    Ok(bridges_detailed)
 }

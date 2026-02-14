@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 
-use super::manifest_processing::{get_node_config, process_manifest_links, process_manifest_nodes};
+use super::manifest_processing::{
+    get_node_config, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
+};
 use shared::data::{NodeConfig, NodeModel};
 use shared::util;
 use topology::Manifest;
@@ -28,6 +30,8 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;
+    let bridges_detailed =
+        process_manifest_bridges(&manifest.bridges, &nodes_expanded, "validate")?;
 
     // Per-node validators
     println!("→ Checking interface configurations...");
@@ -36,7 +40,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
         // Management interface check
         if !node_config.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed)?;
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
         }
 
         // Interface bounds check
@@ -47,18 +51,26 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
             node_config.reserved_interface_count,
             node_config.dedicated_management_interface,
             &links_detailed,
+            &bridges_detailed,
         )?;
     }
     println!("  ✓ All interface configurations valid");
 
     // Connection validators
-    if !links_detailed.is_empty() {
+    if !links_detailed.is_empty() || !bridges_detailed.is_empty() {
         println!("→ Checking link configurations...");
-        validate::check_duplicate_interface_link(&links_detailed)?;
+        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
         println!("  ✓ No duplicate interface usage");
 
         validate::check_link_device(&manifest.nodes, &links_detailed)?;
         println!("  ✓ All linked devices exist");
+    }
+
+    // Bridge validators
+    if !bridges_detailed.is_empty() {
+        println!("→ Checking bridge configurations...");
+        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)?;
+        println!("  ✓ All bridge devices exist");
     }
 
     println!();
