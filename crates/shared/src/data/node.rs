@@ -848,7 +848,7 @@ impl NodeConfig {
             os_variant: OsVariant::Ios,
             kind: NodeKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
-            data_interface_count: 16,
+            data_interface_count: 15,
             interface_prefix: "Gig0/".to_owned(),
             interface_type: InterfaceType::E1000,
             interface_mtu: MTU_JUMBO_INT,

@@ -892,6 +892,9 @@ pub async fn up_lab(
             None => (None, None),
         };
 
+        // Handle config disk for Disk ZTP method (e.g., IOSv config disk)
+        let (mut src_config_disk, mut dst_config_disk): (Option<String>, Option<String>) = (None, None);
+
         if node_config.ztp_enable {
             match node_config.ztp_method {
                 data::ZtpMethod::CloudInit => {
@@ -1168,6 +1171,81 @@ pub async fn up_lab(
                         "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
                     ));
                 }
+                data::ZtpMethod::Disk => {
+                    progress
+                        .send_status(format!("Creating Disk ZTP config for VM: {}", node.name))?;
+
+                    let dir = format!("{lab_dir}/{}", node.name);
+                    let mut user = sherpa_user.clone();
+
+                    match node.model {
+                        data::NodeModel::CiscoIosv => {
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                            user.ssh_public_key.key = key_hash;
+                            let t = template::CiscoIosvZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let c = CISCO_IOSV_ZTP_CONFIG;
+                            let ztp_config = format!("{dir}/{c}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            
+                            // Clone blank disk image
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
+                            );
+                            let dst_disk = format!("{dir}/{}-cfg.img", node.name);
+
+                            // Copy blank disk and inject config
+                            util::copy_file(&src_disk, &dst_disk)?;
+                            util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.clone());
+                            dst_config_disk = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"));
+                        }
+                        data::NodeModel::CiscoIosvl2 => {
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                            user.ssh_public_key.key = key_hash;
+                            let t = template::CiscoIosvl2ZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let c = CISCO_IOSV_ZTP_CONFIG;
+                            let ztp_config = format!("{dir}/{c}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            
+                            // Clone blank disk image
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_IOSV
+                            );
+                            let dst_disk = format!("{dir}/{}-cfg.img", node.name);
+
+                            // Copy blank disk and inject config
+                            util::copy_file(&src_disk, &dst_disk)?;
+                            util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.clone());
+                            dst_config_disk = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"));
+                        }
+                        _ => {
+                            bail!("Disk ZTP method not supported for {}", node_config.model);
+                        }
+                    }
+                }
                 _ => {
                     // Other ZTP methods not yet implemented
                     progress.send_status(format!(
@@ -1191,6 +1269,22 @@ pub async fn up_lab(
                 src_file: dst_iso.clone(),
                 target_dev: data::DiskTargets::target(&cdrom_bus, disks.len() as u8)?,
                 target_bus: cdrom_bus.clone(),
+            });
+        }
+
+        // Clone config disk if present (for Disk ZTP method)
+        if let (Some(src_disk), Some(dst_disk)) = (src_config_disk.clone(), dst_config_disk.clone()) {
+            clone_disks.push(data::CloneDisk {
+                src: src_disk,
+                dst: dst_disk.clone(),
+            });
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
+                src_file: dst_disk.clone(),
+                target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+                target_bus: hdd_bus.clone(),
             });
         }
 
