@@ -172,6 +172,93 @@ remove_container() {
 }
 
 ################################################################################
+# Systemd Service Removal
+################################################################################
+
+remove_systemd_service() {
+    print_header "Removing Systemd Service"
+    
+    # Check if systemctl is available
+    if ! command -v systemctl >/dev/null 2>&1; then
+        print_info "systemctl not found - skipping systemd service removal"
+        return 0
+    fi
+    
+    # Check if service exists
+    if ! systemctl list-unit-files | grep -q "^sherpad.service"; then
+        print_info "Systemd service not found"
+        return 0
+    fi
+    
+    # Stop the service if running
+    print_info "Stopping sherpad service..."
+    if systemctl is-active --quiet sherpad.service; then
+        if systemctl stop sherpad.service 2>/dev/null; then
+            print_success "Service stopped"
+        else
+            print_warning "Failed to stop service (may already be stopped)"
+        fi
+    else
+        print_info "Service is not running"
+    fi
+    
+    # Disable the service
+    print_info "Disabling sherpad service..."
+    if systemctl is-enabled --quiet sherpad.service 2>/dev/null; then
+        if systemctl disable sherpad.service 2>/dev/null; then
+            print_success "Service disabled"
+        else
+            print_warning "Failed to disable service"
+        fi
+    else
+        print_info "Service is not enabled"
+    fi
+    
+    # Remove service file
+    print_info "Removing service file..."
+    if [ -f /etc/systemd/system/sherpad.service ]; then
+        if rm -f /etc/systemd/system/sherpad.service; then
+            print_success "Service file removed"
+        else
+            print_error "Failed to remove service file"
+            return 1
+        fi
+    fi
+    
+    # Remove logrotate config
+    print_info "Removing logrotate configuration..."
+    if [ -f /etc/logrotate.d/sherpad ]; then
+        if rm -f /etc/logrotate.d/sherpad; then
+            print_success "Logrotate config removed"
+        else
+            print_warning "Failed to remove logrotate config"
+        fi
+    fi
+    
+    # Reload systemd
+    print_info "Reloading systemd daemon..."
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl reset-failed 2>/dev/null || true
+    print_success "Systemd daemon reloaded"
+    
+    print_success "Systemd service removal complete"
+}
+
+remove_sherpad_binary() {
+    print_info "Removing sherpad binary..."
+    
+    if [ -f "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
+        if rm -f "${SHERPA_BASE_DIR}/bin/sherpad"; then
+            print_success "Binary removed"
+        else
+            print_warning "Failed to remove binary"
+        fi
+    else
+        print_info "Binary not found"
+    fi
+}
+
+################################################################################
 # Data Removal
 ################################################################################
 
@@ -308,6 +395,8 @@ main() {
     
     # Build summary of actions
     local actions=""
+    actions="${actions}\n  - Stop and remove sherpad systemd service"
+    actions="${actions}\n  - Remove sherpad binary"
     actions="${actions}\n  - Stop and remove ${CONTAINER_NAME} container"
     
     if [ "$REMOVE_ALL" = true ]; then
@@ -334,6 +423,12 @@ main() {
     echo ""
     print_info "Starting uninstall..."
     echo ""
+    
+    # Remove systemd service first (stops the daemon)
+    remove_systemd_service
+    
+    # Remove binary
+    remove_sherpad_binary
     
     # Handle Docker operations
     if check_docker_available; then

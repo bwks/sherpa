@@ -7,6 +7,12 @@
 - [] Allow for user defined credential including passwords SSH public keys.
 - [] Store user secret
 
+## Logging
+- [] Add more logging/tracing
+
+## Authentication
+- [] Implement Authentication/Authorization system
+
 ## Validate Command
 - [x] Add a valiate command to validate the manifest
 
