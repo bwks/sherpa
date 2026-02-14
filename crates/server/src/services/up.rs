@@ -128,8 +128,8 @@ fn process_manifest_bridges(
 
         bridges_detailed.push(topology::BridgeDetailed {
             manifest_name: bridge.name.clone(),
-            libvirt_name: format!("{}-{}", bridge.name, lab_id),
-            bridge_name: format!("{}{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id),
+            libvirt_name: format!("sherpa-bridge{}-{}-{}", bridge_idx, bridge.name, lab_id),
+            bridge_name: format!("{}s{}-{}", BRIDGE_PREFIX, bridge_idx, lab_id),
             index: bridge_idx as u16,
             links: bridge_links,
         });
@@ -1051,6 +1051,18 @@ pub async fn up_lab(
                             let rendered_template = aruba_template.render()?;
                             let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
                             util::create_file(&ztp_config, rendered_template)?;
+                        }
+                        data::NodeModel::JuniperVevolved => {
+                            let juniper_template = template::JunipervJunosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user: sherpa_user.clone(),
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let juniper_rendered_template = juniper_template.render()?;
+                            let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                            util::create_file(&ztp_config, juniper_rendered_template)?;
                         }
                         _ => {
                             bail!("TFTP ZTP method not supported for {}", node_config.model);
