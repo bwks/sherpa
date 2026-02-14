@@ -25,7 +25,7 @@ use libvirt::Qemu;
 use shared::data::Sherpa;
 use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
-    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR, SHERPAD_HOST, SHERPAD_PORT,
+    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
 };
 use shared::util::{get_id, get_server_url, load_config};
 use topology::Manifest;
@@ -192,7 +192,7 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
 
                 up_ws(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
@@ -223,7 +223,7 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
 
                 destroy_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
@@ -245,7 +245,7 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
 
                 inspect_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }

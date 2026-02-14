@@ -60,5 +60,6 @@ pub fn default_config() -> Config {
         ztp_server,
         server_connection: ServerConnection::default(),
         server_ipv4: Ipv4Addr::new(127, 0, 0, 1),
+        server_port: 3030,
     }
 }

@@ -6,7 +6,7 @@ use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
-use crate::konst::{SHERPAD_HOST, SHERPAD_PORT, SHERPA_PASSWORD, SHERPA_USERNAME};
+use crate::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {
@@ -46,16 +46,17 @@ pub struct ServerConnection {
 impl Default for ServerConnection {
     fn default() -> Self {
         Self {
-            url: Some(format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT)),
+            url: None, // Will be constructed from server_ipv4 and server_port if not set
             timeout_secs: 3,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub name: String,
     pub server_ipv4: Ipv4Addr,
+    pub server_port: u16,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub management_prefix_ipv4: Ipv4Net,

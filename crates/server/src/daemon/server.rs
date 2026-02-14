@@ -7,8 +7,8 @@ use crate::api::build_router;
 use crate::api::websocket;
 use crate::daemon::state::AppState;
 use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR, SHERPAD_HOST,
-    SHERPAD_LOG_FILE, SHERPAD_PORT,
+    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR,
+    SHERPAD_LOG_FILE,
 };
 use shared::util::load_config;
 
@@ -43,10 +43,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     // Load configuration
     let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
     let config = load_config(&config_path)
-        .with_context(|| format!("Failed to load config from {}", config_path))?;
+        .context("Failed to load sherpa.toml config - cannot start server")?;
+    
+    tracing::info!("Server will listen on {}:{}", config.server_ipv4, config.server_port);
 
     // Create application state (includes db, libvirt, docker connections)
-    let state = AppState::new(config)
+    let state = AppState::new(config.clone())
         .await
         .context("Failed to initialize application state")?;
 
@@ -58,8 +60,10 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .with_state(state);
 
     // Bind to configured host:port
-    let addr = format!("{}:{}", SHERPAD_HOST, SHERPAD_PORT);
-    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    let addr = format!("{}:{}", config.server_ipv4, config.server_port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .with_context(|| format!("Failed to bind to {} - ensure the IP address is valid and available", addr))?;
 
     tracing::info!("sherpad listening on {}", addr);
 
