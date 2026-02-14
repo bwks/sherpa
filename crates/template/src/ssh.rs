@@ -10,4 +10,6 @@ use shared::konst::{
 #[template(path = "ssh/ssh_config.jinja", ext = "txt")]
 pub struct SshConfigTemplate {
     pub ztp_records: Vec<ZtpRecord>,
+    pub proxy_user: String,
+    pub server_ipv4: String,
 }

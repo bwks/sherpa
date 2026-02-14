@@ -26,11 +26,12 @@ use shared::konst::{
     DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME,
     NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
     SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE,
-    SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
+    SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -2000,9 +2001,22 @@ pub async fn up_lab(
         "Generating SSH config".to_string(),
     )?;
 
-    // Generate SSH config file
+    // Load server config to get server_ipv4
+    let config_file_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
+    let config_contents = util::load_file(&config_file_path)
+        .context("Failed to load sherpa.toml config")?;
+    let config: data::Config = toml::from_str(&config_contents)
+        .context("Failed to parse sherpa.toml config")?;
+    
+    // Get current username for ProxyJump
+    let proxy_user = util::get_username()
+        .context("Failed to get username for ProxyJump")?;
+
+    // Generate SSH config file with ProxyJump
     let ssh_config_template = template::SshConfigTemplate {
         ztp_records: ztp_records.clone(),
+        proxy_user,
+        server_ipv4: config.server_ipv4.to_string(),
     };
     let ssh_config_content = ssh_config_template.render()?;
     util::create_file(
@@ -2010,6 +2024,15 @@ pub async fn up_lab(
         ssh_config_content.clone(),
     )?;
     progress.send_status("SSH config file created".to_string())?;
+
+    // Read SSH private key for transfer to client
+    let ssh_private_key_path = format!(
+        "{}/{}/{}",
+        SHERPA_BASE_DIR, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE
+    );
+    let ssh_private_key = util::load_file(&ssh_private_key_path)
+        .context("Failed to read SSH private key")?;
+    progress.send_status("SSH private key loaded".to_string())?;
 
     // Build container network mappings
     let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
@@ -2228,6 +2251,7 @@ pub async fn up_lab(
         nodes: node_info_list,
         errors,
         ssh_config: ssh_config_content,
+        ssh_private_key,
     };
 
     tracing::info!(

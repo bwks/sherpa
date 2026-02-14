@@ -1763,8 +1763,17 @@ pub async fn up(
         // }
 
         util::term_msg_underline("Creating SSH Config File");
+        
+        // Load server config to get server_ipv4
+        let config_contents = util::load_file(&sherpa.config_file_path)
+            .context("Failed to load sherpa.toml config")?;
+        let config: data::Config = toml::from_str(&config_contents)
+            .context("Failed to parse sherpa.toml config")?;
+        
         let ssh_config_template = template::SshConfigTemplate {
             ztp_records: ztp_records.clone(),
+            proxy_user: current_user.clone(),
+            server_ipv4: config.server_ipv4.to_string(),
         };
         let rendered_template = ssh_config_template.render()?;
         util::create_file(

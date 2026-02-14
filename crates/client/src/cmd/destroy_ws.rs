@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{Config, DestroyResponse, InspectResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE};
+use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{file_exists, get_cwd, term_msg_surround, term_msg_underline};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -135,6 +135,36 @@ pub async fn destroy_ws(
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH config: {}",
+                            EMOJI_WARN, e
+                        );
+                    }
+                }
+            }
+            // Silent success if file doesn't exist - idempotent
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                EMOJI_WARN, e
+            );
+        }
+    }
+
+    // Clean up local SSH private key
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_ssh_key_path = format!("{}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE);
+            if file_exists(&local_ssh_key_path) {
+                match fs::remove_file(&local_ssh_key_path) {
+                    Ok(_) => {
+                        println!(
+                            "{} Local SSH private key deleted: {}",
+                            EMOJI_GOOD, local_ssh_key_path
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "\n{} Warning: Failed to delete local SSH private key: {}",
                             EMOJI_WARN, e
                         );
                     }

@@ -1,4 +1,5 @@
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::str::FromStr;
 
@@ -58,5 +59,6 @@ pub fn default_config() -> Config {
         configuration_management: ConfigurationManagement::default(),
         ztp_server,
         server_connection: ServerConnection::default(),
+        server_ipv4: Ipv4Addr::new(127, 0, 0, 1),
     }
 }

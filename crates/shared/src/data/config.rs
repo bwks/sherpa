@@ -1,5 +1,6 @@
 use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 
 use super::container::ContainerImage;
 // use super::node::NodeConfig;
@@ -54,6 +55,7 @@ impl Default for ServerConnection {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
     pub name: String,
+    pub server_ipv4: Ipv4Addr,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     pub management_prefix_ipv4: Ipv4Net,

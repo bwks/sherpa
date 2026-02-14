@@ -3,8 +3,11 @@ use serde::Deserialize;
 use std::fs;
 use std::time::Duration;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 use shared::data::{Config, UpResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE};
+use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{get_cwd, term_msg_surround};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -111,6 +114,40 @@ pub async fn up_ws(
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH config: {}",
+                        EMOJI_WARN, e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                EMOJI_WARN, e
+            );
+        }
+    }
+
+    // Write SSH private key to local directory with 0600 permissions
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_ssh_key_path = format!("{}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE);
+            match fs::write(&local_ssh_key_path, &up_data.ssh_private_key) {
+                Ok(_) => {
+                    // Set Unix permissions to 0600 (owner read/write only)
+                    #[cfg(unix)]
+                    {
+                        if let Err(e) = fs::set_permissions(&local_ssh_key_path, fs::Permissions::from_mode(0o600)) {
+                            println!(
+                                "\n{} Warning: Failed to set permissions on SSH key: {}",
+                                EMOJI_WARN, e
+                            );
+                        }
+                    }
+                    println!("{} SSH private key created: {}", EMOJI_GOOD, local_ssh_key_path);
+                }
+                Err(e) => {
+                    println!(
+                        "\n{} Warning: Failed to create local SSH private key: {}",
                         EMOJI_WARN, e
                     );
                 }
