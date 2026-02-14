@@ -893,7 +893,15 @@ pub async fn up_lab(
         };
 
         // Handle config disk for Disk ZTP method (e.g., IOSv config disk)
-        let (mut src_config_disk, mut dst_config_disk): (Option<String>, Option<String>) = (None, None);
+        let (mut src_config_disk, mut dst_config_disk): (Option<String>, Option<String>) =
+            (None, None);
+
+        // Handle USB disk for USB ZTP method (e.g., Cumulus Linux, Juniper vEvolved)
+        let (mut src_usb_disk, mut dst_usb_disk): (Option<String>, Option<String>) = (None, None);
+
+        // Handle ignition config for Ignition ZTP method (e.g., Flatcar Linux)
+        let (mut src_ignition_disk, mut dst_ignition_disk): (Option<String>, Option<String>) =
+            (None, None);
 
         if node_config.ztp_enable {
             match node_config.ztp_method {
@@ -1084,7 +1092,8 @@ pub async fn up_lab(
                             util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
                         }
                         data::NodeModel::CiscoAsav => {
-                            let key_hash = util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
+                            let key_hash =
+                                util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
                             user.ssh_public_key.key = key_hash;
                             let t = template::CiscoAsavZtpTemplate {
                                 hostname: node.name.clone(),
@@ -1195,7 +1204,7 @@ pub async fn up_lab(
                             let ztp_config = format!("{dir}/{c}");
                             util::create_dir(&dir)?;
                             util::create_file(&ztp_config, rendered_template)?;
-                            
+
                             // Clone blank disk image
                             let src_disk = format!(
                                 "{}/{}/{}",
@@ -1208,7 +1217,9 @@ pub async fn up_lab(
                             util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.clone());
-                            dst_config_disk = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"));
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
+                            ));
                         }
                         data::NodeModel::CiscoIosvl2 => {
                             let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
@@ -1226,7 +1237,7 @@ pub async fn up_lab(
                             let ztp_config = format!("{dir}/{c}");
                             util::create_dir(&dir)?;
                             util::create_file(&ztp_config, rendered_template)?;
-                            
+
                             // Clone blank disk image
                             let src_disk = format!(
                                 "{}/{}/{}",
@@ -1239,10 +1250,294 @@ pub async fn up_lab(
                             util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
                             src_config_disk = Some(dst_disk.clone());
-                            dst_config_disk = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"));
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
+                            ));
                         }
                         _ => {
                             bail!("Disk ZTP method not supported for {}", node_config.model);
+                        }
+                    }
+                }
+                data::ZtpMethod::Usb => {
+                    progress
+                        .send_status(format!("Creating USB ZTP config for VM: {}", node.name))?;
+
+                    let dir = format!("{lab_dir}/{}", node.name);
+                    let user = sherpa_user.clone();
+
+                    match node_config.model {
+                        data::NodeModel::CumulusLinux => {
+                            let t = template::CumulusLinuxZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+
+                            // Clone USB disk image
+                            let src_usb = format!(
+                                "{}/{}/{}",
+                                config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT32
+                            );
+                            let dst_usb = format!("{dir}/cfg.img");
+
+                            // Copy blank USB and inject config
+                            util::copy_file(&src_usb, &dst_usb)?;
+                            util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
+
+                            src_usb_disk = Some(dst_usb.clone());
+                            dst_usb_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
+                            ));
+                        }
+                        data::NodeModel::JuniperVevolved => {
+                            let t = template::JunipervJunosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+                            let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
+
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+
+                            // Clone USB disk image
+                            let src_usb = format!(
+                                "{}/{}/{}",
+                                config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_JUNOS
+                            );
+                            let dst_usb = format!("{dir}/cfg.img");
+
+                            // Copy blank USB
+                            util::copy_file(&src_usb, &dst_usb)?;
+
+                            // Create tar.gz config file
+                            util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
+
+                            // Copy archive to USB disk
+                            util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
+
+                            src_usb_disk = Some(dst_usb.clone());
+                            dst_usb_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
+                            ));
+                        }
+                        _ => {
+                            bail!("USB ZTP method not supported for {}", node_config.model);
+                        }
+                    }
+                }
+                data::ZtpMethod::Http => {
+                    progress
+                        .send_status(format!("Creating HTTP ZTP config for VM: {}", node.name))?;
+
+                    let dir = format!("{lab_dir}/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
+
+                    match node_config.model {
+                        data::NodeModel::SonicLinux => {
+                            let sonic_ztp_file_map = template::SonicLinuxZtp::file_map(
+                                &node.name,
+                                &mgmt_net.v4.boot_server,
+                            );
+
+                            let ztp_init = format!("{dir}/{}.conf", &node.name);
+                            let sonic_ztp = template::SonicLinuxZtp {
+                                hostname: node.name.clone(),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                            };
+                            let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_init, sonic_ztp_file_map)?;
+                            util::create_file(&ztp_config, sonic_ztp.config())?;
+                        }
+                        _ => {
+                            bail!("HTTP ZTP method not supported for {}", node_config.model);
+                        }
+                    }
+                }
+                data::ZtpMethod::Ignition => {
+                    progress
+                        .send_status(format!("Creating Ignition config for VM: {}", node.name))?;
+
+                    let user = sherpa_user.clone();
+                    let dir = format!("{lab_dir}/{}", node.name);
+                    let dev_name = node.name.clone();
+
+                    // Build authorized keys list
+                    let mut authorized_keys = vec![format!(
+                        "{} {} {}",
+                        user.ssh_public_key.algorithm,
+                        user.ssh_public_key.key,
+                        user.ssh_public_key.comment.clone().unwrap_or("".to_owned())
+                    )];
+
+                    let manifest_authorized_keys: Vec<String> =
+                        node.ssh_authorized_keys.clone().unwrap_or(vec![]);
+
+                    let manifest_authorized_key_files: Vec<String> = node
+                        .ssh_authorized_key_files
+                        .iter()
+                        .flatten()
+                        .map(|file| -> Result<String> {
+                            let ssh_key = util::get_ssh_public_key(&file.source)?;
+                            Ok(format!(
+                                "{} {} {}",
+                                ssh_key.algorithm,
+                                ssh_key.key,
+                                ssh_key.comment.unwrap_or("".to_owned())
+                            ))
+                        })
+                        .collect::<Result<Vec<String>>>()?;
+
+                    authorized_keys.extend(manifest_authorized_keys);
+                    authorized_keys.extend(manifest_authorized_key_files);
+
+                    let ignition_user = template::IgnitionUser {
+                        name: user.username.clone(),
+                        password_hash: SHERPA_PASSWORD_HASH.to_owned(),
+                        ssh_authorized_keys: authorized_keys,
+                        groups: vec!["wheel".to_owned(), "docker".to_owned()],
+                    };
+
+                    let hostname_file = template::IgnitionFile {
+                        path: "/etc/hostname".to_owned(),
+                        mode: 644,
+                        contents: template::IgnitionFileContents::new(&format!("data:,{dev_name}")),
+                        ..Default::default()
+                    };
+
+                    let disable_update = template::IgnitionFile::disable_updates();
+                    let sudo_config_base64 =
+                        util::base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
+                    let sudo_config_file = template::IgnitionFile {
+                        path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
+                        mode: 440,
+                        contents: template::IgnitionFileContents::new(&format!(
+                            "data:;base64,{sudo_config_base64}"
+                        )),
+                        ..Default::default()
+                    };
+
+                    let manifest_text_files: Vec<template::IgnitionFile> = node
+                        .text_files
+                        .iter()
+                        .flatten()
+                        .map(|file| {
+                            let encoded_file = util::base64_encode_file(&file.source)?;
+
+                            Ok(template::IgnitionFile {
+                                path: file.destination.clone(),
+                                mode: file.permissions,
+                                overwrite: None,
+                                contents: template::IgnitionFileContents::new(&format!(
+                                    "data:;base64,{encoded_file}"
+                                )),
+                                user: Some(template::IgnitionFileParams {
+                                    name: file.user.clone(),
+                                }),
+                                group: Some(template::IgnitionFileParams {
+                                    name: file.group.clone(),
+                                }),
+                            })
+                        })
+                        .collect::<Result<Vec<template::IgnitionFile>>>()?;
+
+                    let manifest_binary_disk_files = node.binary_files.clone().unwrap_or(vec![]);
+
+                    let manifest_systemd_units: Vec<template::IgnitionUnit> = node
+                        .systemd_units
+                        .iter()
+                        .flatten()
+                        .map(|file| {
+                            let file_contents = util::load_file(file.source.as_str())?;
+                            Ok(template::IgnitionUnit {
+                                name: file.name.clone(),
+                                enabled: Some(file.enabled),
+                                contents: Some(file_contents),
+                                ..Default::default()
+                            })
+                        })
+                        .collect::<Result<Vec<template::IgnitionUnit>>>()?;
+
+                    match node_config.model {
+                        data::NodeModel::FlatcarLinux => {
+                            let mut units = vec![];
+                            units.push(template::IgnitionUnit::mount_container_disk());
+                            units.extend(manifest_systemd_units);
+
+                            let container_disk = template::IgnitionFileSystem::default();
+
+                            let mut files = vec![sudo_config_file, hostname_file, disable_update];
+                            files.extend(manifest_text_files);
+
+                            // Always add interface config (node_ipv4_address is always present in server)
+                            files.push(template::IgnitionFile::ztp_interface(
+                                node_ipv4_address,
+                                mgmt_net.v4.clone(),
+                            )?);
+
+                            let ignition_config = template::IgnitionConfig::new(
+                                vec![ignition_user],
+                                files,
+                                vec![],
+                                units,
+                                vec![],
+                                vec![container_disk],
+                            );
+                            let flatcar_config = ignition_config.to_json_pretty()?;
+                            let src_ztp_file = format!("{dir}/{ZTP_JSON}");
+                            let dst_ztp_file =
+                                format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.ign");
+
+                            util::create_dir(&dir)?;
+                            util::create_file(&src_ztp_file, flatcar_config)?;
+
+                            // Copy blank disk for container data
+                            let src_data_disk = format!(
+                                "{}/{}/{}",
+                                config.images_dir,
+                                SHERPA_BLANK_DISK_DIR,
+                                SHERPA_BLANK_DISK_EXT4_500MB
+                            );
+                            let dst_disk =
+                                format!("{dir}/{node_name_with_lab}-{CONTAINER_DISK_NAME}");
+
+                            util::copy_file(&src_data_disk, &dst_disk)?;
+
+                            let disk_files: Vec<&str> = manifest_binary_disk_files
+                                .iter()
+                                .map(|x| x.source.as_str())
+                                .collect();
+
+                            // Copy container images into the container disk
+                            if !disk_files.is_empty() {
+                                util::copy_to_ext4_image(disk_files, &dst_disk, "/")?;
+                            }
+
+                            src_config_disk = Some(dst_disk.to_owned());
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-{CONTAINER_DISK_NAME}"
+                            ));
+
+                            src_ignition_disk = Some(src_ztp_file.to_owned());
+                            dst_ignition_disk = Some(dst_ztp_file.to_owned());
+                        }
+                        _ => {
+                            bail!(
+                                "Ignition ZTP method not supported for {}",
+                                node_config.model
+                            );
                         }
                     }
                 }
@@ -1273,7 +1568,8 @@ pub async fn up_lab(
         }
 
         // Clone config disk if present (for Disk ZTP method)
-        if let (Some(src_disk), Some(dst_disk)) = (src_config_disk.clone(), dst_config_disk.clone()) {
+        if let (Some(src_disk), Some(dst_disk)) = (src_config_disk.clone(), dst_config_disk.clone())
+        {
             clone_disks.push(data::CloneDisk {
                 src: src_disk,
                 dst: dst_disk.clone(),
@@ -1286,6 +1582,33 @@ pub async fn up_lab(
                 target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
                 target_bus: hdd_bus.clone(),
             });
+        }
+
+        // Clone USB disk if present (for USB ZTP method)
+        if let (Some(src_disk), Some(dst_disk)) = (src_usb_disk.clone(), dst_usb_disk.clone()) {
+            clone_disks.push(data::CloneDisk {
+                src: src_disk,
+                dst: dst_disk.clone(),
+            });
+            disks.push(data::NodeDisk {
+                disk_device: data::DiskDevices::File,
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Raw,
+                src_file: dst_disk.clone(),
+                target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+                target_bus: hdd_bus.clone(),
+            });
+        }
+
+        // Clone ignition config if present (for Ignition ZTP method)
+        if let (Some(src_ignition), Some(dst_ignition)) =
+            (src_ignition_disk.clone(), dst_ignition_disk.clone())
+        {
+            clone_disks.push(data::CloneDisk {
+                src: src_ignition,
+                dst: dst_ignition.clone(),
+            });
+            // Note: Ignition config is passed as QEMU command line argument, not as disk
         }
 
         // Add boot disk
@@ -1384,6 +1707,13 @@ pub async fn up_lab(
             data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
             data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
             data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
+            data::NodeModel::FlatcarLinux => {
+                if let Some(dst_ignition) = dst_ignition_disk.clone() {
+                    data::QemuCommand::ignition_config(&dst_ignition)
+                } else {
+                    vec![]
+                }
+            }
             _ => vec![],
         };
 
