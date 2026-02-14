@@ -75,6 +75,8 @@ mod tests {
         let message = ServerMessage::Status {
             message: "Test".to_string(),
             timestamp: Utc::now(),
+            phase: None,
+            progress: None,
         };
 
         let count = broadcast_to_all(&registry, &message).await;

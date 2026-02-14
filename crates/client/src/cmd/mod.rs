@@ -16,6 +16,7 @@ mod resume;
 mod ssh;
 mod unikernel;
 mod up;
+mod up_ws;
 mod validate;
 mod virtual_machine;
 

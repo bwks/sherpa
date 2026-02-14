@@ -17,6 +17,7 @@ use super::resume::resume;
 use super::ssh::ssh;
 use super::unikernel::UnikernelCommands;
 use super::up::up;
+use super::up_ws::up_ws;
 use super::validate::validate_manifest;
 use super::virtual_machine::VirtualMachineCommands;
 
@@ -61,6 +62,13 @@ enum Commands {
     },
     /// Build environment
     Up,
+    /// Build environment via WebSocket RPC (experimental)
+    #[command(name = "upws")]
+    UpWs {
+        /// Path to manifest file (defaults to manifest.toml)
+        #[arg(long, default_value = SHERPA_MANIFEST_FILE)]
+        manifest: String,
+    },
 
     /// Stop environment
     Down,
@@ -171,6 +179,22 @@ impl Cli {
                 let lab_name = manifest.name.clone();
 
                 up(&sherpa, &qemu, &lab_name, &lab_id, &manifest).await?;
+            }
+            Commands::UpWs { manifest } => {
+                // Load manifest to get lab name
+                let manifest_obj = Manifest::load_file(manifest)?;
+                let lab_id = get_id(&manifest_obj.name)?;
+                let lab_name = manifest_obj.name.clone();
+                let config = load_config(&sherpa.config_file_path)?;
+
+                // Resolve server URL (CLI > env > config > default)
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .or_else(|| config.server_connection.url.clone())
+                    .unwrap_or_else(|| format!("ws://{}:{}/ws", SHERPAD_HOST, SHERPAD_PORT));
+
+                up_ws(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
             Commands::Down => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

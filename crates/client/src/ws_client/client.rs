@@ -123,6 +123,77 @@ impl RpcClient {
         bail!("Connection closed before receiving response")
     }
 
+    /// Send a streaming RPC request and handle progress updates
+    /// 
+    /// This method sends an RPC request and processes streaming messages (Status, Log)
+    /// before receiving the final RPC response. The callback is invoked for each
+    /// progress message received.
+    pub async fn call_streaming<F>(
+        &mut self,
+        request: RpcRequest,
+        mut callback: F,
+    ) -> Result<RpcResponse>
+    where
+        F: FnMut(&str), // Callback receives message text for parsing
+    {
+        let request_id = request.id.clone();
+
+        // Serialize and send request
+        let request_json = serde_json::to_string(&request).context("Failed to serialize request")?;
+        tracing::debug!("Sending streaming RPC request: {}", request_json);
+
+        self.write
+            .send(Message::Text(request_json))
+            .await
+            .context("Failed to send RPC request")?;
+
+        // Process messages until we receive the final RPC response
+        while let Some(msg) = self.read.next().await {
+            let msg = msg.context("Error reading WebSocket message")?;
+
+            match msg {
+                Message::Text(text) => {
+                    tracing::debug!("Received message: {}", text);
+
+                    // Try to parse as RPC response first
+                    match serde_json::from_str::<RpcResponse>(&text) {
+                        Ok(response) => {
+                            // Check if this is the response for our request
+                            if response.id == request_id {
+                                return Ok(response);
+                            } else {
+                                tracing::warn!(
+                                    "Received response for different request ID: {} (expected: {})",
+                                    response.id,
+                                    request_id
+                                );
+                            }
+                        }
+                        Err(_) => {
+                            // Not an RPC response - likely a Status or Log message
+                            // Pass to callback for handling
+                            callback(&text);
+                        }
+                    }
+                }
+                Message::Ping(_) => {
+                    tracing::trace!("Received ping");
+                }
+                Message::Pong(_) => {
+                    tracing::trace!("Received pong");
+                }
+                Message::Close(frame) => {
+                    bail!("Server closed connection: {:?}", frame);
+                }
+                _ => {
+                    tracing::trace!("Received other message type");
+                }
+            }
+        }
+
+        bail!("Connection closed before receiving response")
+    }
+
     /// Close the WebSocket connection gracefully
     pub async fn close(mut self) -> Result<()> {
         tracing::debug!("Closing WebSocket connection");

@@ -31,6 +31,10 @@ pub enum ServerMessage {
     Status {
         message: String,
         timestamp: DateTime<Utc>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        progress: Option<StatusProgress>,
     },
 
     /// Operation result
@@ -66,6 +70,14 @@ pub enum LogLevel {
     Info,
     Warn,
     Error,
+}
+
+/// Progress information for status updates
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StatusProgress {
+    pub current_phase: String,
+    pub phase_number: u8,
+    pub total_phases: u8,
 }
 
 /// Message sent from client to server

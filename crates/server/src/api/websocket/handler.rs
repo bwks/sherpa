@@ -108,6 +108,8 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Subscribed to logs".to_string(),
                 timestamp: chrono::Utc::now(),
+                phase: None,
+                progress: None,
             };
 
             if let Ok(json) = serde_json::to_string(&response) {
@@ -124,6 +126,8 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Unsubscribed from logs".to_string(),
                 timestamp: chrono::Utc::now(),
+                phase: None,
+                progress: None,
             };
 
             if let Ok(json) = serde_json::to_string(&response) {
@@ -144,29 +148,42 @@ async fn handle_client_message(
             );
 
             // Clone what we need for the async task
-            let connection_id = connection.id;
+            let connection_clone = Arc::clone(connection);
             let state_clone = state.clone();
 
-            // Spawn async task to handle RPC
-            tokio::spawn(async move {
-                // Call RPC router
-                let response = crate::api::websocket::rpc::handle_rpc_request(
-                    id,
-                    method,
-                    params,
-                    &state_clone,
-                )
-                .await;
+            // Check if this is a streaming RPC method
+            if method == "up" {
+                // Handle streaming RPC (sends multiple messages during execution)
+                tokio::spawn(async move {
+                    crate::api::websocket::rpc::handle_streaming_rpc_request(
+                        id,
+                        method,
+                        params,
+                        &state_clone,
+                        &connection_clone,
+                    )
+                    .await;
+                });
+            } else {
+                // Handle regular RPC (single response)
+                tokio::spawn(async move {
+                    // Call RPC router
+                    let response = crate::api::websocket::rpc::handle_rpc_request(
+                        id,
+                        method,
+                        params,
+                        &state_clone,
+                    )
+                    .await;
 
-                // Send response back to client (get connection from registry)
-                if let Some(conn) = state_clone.connections.get(&connection_id) {
+                    // Send response back to client
                     if let Ok(json) = serde_json::to_string(&response) {
-                        if let Err(e) = conn.send(Message::Text(json.into())).await {
+                        if let Err(e) = connection_clone.send(Message::Text(json.into())).await {
                             tracing::error!("Failed to send RPC response: {:?}", e);
                         }
                     }
-                }
-            });
+                });
+            }
         }
     }
 

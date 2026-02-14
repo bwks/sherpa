@@ -14,6 +14,7 @@ mod network;
 mod node;
 mod provider;
 mod ssh;
+mod up;
 mod user;
 mod ztp;
 
@@ -45,6 +46,7 @@ pub use node::{
 };
 pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
+pub use up::{NodeInfo, UpError, UpPhase, UpRequest, UpResponse, UpSummary};
 pub use user::User;
 pub use ztp::ZtpRecord;
 
