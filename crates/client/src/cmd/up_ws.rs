@@ -4,8 +4,8 @@ use std::fs;
 use std::time::Duration;
 
 use shared::data::{Config, UpResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN};
-use shared::util::term_msg_surround;
+use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE};
+use shared::util::{get_cwd, term_msg_surround};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -99,6 +99,30 @@ pub async fn up_ws(
         .context("No result in up response")?;
     let up_data: UpResponse =
         serde_json::from_value(up_result).context("Failed to parse up response")?;
+
+    // Write SSH config to local directory
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            match fs::write(&local_ssh_config_path, &up_data.ssh_config) {
+                Ok(_) => {
+                    println!("\n{} SSH config created: {}", EMOJI_GOOD, local_ssh_config_path);
+                }
+                Err(e) => {
+                    println!(
+                        "\n{} Warning: Failed to create local SSH config: {}",
+                        EMOJI_WARN, e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                EMOJI_WARN, e
+            );
+        }
+    }
 
     // Display results
     display_up_results(&up_data)?;

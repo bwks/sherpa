@@ -19,6 +19,7 @@ pub struct UpResponse {
     pub summary: UpSummary,
     pub nodes: Vec<NodeInfo>,
     pub errors: Vec<UpError>,
+    pub ssh_config: String,
 }
 
 /// Summary of created resources

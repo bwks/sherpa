@@ -1,10 +1,11 @@
 use anyhow::{Context, Result, bail};
+use std::fs;
 use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{Config, DestroyResponse, InspectResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN};
-use shared::util::{term_msg_surround, term_msg_underline};
+use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE};
+use shared::util::{file_exists, get_cwd, term_msg_surround, term_msg_underline};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -118,6 +119,36 @@ pub async fn destroy_ws(
 
     // Display detailed results
     display_destroy_results(&destroy_data)?;
+
+    // Clean up local SSH config
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            if file_exists(&local_ssh_config_path) {
+                match fs::remove_file(&local_ssh_config_path) {
+                    Ok(_) => {
+                        println!(
+                            "\n{} Local SSH config deleted: {}",
+                            EMOJI_GOOD, local_ssh_config_path
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "\n{} Warning: Failed to delete local SSH config: {}",
+                            EMOJI_WARN, e
+                        );
+                    }
+                }
+            }
+            // Silent success if file doesn't exist - idempotent
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                EMOJI_WARN, e
+            );
+        }
+    }
 
     Ok(())
 }

@@ -2004,10 +2004,10 @@ pub async fn up_lab(
     let ssh_config_template = template::SshConfigTemplate {
         ztp_records: ztp_records.clone(),
     };
-    let rendered_template = ssh_config_template.render()?;
+    let ssh_config_content = ssh_config_template.render()?;
     util::create_file(
         &format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"),
-        rendered_template,
+        ssh_config_content.clone(),
     )?;
     progress.send_status("SSH config file created".to_string())?;
 
@@ -2227,6 +2227,7 @@ pub async fn up_lab(
         summary,
         nodes: node_info_list,
         errors,
+        ssh_config: ssh_config_content,
     };
 
     tracing::info!(
