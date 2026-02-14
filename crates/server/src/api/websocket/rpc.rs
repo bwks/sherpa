@@ -72,11 +72,11 @@ pub async fn handle_streaming_rpc_request(
 
 /// Handle "inspect" RPC call
 ///
-/// Expected params: {"lab_id": "string"}
+/// Expected params: {"lab_id": "string", "username": "string"}
 async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Parse params
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
-        Some(id) => id,
+        Some(id) => id.to_string(),
         None => {
             return ServerMessage::RpcResponse {
                 id,
@@ -90,8 +90,28 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
         }
     };
 
+    // TODO: Username is extracted from client params without verification.
+    // Add authentication layer to validate username matches authenticated session.
+    let username = match params.get("username").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: 'username' (string) is required".to_string(),
+                    context: Some("Username must be provided for authentication".to_string()),
+                }),
+            };
+        }
+    };
+
+    // Create request
+    let request = data::InspectRequest { lab_id, username };
+
     // Call service
-    match inspect::inspect_lab(lab_id, state).await {
+    match inspect::inspect_lab(request, state).await {
         Ok(response) => {
             // Convert response to JSON
             match serde_json::to_value(&response) {
@@ -129,11 +149,11 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
 
 /// Handle "destroy" RPC call
 ///
-/// Expected params: {"lab_id": "string"}
+/// Expected params: {"lab_id": "string", "username": "string"}
 async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Parse params
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
-        Some(id) => id,
+        Some(id) => id.to_string(),
         None => {
             return ServerMessage::RpcResponse {
                 id,
@@ -147,8 +167,28 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
         }
     };
 
+    // TODO: Username is extracted from client params without verification.
+    // Add authentication layer to validate username matches authenticated session.
+    let username = match params.get("username").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: 'username' (string) is required".to_string(),
+                    context: Some("Username must be provided for authentication".to_string()),
+                }),
+            };
+        }
+    };
+
+    // Create request
+    let request = data::DestroyRequest { lab_id, username };
+
     // Call service
-    match destroy::destroy_lab(lab_id, state).await {
+    match destroy::destroy_lab(request, state).await {
         Ok(response) => {
             // Convert response to JSON
             match serde_json::to_value(&response) {
@@ -186,7 +226,7 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
 
 /// Handle "up" RPC call (streaming - sends progress updates)
 ///
-/// Expected params: {"lab_id": "string", "manifest": object}
+/// Expected params: {"lab_id": "string", "manifest": object, "username": "string"}
 async fn handle_up(
     id: String,
     params: serde_json::Value,
@@ -232,6 +272,27 @@ async fn handle_up(
         }
     };
 
+    // TODO: Username is extracted from client params without verification.
+    // Add authentication layer to validate username matches authenticated session.
+    let username = match params.get("username").and_then(|v| v.as_str()) {
+        Some(u) => u.to_string(),
+        None => {
+            let response = ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: 'username' (string) is required".to_string(),
+                    context: Some("Username must be provided for authentication".to_string()),
+                }),
+            };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = connection.send(Message::Text(json.into())).await;
+            }
+            return;
+        }
+    };
+
     // Create progress channel
     let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
 
@@ -250,6 +311,7 @@ async fn handle_up(
     let request = data::UpRequest {
         lab_id,
         manifest: manifest_value,
+        username,
     };
 
     // Call the up service

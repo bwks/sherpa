@@ -22,11 +22,11 @@ pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, ZtpS
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
-pub use destroy::{DestroyError, DestroyResponse, DestroySummary};
+pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
-pub use inspect::{DeviceInfo, InspectResponse};
+pub use inspect::{DeviceInfo, InspectRequest, InspectResponse};
 pub use interface::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,

@@ -4,8 +4,10 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{Config, DestroyResponse, InspectResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{file_exists, get_cwd, term_msg_surround, term_msg_underline};
+use shared::konst::{
+    EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+};
+use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -37,10 +39,14 @@ pub async fn destroy_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
+    // Get current username
+    let username = get_username()?;
+
     let inspect_request = RpcRequest::new(
         "inspect",
         serde_json::json!({
-            "lab_id": lab_id
+            "lab_id": lab_id,
+            "username": username.clone(),
         }),
     );
 
@@ -88,7 +94,8 @@ pub async fn destroy_ws(
     let destroy_request = RpcRequest::new(
         "destroy",
         serde_json::json!({
-            "lab_id": lab_id
+            "lab_id": lab_id,
+            "username": username,
         }),
     );
 

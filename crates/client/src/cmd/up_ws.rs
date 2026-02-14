@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::fs;
 use std::time::Duration;
@@ -7,8 +7,10 @@ use std::time::Duration;
 use std::os::unix::fs::PermissionsExt;
 
 use shared::data::{Config, UpResponse};
-use shared::konst::{EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{get_cwd, term_msg_surround};
+use shared::konst::{
+    EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+};
+use shared::util::{get_cwd, get_username, term_msg_surround};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -27,7 +29,9 @@ pub async fn up_ws(
     server_url: &str,
     _config: &Config,
 ) -> Result<()> {
-    term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id} (via WebSocket RPC)"));
+    term_msg_surround(&format!(
+        "Start Lab - {lab_name}-{lab_id} (via WebSocket RPC)"
+    ));
 
     // Load and parse manifest
     println!("\nLoading manifest from: {}\n", manifest_path);
@@ -49,12 +53,16 @@ pub async fn up_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
+    // Get current username
+    let username = get_username()?;
+
     // Create RPC request
     let up_request = RpcRequest::new(
         "up",
         serde_json::json!({
             "lab_id": lab_id,
             "manifest": manifest_value,
+            "username": username,
         }),
     );
 
@@ -97,9 +105,7 @@ pub async fn up_ws(
         bail!("Lab creation failed");
     }
 
-    let up_result = up_response
-        .result
-        .context("No result in up response")?;
+    let up_result = up_response.result.context("No result in up response")?;
     let up_data: UpResponse =
         serde_json::from_value(up_result).context("Failed to parse up response")?;
 
@@ -109,7 +115,10 @@ pub async fn up_ws(
             let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
             match fs::write(&local_ssh_config_path, &up_data.ssh_config) {
                 Ok(_) => {
-                    println!("\n{} SSH config created: {}", EMOJI_GOOD, local_ssh_config_path);
+                    println!(
+                        "\n{} SSH config created: {}",
+                        EMOJI_GOOD, local_ssh_config_path
+                    );
                 }
                 Err(e) => {
                     println!(
@@ -136,14 +145,20 @@ pub async fn up_ws(
                     // Set Unix permissions to 0600 (owner read/write only)
                     #[cfg(unix)]
                     {
-                        if let Err(e) = fs::set_permissions(&local_ssh_key_path, fs::Permissions::from_mode(0o600)) {
+                        if let Err(e) = fs::set_permissions(
+                            &local_ssh_key_path,
+                            fs::Permissions::from_mode(0o600),
+                        ) {
                             println!(
                                 "\n{} Warning: Failed to set permissions on SSH key: {}",
                                 EMOJI_WARN, e
                             );
                         }
                     }
-                    println!("{} SSH private key created: {}", EMOJI_GOOD, local_ssh_key_path);
+                    println!(
+                        "{} SSH private key created: {}",
+                        EMOJI_GOOD, local_ssh_key_path
+                    );
                 }
                 Err(e) => {
                     println!(
@@ -208,7 +223,7 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
                 "created" => EMOJI_WARN,
                 _ => EMOJI_BAD,
             };
-            
+
             println!("  {} {} ({})", status_icon, node.name, node.kind);
             if let Some(ip) = &node.ip_address {
                 println!("      IP: {}", ip);
@@ -226,7 +241,11 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     if !response.errors.is_empty() {
         println!("\n{EMOJI_WARN} Warnings/Errors:");
         for error in &response.errors {
-            let icon = if error.is_critical { EMOJI_BAD } else { EMOJI_WARN };
+            let icon = if error.is_critical {
+                EMOJI_BAD
+            } else {
+                EMOJI_WARN
+            };
             println!("  {} [{}] {}", icon, error.phase, error.message);
         }
     }

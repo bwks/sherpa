@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
-use shared::data::{DeviceInfo, InspectResponse, LabInfo, NodeKind, NodeModel};
+use anyhow::{anyhow, Context, Result};
+use shared::data::{DeviceInfo, InspectRequest, InspectResponse, LabInfo, NodeKind, NodeModel};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
 use std::str::FromStr;
@@ -14,7 +14,37 @@ use crate::daemon::state::AppState;
 /// - libvirt for VM domains and storage
 /// - Docker for containers (future)
 /// - DHCP for management IPs
-pub async fn inspect_lab(lab_id: &str, state: &AppState) -> Result<InspectResponse> {
+///
+/// TODO: Currently accepts username without authentication. This assumes a trusted
+/// environment where the client can be trusted to send correct username. In production,
+/// this should be replaced with proper authentication (JWT, session, etc.) where the
+/// username is extracted from a verified token rather than client-provided param.
+pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<InspectResponse> {
+    let lab_id = &request.lab_id;
+    let username = &request.username;
+
+    // Get user from database to validate existence and get RecordId
+    let db_user = db::get_user(&state.db, username)
+        .await
+        .context(format!("User '{}' not found in database", username))?;
+
+    let user_id = db_user
+        .id
+        .ok_or_else(|| anyhow!("User '{}' missing record ID", username))?;
+
+    // Get lab from database
+    let db_lab = db::get_lab(&state.db, lab_id)
+        .await
+        .context(format!("Lab '{}' not found in database", lab_id))?;
+
+    // Validate ownership
+    if db_lab.user != user_id {
+        return Err(anyhow!(
+            "Permission denied: Lab '{}' is owned by another user",
+            lab_id
+        ));
+    }
+
     // Load lab info from filesystem
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))

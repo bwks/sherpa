@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use shared::data::{Config, InspectResponse};
 use shared::konst::EMOJI_BAD;
-use shared::util::{term_msg_surround, term_msg_underline};
+use shared::util::{get_username, term_msg_surround, term_msg_underline};
 
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -29,11 +29,15 @@ pub async fn inspect_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
+    // Get current username
+    let username = get_username()?;
+
     // Create RPC request
     let request = RpcRequest::new(
         "inspect",
         serde_json::json!({
-            "lab_id": lab_id
+            "lab_id": lab_id,
+            "username": username,
         }),
     );
 

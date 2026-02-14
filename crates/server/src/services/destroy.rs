@@ -1,13 +1,13 @@
 use std::fs;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use container::{delete_network, kill_container, list_containers, list_networks};
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
-use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo};
+use shared::data::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo};
 use shared::konst::{
     BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
@@ -30,9 +30,39 @@ use crate::daemon::state::AppState;
 ///
 /// Error handling: Continue with all resources even if some fail,
 /// tracking successes and failures separately.
-pub async fn destroy_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
+///
+/// TODO: Currently accepts username without authentication. This assumes a trusted
+/// environment where the client can be trusted to send correct username. In production,
+/// this should be replaced with proper authentication (JWT, session, etc.) where the
+/// username is extracted from a verified token rather than client-provided param.
+pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<DestroyResponse> {
+    let lab_id = &request.lab_id;
+    let username = &request.username;
+
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
+
+    // Get user from database to validate existence and get RecordId
+    let db_user = db::get_user(&state.db, username)
+        .await
+        .context(format!("User '{}' not found in database", username))?;
+
+    let user_id = db_user
+        .id
+        .ok_or_else(|| anyhow!("User '{}' missing record ID", username))?;
+
+    // Get lab from database
+    let db_lab = db::get_lab(&state.db, lab_id)
+        .await
+        .context(format!("Lab '{}' not found in database", lab_id))?;
+
+    // Validate ownership
+    if db_lab.user != user_id {
+        return Err(anyhow!(
+            "Permission denied: Lab '{}' is owned by another user",
+            lab_id
+        ));
+    }
 
     // Load lab info from filesystem
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");

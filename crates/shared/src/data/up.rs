@@ -6,6 +6,10 @@ use serde::{Deserialize, Serialize};
 pub struct UpRequest {
     pub lab_id: String,
     pub manifest: serde_json::Value,
+    /// Username of the requesting user
+    /// TODO: This is username-without-authentication. When adding authentication layer,
+    /// replace this with verified identity from auth token/session.
+    pub username: String,
 }
 
 /// Response type for lab startup operation

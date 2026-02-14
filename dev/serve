@@ -1,0 +1,5 @@
+#! /usr/bin/bash
+
+cargo build -p sherpad
+sudo setcap cap_net_admin,cap_net_raw+ep target/debug/sherpad
+sudo -u sherpa target/debug/sherpad start --foreground

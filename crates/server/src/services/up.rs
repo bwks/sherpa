@@ -22,18 +22,17 @@ use shared::konst::{
     CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO,
-    CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
-    DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME,
-    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
-    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
+    CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_DB_NAME,
+    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
-    ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use topology::{self, BridgeDetailed};
@@ -272,6 +271,11 @@ pub async fn up_lab(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<data::UpResponse> {
+    // TODO: Currently accepts username without authentication. This assumes a trusted
+    // environment where the client can be trusted to send correct username. In production,
+    // this should be replaced with proper authentication (JWT, session, etc.) where the
+    // username is extracted from a verified token rather than client-provided param.
+
     let start_time = Instant::now();
     let mut phases_completed = Vec::new();
     let mut errors = Vec::new();
@@ -295,7 +299,7 @@ pub async fn up_lab(
 
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
-    let current_user = util::get_username().context("Failed to get current username")?;
+    let current_user = &request.username;
     let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
 
     // Get connections from AppState
@@ -364,10 +368,12 @@ pub async fn up_lab(
             .context(format!("Node config not found for model: {}", node.model))?;
 
         if !node_config.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed).context(format!(
-                "Management interface validation failed for node: {}",
-                node.name
-            ))?;
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed).context(
+                format!(
+                    "Management interface validation failed for node: {}",
+                    node.name
+                ),
+            )?;
         }
 
         validate::check_interface_bounds(
@@ -392,7 +398,7 @@ pub async fn up_lab(
         validate::check_link_device(&manifest.nodes, &links_detailed)
             .context("Link device validation failed")?;
     }
-    
+
     // Bridge Validators
     if !bridges_detailed.is_empty() {
         validate::check_bridge_device(&manifest.nodes, &bridges_detailed)
@@ -2010,19 +2016,18 @@ pub async fn up_lab(
 
     // Load server config to get server_ipv4
     let config_file_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let config_contents = util::load_file(&config_file_path)
-        .context("Failed to load sherpa.toml config")?;
-    let config: data::Config = toml::from_str(&config_contents)
-        .context("Failed to parse sherpa.toml config")?;
-    
-    // Get current username for ProxyJump
-    let proxy_user = util::get_username()
-        .context("Failed to get username for ProxyJump")?;
+    let config_contents =
+        util::load_file(&config_file_path).context("Failed to load sherpa.toml config")?;
+    let config: data::Config =
+        toml::from_str(&config_contents).context("Failed to parse sherpa.toml config")?;
+
+    // Use client's username for ProxyJump (same user that initiated the lab creation)
+    let proxy_user = current_user;
 
     // Generate SSH config file with ProxyJump
     let ssh_config_template = template::SshConfigTemplate {
         ztp_records: ztp_records.clone(),
-        proxy_user,
+        proxy_user: proxy_user.to_string(),
         server_ipv4: config.server_ipv4.to_string(),
     };
     let ssh_config_content = ssh_config_template.render()?;
@@ -2037,8 +2042,8 @@ pub async fn up_lab(
         "{}/{}/{}",
         SHERPA_BASE_DIR, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE
     );
-    let ssh_private_key = util::load_file(&ssh_private_key_path)
-        .context("Failed to read SSH private key")?;
+    let ssh_private_key =
+        util::load_file(&ssh_private_key_path).context("Failed to read SSH private key")?;
     progress.send_status("SSH private key loaded".to_string())?;
 
     // Build container network mappings

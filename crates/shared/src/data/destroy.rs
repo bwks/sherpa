@@ -1,5 +1,15 @@
 use serde::{Deserialize, Serialize};
 
+/// Request type for destroying a lab
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DestroyRequest {
+    pub lab_id: String,
+    /// Username of the requesting user
+    /// TODO: This is username-without-authentication. When adding authentication layer,
+    /// replace this with verified identity from auth token/session.
+    pub username: String,
+}
+
 /// Response from destroy operation with detailed tracking of all resources
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DestroyResponse {
