@@ -192,7 +192,9 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
+                    .unwrap_or_else(|| {
+                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
+                    });
 
                 up_ws(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
@@ -223,7 +225,9 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
+                    .unwrap_or_else(|| {
+                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
+                    });
 
                 destroy_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
@@ -245,7 +249,9 @@ impl Cli {
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| format!("ws://{}:{}/ws", config.server_ipv4, config.server_port));
+                    .unwrap_or_else(|| {
+                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
+                    });
 
                 inspect_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
@@ -271,9 +277,7 @@ impl Cli {
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
-                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest.name)?;
-                ssh(&lab_id, name).await?;
+                ssh(name).await?;
             }
             Commands::Container { commands } => {
                 parse_container_commands(commands, &sherpa).await?;
