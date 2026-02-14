@@ -701,6 +701,12 @@ pub async fn up_lab(
     // ========================================================================
     progress.send_phase(data::UpPhase::ZtpGeneration, "Generating ZTP configurations".to_string())?;
 
+    // Create ZTP directories for TFTP-based ZTP (needed before VM ZTP generation)
+    let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
+    let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
+    util::create_dir(&ztp_dir)?;
+    util::create_dir(&tftp_dir)?;
+
     // Container nodes ZTP generation
     for node in &mut container_nodes {
         let node_data = get_node_data(&node.name, &node_setup_data)?;
@@ -805,8 +811,18 @@ pub async fn up_lab(
             dst: dst_boot_disk.clone(),
         });
 
-        // Process ZTP method if enabled
-        let (mut src_cdrom_iso, mut dst_cdrom_iso): (Option<String>, Option<String>) = (None, None);
+        // Handle CDROM ISO (e.g., aboot.iso for Arista vEOS)
+        let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &node_config.cdrom {
+            Some(src_iso) => {
+                let src = format!(
+                    "{}/{}/{}/{}",
+                    config.images_dir, node_config.model, node_config.version, src_iso
+                );
+                let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso");
+                (Some(src), Some(dst))
+            }
+            None => (None, None),
+        };
 
         if node_config.ztp_enable {
             match node_config.ztp_method {
@@ -914,6 +930,30 @@ pub async fn up_lab(
                     }
                     src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                     dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"));
+                }
+                data::ZtpMethod::Tftp => {
+                    progress.send_status(format!("Creating TFTP ZTP config for VM: {}", node.name))?;
+                    
+                    match node.model {
+                        data::NodeModel::AristaVeos => {
+                            let arista_template = template::AristaVeosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user: sherpa_user.clone(),
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = arista_template.render()?;
+                            let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                            util::create_file(&ztp_config, rendered_template)?;
+                        }
+                        _ => {
+                            bail!(
+                                "TFTP ZTP method not supported for {}",
+                                node_config.model
+                            );
+                        }
+                    }
                 }
                 _ => {
                     // Other ZTP methods not yet implemented
@@ -1057,15 +1097,13 @@ pub async fn up_lab(
     phases_completed.push("ZtpGeneration".to_string());
 
     // ========================================================================
-    // PHASE 9: Boot Container & ZTP File Creation (Simplified)
+    // PHASE 9: Boot Container & ZTP File Creation
     // ========================================================================
     progress.send_phase(data::UpPhase::BootContainers, "Creating boot containers and ZTP files".to_string())?;
 
-    // Create ZTP directories and files (simplified version)
-    let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
+    // Create remaining ZTP directories (ztp_dir and tftp_dir already created in Phase 8)
     let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
-    util::create_dir(&ztp_dir)?;
     util::create_dir(&ztp_configs_dir)?;
     util::create_dir(&dnsmasq_dir)?;
 
@@ -1084,11 +1122,8 @@ pub async fn up_lab(
     )?;
     util::create_file(&format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"), "".to_string())?;
 
-    // Create boot container
-    let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
+    // Create boot container (tftp_dir already created in Phase 8)
     let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
-    util::create_dir(&tftp_dir)?;
-    util::create_dir(&configs_dir)?;
 
     let dnsmasq_env_dns1 = format!("DNS1={}", mgmt_net.v4.first);
     let dnsmasq_env_dns2 = "DNS2=".to_string();
