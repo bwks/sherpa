@@ -13,3 +13,4 @@ dev.sh
 .opencode/
 AGENTS.md
 srl-config.json
+test_*.toml
