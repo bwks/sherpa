@@ -6,8 +6,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
+use serde_json;
 
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -18,17 +19,19 @@ use shared::konst::{
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
-    CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
-    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CUMULUS_ZTP,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
-    KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
-    SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_LABS_DIR, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR,
-    VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
+    CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
+    CONTAINER_NOKIA_SRLINUX_REPO, CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME,
+    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE,
+    SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX,
+    ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use topology::{self, BridgeDetailed};
@@ -270,20 +273,24 @@ pub async fn up_lab(
     let start_time = Instant::now();
     let mut phases_completed = Vec::new();
     let mut errors = Vec::new();
-    
-    let lab_id = &request.lab_id;
-    
-    // Deserialize manifest from JSON Value
-    let manifest: topology::Manifest = serde_json::from_value(request.manifest)
-        .context("Failed to deserialize manifest")?;
 
-    tracing::info!("Starting lab creation: lab_id={}, name={}", lab_id, manifest.name);
+    let lab_id = &request.lab_id;
+
+    // Deserialize manifest from JSON Value
+    let manifest: topology::Manifest =
+        serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+
+    tracing::info!(
+        "Starting lab creation: lab_id={}, name={}",
+        lab_id,
+        manifest.name
+    );
 
     // ========================================================================
     // PHASE 1: Setup & Connections
     // ========================================================================
     progress.send_phase(data::UpPhase::Setup, "Initializing connections".to_string())?;
-    
+
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let current_user = util::get_username().context("Failed to get current username")?;
@@ -291,13 +298,23 @@ pub async fn up_lab(
 
     // Get connections from AppState
     let docker_conn = state.docker.clone();
-    let qemu_conn = Arc::new(state.qemu.connect().context("Failed to connect to libvirt")?);
-    
+    let qemu_conn = Arc::new(
+        state
+            .qemu
+            .connect()
+            .context("Failed to connect to libvirt")?,
+    );
+
     // Connect to database
-    let db = db::connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME)
-        .await
-        .context("Failed to connect to database")?;
-    
+    let db = db::connect(
+        SHERPA_DB_SERVER,
+        SHERPA_DB_PORT,
+        SHERPA_DB_NAMESPACE,
+        SHERPA_DB_NAME,
+    )
+    .await
+    .context("Failed to connect to database")?;
+
     let db_user = db::get_user(&db, &current_user)
         .await
         .context("Failed to get database user")?;
@@ -324,7 +341,10 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 2: Manifest Validation
     // ========================================================================
-    progress.send_phase(data::UpPhase::ManifestValidation, "Validating manifest structure".to_string())?;
+    progress.send_phase(
+        data::UpPhase::ManifestValidation,
+        "Validating manifest structure".to_string(),
+    )?;
 
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
     validate::check_duplicate_device(&manifest.nodes)
@@ -342,8 +362,10 @@ pub async fn up_lab(
             .context(format!("Node config not found for model: {}", node.model))?;
 
         if !node_config.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed)
-                .context(format!("Management interface validation failed for node: {}", node.name))?;
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed).context(format!(
+                "Management interface validation failed for node: {}",
+                node.name
+            ))?;
         }
 
         validate::check_interface_bounds(
@@ -354,7 +376,10 @@ pub async fn up_lab(
             node_config.dedicated_management_interface,
             &links_detailed,
         )
-        .context(format!("Interface bounds validation failed for node: {}", node.name))?;
+        .context(format!(
+            "Interface bounds validation failed for node: {}",
+            node.name
+        ))?;
     }
 
     // Connection Validators
@@ -371,14 +396,16 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 3: Database Records & Data Structure Building
     // ========================================================================
-    progress.send_phase(data::UpPhase::DatabaseRecords, "Creating database records".to_string())?;
+    progress.send_phase(
+        data::UpPhase::DatabaseRecords,
+        "Creating database records".to_string(),
+    )?;
 
     // Create lab record in database
     let lab_record = db::create_lab(&db, &manifest.name, lab_id, &db_user)
         .await
         .context("Failed to create lab record in database")?;
-    let lab_record_id = db::get_lab_id(&lab_record)
-        .context("Failed to get lab record ID")?;
+    let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
 
     let mut container_nodes: Vec<topology::NodeExpanded> = vec![];
     let mut unikernel_nodes: Vec<topology::NodeExpanded> = vec![];
@@ -408,10 +435,14 @@ pub async fn up_lab(
             } else if idx < first_data_interface_idx {
                 interface_data = data::NodeInterface::Reserved;
             } else {
-                if let Some(data) = find_interface_link(&node.name, &interface_name, &links_detailed) {
+                if let Some(data) =
+                    find_interface_link(&node.name, &interface_name, &links_detailed)
+                {
                     interface_data = data
                 }
-                if let Some(data) = find_bridge_interface(&node.name, &interface_name, &bridges_detailed) {
+                if let Some(data) =
+                    find_bridge_interface(&node.name, &interface_name, &bridges_detailed)
+                {
                     interface_data = data
                 }
                 interface_state = data::InterfaceState::Disabled;
@@ -459,7 +490,7 @@ pub async fn up_lab(
         } else {
             None
         };
-        
+
         let node_reserved_network = if matches!(node_config.kind, data::NodeKind::VirtualMachine)
             && node_config.reserved_interface_count > 0
         {
@@ -501,12 +532,15 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 4: Lab Network Setup
     // ========================================================================
-    progress.send_phase(data::UpPhase::LabNetworkSetup, "Allocating lab network and creating management network".to_string())?;
+    progress.send_phase(
+        data::UpPhase::LabNetworkSetup,
+        "Allocating lab network and creating management network".to_string(),
+    )?;
 
     let lab_net = util::get_free_subnet(&config.management_prefix_ipv4.to_string())?;
     let gateway_ip = util::get_ipv4_addr(&lab_net, 1)?;
     let lab_router_ip = util::get_ipv4_addr(&lab_net, 2)?;
-    
+
     let lab_info = data::LabInfo {
         id: lab_id.to_string(),
         user: current_user.clone(),
@@ -533,8 +567,10 @@ pub async fn up_lab(
     };
     let dns = util::default_dns(&lab_net)?;
 
-    progress.send_status(format!("Creating management network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"))?;
-    
+    progress.send_status(format!(
+        "Creating management network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"
+    ))?;
+
     // Libvirt management network
     let management_network_obj = libvirt::NatNetwork {
         network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
@@ -558,7 +594,10 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 5: Point-to-Point Link Creation
     // ========================================================================
-    progress.send_phase(data::UpPhase::LinkCreation, format!("Creating {} point-to-point links", links_detailed.len()))?;
+    progress.send_phase(
+        data::UpPhase::LinkCreation,
+        format!("Creating {} point-to-point links", links_detailed.len()),
+    )?;
 
     let mut lab_link_data = vec![];
 
@@ -608,20 +647,23 @@ pub async fn up_lab(
             veth_b: veth_b.clone(),
         });
 
-        progress.send_status(format!("Creating link #{} - {}::{} <-> {}::{}", idx, link.node_a, link.int_a, link.node_b, link.int_b))?;
-        
+        progress.send_status(format!(
+            "Creating link #{} - {}::{} <-> {}::{}",
+            idx, link.node_a, link.int_a, link.node_b, link.int_b
+        ))?;
+
         network::create_bridge(
             &bridge_a,
             &format!("{}-bridge-{}::{}", lab_id, link.node_a, link.int_a),
         )
         .await?;
-        
+
         network::create_bridge(
             &bridge_b,
             &format!("{}-bridge-{}::{}", lab_id, link.node_b, link.int_b),
         )
         .await?;
-        
+
         network::create_veth_pair(
             &veth_a,
             &veth_b,
@@ -629,7 +671,7 @@ pub async fn up_lab(
             &format!("{}-veth-{}::{}", lab_id, link.node_b, link.int_b),
         )
         .await?;
-        
+
         network::enslave_to_bridge(&veth_a, &bridge_a).await?;
         network::enslave_to_bridge(&veth_b, &bridge_b).await?;
     }
@@ -639,7 +681,10 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 6: Docker Container Link Networks
     // ========================================================================
-    progress.send_phase(data::UpPhase::ContainerNetworks, "Creating Docker networks for container links".to_string())?;
+    progress.send_phase(
+        data::UpPhase::ContainerNetworks,
+        "Creating Docker networks for container links".to_string(),
+    )?;
 
     for link_data in &lab_link_data {
         let node_a_data = lab_node_data
@@ -653,13 +698,25 @@ pub async fn up_lab(
             .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
 
         if node_a_data.kind == data::NodeKind::Container {
-            let docker_net_name = format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-            container::create_docker_macvlan_network(&docker_conn, &link_data.bridge_a, &docker_net_name).await?;
+            let docker_net_name =
+                format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
+            container::create_docker_macvlan_network(
+                &docker_conn,
+                &link_data.bridge_a,
+                &docker_net_name,
+            )
+            .await?;
         }
 
         if node_b_data.kind == data::NodeKind::Container {
-            let docker_net_name = format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-            container::create_docker_macvlan_network(&docker_conn, &link_data.bridge_b, &docker_net_name).await?;
+            let docker_net_name =
+                format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
+            container::create_docker_macvlan_network(
+                &docker_conn,
+                &link_data.bridge_b,
+                &docker_net_name,
+            )
+            .await?;
         }
     }
 
@@ -668,12 +725,20 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 7: Shared Bridge Creation
     // ========================================================================
-    progress.send_phase(data::UpPhase::SharedBridges, format!("Creating {} shared bridges", bridges_detailed.len()))?;
+    progress.send_phase(
+        data::UpPhase::SharedBridges,
+        format!("Creating {} shared bridges", bridges_detailed.len()),
+    )?;
 
     for bridge in bridges_detailed.iter() {
         let mut bridge_nodes = vec![];
 
-        progress.send_status(format!("Creating shared bridge #{} - {} ({} connections)", bridge.index, bridge.manifest_name, bridge.links.len()))?;
+        progress.send_status(format!(
+            "Creating shared bridge #{} - {} ({} connections)",
+            bridge.index,
+            bridge.manifest_name,
+            bridge.links.len()
+        ))?;
 
         network::create_bridge(&bridge.bridge_name, &bridge.libvirt_name).await?;
 
@@ -682,7 +747,7 @@ pub async fn up_lab(
                 bridge_nodes.push(db::get_node_id(&node_data.record)?);
             }
         }
-        
+
         db::create_bridge(
             &db,
             bridge.index,
@@ -699,7 +764,10 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 8: ZTP Configuration Generation
     // ========================================================================
-    progress.send_phase(data::UpPhase::ZtpGeneration, "Generating ZTP configurations".to_string())?;
+    progress.send_phase(
+        data::UpPhase::ZtpGeneration,
+        "Generating ZTP configurations".to_string(),
+    )?;
 
     // Create ZTP directories for TFTP-based ZTP (needed before VM ZTP generation)
     let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
@@ -714,7 +782,7 @@ pub async fn up_lab(
         let node_ip_idx = 10 + node_idx as u32;
 
         progress.send_status(format!("Creating container config: {}", node.name))?;
-        
+
         let dir = format!("{}/{}", lab_dir, node.name);
         node.ipv4_address = Some(util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?);
 
@@ -827,8 +895,9 @@ pub async fn up_lab(
         if node_config.ztp_enable {
             match node_config.ztp_method {
                 data::ZtpMethod::CloudInit => {
-                    progress.send_status(format!("Creating Cloud-Init config for VM: {}", node.name))?;
-                    
+                    progress
+                        .send_status(format!("Creating Cloud-Init config for VM: {}", node.name))?;
+
                     let dir = format!("{lab_dir}/{}", node.name);
                     let mut cloud_init_user = template::CloudInitUser::sherpa()?;
 
@@ -929,11 +998,14 @@ pub async fn up_lab(
                         }
                     }
                     src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
-                    dst_cdrom_iso = Some(format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"));
+                    dst_cdrom_iso = Some(format!(
+                        "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
+                    ));
                 }
                 data::ZtpMethod::Tftp => {
-                    progress.send_status(format!("Creating TFTP ZTP config for VM: {}", node.name))?;
-                    
+                    progress
+                        .send_status(format!("Creating TFTP ZTP config for VM: {}", node.name))?;
+
                     match node.model {
                         data::NodeModel::AristaVeos => {
                             let arista_template = template::AristaVeosZtpTemplate {
@@ -947,17 +1019,145 @@ pub async fn up_lab(
                             let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
                             util::create_file(&ztp_config, rendered_template)?;
                         }
+                        data::NodeModel::ArubaAoscx => {
+                            let aruba_template = template::ArubaAoscxTemplate {
+                                hostname: node.name.clone(),
+                                user: sherpa_user.clone(),
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = aruba_template.render()?;
+                            let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                            util::create_file(&ztp_config, rendered_template)?;
+                        }
                         _ => {
-                            bail!(
-                                "TFTP ZTP method not supported for {}",
-                                node_config.model
-                            );
+                            bail!("TFTP ZTP method not supported for {}", node_config.model);
                         }
                     }
                 }
+                data::ZtpMethod::Cdrom => {
+                    progress
+                        .send_status(format!("Creating CDROM ZTP config for VM: {}", node.name))?;
+
+                    let dir = format!("{lab_dir}/{}", node.name);
+                    let mut user = sherpa_user.clone();
+
+                    match node.model {
+                        data::NodeModel::CiscoCsr1000v
+                        | data::NodeModel::CiscoCat8000v
+                        | data::NodeModel::CiscoCat9000v => {
+                            let license_boot_command =
+                                if node.model == data::NodeModel::CiscoCat8000v {
+                                    Some(
+                                        "license boot level network-premier addon dna-premier"
+                                            .to_string(),
+                                    )
+                                } else if node.model == data::NodeModel::CiscoCat9000v {
+                                    Some(
+                                        "license boot level network-advantage addon dna-advantage"
+                                            .to_string(),
+                                    )
+                                } else {
+                                    None
+                                };
+
+                            let key_hash = util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                            user.ssh_public_key.key = key_hash;
+                            let t = template::CiscoIosXeZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                dns: dns.clone(),
+                                license_boot_command,
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
+                            let ztp_config = format!("{dir}/{c}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
+                        data::NodeModel::CiscoNexus9300v => {
+                            let t = template::CiscoNxosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
+                        data::NodeModel::CiscoIosxrv9000 => {
+                            let t = template::CiscoIosxrZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
+                        data::NodeModel::CiscoFtdv => {
+                            let t = template::CiscoFtdvZtpTemplate {
+                                eula: "accept".to_string(),
+                                hostname: node.name.clone(),
+                                admin_password: SHERPA_PASSWORD.to_string(),
+                                dns1: Some(mgmt_net.v4.boot_server),
+                                ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
+                                ipv4_addr: Some(node_ipv4_address),
+                                ipv4_gw: Some(mgmt_net.v4.first),
+                                ipv4_mask: Some(mgmt_net.v4.subnet_mask),
+                                manage_locally: true,
+                                ..Default::default()
+                            };
+                            let rendered_template = serde_json::to_string(&t)?;
+                            let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
+                        data::NodeModel::JuniperVsrxv3
+                        | data::NodeModel::JuniperVrouter
+                        | data::NodeModel::JuniperVswitch => {
+                            let t = template::JunipervJunosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                mgmt_interface: node_config.management_interface.to_string(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
+                        _ => {
+                            bail!("CDROM ZTP method not supported for {}", node_config.model);
+                        }
+                    }
+                    src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
+                    dst_cdrom_iso = Some(format!(
+                        "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
+                    ));
+                }
                 _ => {
                     // Other ZTP methods not yet implemented
-                    progress.send_status(format!("ZTP method {:?} not yet implemented for VM: {}", node_config.ztp_method, node.name))?;
+                    progress.send_status(format!(
+                        "ZTP method {:?} not yet implemented for VM: {}",
+                        node_config.ztp_method, node.name
+                    ))?;
                 }
             }
         }
@@ -1026,8 +1226,12 @@ pub async fn up_lab(
                     let local_id = peer.this_node_index as u8;
                     let source_id = peer.peer_node_index as u8;
                     let bridge_name = match peer.this_side {
-                        data::PeerSide::A => format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id),
-                        data::PeerSide::B => format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id),
+                        data::PeerSide::A => {
+                            format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                        }
+                        data::PeerSide::B => {
+                            format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                        }
                     };
                     let interface_connection = data::InterfaceConnection {
                         local_id: peer.this_node_index,
@@ -1054,10 +1258,14 @@ pub async fn up_lab(
 
         // Get network names
         let management_network = node_data.management_network.clone();
-        let isolated_network = node_data.isolated_network.as_ref()
+        let isolated_network = node_data
+            .isolated_network
+            .as_ref()
             .map(|net| net.network_name.clone())
             .unwrap_or_default();
-        let reserved_network = node_data.reserved_network.as_ref()
+        let reserved_network = node_data
+            .reserved_network
+            .as_ref()
             .map(|net| net.network_name.clone())
             .unwrap_or_default();
 
@@ -1097,9 +1305,12 @@ pub async fn up_lab(
     phases_completed.push("ZtpGeneration".to_string());
 
     // ========================================================================
-    // PHASE 9: Boot Container & ZTP File Creation
+    // PHASE 9: Sherpa Router & ZTP File Creation
     // ========================================================================
-    progress.send_phase(data::UpPhase::BootContainers, "Creating boot containers and ZTP files".to_string())?;
+    progress.send_phase(
+        data::UpPhase::BootContainers,
+        "Creating boot containers and ZTP files".to_string(),
+    )?;
 
     // Create remaining ZTP directories (ztp_dir and tftp_dir already created in Phase 8)
     let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
@@ -1120,7 +1331,10 @@ pub async fn up_lab(
         &format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}"),
         dnsmasq_rendered_template,
     )?;
-    util::create_file(&format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"), "".to_string())?;
+    util::create_file(
+        &format!("{dnsmasq_dir}/{DNSMASQ_LEASES_FILE}"),
+        "".to_string(),
+    )?;
 
     // Create boot container (tftp_dir already created in Phase 8)
     let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
@@ -1131,9 +1345,14 @@ pub async fn up_lab(
 
     let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
     let dnsmasq_env_vars = vec![dnsmasq_env_dns1, dnsmasq_env_dns2];
-    let dnsmasq_config_volume = format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}");
+    let dnsmasq_config_volume =
+        format!("{dnsmasq_dir}/{DNSMASQ_CONFIG_FILE}:/etc/{DNSMASQ_CONFIG_FILE}");
     let dnsmasq_tftp_volume = format!("{tftp_dir}:/opt/{ZTP_DIR}/{TFTP_DIR}");
-    let dnsmasq_volumes = vec![dnsmasq_config_volume, dnsmasq_tftp_volume, webdir_config_volume];
+    let dnsmasq_volumes = vec![
+        dnsmasq_config_volume,
+        dnsmasq_tftp_volume,
+        webdir_config_volume,
+    ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
     let management_network_attachment = data::ContainerNetworkAttachment {
@@ -1155,16 +1374,16 @@ pub async fn up_lab(
     )
     .await?;
 
-    phases_completed.push("BootContainers".to_string());
+    phases_completed.push("Sherpa Router".to_string());
 
     // ========================================================================
     // PHASE 10: Disk Cloning (For VMs)
     // ========================================================================
     progress.send_phase(data::UpPhase::DiskCloning, "Cloning VM disks".to_string())?;
-    
+
     if !clone_disks.is_empty() {
         progress.send_status(format!("Cloning {} disks in parallel", clone_disks.len()))?;
-        
+
         let qemu_conn_arc = Arc::clone(&qemu_conn);
         let tasks: Vec<_> = clone_disks
             .into_iter()
@@ -1173,23 +1392,32 @@ pub async fn up_lab(
                 let progress_clone = progress.clone();
                 let src = disk.src.clone();
                 let dst = disk.dst.clone();
-                
+
                 tokio::task::spawn(async move {
                     progress_clone.send_status(format!("Cloning disk from: {}", src))?;
-                    
+
                     // libvirt operations are synchronous, so we need to use spawn_blocking
                     let conn_for_blocking = conn.clone();
                     let src_for_blocking = src.clone();
                     let dst_for_blocking = dst.clone();
-                    
+
                     tokio::task::spawn_blocking(move || -> Result<()> {
-                        libvirt::clone_disk(&conn_for_blocking, &src_for_blocking, &dst_for_blocking)
-                            .with_context(|| format!("Failed to clone disk from: {} to: {}", src_for_blocking, dst_for_blocking))?;
+                        libvirt::clone_disk(
+                            &conn_for_blocking,
+                            &src_for_blocking,
+                            &dst_for_blocking,
+                        )
+                        .with_context(|| {
+                            format!(
+                                "Failed to clone disk from: {} to: {}",
+                                src_for_blocking, dst_for_blocking
+                            )
+                        })?;
                         Ok(())
                     })
                     .await
                     .map_err(|e| anyhow!("Task join error: {:?}", e))??;
-                    
+
                     progress_clone.send_status(format!("Cloned disk to: {}", dst))?;
                     Ok::<(), anyhow::Error>(())
                 })
@@ -1200,7 +1428,7 @@ pub async fn up_lab(
         for task in tasks {
             task.await.context("Disk cloning task failed")??;
         }
-        
+
         progress.send_status("All disks cloned successfully".to_string())?;
     } else {
         progress.send_status("No disks to clone".to_string())?;
@@ -1212,10 +1440,10 @@ pub async fn up_lab(
     // PHASE 11: VM Creation
     // ========================================================================
     progress.send_phase(data::UpPhase::VmCreation, "Creating VMs".to_string())?;
-    
+
     if !domains.is_empty() {
         progress.send_status(format!("Creating {} VMs in parallel", domains.len()))?;
-        
+
         let qemu_conn_arc = Arc::clone(&qemu_conn);
         let tasks: Vec<_> = domains
             .into_iter()
@@ -1223,26 +1451,28 @@ pub async fn up_lab(
                 let conn = Arc::clone(&qemu_conn_arc);
                 let progress_clone = progress.clone();
                 let vm_name = domain.name.clone();
-                
+
                 tokio::task::spawn(async move {
                     progress_clone.send_status(format!("Creating VM: {}", vm_name))?;
-                    
+
                     // Render the XML template (synchronous operation)
-                    let rendered_xml = domain.render()
+                    let rendered_xml = domain
+                        .render()
                         .with_context(|| format!("Failed to render XML for VM: {}", vm_name))?;
-                    
+
                     // libvirt operations are synchronous, so we need to use spawn_blocking
                     let conn_for_blocking = conn.clone();
                     let vm_name_for_blocking = vm_name.clone();
-                    
+
                     tokio::task::spawn_blocking(move || -> Result<()> {
-                        libvirt::create_vm(&conn_for_blocking, &rendered_xml)
-                            .with_context(|| format!("Failed to create VM: {}", vm_name_for_blocking))?;
+                        libvirt::create_vm(&conn_for_blocking, &rendered_xml).with_context(
+                            || format!("Failed to create VM: {}", vm_name_for_blocking),
+                        )?;
                         Ok(())
                     })
                     .await
                     .map_err(|e| anyhow!("Task join error: {:?}", e))??;
-                    
+
                     progress_clone.send_status(format!("Created VM: {}", vm_name))?;
                     Ok::<(), anyhow::Error>(())
                 })
@@ -1253,7 +1483,7 @@ pub async fn up_lab(
         for task in tasks {
             task.await.context("VM creation task failed")??;
         }
-        
+
         progress.send_status("All VMs created successfully".to_string())?;
     } else {
         progress.send_status("No VMs to create".to_string())?;
@@ -1264,7 +1494,10 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 12: SSH Config & Network Map Building
     // ========================================================================
-    progress.send_phase(data::UpPhase::SshConfig, "Generating SSH config".to_string())?;
+    progress.send_phase(
+        data::UpPhase::SshConfig,
+        "Generating SSH config".to_string(),
+    )?;
 
     // Generate SSH config file
     let ssh_config_template = template::SshConfigTemplate {
@@ -1278,14 +1511,22 @@ pub async fn up_lab(
     progress.send_status("SSH config file created".to_string())?;
 
     // Build container network mappings
-    let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> = HashMap::new();
-    
+    let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
+        HashMap::new();
+
     for link_data in &lab_link_data {
-        let node_a_data = lab_node_data.iter().find(|n| n.record.id == link_data.node_a.id).unwrap();
-        let node_b_data = lab_node_data.iter().find(|n| n.record.id == link_data.node_b.id).unwrap();
+        let node_a_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_a.id)
+            .unwrap();
+        let node_b_data = lab_node_data
+            .iter()
+            .find(|n| n.record.id == link_data.node_b.id)
+            .unwrap();
 
         if node_a_data.kind == data::NodeKind::Container {
-            let docker_net_name = format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
+            let docker_net_name =
+                format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
             container_link_networks
                 .entry(node_a_data.name.clone())
                 .or_insert_with(Vec::new)
@@ -1296,7 +1537,8 @@ pub async fn up_lab(
         }
 
         if node_b_data.kind == data::NodeKind::Container {
-            let docker_net_name = format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
+            let docker_net_name =
+                format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
             container_link_networks
                 .entry(node_b_data.name.clone())
                 .or_insert_with(Vec::new)
@@ -1312,17 +1554,36 @@ pub async fn up_lab(
     // ========================================================================
     // PHASE 13: Node Readiness Polling
     // ========================================================================
-    progress.send_phase(data::UpPhase::NodeReadiness, format!("Waiting for {} nodes to become ready (up to {} seconds)", container_nodes.len() + vm_nodes.len(), READINESS_TIMEOUT))?;
+    progress.send_phase(
+        data::UpPhase::NodeReadiness,
+        format!(
+            "Waiting for {} nodes to become ready (up to {} seconds)",
+            container_nodes.len() + vm_nodes.len(),
+            READINESS_TIMEOUT
+        ),
+    )?;
 
     let start_time_readiness = Instant::now();
     let timeout = Duration::from_secs(READINESS_TIMEOUT);
     let mut connected_nodes = std::collections::HashSet::new();
     let mut node_info_list = vec![];
 
-    let all_lab_nodes = vec![container_nodes.clone(), unikernel_nodes.clone(), vm_nodes.clone()].concat();
+    let all_lab_nodes = vec![
+        container_nodes.clone(),
+        unikernel_nodes.clone(),
+        vm_nodes.clone(),
+    ]
+    .concat();
     let total_lab_nodes = all_lab_nodes.len();
 
-    progress.send_status(format!("Waiting for nodes: {}", all_lab_nodes.iter().map(|x| x.name.as_str()).collect::<Vec<&str>>().join(", ")))?;
+    progress.send_status(format!(
+        "Waiting for nodes: {}",
+        all_lab_nodes
+            .iter()
+            .map(|x| x.name.as_str())
+            .collect::<Vec<&str>>()
+            .join(", ")
+    ))?;
 
     while start_time_readiness.elapsed() < timeout && connected_nodes.len() < total_lab_nodes {
         // Start containers
@@ -1330,7 +1591,7 @@ pub async fn up_lab(
             if connected_nodes.contains(&container.name) {
                 continue;
             }
-            
+
             let mgmt_ipv4 = container.ipv4_address.map(|i| i.to_string());
             let container_name = format!("{}-{}", container.name, lab_id);
             let container_image = format!(
@@ -1339,10 +1600,16 @@ pub async fn up_lab(
                 container.version.as_ref().unwrap()
             );
             let privileged = container.privileged.unwrap_or(false);
-            let env_vars = container.environment_variables.clone().unwrap_or_else(|| vec![]);
+            let env_vars = container
+                .environment_variables
+                .clone()
+                .unwrap_or_else(|| vec![]);
             let commands = container.commands.clone().unwrap_or_else(|| vec![]);
             let volumes = if let Some(volumes) = container.volumes.clone() {
-                volumes.iter().map(|v| format!("{}:{}", v.src, v.dst)).collect()
+                volumes
+                    .iter()
+                    .map(|v| format!("{}:{}", v.src, v.dst))
+                    .collect()
             } else {
                 vec![]
             };
@@ -1370,10 +1637,10 @@ pub async fn up_lab(
                 privileged,
             )
             .await?;
-            
+
             progress.send_status(format!("Node {} - Started", container.name))?;
             connected_nodes.insert(container.name.clone());
-            
+
             node_info_list.push(data::NodeInfo {
                 name: container.name.clone(),
                 kind: "Container".to_string(),
@@ -1388,13 +1655,14 @@ pub async fn up_lab(
             if connected_nodes.contains(&vm.name) {
                 continue;
             }
-            
+
             if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
                 match validate::tcp_connect(&vm_data.ipv4_address.to_string(), SSH_PORT)? {
                     true => {
-                        progress.send_status(format!("Node {} - Ready (SSH accessible)", vm.name))?;
+                        progress
+                            .send_status(format!("Node {} - Ready (SSH accessible)", vm.name))?;
                         connected_nodes.insert(vm.name.clone());
-                        
+
                         node_info_list.push(data::NodeInfo {
                             name: vm.name.clone(),
                             kind: "VirtualMachine".to_string(),
@@ -1418,7 +1686,11 @@ pub async fn up_lab(
     if connected_nodes.len() == total_lab_nodes {
         progress.send_status("All nodes are ready!".to_string())?;
     } else {
-        progress.send_status(format!("Timeout reached. {} of {} nodes are ready.", connected_nodes.len(), total_lab_nodes))?;
+        progress.send_status(format!(
+            "Timeout reached. {} of {} nodes are ready.",
+            connected_nodes.len(),
+            total_lab_nodes
+        ))?;
         for node in &all_lab_nodes {
             if !connected_nodes.contains(&node.name) {
                 errors.push(data::UpError {
@@ -1435,14 +1707,14 @@ pub async fn up_lab(
     // ========================================================================
     // Build Response
     // ========================================================================
-    
+
     let summary = data::UpSummary {
         containers_created: container_nodes.len(),
         vms_created: vm_nodes.len(),
         unikernels_created: unikernel_nodes.len(),
         networks_created: 1 + bridges_detailed.len(), // management + shared bridges
-        bridges_created: links_detailed.len() * 2,     // 2 bridges per p2p link
-        interfaces_created: lab_link_data.len() * 2,   // 2 veth interfaces per link
+        bridges_created: links_detailed.len() * 2,    // 2 bridges per p2p link
+        interfaces_created: lab_link_data.len() * 2,  // 2 veth interfaces per link
     };
 
     let response = data::UpResponse {
