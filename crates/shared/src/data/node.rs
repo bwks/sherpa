@@ -666,7 +666,7 @@ impl NodeConfig {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethod::None,
+            ztp_method: ZtpMethod::Cdrom,
             ztp_password_auth: false,
             first_interface_index: 1,
             dedicated_management_interface: true,

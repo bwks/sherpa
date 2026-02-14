@@ -1080,6 +1080,22 @@ pub async fn up_lab(
                             util::create_file(&ztp_config, rendered_template)?;
                             util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
                         }
+                        data::NodeModel::CiscoAsav => {
+                            let key_hash = util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
+                            user.ssh_public_key.key = key_hash;
+                            let t = template::CiscoAsavZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: Some(node_ipv4_address),
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        }
                         data::NodeModel::CiscoNexus9300v => {
                             let t = template::CiscoNxosZtpTemplate {
                                 hostname: node.name.clone(),
