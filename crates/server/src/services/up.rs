@@ -21,7 +21,8 @@ use shared::konst::{
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
     CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO,
+    CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
     DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME,
     NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
     SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
@@ -836,6 +837,15 @@ pub async fn up_lab(
                         .collect(),
                 );
             }
+            data::NodeModel::SurrealDb => {
+                node.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
+                node.commands = Some(
+                    CONTAINER_SURREAL_DB_COMMANDS
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect(),
+                );
+            }
             _ => {}
         }
     }
@@ -1254,6 +1264,35 @@ pub async fn up_lab(
                                 "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
                             ));
                         }
+                        data::NodeModel::CiscoIse => {
+                            let t = template::CiscoIseZtpTemplate {
+                                hostname: node.name.clone(),
+                                user,
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: node_ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            let rendered_template = t.render()?;
+                            let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, rendered_template)?;
+
+                            // Clone blank disk image
+                            let src_disk = format!(
+                                "{}/{}/{}",
+                                config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_ISE
+                            );
+                            let dst_disk = format!("{dir}/{node_name_with_lab}-cfg.img");
+
+                            // Copy blank disk and inject config
+                            util::copy_file(&src_disk, &dst_disk)?;
+                            util::copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
+
+                            src_config_disk = Some(dst_disk.clone());
+                            dst_config_disk = Some(format!(
+                                "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
+                            ));
+                        }
                         _ => {
                             bail!("Disk ZTP method not supported for {}", node_config.model);
                         }
@@ -1567,6 +1606,16 @@ pub async fn up_lab(
             });
         }
 
+        // Add boot disk (second position to match client order)
+        disks.push(data::NodeDisk {
+            disk_device: data::DiskDevices::File,
+            driver_name: data::DiskDrivers::Qemu,
+            driver_format: data::DiskFormats::Qcow2,
+            src_file: dst_boot_disk.clone(),
+            target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
+            target_bus: hdd_bus.clone(),
+        });
+
         // Clone config disk if present (for Disk ZTP method)
         if let (Some(src_disk), Some(dst_disk)) = (src_config_disk.clone(), dst_config_disk.clone())
         {
@@ -1610,16 +1659,6 @@ pub async fn up_lab(
             });
             // Note: Ignition config is passed as QEMU command line argument, not as disk
         }
-
-        // Add boot disk
-        disks.push(data::NodeDisk {
-            disk_device: data::DiskDevices::File,
-            driver_name: data::DiskDrivers::Qemu,
-            driver_format: data::DiskFormats::Qcow2,
-            src_file: dst_boot_disk.clone(),
-            target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-            target_bus: hdd_bus.clone(),
-        });
 
         // Build interfaces list
         let mut interfaces: Vec<data::Interface> = vec![];
@@ -1684,7 +1723,18 @@ pub async fn up_lab(
                     });
                 }
                 data::NodeInterface::Disabled => {
-                    // Disabled interfaces are not added
+                    // Disabled interfaces are added and connected to isolated network with link state down
+                    interfaces.push(data::Interface {
+                        name: util::dasher(&util::interface_from_idx(
+                            &node.model,
+                            interface.index,
+                        )?),
+                        num: interface.index,
+                        mtu: node_config.interface_mtu,
+                        mac_address: util::random_mac(KVM_OUI),
+                        connection_type: data::ConnectionTypes::Disabled,
+                        interface_connection: None,
+                    });
                 }
             }
         }
@@ -1693,9 +1743,8 @@ pub async fn up_lab(
         let management_network = node_data.management_network.clone();
         let isolated_network = node_data
             .isolated_network
-            .as_ref()
-            .map(|net| net.network_name.clone())
-            .unwrap_or_default();
+            .clone()
+            .ok_or_else(|| anyhow!("Isolated network not found for VM node: {}", node.name))?;
         let reserved_network = node_data
             .reserved_network
             .as_ref()
@@ -1736,7 +1785,7 @@ pub async fn up_lab(
             qemu_commands,
             lab_id: lab_id.to_string(),
             management_network,
-            isolated_network,
+            isolated_network: isolated_network.network_name,
             reserved_network,
         };
         domains.push(domain);
