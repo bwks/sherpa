@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
 use std::sync::Arc;
+use tracing_subscriber::fmt::time::UtcTime;
+use tracing_subscriber::EnvFilter;
 
 use crate::api::build_router;
 use crate::api::websocket;
@@ -14,15 +16,24 @@ use shared::util::load_config;
 
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
+    // Create env filter with fallback to 'info' level
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        eprintln!("RUST_LOG not set or invalid, defaulting to 'info' level");
+        EnvFilter::new("info")
+    });
+
     // Setup logging based on mode
     if foreground {
-        // Foreground mode: log to stdout
+        // Foreground mode: log to stdout with colors
         tracing_subscriber::fmt()
+            .with_timer(UtcTime::rfc_3339())
+            .with_env_filter(filter)
             .with_target(false)
             .with_thread_ids(false)
+            .compact()
             .init();
     } else {
-        // Background mode: log to file
+        // Background mode: log to file without colors
         let log_file = OpenOptions::new().create(true).append(true).open(&format!(
             "{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}/{SHERPAD_LOG_FILE}"
         ))?;
@@ -31,10 +42,13 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let log_file = Arc::new(log_file);
 
         tracing_subscriber::fmt()
+            .with_timer(UtcTime::rfc_3339())
+            .with_env_filter(filter)
             .with_writer(move || log_file.clone())
             .with_target(false)
             .with_thread_ids(false)
             .with_ansi(false)
+            .compact()
             .init();
     }
 

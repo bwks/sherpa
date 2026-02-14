@@ -38,6 +38,14 @@ use crate::daemon::state::AppState;
 pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<DestroyResponse> {
     let lab_id = &request.lab_id;
     let username = &request.username;
+    
+    let start_time = std::time::Instant::now();
+    
+    tracing::info!(
+        lab_id = %lab_id,
+        username = %username,
+        "Starting lab destruction"
+    );
 
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
@@ -58,6 +66,11 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
 
     // Validate ownership
     if db_lab.user != user_id {
+        tracing::warn!(
+            lab_id = %lab_id,
+            username = %username,
+            "Permission denied - lab owned by different user"
+        );
         return Err(anyhow!(
             "Permission denied: Lab '{}' is owned by another user",
             lab_id
@@ -72,33 +85,87 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
         LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
 
     let lab_name = lab_info.name.clone();
+    
+    tracing::debug!(
+        lab_id = %lab_id,
+        lab_name = %lab_name,
+        lab_dir = %lab_dir,
+        "Loaded lab information"
+    );
 
     // 1. Destroy containers
-    tracing::info!("Destroying containers for lab {}", lab_id);
+    let containers_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying containers");
     destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
+    let containers_duration = containers_timer.elapsed().as_secs();
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.containers_destroyed.len(),
+        failed = summary.containers_failed.len(),
+        duration_secs = containers_duration,
+        "Container destruction completed"
+    );
 
     // 2. Destroy VMs and disks
-    tracing::info!("Destroying VMs and disks for lab {}", lab_id);
+    let vms_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying VMs and disks");
     destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    let vms_duration = vms_timer.elapsed().as_secs();
+    tracing::info!(
+        lab_id = %lab_id,
+        vms_destroyed = summary.vms_destroyed.len(),
+        vms_failed = summary.vms_failed.len(),
+        disks_deleted = summary.disks_deleted.len(),
+        disks_failed = summary.disks_failed.len(),
+        duration_secs = vms_duration,
+        "VM and disk destruction completed"
+    );
 
     // 3. Destroy Docker networks
-    tracing::info!("Destroying Docker networks for lab {}", lab_id);
+    let docker_net_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying Docker networks");
     destroy_docker_networks(lab_id, &state.docker, &mut summary, &mut errors).await;
+    let docker_net_duration = docker_net_timer.elapsed().as_secs();
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.docker_networks_destroyed.len(),
+        failed = summary.docker_networks_failed.len(),
+        duration_secs = docker_net_duration,
+        "Docker network destruction completed"
+    );
 
     // 4. Destroy libvirt networks
-    tracing::info!("Destroying libvirt networks for lab {}", lab_id);
+    let libvirt_net_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Destroying libvirt networks");
     destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    let libvirt_net_duration = libvirt_net_timer.elapsed().as_secs();
+    tracing::info!(
+        lab_id = %lab_id,
+        destroyed = summary.libvirt_networks_destroyed.len(),
+        failed = summary.libvirt_networks_failed.len(),
+        duration_secs = libvirt_net_duration,
+        "Libvirt network destruction completed"
+    );
 
     // 5. Delete network interfaces
-    tracing::info!("Deleting network interfaces for lab {}", lab_id);
+    let interfaces_timer = std::time::Instant::now();
+    tracing::info!(lab_id = %lab_id, "Deleting network interfaces");
     destroy_interfaces(lab_id, &mut summary, &mut errors).await;
+    let interfaces_duration = interfaces_timer.elapsed().as_secs();
+    tracing::info!(
+        lab_id = %lab_id,
+        deleted = summary.interfaces_deleted.len(),
+        failed = summary.interfaces_failed.len(),
+        duration_secs = interfaces_duration,
+        "Network interface deletion completed"
+    );
 
     // 6. Clean up database
-    tracing::info!("Cleaning up database records for lab {}", lab_id);
+    tracing::info!(lab_id = %lab_id, "Cleaning up database records");
     match cleanup_database(lab_id, &state.db).await {
         Ok(_) => {
             summary.database_records_deleted = true;
-            tracing::info!("Database cleanup successful");
+            tracing::info!(lab_id = %lab_id, "Database cleanup successful");
         }
         Err(e) => {
             summary.database_records_deleted = false;
@@ -107,17 +174,17 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
                 lab_id,
                 format!("{:?}", e),
             ));
-            tracing::error!("Database cleanup failed: {:?}", e);
+            tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
     }
 
     // 7. Delete lab directory
-    tracing::info!("Deleting lab directory: {}", lab_dir);
+    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
     if dir_exists(&lab_dir) {
         match fs::remove_dir_all(&lab_dir) {
             Ok(_) => {
                 summary.lab_directory_deleted = true;
-                tracing::info!("Lab directory deleted: {}", lab_dir);
+                tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
             }
             Err(e) => {
                 summary.lab_directory_deleted = false;
@@ -126,16 +193,33 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
                     &lab_dir,
                     format!("{:?}", e),
                 ));
-                tracing::error!("Failed to delete lab directory: {:?}", e);
+                tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
             }
         }
     } else {
         // Directory doesn't exist - consider it success (idempotent)
         summary.lab_directory_deleted = true;
+        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
     }
 
     // Determine overall success
     let success = errors.is_empty();
+    let total_duration = start_time.elapsed().as_secs();
+    
+    tracing::info!(
+        lab_id = %lab_id,
+        lab_name = %lab_name,
+        success = success,
+        total_duration_secs = total_duration,
+        containers_destroyed = summary.containers_destroyed.len(),
+        vms_destroyed = summary.vms_destroyed.len(),
+        disks_deleted = summary.disks_deleted.len(),
+        docker_networks_destroyed = summary.docker_networks_destroyed.len(),
+        libvirt_networks_destroyed = summary.libvirt_networks_destroyed.len(),
+        interfaces_deleted = summary.interfaces_deleted.len(),
+        total_errors = errors.len(),
+        "Lab destruction completed"
+    );
 
     Ok(DestroyResponse {
         success,
@@ -155,6 +239,21 @@ async fn destroy_containers(
 ) {
     match list_containers(docker).await {
         Ok(containers) => {
+            let lab_containers: Vec<_> = containers
+                .iter()
+                .filter(|c| {
+                    c.names
+                        .as_ref()
+                        .map_or(false, |names| names.iter().any(|name| name.contains(lab_id)))
+                })
+                .collect();
+            
+            tracing::debug!(
+                lab_id = %lab_id,
+                container_count = lab_containers.len(),
+                "Found containers to destroy"
+            );
+            
             for container in containers {
                 if let Some(names) = &container.names {
                     // Check if any container name contains the lab_id
@@ -163,10 +262,19 @@ async fn destroy_containers(
                         // Extract the actual container name (remove leading /)
                         if let Some(container_name) = names.first() {
                             let name = container_name.trim_start_matches('/');
+                            tracing::debug!(
+                                lab_id = %lab_id,
+                                container_name = %name,
+                                "Destroying container"
+                            );
                             match kill_container(docker, name).await {
                                 Ok(_) => {
                                     summary.containers_destroyed.push(name.to_string());
-                                    tracing::info!("Destroyed container: {}", name);
+                                    tracing::info!(
+                                        lab_id = %lab_id,
+                                        container_name = %name,
+                                        "Container destroyed"
+                                    );
                                 }
                                 Err(e) => {
                                     summary.containers_failed.push(name.to_string());
@@ -175,7 +283,12 @@ async fn destroy_containers(
                                         name,
                                         format!("{:?}", e),
                                     ));
-                                    tracing::error!("Failed to destroy container {}: {:?}", name, e);
+                                    tracing::error!(
+                                        lab_id = %lab_id,
+                                        container_name = %name,
+                                        error = ?e,
+                                        "Failed to destroy container"
+                                    );
                                 }
                             }
                         }
@@ -189,7 +302,7 @@ async fn destroy_containers(
                 "list_containers",
                 format!("Failed to list containers: {:?}", e),
             ));
-            tracing::error!("Failed to list containers: {:?}", e);
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list containers");
         }
     }
 }

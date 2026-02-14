@@ -13,4 +13,7 @@ dev.sh
 .opencode/
 AGENTS.md
 srl-config.json
+
+# Dev
 test_*.toml
+sherpa_ssh_*

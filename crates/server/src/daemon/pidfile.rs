@@ -8,8 +8,8 @@ use shared::konst::{SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_PID
 
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {
-    if !Path::new(SHERPA_RUN_DIR).exists() {
-        fs::create_dir_all(SHERPA_RUN_DIR).context(format!(
+    if !Path::new(&format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).exists() {
+        fs::create_dir_all(&format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).context(format!(
             "Failed to create run directory: {}",
             SHERPA_RUN_DIR
         ))?;
