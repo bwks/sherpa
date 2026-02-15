@@ -1,10 +1,10 @@
-use anyhow::{Context, Result, bail};
-use nix::sys::signal::{Signal, kill};
+use anyhow::{bail, Context, Result};
+use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use std::fs;
 use std::path::Path;
 
-use shared::konst::{SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_PID_FILE};
+use shared::konst::{SHERPAD_PID_FILE, SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR};
 
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {
@@ -92,7 +92,7 @@ pub fn verify_not_running() -> Result<()> {
             bail!("Server is already running (PID: {})", pid);
         } else {
             // Stale PID file - clean it up
-            println!("Found stale PID file, cleaning up...");
+            tracing::warn!("Found stale PID file, cleaning up");
             remove_pid(&format!(
                 "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
             ))?;

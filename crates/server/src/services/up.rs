@@ -37,30 +37,6 @@ use shared::util;
 // use topology::{self, BridgeDetailed};
 
 // ============================================================================
-// Timing Macro for Long-Running Operations
-// ============================================================================
-
-/// Helper macro to time operations and log start/completion with duration
-macro_rules! timed_operation {
-    ($lab_id:expr, $operation:expr, $block:block) => {{
-        let _timer = std::time::Instant::now();
-        tracing::info!(
-            lab_id = %$lab_id,
-            operation = $operation,
-            "Starting operation"
-        );
-        let _result = $block;
-        let _elapsed = _timer.elapsed().as_secs();
-        tracing::info!(
-            lab_id = %$lab_id,
-            operation = $operation,
-            duration_secs = _elapsed,
-            "Operation completed"
-        );
-        _result
-    }};
-}
-
 // ============================================================================
 // Helper Functions (ported from client)
 // ============================================================================

@@ -1,13 +1,14 @@
 mod api;
 mod cli;
 mod daemon;
-mod inspect;
 mod services;
 
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use daemon::manager::{logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon};
+use daemon::manager::{
+    logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {

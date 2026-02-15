@@ -9,6 +9,9 @@ shared = { path = "../shared" }
 # Errors
 anyhow = "1.0.100"
 
+# Logging
+tracing = "0.1"
+
 # Containers
 # oci-client = "0.15"
 bollard = "0.19.3"

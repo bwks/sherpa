@@ -1062,6 +1062,7 @@ dependencies = [
  "futures-util",
  "shared",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2626,6 +2627,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "shared",
+ "tracing",
  "virt",
 ]
 
@@ -2949,6 +2951,7 @@ dependencies = [
  "futures",
  "rtnetlink",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

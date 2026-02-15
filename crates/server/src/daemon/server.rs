@@ -17,10 +17,10 @@ use shared::util::load_config;
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
     // Create env filter with fallback to 'info' level
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        eprintln!("RUST_LOG not set or invalid, defaulting to 'info' level");
-        EnvFilter::new("info")
-    });
+    let (filter, using_default) = match EnvFilter::try_from_default_env() {
+        Ok(filter) => (filter, false),
+        Err(_) => (EnvFilter::new("info"), true),
+    };
 
     // Setup logging based on mode
     if foreground {
@@ -50,6 +50,11 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             .with_ansi(false)
             .compact()
             .init();
+    }
+
+    // Inform if using default log level
+    if using_default {
+        tracing::info!("RUST_LOG not set or invalid, using default 'info' level");
     }
 
     tracing::info!("Starting sherpad server");

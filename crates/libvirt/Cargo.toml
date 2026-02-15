@@ -9,5 +9,8 @@ shared = { path = "../shared" }
 # Errors
 anyhow = "1.0.100"
 
+# Logging
+tracing = "0.1"
+
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }

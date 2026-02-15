@@ -27,7 +27,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
 
     if foreground {
         // Foreground mode: run server directly in current process
-        println!("Starting sherpad in foreground mode...");
+        tracing::info!("Starting sherpad in foreground mode");
         write_pid(&format!(
             "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
         ))?;
@@ -42,7 +42,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
         result
     } else {
         // Background mode: spawn as child process
-        println!("Starting sherpad...");
+        tracing::info!("Starting sherpad in background mode");
 
         // Spawn sherpad in a detached child process using nohup pattern
         let exe = std::env::current_exe()?;
@@ -67,7 +67,7 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
             bail!("Failed to start sherpad: process exited immediately");
         }
 
-        println!("sherpad started successfully (PID: {})", child_pid);
+        tracing::info!(pid = child_pid, "sherpad started successfully");
         Ok(())
     }
 }
@@ -103,19 +103,19 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 
     // Check if process is actually running
     if !is_process_running(pid) {
-        println!("Server is not running (stale PID file found)");
+        tracing::warn!(pid = pid, "Server is not running (stale PID file found)");
         remove_pid(&format!(
             "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
         ))?;
         return Ok(());
     }
 
-    println!("Stopping sherpad (PID: {})...", pid);
+    tracing::info!(pid = pid, "Stopping sherpad");
 
     // Send SIGTERM for graceful shutdown
     if let Err(e) = send_signal(pid, Signal::SIGTERM) {
         if force {
-            println!("Failed to send SIGTERM: {}, trying SIGKILL...", e);
+            tracing::warn!(error = %e, "Failed to send SIGTERM, trying SIGKILL");
         } else {
             bail!("Failed to stop server: {}", e);
         }
@@ -134,7 +134,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
                 remove_pid(&format!(
                     "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
                 ))?;
-                println!("sherpad stopped successfully");
+                tracing::info!("sherpad stopped successfully");
                 return Ok(());
             }
         }
@@ -149,7 +149,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
     }
 
     // Force kill if we get here
-    println!("Server did not stop gracefully, forcing shutdown...");
+    tracing::warn!("Server did not stop gracefully, forcing shutdown with SIGKILL");
     send_signal(pid, Signal::SIGKILL).context("Failed to send SIGKILL")?;
 
     // Wait a bit for SIGKILL to take effect
@@ -162,13 +162,13 @@ pub fn stop_daemon(force: bool) -> Result<()> {
     remove_pid(&format!(
         "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
     ))?;
-    println!("sherpad stopped successfully");
+    tracing::info!("sherpad stopped successfully");
     Ok(())
 }
 
 /// Restart the sherpad daemon
 pub async fn restart_daemon(foreground: bool) -> Result<()> {
-    println!("Restarting sherpad...");
+    tracing::info!("Restarting sherpad");
 
     // Stop the daemon if it's running
     if let Some(pid) = read_pid(&format!(
@@ -180,7 +180,7 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
             thread::sleep(Duration::from_millis(2000));
         } else {
             // Clean up stale PID file
-            println!("Found stale PID file, cleaning up...");
+            tracing::debug!("Found stale PID file, cleaning up");
             remove_pid(&format!(
                 "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
             ))?;
@@ -198,15 +198,15 @@ pub fn status_daemon() -> Result<()> {
     ))? {
         Some(pid) => {
             if is_process_running(pid) {
-                println!("sherpad is running (PID: {})", pid);
+                tracing::info!(pid = pid, "sherpad is running");
                 Ok(())
             } else {
-                println!("sherpad is not running (stale PID file found)");
+                tracing::warn!("sherpad is not running (stale PID file found)");
                 std::process::exit(1);
             }
         }
         None => {
-            println!("sherpad is not running");
+            tracing::info!("sherpad is not running");
             std::process::exit(1);
         }
     }
