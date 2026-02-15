@@ -28,6 +28,10 @@ ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 # Random number generator
 rand = "0.8.5"
 
+# Authentication
+argon2 = "0.5"
+regex = "1"
+
 # IP Addressing
 ipnet = { version = "2.11.0", features = ["serde"] }
 getifaddrs = "0.6.0"
