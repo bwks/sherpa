@@ -194,3 +194,108 @@ pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
 pub const EMOJI_GOOD: &str = "✅";
 pub const EMOJI_BAD: &str = "❌";
 pub const EMOJI_WARN: &str = "⚠️";
+
+// ============================================================================
+// JSON-RPC 2.0 Error Codes
+// ============================================================================
+// Standard JSON-RPC 2.0 error codes as defined in the specification
+// https://www.jsonrpc.org/specification#error_object
+
+/// Parse error: Invalid JSON was received by the server.
+pub const RPC_ERROR_PARSE: i32 = -32700;
+
+/// Invalid Request: The JSON sent is not a valid Request object.
+pub const RPC_ERROR_INVALID_REQUEST: i32 = -32600;
+
+/// Method not found: The method does not exist / is not available.
+pub const RPC_ERROR_METHOD_NOT_FOUND: i32 = -32601;
+
+/// Invalid params: Invalid method parameter(s).
+pub const RPC_ERROR_INVALID_PARAMS: i32 = -32602;
+
+/// Internal error: Internal JSON-RPC error.
+pub const RPC_ERROR_INTERNAL: i32 = -32603;
+
+// ============================================================================
+// Application-Specific JSON-RPC Error Codes
+// ============================================================================
+// Implementation-defined server errors (range: -32000 to -32099)
+// As per JSON-RPC 2.0 spec section 5.1
+
+/// Server error: General operation failure or unhandled error.
+pub const RPC_ERROR_SERVER: i32 = -32000;
+
+/// Authentication error: Invalid credentials provided.
+pub const RPC_ERROR_AUTH_INVALID: i32 = -32001;
+
+/// Authentication required: Request requires authentication token.
+pub const RPC_ERROR_AUTH_REQUIRED: i32 = -32002;
+
+/// Access denied: User lacks permission for requested operation.
+pub const RPC_ERROR_ACCESS_DENIED: i32 = -32003;
+
+/// Not found: Requested resource does not exist.
+pub const RPC_ERROR_NOT_FOUND: i32 = -32004;
+
+// ============================================================================
+// JSON-RPC Error Messages
+// ============================================================================
+
+// Standard JSON-RPC error messages
+pub const RPC_MSG_PARSE_ERROR: &str = "Parse error";
+pub const RPC_MSG_INVALID_REQUEST: &str = "Invalid Request";
+pub const RPC_MSG_INTERNAL_ERROR: &str = "Internal error";
+
+// Authentication and authorization messages
+pub const RPC_MSG_AUTH_REQUIRED: &str = "Authentication required";
+pub const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
+pub const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
+pub const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
+
+// Authorization messages
+pub const RPC_MSG_ACCESS_DENIED_LAB: &str =
+    "Access denied: you do not have permission to access this lab";
+pub const RPC_MSG_ACCESS_DENIED_OWN_PASSWORD: &str =
+    "Access denied: you can only change your own password";
+pub const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
+    "Access denied: you can only view your own information";
+pub const RPC_MSG_ACCESS_DENIED_SELF_DELETE: &str =
+    "Access denied: cannot delete your own user account";
+pub const RPC_MSG_ACCESS_DENIED_LAST_ADMIN: &str =
+    "Access denied: cannot delete the last administrator account";
+
+// User management - admin-only operations
+pub const RPC_MSG_USER_ADMIN_ONLY_CREATE: &str =
+    "Access denied: only administrators can create users";
+pub const RPC_MSG_USER_ADMIN_ONLY_LIST: &str = "Access denied: only administrators can list users";
+pub const RPC_MSG_USER_ADMIN_ONLY_DELETE: &str =
+    "Access denied: only administrators can delete users";
+
+// User management - operation failures
+pub const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
+pub const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
+pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
+pub const RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED: &str = "Failed to verify user deletion safety";
+pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
+pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed";
+
+// Lab operations
+pub const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";
+pub const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
+pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
+
+// Serialization errors
+pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
+
+// Invalid params messages
+pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
+pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";
+pub const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
+    "Invalid params: expected {username: string, password: string}";
+pub const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
+pub const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
+pub const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
+pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
+    "Invalid params: expected ChangePasswordRequest";
+pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
+    "Invalid params: expected GetUserInfoRequest";

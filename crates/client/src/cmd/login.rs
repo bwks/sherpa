@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result};
 use shared::data::{LoginRequest, LoginResponse};
+use shared::util::{emoji_error, emoji_success};
 use std::io::{self, Write};
 use std::time::Duration;
 use uuid::Uuid;
@@ -76,7 +77,7 @@ pub async fn login(server_url: &str) -> Result<()> {
     // Save token
     token::save_token(&login_response.token).context("Failed to save authentication token")?;
 
-    println!("✅ Login successful!");
+    println!("{}", emoji_success("Login successful!"));
     println!("   Username: {}", login_response.username);
     println!(
         "   Admin: {}",
@@ -102,7 +103,7 @@ pub fn logout() -> Result<()> {
     }
 
     token::delete_token().context("Failed to delete authentication token")?;
-    println!("✅ Logged out successfully");
+    println!("{}", emoji_success("Logged out successfully"));
     Ok(())
 }
 
@@ -149,12 +150,12 @@ pub async fn whoami(server_url: &str) -> Result<()> {
         serde_json::from_value(result).context("Failed to parse validation response")?;
 
     if !validate_response.valid {
-        println!("❌ Token is invalid or expired");
+        println!("{}", emoji_error("Token is invalid or expired"));
         println!("   Please run: sherpa login");
         return Ok(());
     }
 
-    println!("✅ Authenticated");
+    println!("{}", emoji_success("Authenticated"));
     if let Some(username) = validate_response.username {
         println!("   Username: {}", username);
     }

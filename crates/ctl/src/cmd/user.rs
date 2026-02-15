@@ -6,6 +6,7 @@ use crate::cmd::cli::OutputFormat;
 use crate::common::rpc::RpcClient;
 use crate::token;
 use shared::data;
+use shared::util::emoji_success;
 
 #[derive(Debug, Subcommand)]
 pub enum UserCommands {
@@ -60,7 +61,14 @@ pub async fn user_commands(
             admin,
             ssh_keys,
         } => {
-            create_user(username, *admin, ssh_keys.clone(), server_url, output_format).await
+            create_user(
+                username,
+                *admin,
+                ssh_keys.clone(),
+                server_url,
+                output_format,
+            )
+            .await
         }
         UserCommands::List => list_users(server_url, output_format).await,
         UserCommands::Delete { username, force } => {
@@ -123,12 +131,9 @@ async fn create_user(
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         OutputFormat::Text => {
-            println!("✅ User created successfully");
+            println!("{}", emoji_success("User created successfully"));
             println!("   Username: {}", response.username);
-            println!(
-                "   Admin: {}",
-                if response.is_admin { "Yes" } else { "No" }
-            );
+            println!("   Admin: {}", if response.is_admin { "Yes" } else { "No" });
         }
     }
 
@@ -226,7 +231,13 @@ async fn delete_user(
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         OutputFormat::Text => {
-            println!("✅ User '{}' deleted successfully", response.username);
+            println!(
+                "{}",
+                emoji_success(&format!(
+                    "User '{}' deleted successfully",
+                    response.username
+                ))
+            );
         }
     }
 
@@ -246,7 +257,7 @@ async fn change_password(
         name.to_string()
     } else {
         // Parse JWT to get current username (simple base64 decode of payload)
-        use base64::{engine::general_purpose, Engine as _};
+        use base64::{Engine as _, engine::general_purpose};
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
             anyhow::bail!("Invalid token format");
@@ -267,11 +278,9 @@ async fn change_password(
     let new_password = if let Ok(env_password) = std::env::var("SHERPA_USER_PASSWORD") {
         env_password
     } else {
-        let password = rpassword::prompt_password(format!(
-            "New password for {}: ",
-            target_username
-        ))
-        .context("Failed to read password")?;
+        let password =
+            rpassword::prompt_password(format!("New password for {}: ", target_username))
+                .context("Failed to read password")?;
         let confirm = rpassword::prompt_password("Confirm new password: ")
             .context("Failed to read password")?;
 
@@ -299,8 +308,11 @@ async fn change_password(
         }
         OutputFormat::Text => {
             println!(
-                "✅ Password changed successfully for user '{}'",
-                response.username
+                "{}",
+                emoji_success(&format!(
+                    "Password changed successfully for user '{}'",
+                    response.username
+                ))
             );
         }
     }
@@ -321,7 +333,7 @@ async fn get_user_info(
         name.to_string()
     } else {
         // Parse JWT to get current username (simple base64 decode of payload)
-        use base64::{engine::general_purpose, Engine as _};
+        use base64::{Engine as _, engine::general_purpose};
         let parts: Vec<&str> = token.split('.').collect();
         if parts.len() != 3 {
             anyhow::bail!("Invalid token format");
@@ -357,10 +369,7 @@ async fn get_user_info(
             let user = response.user;
             println!("\nUser Information:");
             println!("  Username: {}", user.username);
-            println!(
-                "  Admin: {}",
-                if user.is_admin { "Yes" } else { "No" }
-            );
+            println!("  Admin: {}", if user.is_admin { "Yes" } else { "No" });
             println!(
                 "  SSH Keys: {}",
                 if user.ssh_keys.is_empty() {

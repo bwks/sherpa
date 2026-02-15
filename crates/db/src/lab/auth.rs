@@ -37,4 +37,3 @@ pub async fn get_lab_owner_username(db: &Surreal<Client>, lab_id: &str) -> Resul
         .map(|r| r.username)
         .ok_or_else(|| anyhow!("Lab with lab_id not found or owner not found: {}", lab_id))
 }
-

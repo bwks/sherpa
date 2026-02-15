@@ -9,6 +9,22 @@ use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{destroy, inspect, progress, up};
 use shared::data;
+use shared::konst::{
+    RPC_ERROR_ACCESS_DENIED, RPC_ERROR_AUTH_INVALID, RPC_ERROR_AUTH_REQUIRED,
+    RPC_ERROR_INTERNAL, RPC_ERROR_INVALID_PARAMS, RPC_ERROR_METHOD_NOT_FOUND, RPC_ERROR_NOT_FOUND,
+    RPC_ERROR_SERVER, RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN,
+    RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ACCESS_DENIED_OWN_PASSWORD,
+    RPC_MSG_ACCESS_DENIED_SELF_DELETE, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
+    RPC_MSG_AUTH_REQUIRED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CREATE_USER,
+    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
+    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
+    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED,
+    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
+    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
+};
 
 /// Handle incoming RPC request and route to appropriate service
 ///
@@ -39,7 +55,7 @@ pub async fn handle_rpc_request(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32601,
+                    code: RPC_ERROR_METHOD_NOT_FOUND,
                     message: format!("Method '{}' not found", method),
                     context: None,
                 }),
@@ -65,7 +81,7 @@ pub async fn handle_streaming_rpc_request(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32601,
+                    code: RPC_ERROR_METHOD_NOT_FOUND,
                     message: format!("Streaming method '{}' not found", method),
                     context: None,
                 }),
@@ -90,8 +106,8 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -106,8 +122,8 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: 'lab_id' (string) is required".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
                     context: None,
                 }),
             };
@@ -128,9 +144,8 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32403,
-                        message: "Access denied: you do not have permission to access this lab"
-                            .to_string(),
+                        code: RPC_ERROR_ACCESS_DENIED,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
                         context: None,
                     }),
                 };
@@ -142,7 +157,7 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32404,
+                    code: RPC_ERROR_NOT_FOUND,
                     message: format!("Lab not found: {}", lab_id),
                     context: Some(format!("{:?}", e)),
                 }),
@@ -187,8 +202,8 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Inspect operation failed".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_LAB_INSPECT_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }
@@ -209,8 +224,8 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -225,8 +240,8 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: 'lab_id' (string) is required".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
                     context: None,
                 }),
             };
@@ -247,9 +262,8 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32403,
-                        message: "Access denied: you do not have permission to access this lab"
-                            .to_string(),
+                        code: RPC_ERROR_ACCESS_DENIED,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
                         context: None,
                     }),
                 };
@@ -261,7 +275,7 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32404,
+                    code: RPC_ERROR_NOT_FOUND,
                     message: format!("Lab not found: {}", lab_id),
                     context: Some(format!("{:?}", e)),
                 }),
@@ -292,8 +306,8 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -306,8 +320,8 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Destroy operation failed".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_LAB_DESTROY_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }
@@ -347,8 +361,8 @@ async fn handle_up(
             tracing::warn!("Authentication failed for up: {}", e);
             send_error(
                 id,
-                -32401,
-                "Authentication required".to_string(),
+                RPC_ERROR_AUTH_REQUIRED,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
                 Some(format!("{:?}", e)),
             )
             .await;
@@ -362,8 +376,8 @@ async fn handle_up(
         None => {
             send_error(
                 id,
-                -32602,
-                "Invalid params: 'lab_id' (string) is required".to_string(),
+                RPC_ERROR_INVALID_PARAMS,
+                RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
                 None,
             )
             .await;
@@ -376,8 +390,8 @@ async fn handle_up(
         None => {
             send_error(
                 id,
-                -32602,
-                "Invalid params: 'manifest' (object) is required".to_string(),
+                RPC_ERROR_INVALID_PARAMS,
+                RPC_MSG_INVALID_PARAMS_MANIFEST.to_string(),
                 None,
             )
             .await;
@@ -397,8 +411,8 @@ async fn handle_up(
             );
             send_error(
                 id,
-                -32403,
-                "Access denied: you do not have permission to access this lab".to_string(),
+                RPC_ERROR_ACCESS_DENIED,
+                RPC_MSG_ACCESS_DENIED_LAB.to_string(),
                 None,
             )
             .await;
@@ -454,8 +468,8 @@ async fn handle_up(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -468,8 +482,8 @@ async fn handle_up(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Up operation failed".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_LAB_UP_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }
@@ -498,9 +512,8 @@ async fn handle_auth_login(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected {username: string, password: string}"
-                        .to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_LOGIN.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -516,8 +529,8 @@ async fn handle_auth_login(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32001,
-                    message: "Invalid username or password".to_string(),
+                    code: RPC_ERROR_AUTH_INVALID,
+                    message: RPC_MSG_AUTH_INVALID.to_string(),
                     context: None,
                 }),
             };
@@ -558,15 +571,15 @@ async fn handle_auth_login(
                             result: Some(result),
                             error: None,
                         },
-                        Err(e) => ServerMessage::RpcResponse {
-                            id,
-                            result: None,
-                            error: Some(RpcError {
-                                code: -32603,
-                                message: "Failed to serialize response".to_string(),
-                                context: Some(format!("{:?}", e)),
-                            }),
-                        },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
                     }
                 }
                 Err(e) => {
@@ -575,8 +588,8 @@ async fn handle_auth_login(
                         id,
                         result: None,
                         error: Some(RpcError {
-                            code: -32603,
-                            message: "Failed to create authentication token".to_string(),
+                            code: RPC_ERROR_INTERNAL,
+                            message: RPC_MSG_TOKEN_CREATE_FAILED.to_string(),
                             context: Some(format!("{:?}", e)),
                         }),
                     }
@@ -592,8 +605,8 @@ async fn handle_auth_login(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32001,
-                    message: "Invalid username or password".to_string(),
+                    code: RPC_ERROR_AUTH_INVALID,
+                    message: RPC_MSG_AUTH_INVALID.to_string(),
                     context: None,
                 }),
             }
@@ -604,8 +617,8 @@ async fn handle_auth_login(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32603,
-                    message: "Authentication error".to_string(),
+                    code: RPC_ERROR_INTERNAL,
+                    message: RPC_MSG_AUTH_ERROR.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -630,8 +643,8 @@ async fn handle_user_create(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -648,8 +661,8 @@ async fn handle_user_create(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: only administrators can create users".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_USER_ADMIN_ONLY_CREATE.to_string(),
                 context: None,
             }),
         };
@@ -663,8 +676,8 @@ async fn handle_user_create(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected CreateUserRequest".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_CREATE_USER.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -705,8 +718,8 @@ async fn handle_user_create(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -723,8 +736,8 @@ async fn handle_user_create(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Failed to create user".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_USER_CREATE_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -749,8 +762,8 @@ async fn handle_user_list(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -767,8 +780,8 @@ async fn handle_user_list(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: only administrators can list users".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_USER_ADMIN_ONLY_LIST.to_string(),
                 context: None,
             }),
         };
@@ -807,8 +820,8 @@ async fn handle_user_list(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -824,8 +837,8 @@ async fn handle_user_list(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Failed to list users".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_USER_LIST_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -850,8 +863,8 @@ async fn handle_user_delete(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -868,8 +881,8 @@ async fn handle_user_delete(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: only administrators can delete users".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_USER_ADMIN_ONLY_DELETE.to_string(),
                 context: None,
             }),
         };
@@ -883,8 +896,8 @@ async fn handle_user_delete(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected DeleteUserRequest".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_DELETE_USER.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -901,8 +914,8 @@ async fn handle_user_delete(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: cannot delete your own user account".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_ACCESS_DENIED_SELF_DELETE.to_string(),
                 context: None,
             }),
         };
@@ -921,7 +934,7 @@ async fn handle_user_delete(
                         id,
                         result: None,
                         error: Some(RpcError {
-                            code: -32404,
+                            code: RPC_ERROR_NOT_FOUND,
                             message: format!("User not found: {}", request.username),
                             context: None,
                         }),
@@ -940,9 +953,8 @@ async fn handle_user_delete(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32403,
-                        message: "Access denied: cannot delete the last administrator account"
-                            .to_string(),
+                        code: RPC_ERROR_ACCESS_DENIED,
+                        message: RPC_MSG_ACCESS_DENIED_LAST_ADMIN.to_string(),
                         context: None,
                     }),
                 };
@@ -958,8 +970,8 @@ async fn handle_user_delete(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Failed to verify user deletion safety".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -990,8 +1002,8 @@ async fn handle_user_delete(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -1008,8 +1020,8 @@ async fn handle_user_delete(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Failed to delete user".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_USER_DELETE_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -1034,8 +1046,8 @@ async fn handle_user_passwd(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1050,8 +1062,8 @@ async fn handle_user_passwd(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected ChangePasswordRequest".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1069,8 +1081,8 @@ async fn handle_user_passwd(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: you can only change your own password".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_ACCESS_DENIED_OWN_PASSWORD.to_string(),
                 context: None,
             }),
         };
@@ -1084,7 +1096,7 @@ async fn handle_user_passwd(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32404,
+                    code: RPC_ERROR_NOT_FOUND,
                     message: format!("User not found: {}", request.username),
                     context: None,
                 }),
@@ -1106,8 +1118,8 @@ async fn handle_user_passwd(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Password validation failed".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_PASSWORD_VALIDATION_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1142,8 +1154,8 @@ async fn handle_user_passwd(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -1160,8 +1172,8 @@ async fn handle_user_passwd(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32000,
-                    message: "Failed to update password".to_string(),
+                    code: RPC_ERROR_SERVER,
+                    message: RPC_MSG_USER_PASSWORD_UPDATE_FAILED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             }
@@ -1186,8 +1198,8 @@ async fn handle_user_info(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32401,
-                    message: "Authentication required".to_string(),
+                    code: RPC_ERROR_AUTH_REQUIRED,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1202,8 +1214,8 @@ async fn handle_user_info(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected GetUserInfoRequest".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_GET_USER_INFO.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1221,8 +1233,8 @@ async fn handle_user_info(
             id,
             result: None,
             error: Some(RpcError {
-                code: -32403,
-                message: "Access denied: you can only view your own information".to_string(),
+                code: RPC_ERROR_ACCESS_DENIED,
+                message: RPC_MSG_ACCESS_DENIED_OWN_INFO.to_string(),
                 context: None,
             }),
         };
@@ -1257,8 +1269,8 @@ async fn handle_user_info(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -1274,7 +1286,7 @@ async fn handle_user_info(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32404,
+                    code: RPC_ERROR_NOT_FOUND,
                     message: format!("User not found: {}", request.username),
                     context: None,
                 }),
@@ -1299,8 +1311,8 @@ async fn handle_auth_validate(
                 id,
                 result: None,
                 error: Some(RpcError {
-                    code: -32602,
-                    message: "Invalid params: expected {token: string}".to_string(),
+                    code: RPC_ERROR_INVALID_PARAMS,
+                    message: RPC_MSG_INVALID_PARAMS_TOKEN.to_string(),
                     context: Some(format!("{:?}", e)),
                 }),
             };
@@ -1329,8 +1341,8 @@ async fn handle_auth_validate(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },
@@ -1356,8 +1368,8 @@ async fn handle_auth_validate(
                     id,
                     result: None,
                     error: Some(RpcError {
-                        code: -32603,
-                        message: "Failed to serialize response".to_string(),
+                        code: RPC_ERROR_INTERNAL,
+                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
                         context: Some(format!("{:?}", e)),
                     }),
                 },

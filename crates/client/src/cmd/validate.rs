@@ -74,7 +74,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     }
 
     println!();
-    println!("✅ Manifest validation passed!");
+    println!("{}", util::emoji_success("Manifest validation passed!"));
 
     Ok(())
 }
