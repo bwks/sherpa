@@ -37,8 +37,8 @@ pub async fn create_docker_bridge_network(
     };
 
     match docker.create_network(create_request).await {
-        Ok(response) => println!("Container network created: {:?}", response),
-        Err(e) => eprintln!("Error creating container network: {}", e),
+        Ok(response) => tracing::info!(network_name = %name, response = ?response, "Container network created"),
+        Err(e) => tracing::error!(network_name = %name, error = %e, "Error creating container network"),
     }
 
     Ok(())
@@ -85,9 +85,10 @@ pub async fn create_docker_macvlan_network(
             )
         })?;
 
-    println!(
-        "Created Docker macvlan network '{}' on bridge '{}'",
-        network_name, parent_interface
+    tracing::info!(
+        network_name = %network_name,
+        parent_interface = %parent_interface,
+        "Created Docker macvlan network on bridge"
     );
 
     Ok(())

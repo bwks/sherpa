@@ -13,7 +13,7 @@ pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
         .await
         .with_context(|| format!("Error destroying container: {name}"))?;
 
-    println!("Destroyed container: {name}");
+    tracing::info!(container_name = %name, "Destroyed container");
     Ok(())
 }
 

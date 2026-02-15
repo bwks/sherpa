@@ -29,7 +29,7 @@ impl BridgeNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Bridge network created and started");
 
         Ok(())
     }
@@ -62,7 +62,7 @@ impl IsolatedNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Isolated network created and started");
 
         Ok(())
     }
@@ -94,7 +94,7 @@ impl ReservedNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Reserved network created and started");
 
         Ok(())
     }
@@ -136,7 +136,7 @@ impl NatNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, ipv4_address = %self.ipv4_address, "NAT network created and started");
 
         Ok(())
     }

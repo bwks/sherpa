@@ -20,7 +20,7 @@ pub async fn list_images(docker_conn: &Docker) -> Result<()> {
     image_list.sort();
 
     for image in image_list {
-        println!("{image}")
+        tracing::info!(image = %image, "Container image");
     }
 
     Ok(())

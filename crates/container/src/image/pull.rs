@@ -15,7 +15,7 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
 
     let image_location = format!("{}:{}", repo, tag);
 
-    println!("Pulling image: {}", image_location);
+    tracing::info!(image = %image_location, "Pulling container image");
 
     // Specify the image details using the builder
     let options = CreateImageOptionsBuilder::default()
@@ -29,12 +29,12 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
     while let Some(pull_result) = pull_stream.next().await {
         match pull_result {
             Ok(info) => {
-                // Optionally print pull progress
+                // Log pull progress
                 if let Some(status) = info.status {
                     if let Some(progress) = info.progress {
-                        println!("{}: {}", status, progress);
+                        tracing::debug!(status = %status, progress = %progress, "Image pull progress");
                     } else {
-                        println!("{}", status);
+                        tracing::debug!(status = %status, "Image pull progress");
                     }
                 }
             }
@@ -48,8 +48,7 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
         }
     }
 
-    println!("Successfully pulled image: {}", image_location);
-    println!("Image is now available in local Docker daemon");
+    tracing::info!(image = %image_location, "Successfully pulled image, now available in local Docker daemon");
     Ok(())
 }
 
@@ -66,15 +65,15 @@ pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage)
         .build();
 
     // Pull the image
-    println!("Pulling image: {}", image.name);
+    tracing::info!(image_name = %image.name, "Pulling container image");
     let mut pull_stream = docker.create_image(Some(options), None, None);
     while let Some(_pull_result) = pull_stream.next().await {}
 
-    println!("Exporting image: {}", image.name);
+    tracing::debug!(image_name = %image.name, "Exporting container image");
     // Export the image and save as a .tar.gz
     let mut export_stream = docker.export_image(&image_location);
 
-    println!("Saving image to: {}", image_save_location);
+    tracing::debug!(image_name = %image.name, path = %image_save_location, "Saving image to disk");
     let file = tokio::fs::File::create(&image_save_location).await?;
     let mut encoder = GzipEncoder::with_quality(file, Level::Fastest);
 
@@ -84,7 +83,7 @@ pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage)
     }
     encoder.shutdown().await?;
 
-    println!("Image saved to: {}", image_save_location);
+    tracing::info!(image_name = %image.name, path = %image_save_location, "Image saved successfully");
 
     Ok(())
 }

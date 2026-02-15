@@ -83,14 +83,14 @@ pub async fn run_container(
     };
 
     // Create the container
-    println!("Creating container: {name}");
+    tracing::info!(container_name = %name, "Creating container");
     let ContainerCreateResponse { id, .. } = docker
         .create_container(Some(create_opts), config)
         .await
         .with_context(|| format!("Error creating container: {name}"))?;
 
     // Start the container
-    println!("Starting container: {name}");
+    tracing::info!(container_name = %name, "Starting container");
     docker
         .start_container(&id, None::<StartContainerOptions>)
         .await
@@ -121,7 +121,7 @@ pub async fn run_container(
                 )
             })?;
 
-        println!("Connected network {} to container: {name}", attachment.name);
+        tracing::debug!(container_name = %name, network = %attachment.name, "Connected network to container");
     }
 
     // After starting the container:
@@ -130,21 +130,13 @@ pub async fn run_container(
 
     // Get the status
     if let Some(state) = &details.state {
-        println!(
-            "Container status: {}",
-            if let Some(status) = &state.status {
-                status.to_string()
-            } else {
-                "unknown".to_string()
-            }
-        );
-        println!(
-            "Exit code: {}",
-            if let Some(exit_code) = state.exit_code {
-                exit_code.to_string()
-            } else {
-                "unknown".to_string()
-            }
+        let status = state.status.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "unknown".to_string());
+        let exit_code = state.exit_code.unwrap_or(-1);
+        tracing::debug!(
+            container_name = %name,
+            status = %status,
+            exit_code = exit_code,
+            "Container status after creation"
         );
     }
     Ok(())

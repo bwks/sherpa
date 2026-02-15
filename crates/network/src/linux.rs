@@ -31,7 +31,7 @@ async fn enable_link(handle: &Handle, name: &str, index: u32) -> Result<()> {
     msg.header.flags = LinkFlags::Up; // IFF_UP = 1
     msg.header.change_mask = LinkFlags::Up; // change the UP flag
 
-    println!("Enabling link: {name}");
+    tracing::debug!(link_name = %name, "Enabling link");
     handle
         .link()
         .set(msg)
@@ -50,7 +50,7 @@ async fn set_mtu(handle: &Handle, name: &str, mtu: u32) -> Result<()> {
     msg.header.index = index;
     msg.attributes.push(LinkAttribute::Mtu(mtu));
 
-    println!("Setting MTU to {mtu} on: {name}");
+    tracing::debug!(link_name = %name, mtu = mtu, "Setting MTU on link");
     handle
         .link()
         .set(msg)
@@ -71,7 +71,7 @@ async fn set_alias_name(handle: &Handle, name: &str, alias: &str) -> Result<()> 
     msg.attributes
         .push(LinkAttribute::IfAlias(alias.to_string()));
 
-    println!("Setting alias name '{alias}' on bridge: {name}");
+    tracing::debug!(link_name = %name, alias = %alias, "Setting alias name on link");
     handle
         .link()
         .set(msg)
@@ -99,7 +99,7 @@ async fn set_link_properties(
         LinkAttribute::Mtu(mtu),
     ]);
 
-    println!("Setting properties on: {link_name}");
+    tracing::debug!(link_name = %link_name, alias = %link_alias, mtu = mtu, "Setting link properties");
     handle
         .link()
         .set(msg)
@@ -126,7 +126,7 @@ pub async fn create_bridge(name: &str, alias_name: &str) -> Result<()> {
     // 01-80-C2-00-00-02 	Link Aggregation Control Protocol (LACP)
     let mask: u16 = 0xFFF8;
 
-    println!("Creating bridge: {name}");
+    tracing::info!(bridge_name = %name, alias = %alias_name, "Creating bridge");
     handle
         .link()
         .add(LinkBridge::new(name).group_fwd_mask(mask).build())
@@ -150,7 +150,7 @@ pub async fn create_veth_pair(
     let handle = setup_netlink().await?;
 
     // Create veth pair
-    println!("Creating veth pair: {src_name} <--> {dst_name}");
+    tracing::info!(src_name = %src_name, dst_name = %dst_name, "Creating veth pair");
     handle
         .link()
         .add(LinkVeth::new(src_name, dst_name).build())
@@ -193,7 +193,7 @@ pub async fn enslave_to_bridge(int_name: &str, bridge_name: &str) -> Result<()> 
     msg.header.index = veth_link.header.index;
     msg.attributes.push(LinkAttribute::Controller(bridge_idx));
 
-    println!("Enslaving interface: {int_name} to bridge: {bridge_name}");
+    tracing::debug!(interface_name = %int_name, bridge_name = %bridge_name, "Enslaving interface to bridge");
     handle.link().change(msg).execute().await.context(format!(
         "Error setting interface as bridge slave.\n int: {int_name} - bridge: {bridge_name}"
     ))?;
@@ -209,7 +209,7 @@ pub async fn delete_interface(name: &str) -> Result<()> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
 
     if let Some(link) = links.try_next().await? {
-        println!("Deleting interface: {name}");
+        tracing::info!(interface_name = %name, "Deleting interface");
         handle.link().del(link.header.index).execute().await?;
         Ok(())
     } else {

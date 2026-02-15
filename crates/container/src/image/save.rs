@@ -8,7 +8,7 @@ use shared::util::{create_dir, dir_exists};
 /// Save a local container image the ".tmp/" directory.
 pub fn save_container_image(image: &str, version: &str) -> Result<()> {
     let image_name = format!("{image}:{version}");
-    println!("Exporting container image: {image_name}");
+    tracing::info!(image = %image_name, "Exporting container image to temp directory");
     if !dir_exists(TEMP_DIR) {
         create_dir(TEMP_DIR)?;
     }
