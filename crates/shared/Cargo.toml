@@ -13,6 +13,9 @@ shellexpand = "3.1.0"
 anyhow = "1.0.100"
 thiserror = "2.0.17"
 
+# Logging
+tracing = "0.1"
+
 # Encoding/decoding
 base64 = "0.22.1"
 md5 = "0.7.0"

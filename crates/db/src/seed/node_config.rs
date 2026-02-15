@@ -37,15 +37,15 @@ pub async fn seed_node_configs(db: &Surreal<Client>) -> Result<usize> {
                 let after_count = db.select::<Vec<NodeConfig>>("node_config").await?.len();
 
                 if after_count > before_count {
-                    println!("Created node config: {}", config.model);
+                    tracing::debug!(model = %config.model, "Created node config");
                     created_count += 1;
                 } else {
-                    println!("Skipped node config (already exists): {}", config.model);
+                    tracing::debug!(model = %config.model, "Skipped node config (already exists)");
                     skipped_count += 1;
                 }
             }
             Err(e) => {
-                eprintln!("ERROR: Failed to create {}: {}", config.model, e);
+                tracing::error!(model = %config.model, error = %e, "Failed to create node config");
                 return Err(e.context(format!(
                     "Failed to seed node config: {} (created: {}, skipped: {})",
                     config.model, created_count, skipped_count

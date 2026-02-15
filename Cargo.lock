@@ -1318,6 +1318,7 @@ dependencies = [
  "shared",
  "surrealdb",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4597,6 +4598,7 @@ dependencies = [
  "surrealdb",
  "thiserror 2.0.17",
  "toml",
+ "tracing",
  "twox-hash",
 ]
 

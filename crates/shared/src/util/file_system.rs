@@ -1,7 +1,7 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Write};
-use std::os::unix::fs::{PermissionsExt, symlink};
+use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::Path;
 use std::process::Command;
 
@@ -24,14 +24,15 @@ pub fn get_cwd() -> Result<String> {
 pub fn create_dir(dir_path: &str) -> Result<()> {
     fs::create_dir_all(dir_path)
         .with_context(|| format!("Error creating directory: {dir_path}"))?;
-    println!("Directory created: {dir_path}");
+    tracing::debug!(path = %dir_path, "Directory created");
     Ok(())
 }
 
 /// Create a file, expanding ~ if it's passed
 pub fn create_file(file_path: &str, contents: String) -> Result<()> {
+    let size = contents.len();
     fs::write(file_path, contents).with_context(|| format!("Error creating file: {file_path}"))?;
-    println!("File created: {file_path}");
+    tracing::debug!(path = %file_path, size = size, "File created");
     Ok(())
 }
 
@@ -80,7 +81,7 @@ pub fn delete_file(file_path: &str) -> Result<()> {
     let path = expand_path(file_path);
     if file_exists(&path) {
         std::fs::remove_file(&path)?;
-        println!("File deleted: {path}");
+        tracing::debug!(path = %path, "File deleted");
     }
     Ok(())
 }
@@ -89,7 +90,7 @@ pub fn delete_file(file_path: &str) -> Result<()> {
 pub fn delete_dirs(dir_path: &str) -> Result<()> {
     if dir_exists(dir_path) {
         fs::remove_dir_all(dir_path)?;
-        println!("Deleted path: {dir_path}");
+        tracing::debug!(path = %dir_path, "Directory deleted");
     }
     Ok(())
 }
@@ -182,7 +183,7 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
             &src_dir,
         ])
         .status()?;
-    println!("ISO created successfully: {iso_dst}");
+    tracing::debug!(path = %iso_dst, source_dir = %src_dir, "ISO created successfully");
 
     Ok(())
 }
@@ -194,7 +195,7 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
     Command::new("mcopy")
         .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
         .status()?;
-    println!("File copied to DOS image: {dst_image}");
+    tracing::debug!(source = %src_file, image = %dst_image, directory = %dst_dir, "File copied to DOS image");
 
     Ok(())
 }
@@ -207,7 +208,7 @@ pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) 
     let mut cmd = src_files.clone();
     cmd.push(&dst);
     Command::new("e2cp").args(cmd).status()?;
-    println!("File(s) copied to EXT4 image: {dst_image}");
+    tracing::debug!(image = %dst_image, directory = %dst_dir, file_count = src_files.len(), "Files copied to EXT4 image");
 
     Ok(())
 }
@@ -219,7 +220,7 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Command::new("tar")
         .args(["cvzf", dst_path, src_path])
         .status()?;
-    println!("Archive created: {dst_path}");
+    tracing::debug!(source = %src_path, archive = %dst_path, "Archive created");
     Ok(())
 }
 

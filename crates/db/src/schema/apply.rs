@@ -43,7 +43,7 @@ async fn apply_schema_section(
     section_name: &str,
     schema: &str,
 ) -> Result<()> {
-    println!("Creating table: {}", section_name);
+    tracing::debug!(table = %section_name, "Creating database table");
 
     db.query(schema)
         .await
