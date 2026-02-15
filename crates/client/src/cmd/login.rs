@@ -90,6 +90,9 @@ pub async fn login(server_url: &str) -> Result<()> {
     let expires_in_days = expires_in_seconds / 86400;
     println!("   Token expires in: {} days", expires_in_days);
 
+    // Close the WebSocket connection gracefully
+    rpc_client.close().await.ok();
+
     Ok(())
 }
 
@@ -172,6 +175,9 @@ pub async fn whoami(server_url: &str) -> Result<()> {
             println!("   Token has expired");
         }
     }
+
+    // Close the WebSocket connection gracefully
+    rpc_client.close().await.ok();
 
     Ok(())
 }

@@ -23,7 +23,6 @@ pub struct RpcRequest {
 /// JSON-RPC response message
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RpcResponse {
-    pub r#type: String,
     pub id: String,
     pub result: Option<serde_json::Value>,
     pub error: Option<RpcError>,
@@ -60,7 +59,7 @@ impl RpcClient {
         // Connect to WebSocket
         let (mut ws_stream, _) = tokio_tungstenite::connect_async(&self.server_url)
             .await
-            .context("Failed to connect to server")?;
+            .context(format!("Failed to connect to server at {}", self.server_url))?;
 
         // Add token to params if provided
         let mut params_value = serde_json::to_value(&params)
@@ -92,21 +91,43 @@ impl RpcClient {
             .await
             .context("Failed to send RPC request")?;
 
-        // Wait for response with timeout
-        let response_msg = tokio::time::timeout(self.timeout, ws_stream.next())
-            .await
-            .context("Request timed out")?
-            .context("Connection closed")?
-            .context("Failed to receive response")?;
+        // Loop to find the RPC response (skip non-RPC messages like "connected", "ping", etc.)
+        let request_id = request.id.clone();
+        let response_text = loop {
+            let response_msg = tokio::time::timeout(self.timeout, ws_stream.next())
+                .await
+                .context("Request timed out")?
+                .context("Connection closed")?
+                .context("Failed to receive response")?;
 
-        // Parse response
-        let response_text = match response_msg {
-            Message::Text(text) => text,
-            _ => anyhow::bail!("Unexpected message type"),
+            // Parse response
+            let text = match response_msg {
+                Message::Text(text) => text,
+                _ => continue, // Skip non-text messages
+            };
+
+            // Check if this is an RPC response by looking for the "type" field
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                if let Some(msg_type) = value.get("type").and_then(|v| v.as_str()) {
+                    if msg_type == "rpc_response" {
+                        // Check if this is the response to our request
+                        if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+                            if id == request_id {
+                                break text;
+                            } else {
+                                continue; // Skip RPC responses with different IDs
+                            }
+                        }
+                    } else {
+                        continue; // Skip non-RPC messages (connected, ping, log, etc.)
+                    }
+                }
+            }
         };
 
+        // Now parse just the RPC response fields (without the "type" field)
         let response: RpcResponse = serde_json::from_str(&response_text)
-            .context("Failed to parse RPC response")?;
+            .context(format!("Failed to parse RPC response. Raw JSON: {}", response_text))?;
 
         // Check for RPC error
         if let Some(error) = response.error {
@@ -117,6 +138,9 @@ impl RpcClient {
         let result = response.result.context("No result in response")?;
         let typed_result: R = serde_json::from_value(result)
             .context("Failed to deserialize response")?;
+
+        // Gracefully close the WebSocket connection
+        let _ = ws_stream.close(None).await;
 
         Ok(typed_result)
     }
