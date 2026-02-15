@@ -9,6 +9,7 @@ use shared::konst::{
 };
 use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline};
 
+use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Destroy lab via WebSocket RPC to sherpad server
@@ -27,6 +28,17 @@ pub async fn destroy_ws(
         "Destroy environment - {lab_name}-{lab_id} (via WebSocket RPC)"
     ));
 
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{EMOJI_BAD} Authentication required");
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
+        }
+    };
+
     // Phase 1: Inspect lab to show what will be destroyed
     println!("\nFetching lab details...\n");
 
@@ -39,14 +51,14 @@ pub async fn destroy_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
-    // Get current username
-    let username = get_username()?;
+    // Get current username (for display only - server uses token)
+    let _username = get_username()?;
 
     let inspect_request = RpcRequest::new(
         "inspect",
         serde_json::json!({
             "lab_id": lab_id,
-            "username": username.clone(),
+            "token": token.clone(),
         }),
     );
 
@@ -63,6 +75,13 @@ pub async fn destroy_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
+        
+        // Check for authentication errors
+        if error.code == -32401 {
+            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("   Please run: sherpa login");
+        }
+        
         bail!("Failed to inspect lab before destroy");
     }
 
@@ -95,7 +114,7 @@ pub async fn destroy_ws(
         "destroy",
         serde_json::json!({
             "lab_id": lab_id,
-            "username": username,
+            "token": token,
         }),
     );
 
@@ -115,6 +134,13 @@ pub async fn destroy_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
+        
+        // Check for authentication errors
+        if error.code == -32401 {
+            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("   Please run: sherpa login");
+        }
+        
         bail!("Destroy operation failed");
     }
 

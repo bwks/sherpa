@@ -106,8 +106,8 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
             password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
             is_admin: false,
             ssh_keys: vec![],
-            created_at: None,
-            updated_at: None,
+            created_at: surrealdb::sql::Datetime::default(),
+            updated_at: surrealdb::sql::Datetime::default(),
         })
         .await?;
     let user = user.expect("User should be created");

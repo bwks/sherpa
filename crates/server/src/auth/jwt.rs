@@ -4,7 +4,7 @@
 //! The JWT secret is automatically generated on first run and stored securely.
 
 use anyhow::{Context, Result};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use rand::RngCore;
 use shared::auth::jwt::Claims;
 use shared::konst::{JWT_SECRET_PATH, JWT_TOKEN_EXPIRY_SECONDS};

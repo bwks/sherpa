@@ -55,8 +55,18 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 # Logging
 tracing = "0.1"
 
+# Password input
+rpassword = "7.3"
+
+# Time/date handling
+chrono = { version = "0.4", features = ["serde"] }
+
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }
 
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+
+[dev-dependencies]
+tempfile = "3.25.0"
+

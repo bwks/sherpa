@@ -1,3 +1,4 @@
+mod auth;
 mod config;
 mod container;
 mod cpu;
@@ -17,6 +18,8 @@ mod ssh;
 mod up;
 mod user;
 mod ztp;
+
+pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 
 pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};

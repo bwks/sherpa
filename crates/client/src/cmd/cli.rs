@@ -13,6 +13,7 @@ use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
 use super::inspect_ws::inspect_ws;
+use super::login::{login, logout, whoami};
 use super::resume::resume;
 use super::ssh::ssh;
 use super::unikernel::UnikernelCommands;
@@ -46,6 +47,13 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Login to Sherpa server
+    Login,
+    /// Logout from Sherpa server
+    Logout,
+    /// Show current authentication status
+    Whoami,
+
     /// Initialise a Sherpa environment
     Init {
         /// Name of the config file
@@ -165,6 +173,51 @@ impl Cli {
             config_dir,
         };
         match &cli.commands {
+            Commands::Login => {
+                let config = load_config(&sherpa.config_file_path).ok();
+
+                // Resolve server URL (CLI > env > config > default)
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .or_else(|| {
+                        config
+                            .as_ref()
+                            .and_then(|c| c.server_connection.url.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        config
+                            .as_ref()
+                            .map(|c| format!("ws://{}:{}/ws", c.server_ipv4, c.server_port))
+                            .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
+                    });
+
+                login(&server_url).await?;
+            }
+            Commands::Logout => {
+                logout()?;
+            }
+            Commands::Whoami => {
+                let config = load_config(&sherpa.config_file_path).ok();
+
+                // Resolve server URL (CLI > env > config > default)
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .or_else(|| {
+                        config
+                            .as_ref()
+                            .and_then(|c| c.server_connection.url.clone())
+                    })
+                    .unwrap_or_else(|| {
+                        config
+                            .as_ref()
+                            .map(|c| format!("ws://{}:{}/ws", c.server_ipv4, c.server_port))
+                            .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
+                    });
+
+                whoami(&server_url).await?;
+            }
             Commands::Init {
                 config_file,
                 manifest_file,

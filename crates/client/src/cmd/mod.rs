@@ -11,6 +11,7 @@ mod image;
 mod init;
 mod inspect;
 mod inspect_ws;
+mod login;
 mod manifest_processing;
 mod resume;
 mod ssh;

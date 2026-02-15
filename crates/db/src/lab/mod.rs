@@ -1,8 +1,10 @@
+mod auth;
 mod create;
 mod delete;
 mod read;
 mod update;
 
+pub use auth::get_lab_owner_username;
 pub use create::{create_lab, upsert_lab, validate_lab_id};
 pub use delete::{
     delete_lab, delete_lab_by_id, delete_lab_cascade, delete_lab_links, delete_lab_nodes,

@@ -12,6 +12,7 @@ use shared::konst::{
 };
 use shared::util::{get_cwd, get_username, term_msg_surround};
 
+use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Start lab via WebSocket RPC to sherpad server with streaming progress updates
@@ -33,6 +34,17 @@ pub async fn up_ws(
         "Start Lab - {lab_name}-{lab_id} (via WebSocket RPC)"
     ));
 
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{EMOJI_BAD} Authentication required");
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
+        }
+    };
+
     // Load and parse manifest
     println!("\nLoading manifest from: {}\n", manifest_path);
 
@@ -53,16 +65,16 @@ pub async fn up_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
-    // Get current username
-    let username = get_username()?;
+    // Get current username (for display only - server uses token)
+    let _username = get_username()?;
 
-    // Create RPC request
+    // Create RPC request with authentication token
     let up_request = RpcRequest::new(
         "up",
         serde_json::json!({
             "lab_id": lab_id,
             "manifest": manifest_value,
-            "username": username,
+            "token": token,
         }),
     );
 
@@ -102,6 +114,13 @@ pub async fn up_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
+        
+        // Check for authentication errors
+        if error.code == -32401 {
+            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("   Please run: sherpa login");
+        }
+        
         bail!("Lab creation failed");
     }
 

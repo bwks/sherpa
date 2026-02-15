@@ -5,6 +5,7 @@ use shared::data::{Config, InspectResponse};
 use shared::konst::EMOJI_BAD;
 use shared::util::{get_username, term_msg_surround, term_msg_underline};
 
+use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Inspect lab via WebSocket RPC to sherpad server
@@ -18,6 +19,17 @@ pub async fn inspect_ws(
         "Sherpa Environment - {lab_name}-{lab_id} (via WebSocket RPC)"
     ));
 
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{EMOJI_BAD} Authentication required");
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
+        }
+    };
+
     // Create WebSocket client
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
     let ws_client = WebSocketClient::new(server_url.to_string(), timeout);
@@ -29,15 +41,15 @@ pub async fn inspect_ws(
         .await
         .context("Failed to connect to sherpad server")?;
 
-    // Get current username
-    let username = get_username()?;
+    // Get current username (for display purposes only - server uses token)
+    let _username = get_username()?;
 
-    // Create RPC request
+    // Create RPC request with authentication token
     let request = RpcRequest::new(
         "inspect",
         serde_json::json!({
             "lab_id": lab_id,
-            "username": username,
+            "token": token,
         }),
     );
 
@@ -57,6 +69,13 @@ pub async fn inspect_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
+        
+        // Check for authentication errors
+        if error.code == -32401 {
+            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("   Please run: sherpa login");
+        }
+        
         bail!("Inspection failed");
     }
 

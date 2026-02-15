@@ -3,6 +3,7 @@ use shared::auth::password::hash_password;
 use shared::data::DbUser;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use surrealdb::sql::Datetime;
 
 /// Validate username format according to schema constraints
 ///
@@ -75,18 +76,23 @@ pub async fn create_user(
     // Hash the password (this also validates password strength)
     let password_hash = hash_password(password)?;
 
+    // Generate current timestamp using SurrealDB's Datetime type
+    let now = Datetime::default(); // Datetime::default() returns current time
+
+    let db_user = DbUser {
+        id: None,
+        username: username.clone(),
+        password_hash,
+        is_admin,
+        ssh_keys,
+        created_at: now.clone(),
+        updated_at: now,
+    };
+
     // Create user record
     let created: Option<DbUser> = db
         .create("user")
-        .content(DbUser {
-            id: None,
-            username: username.clone(),
-            password_hash,
-            is_admin,
-            ssh_keys,
-            created_at: None, // Database will set this
-            updated_at: None, // Database will set this
-        })
+        .content(db_user)
         .await
         .context(format!("Failed to create user: '{}'", username))?;
 
@@ -141,6 +147,20 @@ pub async fn upsert_user(
     // Hash the password (this also validates password strength)
     let password_hash = hash_password(password)?;
 
+    // Generate current timestamp using SurrealDB's Datetime type
+    let now = Datetime::default(); // Datetime::default() returns current time
+
+    // Check if user exists to preserve created_at
+    let existing_user = db
+        .select::<Option<DbUser>>(("user", username.clone()))
+        .await
+        .ok()
+        .flatten();
+
+    let created_at = existing_user
+        .map(|u| u.created_at)
+        .unwrap_or_else(|| now.clone());
+
     // Upsert using username as the record ID
     let upserted: Option<DbUser> = db
         .upsert(("user", username.clone()))
@@ -150,8 +170,8 @@ pub async fn upsert_user(
             password_hash,
             is_admin,
             ssh_keys,
-            created_at: None,
-            updated_at: None,
+            created_at,
+            updated_at: now,
         })
         .await
         .context(format!("Failed to upsert user '{}'", username))?;

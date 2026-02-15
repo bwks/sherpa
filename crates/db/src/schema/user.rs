@@ -8,8 +8,8 @@
 //! - `password_hash`: Argon2id password hash for authentication
 //! - `is_admin`: Boolean flag indicating admin privileges
 //! - `ssh_keys`: Array of SSH public keys for authentication
-//! - `created_at`: Timestamp when user was created
-//! - `updated_at`: Timestamp of last update
+//! - `created_at`: Timestamp when user was created (set by application)
+//! - `updated_at`: Timestamp of last update (set by application)
 //!
 //! ## Constraints
 //! - Username must be at least 3 characters long
@@ -35,8 +35,8 @@
 ///   - `password_hash`: string containing Argon2id hash
 ///   - `is_admin`: boolean flag for admin privileges (default: false)
 ///   - `ssh_keys`: array of strings (default: empty array)
-///   - `created_at`: datetime timestamp
-///   - `updated_at`: datetime timestamp
+///   - `created_at`: datetime timestamp (set by application on creation)
+///   - `updated_at`: datetime timestamp (set by application on updates)
 /// - **Indexes**:
 ///   - `unique_username`: Ensures username uniqueness
 ///
