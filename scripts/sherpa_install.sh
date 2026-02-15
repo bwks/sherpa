@@ -413,54 +413,117 @@ wait_for_database() {
 }
 
 ################################################################################
-# Install Sherpad Binary
+# Install Binaries
 ################################################################################
 
-install_sherpad_binary() {
-    print_header "Installing Sherpad Binary"
+install_binaries() {
+    print_header "Installing Sherpa Binaries"
     
     # Get the script directory to determine repo root
     SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
     REPO_ROOT="$(dirname "$SCRIPT_DIR")"
     
-    # Binary will be downloaded from GitHub releases
-    # For now, check if binary exists in target/release or target/debug
-    BINARY_SOURCE=""
-    
-    if [ -f "${REPO_ROOT}/target/release/sherpad" ]; then
-        BINARY_SOURCE="${REPO_ROOT}/target/release/sherpad"
-        print_info "Found release binary"
-    elif [ -f "${REPO_ROOT}/target/debug/sherpad" ]; then
-        BINARY_SOURCE="${REPO_ROOT}/target/debug/sherpad"
-        print_warning "Using debug binary (release binary not found)"
-    else
-        print_error "sherpad binary not found"
-        print_error "Expected location: ${REPO_ROOT}/target/release/sherpad"
-        echo ""
-        echo "Please ensure the binary is available. Options:"
-        echo "  1. Build locally: cargo build --release"
-        echo "  2. Download from GitHub releases"
-        echo ""
-        exit 1
-    fi
-    
     # Create bin directory
     print_info "Creating binary directory..."
     mkdir -p "${SHERPA_BASE_DIR}/bin"
     
-    # Copy binary
+    # Install sherpad binary
+    local SHERPAD_SOURCE=""
+    if [ -f "${REPO_ROOT}/target/release/sherpad" ]; then
+        SHERPAD_SOURCE="${REPO_ROOT}/target/release/sherpad"
+        print_info "Found release sherpad binary"
+    elif [ -f "${REPO_ROOT}/target/debug/sherpad" ]; then
+        SHERPAD_SOURCE="${REPO_ROOT}/target/debug/sherpad"
+        print_warning "Using debug sherpad binary (release binary not found)"
+    else
+        print_error "sherpad binary not found"
+        print_error "Expected location: ${REPO_ROOT}/target/release/sherpad"
+        echo ""
+        echo "Please build the binary first: cargo build --release"
+        exit 1
+    fi
+    
     print_info "Installing sherpad binary..."
-    cp "$BINARY_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpad"
+    cp "$SHERPAD_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpad"
     chmod 755 "${SHERPA_BASE_DIR}/bin/sherpad"
     chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpad"
+    print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpad"
     
-    # Verify installation
-    if [ -x "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
-        print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpad"
+    # Install sherpa binary
+    local SHERPA_SOURCE=""
+    if [ -f "${REPO_ROOT}/target/release/sherpa" ]; then
+        SHERPA_SOURCE="${REPO_ROOT}/target/release/sherpa"
+        print_info "Found release sherpa binary"
+    elif [ -f "${REPO_ROOT}/target/debug/sherpa" ]; then
+        SHERPA_SOURCE="${REPO_ROOT}/target/debug/sherpa"
+        print_warning "Using debug sherpa binary (release binary not found)"
     else
+        print_warning "sherpa binary not found - skipping installation"
+        SHERPA_SOURCE=""
+    fi
+    
+    if [ -n "$SHERPA_SOURCE" ]; then
+        print_info "Installing sherpa binary..."
+        cp "$SHERPA_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpa"
+        chmod 755 "${SHERPA_BASE_DIR}/bin/sherpa"
+        chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpa"
+        print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpa"
+    fi
+    
+    # Install sherpactl binary
+    local SHERPACTL_SOURCE=""
+    if [ -f "${REPO_ROOT}/target/release/sherpactl" ]; then
+        SHERPACTL_SOURCE="${REPO_ROOT}/target/release/sherpactl"
+        print_info "Found release sherpactl binary"
+    elif [ -f "${REPO_ROOT}/target/debug/sherpactl" ]; then
+        SHERPACTL_SOURCE="${REPO_ROOT}/target/debug/sherpactl"
+        print_warning "Using debug sherpactl binary (release binary not found)"
+    else
+        print_warning "sherpactl binary not found - skipping installation"
+        SHERPACTL_SOURCE=""
+    fi
+    
+    if [ -n "$SHERPACTL_SOURCE" ]; then
+        print_info "Installing sherpactl binary..."
+        cp "$SHERPACTL_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpactl"
+        chmod 755 "${SHERPA_BASE_DIR}/bin/sherpactl"
+        chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpactl"
+        print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpactl"
+    fi
+    
+    # Create symlinks in /usr/local/bin for all installed binaries
+    print_info "Creating symlinks in /usr/local/bin..."
+    
+    if [ -x "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
+        ln -sf "${SHERPA_BASE_DIR}/bin/sherpad" /usr/local/bin/sherpad
+        print_success "Symlink created: /usr/local/bin/sherpad"
+    fi
+    
+    if [ -x "${SHERPA_BASE_DIR}/bin/sherpa" ]; then
+        ln -sf "${SHERPA_BASE_DIR}/bin/sherpa" /usr/local/bin/sherpa
+        print_success "Symlink created: /usr/local/bin/sherpa"
+    fi
+    
+    if [ -x "${SHERPA_BASE_DIR}/bin/sherpactl" ]; then
+        ln -sf "${SHERPA_BASE_DIR}/bin/sherpactl" /usr/local/bin/sherpactl
+        print_success "Symlink created: /usr/local/bin/sherpactl"
+    fi
+    
+    # Verify installations
+    print_info "Verifying installations..."
+    local verification_failed=0
+    
+    if [ ! -x "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
+        print_error "sherpad binary verification failed"
+        verification_failed=1
+    fi
+    
+    if [ $verification_failed -eq 1 ]; then
         print_error "Binary installation verification failed"
         exit 1
     fi
+    
+    print_success "All binaries installed successfully"
 }
 
 ################################################################################
@@ -696,8 +759,8 @@ main() {
     start_container
     wait_for_database
     
-    # Install sherpad binary and systemd service
-    install_sherpad_binary
+    # Install binaries and systemd service
+    install_binaries
     install_systemd_service
     
     echo ""

@@ -27,6 +27,11 @@ pub async fn handle_rpc_request(
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
         "destroy" => handle_destroy(id, params, state).await,
+        "user.create" => handle_user_create(id, params, state).await,
+        "user.list" => handle_user_list(id, params, state).await,
+        "user.delete" => handle_user_delete(id, params, state).await,
+        "user.passwd" => handle_user_passwd(id, params, state).await,
+        "user.info" => handle_user_info(id, params, state).await,
         // Note: "up" is handled separately via handle_streaming_rpc_request
         _ => {
             // Unknown method
@@ -602,6 +607,676 @@ async fn handle_auth_login(
                     code: -32603,
                     message: "Authentication error".to_string(),
                     context: Some(format!("{:?}", e)),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "user.create" RPC call
+///
+/// Expected params: CreateUserRequest {"username": "string", "password": "string", "is_admin": bool, "ssh_keys": [string], "token": "string"}
+async fn handle_user_create(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.create: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32401,
+                    message: "Authentication required".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Check admin status
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted to create user without admin privileges",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: only administrators can create users".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Parse params into CreateUserRequest
+    let request: data::CreateUserRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: expected CreateUserRequest".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Create user
+    match db::create_user(
+        &state.db,
+        request.username.clone(),
+        &request.password,
+        request.is_admin,
+        request.ssh_keys.unwrap_or_default(),
+    )
+    .await
+    {
+        Ok(user) => {
+            tracing::info!(
+                admin = %auth_ctx.username,
+                new_user = %user.username,
+                is_admin = user.is_admin,
+                "User created successfully"
+            );
+
+            let response = data::CreateUserResponse {
+                success: true,
+                username: user.username,
+                is_admin: user.is_admin,
+            };
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32603,
+                        message: "Failed to serialize response".to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                admin = %auth_ctx.username,
+                username = %request.username,
+                error = %e,
+                "Failed to create user"
+            );
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32000,
+                    message: "Failed to create user".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "user.list" RPC call
+///
+/// Expected params: ListUsersRequest {"token": "string"}
+async fn handle_user_list(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.list: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32401,
+                    message: "Authentication required".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Check admin status
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted to list users without admin privileges",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: only administrators can list users".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // List users
+    match db::list_users(&state.db).await {
+        Ok(users) => {
+            // Convert to UserInfo (strip sensitive data)
+            let user_list: Vec<data::UserInfo> = users
+                .into_iter()
+                .map(|u| data::UserInfo {
+                    username: u.username,
+                    is_admin: u.is_admin,
+                    ssh_keys: u.ssh_keys,
+                    created_at: u.created_at.timestamp(),
+                    updated_at: u.updated_at.timestamp(),
+                })
+                .collect();
+
+            tracing::info!(
+                admin = %auth_ctx.username,
+                count = user_list.len(),
+                "Listed users successfully"
+            );
+
+            let response = data::ListUsersResponse { users: user_list };
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32603,
+                        message: "Failed to serialize response".to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                admin = %auth_ctx.username,
+                error = %e,
+                "Failed to list users"
+            );
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32000,
+                    message: "Failed to list users".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "user.delete" RPC call
+///
+/// Expected params: DeleteUserRequest {"username": "string", "token": "string"}
+async fn handle_user_delete(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.delete: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32401,
+                    message: "Authentication required".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Check admin status
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted to delete user without admin privileges",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: only administrators can delete users".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Parse params into DeleteUserRequest
+    let request: data::DeleteUserRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: expected DeleteUserRequest".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Prevent self-deletion
+    if request.username == auth_ctx.username {
+        tracing::warn!(
+            "User '{}' attempted to delete themselves",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: cannot delete your own user account".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Check if this is the last admin
+    match db::list_users(&state.db).await {
+        Ok(users) => {
+            let admin_count = users.iter().filter(|u| u.is_admin).count();
+            
+            // Get the user to be deleted
+            let user_to_delete = match users.iter().find(|u| u.username == request.username) {
+                Some(u) => u,
+                None => {
+                    return ServerMessage::RpcResponse {
+                        id,
+                        result: None,
+                        error: Some(RpcError {
+                            code: -32404,
+                            message: format!("User not found: {}", request.username),
+                            context: None,
+                        }),
+                    };
+                }
+            };
+
+            // If deleting an admin and this is the last admin, prevent deletion
+            if user_to_delete.is_admin && admin_count <= 1 {
+                tracing::warn!(
+                    admin = %auth_ctx.username,
+                    target = %request.username,
+                    "Attempted to delete last admin user"
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32403,
+                        message: "Access denied: cannot delete the last administrator account"
+                            .to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                admin = %auth_ctx.username,
+                error = %e,
+                "Failed to check admin count before deletion"
+            );
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32000,
+                    message: "Failed to verify user deletion safety".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    }
+
+    // Delete user (cascade delete labs)
+    match db::delete_user_by_username(&state.db, &request.username).await {
+        Ok(_) => {
+            tracing::info!(
+                admin = %auth_ctx.username,
+                deleted_user = %request.username,
+                "User deleted successfully"
+            );
+
+            let response = data::DeleteUserResponse {
+                success: true,
+                username: request.username,
+            };
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32603,
+                        message: "Failed to serialize response".to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                admin = %auth_ctx.username,
+                username = %request.username,
+                error = %e,
+                "Failed to delete user"
+            );
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32000,
+                    message: "Failed to delete user".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "user.passwd" RPC call
+///
+/// Expected params: ChangePasswordRequest {"username": "string", "new_password": "string", "token": "string"}
+async fn handle_user_passwd(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.passwd: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32401,
+                    message: "Authentication required".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Parse params into ChangePasswordRequest
+    let request: data::ChangePasswordRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: expected ChangePasswordRequest".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Check authorization: admin can change any password, regular user only their own
+    if !auth_ctx.is_admin && request.username != auth_ctx.username {
+        tracing::warn!(
+            user = %auth_ctx.username,
+            target = %request.username,
+            "User attempted to change another user's password without admin privileges"
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: you can only change your own password".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Get the user to update
+    let mut user = match db::get_user(&state.db, &request.username).await {
+        Ok(u) => u,
+        Err(_) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32404,
+                    message: format!("User not found: {}", request.username),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    // Hash the new password (this also validates password strength)
+    let new_password_hash = match shared::auth::password::hash_password(&request.new_password) {
+        Ok(hash) => hash,
+        Err(e) => {
+            tracing::warn!(
+                user = %auth_ctx.username,
+                target = %request.username,
+                error = %e,
+                "Password validation failed"
+            );
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Password validation failed".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Update password and updated_at timestamp
+    user.password_hash = new_password_hash;
+    user.updated_at = surrealdb::sql::Datetime::default();
+
+    match db::update_user(&state.db, user).await {
+        Ok(_) => {
+            tracing::info!(
+                user = %auth_ctx.username,
+                target = %request.username,
+                is_admin = auth_ctx.is_admin,
+                "Password changed successfully"
+            );
+
+            let response = data::ChangePasswordResponse {
+                success: true,
+                username: request.username,
+            };
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32603,
+                        message: "Failed to serialize response".to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
+            }
+        }
+        Err(e) => {
+            tracing::error!(
+                user = %auth_ctx.username,
+                target = %request.username,
+                error = %e,
+                "Failed to update password"
+            );
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32000,
+                    message: "Failed to update password".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "user.info" RPC call
+///
+/// Expected params: GetUserInfoRequest {"username": "string", "token": "string"}
+async fn handle_user_info(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.info: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32401,
+                    message: "Authentication required".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Parse params into GetUserInfoRequest
+    let request: data::GetUserInfoRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32602,
+                    message: "Invalid params: expected GetUserInfoRequest".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Check authorization: admin can view any user, regular user only themselves
+    if !auth_ctx.is_admin && request.username != auth_ctx.username {
+        tracing::warn!(
+            user = %auth_ctx.username,
+            target = %request.username,
+            "User attempted to view another user's info without admin privileges"
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: -32403,
+                message: "Access denied: you can only view your own information".to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Get user info
+    match db::get_user(&state.db, &request.username).await {
+        Ok(user) => {
+            tracing::info!(
+                requester = %auth_ctx.username,
+                target = %request.username,
+                "Retrieved user info successfully"
+            );
+
+            let user_info = data::UserInfo {
+                username: user.username,
+                is_admin: user.is_admin,
+                ssh_keys: user.ssh_keys,
+                created_at: user.created_at.timestamp(),
+                updated_at: user.updated_at.timestamp(),
+            };
+
+            let response = data::GetUserInfoResponse { user: user_info };
+
+            match serde_json::to_value(&response) {
+                Ok(result) => ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                },
+                Err(e) => ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32603,
+                        message: "Failed to serialize response".to_string(),
+                        context: Some(format!("{:?}", e)),
+                    }),
+                },
+            }
+        }
+        Err(_) => {
+            tracing::warn!(
+                requester = %auth_ctx.username,
+                target = %request.username,
+                "User not found"
+            );
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: -32404,
+                    message: format!("User not found: {}", request.username),
+                    context: None,
                 }),
             }
         }

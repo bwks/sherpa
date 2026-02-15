@@ -4673,6 +4673,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "sherpactl"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "clap",
+ "futures-util",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "shared",
+ "tokio",
+ "tokio-tungstenite 0.24.0",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "sherpad"
 version = "0.1.0"
 dependencies = [

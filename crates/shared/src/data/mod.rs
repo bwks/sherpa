@@ -17,6 +17,7 @@ mod provider;
 mod ssh;
 mod up;
 mod user;
+mod user_management;
 mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
@@ -51,6 +52,11 @@ pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{NodeInfo, UpError, UpPhase, UpRequest, UpResponse, UpSummary};
 pub use user::User;
+pub use user_management::{
+    ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, CreateUserResponse,
+    DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
+    ListUsersRequest, ListUsersResponse, UserInfo,
+};
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience
