@@ -186,6 +186,10 @@ pub const SHERPAD_LOG_FILE: &str = "sherpad.log";
 pub const SHERPAD_HOST: &str = "127.0.0.1";
 pub const SHERPAD_PORT: u16 = 3030;
 
+// JWT Authentication constants
+pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
+pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
+
 // Emojis
 pub const EMOJI_GOOD: &str = "✅";
 pub const EMOJI_BAD: &str = "❌";

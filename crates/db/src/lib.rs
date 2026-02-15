@@ -44,13 +44,14 @@ pub use link::{
 };
 
 pub use schema::apply_schema;
+pub use seed::admin_user::seed_admin_user;
 pub use seed::node_config::delete_node_configs;
 pub use seed::node_config::seed_node_configs;
 
 // User CRUD operations
 pub use user::{
     count_users, create_user, delete_user, delete_user_by_username, delete_user_safe, get_user,
-    get_user_by_id, list_users, update_user, upsert_user,
+    get_user_by_id, get_user_for_auth, list_users, update_user, upsert_user,
 };
 
 // Bridge CRUD operations

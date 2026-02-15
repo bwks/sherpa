@@ -1,10 +1,7 @@
 use askama::Template;
 
 use shared::data::ZtpRecord;
-use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_DOMAIN_NAME, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_USERNAME,
-};
+use shared::konst::{SHERPA_DOMAIN_NAME, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_USERNAME};
 
 #[derive(Template)]
 #[template(path = "ssh/ssh_config.jinja", ext = "txt")]

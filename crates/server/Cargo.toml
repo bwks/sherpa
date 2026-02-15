@@ -40,6 +40,9 @@ async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 # Random number generator
 rand = "0.8.5"
 
+# Authentication
+jsonwebtoken = "9"
+
 # Templates
 askama = "0.14.0"
 
