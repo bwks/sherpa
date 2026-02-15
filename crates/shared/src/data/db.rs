@@ -7,7 +7,13 @@ use super::BridgeKind;
 pub struct DbUser {
     pub id: Option<RecordId>,
     pub username: String,
+    pub password_hash: String,
+    pub is_admin: bool,
     pub ssh_keys: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

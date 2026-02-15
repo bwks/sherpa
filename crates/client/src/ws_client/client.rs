@@ -1,8 +1,8 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use std::time::Duration;
-use tokio_tungstenite::{connect_async, tungstenite::Message, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
 
 use super::messages::{RpcRequest, RpcResponse};
 
@@ -69,7 +69,8 @@ impl RpcClient {
         let request_id = request.id.clone();
 
         // Serialize and send request
-        let request_json = serde_json::to_string(&request).context("Failed to serialize request")?;
+        let request_json =
+            serde_json::to_string(&request).context("Failed to serialize request")?;
         tracing::debug!("Sending RPC request: {}", request_json);
 
         self.write
@@ -124,7 +125,7 @@ impl RpcClient {
     }
 
     /// Send a streaming RPC request and handle progress updates
-    /// 
+    ///
     /// This method sends an RPC request and processes streaming messages (Status, Log)
     /// before receiving the final RPC response. The callback is invoked for each
     /// progress message received.
@@ -139,7 +140,8 @@ impl RpcClient {
         let request_id = request.id.clone();
 
         // Serialize and send request
-        let request_json = serde_json::to_string(&request).context("Failed to serialize request")?;
+        let request_json =
+            serde_json::to_string(&request).context("Failed to serialize request")?;
         tracing::debug!("Sending streaming RPC request: {}", request_json);
 
         self.write

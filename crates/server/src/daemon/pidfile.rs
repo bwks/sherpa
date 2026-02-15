@@ -1,10 +1,10 @@
-use anyhow::{bail, Context, Result};
-use nix::sys::signal::{kill, Signal};
+use anyhow::{Context, Result, bail};
+use nix::sys::signal::{Signal, kill};
 use nix::unistd::Pid;
 use std::fs;
 use std::path::Path;
 
-use shared::konst::{SHERPAD_PID_FILE, SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR};
+use shared::konst::{SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_PID_FILE};
 
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {

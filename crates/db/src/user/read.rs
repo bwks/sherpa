@@ -145,3 +145,26 @@ pub async fn count_users(db: &Surreal<Client>) -> Result<usize> {
 
     Ok(users.len())
 }
+
+/// Get a user by username for authentication purposes
+///
+/// This is the same as get_user but explicitly named for authentication use cases.
+/// Returns the full user record including password_hash field needed for verification.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `username` - The username to search for
+///
+/// # Returns
+/// The DbUser if found, including password_hash for authentication
+///
+/// # Errors
+/// - If the user is not found
+/// - If there's a database error during the query
+///
+/// # Security Note
+/// This function returns the password hash. Only use it for authentication purposes
+/// and never expose the hash in API responses or logs.
+pub async fn get_user_for_auth(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
+    get_user(db, username).await
+}

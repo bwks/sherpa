@@ -103,7 +103,11 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         .content(DbUser {
             id: None,
             username: unique_username,
+            password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
+            is_admin: false,
             ssh_keys: vec![],
+            created_at: None,
+            updated_at: None,
         })
         .await?;
     let user = user.expect("User should be created");
@@ -142,12 +146,9 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
     let result = delete_node_config(&db, config_id.clone()).await;
 
     // Document the actual behavior
-    if result.is_ok() {
-        // Constraint NOT enforced - deletion succeeded despite reference
-        println!("INFO: Config deletion succeeded despite node reference (SurrealDB limitation)");
-    } else {
+    if let Err(err) = result {
         // Constraint enforced - deletion failed as expected
-        let err = result.unwrap_err();
+        println!("INFO: Config deletion failed as expected: {}", err);
         let err_str = err.to_string();
 
         // Verify error message indicates constraint violation
@@ -162,6 +163,9 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
             "Error should indicate constraint violation, got: {}",
             err_str
         );
+    } else {
+        // Constraint NOT enforced - deletion succeeded despite reference
+        println!("INFO: Config deletion succeeded despite node reference (SurrealDB limitation)");
     }
 
     teardown_db(&db).await?;

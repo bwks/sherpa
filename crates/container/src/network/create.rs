@@ -37,8 +37,12 @@ pub async fn create_docker_bridge_network(
     };
 
     match docker.create_network(create_request).await {
-        Ok(response) => tracing::info!(network_name = %name, response = ?response, "Container network created"),
-        Err(e) => tracing::error!(network_name = %name, error = %e, "Error creating container network"),
+        Ok(response) => {
+            tracing::info!(network_name = %name, response = ?response, "Container network created")
+        }
+        Err(e) => {
+            tracing::error!(network_name = %name, error = %e, "Error creating container network")
+        }
     }
 
     Ok(())

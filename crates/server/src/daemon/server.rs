@@ -2,15 +2,14 @@ use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
 use std::sync::Arc;
-use tracing_subscriber::fmt::time::UtcTime;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::fmt::time::UtcTime;
 
 use crate::api::build_router;
 use crate::api::websocket;
 use crate::daemon::state::AppState;
 use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR,
-    SHERPAD_LOG_FILE,
+    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR, SHERPAD_LOG_FILE,
 };
 use shared::util::load_config;
 
@@ -63,8 +62,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
     let config = load_config(&config_path)
         .context("Failed to load sherpa.toml config - cannot start server")?;
-    
-    tracing::info!("Server will listen on {}:{}", config.server_ipv4, config.server_port);
+
+    tracing::info!(
+        "Server will listen on {}:{}",
+        config.server_ipv4,
+        config.server_port
+    );
 
     // Create application state (includes db, libvirt, docker connections)
     let state = AppState::new(config.clone())
@@ -82,7 +85,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let addr = format!("{}:{}", config.server_ipv4, config.server_port);
     let listener = tokio::net::TcpListener::bind(&addr)
         .await
-        .with_context(|| format!("Failed to bind to {} - ensure the IP address is valid and available", addr))?;
+        .with_context(|| {
+            format!(
+                "Failed to bind to {} - ensure the IP address is valid and available",
+                addr
+            )
+        })?;
 
     tracing::info!("sherpad listening on {}", addr);
 

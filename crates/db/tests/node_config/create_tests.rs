@@ -20,7 +20,7 @@ async fn test_create_and_list_node_configs() -> Result<()> {
     // List all configs
     let all_configs = list_node_configs(&db).await?;
     assert!(
-        all_configs.len() > 0,
+        !all_configs.is_empty(),
         "Should have at least one config after creation"
     );
 

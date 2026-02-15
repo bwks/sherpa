@@ -13,7 +13,7 @@ async fn test_delete_user_success() -> Result<()> {
     let db = setup_db("test_delete_user_success").await?;
 
     // Create a user
-    let user = create_user(&db, "alice".to_string(), vec![]).await?;
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.expect("User should have ID");
 
     // Delete the user
@@ -32,7 +32,7 @@ async fn test_delete_user_success() -> Result<()> {
 async fn test_delete_user_by_username() -> Result<()> {
     let db = setup_db("test_delete_user_by_username").await?;
 
-    create_user(&db, "bob".to_string(), vec![]).await?;
+    create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Delete by username
     delete_user_by_username(&db, "bob").await?;
@@ -86,8 +86,8 @@ async fn test_delete_user_decreases_count() -> Result<()> {
     let db = setup_db("test_delete_user_count").await?;
 
     // Create users
-    create_user(&db, "charlie".to_string(), vec![]).await?;
-    let user2 = create_user(&db, "dave".to_string(), vec![]).await?;
+    create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
+    let user2 = create_user(&db, "dave".to_string(), "TestPass123!", false, vec![]).await?;
 
     let count_before = count_users(&db).await?;
 
@@ -107,7 +107,7 @@ async fn test_delete_user_decreases_count() -> Result<()> {
 async fn test_delete_user_safe_without_labs() -> Result<()> {
     let db = setup_db("test_delete_user_safe_no_labs").await?;
 
-    let user = create_user(&db, "eve".to_string(), vec![]).await?;
+    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.expect("User should have ID");
 
     // Should succeed since user has no labs
@@ -127,7 +127,7 @@ async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
     let db = setup_db("test_delete_user_safe_with_labs").await?;
 
     // Create user and lab
-    let user = create_user(&db, "frank".to_string(), vec![]).await?;
+    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
     create_lab(&db, "test-lab", "lab-0001", &user).await?;
@@ -162,7 +162,7 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
     let db = setup_db("test_delete_user_safe_multiple_labs").await?;
 
     // Create user with multiple labs
-    let user = create_user(&db, "grace".to_string(), vec![]).await?;
+    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
     create_lab(&db, "lab-1", "lab-0001", &user).await?;
@@ -192,7 +192,7 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     use db::delete_lab;
 
     // Create user and lab
-    let user = create_user(&db, "heidi".to_string(), vec![]).await?;
+    let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
     let lab = create_lab(&db, "test-lab", "lab-0001", &user).await?;

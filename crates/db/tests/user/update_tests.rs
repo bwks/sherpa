@@ -10,7 +10,7 @@ async fn test_update_user_success() -> Result<()> {
     let db = setup_db("test_update_user_success").await?;
 
     // Create a user
-    let user = create_user(&db, "alice".to_string(), vec![]).await?;
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Update the user
     let mut updated_user = user.clone();
@@ -36,7 +36,7 @@ async fn test_update_user_ssh_keys() -> Result<()> {
     let db = setup_db("test_update_user_ssh_keys").await?;
 
     let initial_keys = vec!["key1".to_string()];
-    let user = create_user(&db, "bob".to_string(), initial_keys).await?;
+    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, initial_keys).await?;
 
     // Add more keys
     let mut updated_user = user.clone();
@@ -54,7 +54,14 @@ async fn test_update_user_ssh_keys() -> Result<()> {
 async fn test_update_user_remove_all_ssh_keys() -> Result<()> {
     let db = setup_db("test_update_user_remove_keys").await?;
 
-    let user = create_user(&db, "charlie".to_string(), vec!["key1".to_string()]).await?;
+    let user = create_user(
+        &db,
+        "charlie".to_string(),
+        "TestPass123!",
+        false,
+        vec!["key1".to_string()],
+    )
+    .await?;
 
     // Remove all keys
     let mut updated_user = user.clone();
@@ -72,7 +79,7 @@ async fn test_update_user_remove_all_ssh_keys() -> Result<()> {
 async fn test_update_user_without_id_fails() -> Result<()> {
     let db = setup_db("test_update_user_no_id").await?;
 
-    let user = create_user(&db, "dave".to_string(), vec![]).await?;
+    let user = create_user(&db, "dave".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create user without ID
     let mut user_no_id = user.clone();
@@ -103,7 +110,11 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
     let fake_user = DbUser {
         id: Some(RecordId::from(("user", "nonexistent"))),
         username: "fake".to_string(),
+        password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
+        is_admin: false,
         ssh_keys: vec![],
+        created_at: None,
+        updated_at: None,
     };
 
     let result = update_user(&db, fake_user).await;
@@ -125,7 +136,7 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
 async fn test_update_user_preserves_id() -> Result<()> {
     let db = setup_db("test_update_user_preserves_id").await?;
 
-    let user = create_user(&db, "eve".to_string(), vec![]).await?;
+    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let original_id = user.id.clone().unwrap();
 
     // Update user
@@ -145,7 +156,7 @@ async fn test_update_user_preserves_id() -> Result<()> {
 async fn test_update_username() -> Result<()> {
     let db = setup_db("test_update_username").await?;
 
-    let user = create_user(&db, "frank".to_string(), vec![]).await?;
+    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Update username
     let mut updated_user = user.clone();
@@ -173,8 +184,8 @@ async fn test_update_username_conflict_fails() -> Result<()> {
     let db = setup_db("test_update_username_conflict").await?;
 
     // Create two users
-    create_user(&db, "grace".to_string(), vec![]).await?;
-    let user2 = create_user(&db, "heidi".to_string(), vec![]).await?;
+    create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
+    let user2 = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Try to rename user2 to user1's name
     let mut updated_user = user2.clone();

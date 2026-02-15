@@ -9,7 +9,7 @@ use crate::helper::{setup_db, teardown_db};
 async fn test_update_lab_success() -> Result<()> {
     let db = setup_db("test_update_lab").await?;
 
-    let user = create_user(&db, "alice".to_string(), vec![]).await?;
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(&db, "Original Name", "lab-0001", &user).await?;
 
     // Update the lab name
@@ -28,7 +28,7 @@ async fn test_update_lab_success() -> Result<()> {
 async fn test_update_lab_without_id_fails() -> Result<()> {
     let db = setup_db("test_update_no_id").await?;
 
-    let user = create_user(&db, "bob".to_string(), vec![]).await?;
+    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.unwrap();
 
     let lab = DbLab {
@@ -52,7 +52,7 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
 async fn test_update_nonexistent_lab_fails() -> Result<()> {
     let db = setup_db("test_update_nonexistent").await?;
 
-    let user = create_user(&db, "charlie".to_string(), vec![]).await?;
+    let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let fake_id = ("lab", "nonexistent").into();
 
     let lab = DbLab {
@@ -75,7 +75,7 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
 async fn test_update_preserves_id() -> Result<()> {
     let db = setup_db("test_update_preserves_id").await?;
 
-    let user = create_user(&db, "diana".to_string(), vec![]).await?;
+    let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(&db, "Original", "lab-0004", &user).await?;
     let original_id = lab.id.clone();
 
@@ -93,7 +93,7 @@ async fn test_update_preserves_id() -> Result<()> {
 async fn test_update_lab_id() -> Result<()> {
     let db = setup_db("test_update_lab_id").await?;
 
-    let user = create_user(&db, "eve".to_string(), vec![]).await?;
+    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(&db, "Test Lab", "lab-0005", &user).await?;
 
     // Update lab_id (business key)
@@ -115,8 +115,8 @@ async fn test_update_lab_id() -> Result<()> {
 async fn test_update_cannot_change_owner() -> Result<()> {
     let db = setup_db("test_update_owner_immutable").await?;
 
-    let user1 = create_user(&db, "frank".to_string(), vec![]).await?;
-    let user2 = create_user(&db, "grace".to_string(), vec![]).await?;
+    let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
+    let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
 
     let mut lab = create_lab(&db, "Frank's Lab", "lab-0006", &user1).await?;
 
@@ -141,7 +141,7 @@ async fn test_update_cannot_change_owner() -> Result<()> {
 async fn test_update_lab_name_constraint() -> Result<()> {
     let db = setup_db("test_update_name_constraint").await?;
 
-    let user = create_user(&db, "heidi".to_string(), vec![]).await?;
+    let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create two labs
     let mut lab1 = create_lab(&db, "Lab 1", "lab-0007", &user).await?;
@@ -165,7 +165,7 @@ async fn test_update_lab_name_constraint() -> Result<()> {
 async fn test_update_lab_invalid_lab_id() -> Result<()> {
     let db = setup_db("test_update_invalid_lab_id").await?;
 
-    let user = create_user(&db, "ivan".to_string(), vec![]).await?;
+    let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(&db, "Test Lab", "lab-0009", &user).await?;
 
     // Try to update to invalid lab_id

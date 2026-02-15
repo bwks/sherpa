@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::{DeviceInfo, InspectRequest, InspectResponse, LabInfo, NodeKind, NodeModel};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
@@ -49,15 +49,16 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file. Is the lab running?")?;
-    let lab_info = LabInfo::from_str(&lab_file)
-        .context("Failed to parse lab info file")?;
+    let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
 
     // Get lab from database
     let db_lab = db::get_lab(&state.db, lab_id)
         .await
         .context(format!("Lab '{}' not found in database", lab_id))?;
 
-    let lab_record_id = db_lab.id.ok_or_else(|| anyhow::anyhow!("Lab missing record ID"))?;
+    let lab_record_id = db_lab
+        .id
+        .ok_or_else(|| anyhow::anyhow!("Lab missing record ID"))?;
 
     // Get nodes from database
     let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
@@ -76,8 +77,10 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
         .context("Failed to list libvirt domains")?;
 
     // Get storage pool
-    let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)
-        .context(format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL))?;
+    let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(format!(
+        "Failed to find storage pool '{}'",
+        SHERPA_STORAGE_POOL
+    ))?;
 
     // Get DHCP leases for management IPs
     let leases = get_dhcp_leases(&state.config)
@@ -114,9 +117,10 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
 
         if let Some(domain) = domain_found {
             // Check if domain is active
-            device_info.active = domain
-                .is_active()
-                .context(format!("Failed to check if domain '{}' is active", device_name))?;
+            device_info.active = domain.is_active().context(format!(
+                "Failed to check if domain '{}' is active",
+                device_name
+            ))?;
 
             // Get management IP from DHCP leases
             if let Some(lease) = leases.iter().find(|l| l.hostname == node_name) {
@@ -124,9 +128,10 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
             }
 
             // Get disk volumes for this device
-            let volumes = pool
-                .list_volumes()
-                .context(format!("Failed to list volumes in pool '{}'", SHERPA_STORAGE_POOL))?;
+            let volumes = pool.list_volumes().context(format!(
+                "Failed to list volumes in pool '{}'",
+                SHERPA_STORAGE_POOL
+            ))?;
 
             for volume in volumes {
                 if volume.contains(&device_name) {

@@ -203,7 +203,7 @@ pub async fn up(
         validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
         validate::check_link_device(&manifest.nodes, &links_detailed)?;
     };
-    
+
     // Bridge Validators
     if !bridges_detailed.is_empty() {
         validate::check_bridge_device(&manifest.nodes, &bridges_detailed)?;
@@ -1730,13 +1730,13 @@ pub async fn up(
         // }
 
         util::term_msg_underline("Creating SSH Config File");
-        
+
         // Load server config to get server_ipv4
         let config_contents = util::load_file(&sherpa.config_file_path)
             .context("Failed to load sherpa.toml config")?;
-        let config: data::Config = toml::from_str(&config_contents)
-            .context("Failed to parse sherpa.toml config")?;
-        
+        let config: data::Config =
+            toml::from_str(&config_contents).context("Failed to parse sherpa.toml config")?;
+
         let ssh_config_template = template::SshConfigTemplate {
             ztp_records: ztp_records.clone(),
             proxy_user: current_user.clone(),

@@ -139,9 +139,20 @@ pub async fn init(
 
     let ssh_keys = find_user_ssh_keys();
 
-    upsert_user(&db, username.clone(), ssh_keys.clone())
-        .await
-        .context(format!("Failed to create database user '{}'", username))?;
+    // TODO: This init command is being deprecated. User creation will be handled
+    // by admin users via 'sherpa user create' command with proper password input.
+    // For now, use a placeholder password that must be changed.
+    let temp_password = "ChangeMe123!";
+
+    upsert_user(
+        &db,
+        username.clone(),
+        temp_password,
+        false,
+        ssh_keys.clone(),
+    )
+    .await
+    .context(format!("Failed to create database user '{}'", username))?;
 
     if ssh_keys.is_empty() {
         println!("Created database user: {} (no SSH keys found)", username);

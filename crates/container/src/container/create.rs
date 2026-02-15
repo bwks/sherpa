@@ -130,7 +130,11 @@ pub async fn run_container(
 
     // Get the status
     if let Some(state) = &details.state {
-        let status = state.status.as_ref().map(|s| format!("{:?}", s)).unwrap_or_else(|| "unknown".to_string());
+        let status = state
+            .status
+            .as_ref()
+            .map(|s| format!("{:?}", s))
+            .unwrap_or_else(|| "unknown".to_string());
         let exit_code = state.exit_code.unwrap_or(-1);
         tracing::debug!(
             container_name = %name,

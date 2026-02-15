@@ -13,7 +13,7 @@ use crate::helper::{setup_db, teardown_db};
 async fn test_delete_node_success() -> Result<()> {
     let db = setup_db("test_delete_node").await?;
 
-    let user = create_user(&db, "alice".to_string(), vec![]).await?;
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -37,7 +37,7 @@ async fn test_delete_node_success() -> Result<()> {
 async fn test_delete_node_by_id_success() -> Result<()> {
     let db = setup_db("test_delete_node_by_id").await?;
 
-    let user = create_user(&db, "bob".to_string(), vec![]).await?;
+    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0002", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -88,7 +88,7 @@ async fn test_delete_node_nonexistent_fails() -> Result<()> {
 async fn test_delete_node_decrements_count() -> Result<()> {
     let db = setup_db("test_delete_node_count").await?;
 
-    let user = create_user(&db, "charlie".to_string(), vec![]).await?;
+    let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0003", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -128,7 +128,7 @@ async fn test_delete_node_decrements_count() -> Result<()> {
 async fn test_delete_nodes_by_lab_success() -> Result<()> {
     let db = setup_db("test_delete_nodes_by_lab").await?;
 
-    let user = create_user(&db, "diana".to_string(), vec![]).await?;
+    let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0004", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -176,7 +176,7 @@ async fn test_delete_nodes_by_lab_success() -> Result<()> {
 async fn test_delete_nodes_by_lab_only_affects_one_lab() -> Result<()> {
     let db = setup_db("test_delete_nodes_lab_isolation").await?;
 
-    let user = create_user(&db, "emily".to_string(), vec![]).await?;
+    let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0005", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0006", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -225,7 +225,7 @@ async fn test_delete_nodes_by_lab_only_affects_one_lab() -> Result<()> {
 async fn test_delete_node_safe_with_no_links_succeeds() -> Result<()> {
     let db = setup_db("test_delete_node_safe_ok").await?;
 
-    let user = create_user(&db, "frank".to_string(), vec![]).await?;
+    let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0007", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -256,7 +256,7 @@ async fn test_delete_node_safe_with_no_links_succeeds() -> Result<()> {
 async fn test_delete_node_safe_with_links_fails() -> Result<()> {
     let db = setup_db("test_delete_node_safe_fail").await?;
 
-    let user = create_user(&db, "grace".to_string(), vec![]).await?;
+    let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0008", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -318,7 +318,7 @@ async fn test_delete_node_safe_with_links_fails() -> Result<()> {
 async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
     let db = setup_db("test_delete_node_cascade").await?;
 
-    let user = create_user(&db, "hannah".to_string(), vec![]).await?;
+    let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0009", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -378,7 +378,7 @@ async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
 async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
     let db = setup_db("test_delete_node_cascade_multi").await?;
 
-    let user = create_user(&db, "ian".to_string(), vec![]).await?;
+    let user = create_user(&db, "ian".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0010", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 

@@ -1,9 +1,12 @@
 pub mod handlers;
 pub mod websocket;
 
-use axum::{routing::{get, post}, Router};
-use handlers::{lab_up, lab_destroy, lab_inspect};
 use crate::daemon::state::AppState;
+use axum::{
+    Router,
+    routing::{get, post},
+};
+use handlers::{lab_destroy, lab_inspect, lab_up};
 
 /// Build the Axum router with all API routes
 pub fn build_router() -> Router<AppState> {

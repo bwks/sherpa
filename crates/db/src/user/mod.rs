@@ -7,7 +7,7 @@ mod update;
 pub use create::{create_user, upsert_user};
 
 // Public exports - READ operations
-pub use read::{count_users, get_user, get_user_by_id, list_users};
+pub use read::{count_users, get_user, get_user_by_id, get_user_for_auth, list_users};
 
 // Public exports - UPDATE operations
 pub use update::update_user;

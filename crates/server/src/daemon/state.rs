@@ -4,8 +4,8 @@ use libvirt::Qemu;
 use shared::data::Config;
 use shared::konst::{SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER};
 use std::sync::Arc;
-use surrealdb::engine::remote::ws::Client;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 
 use crate::api::websocket::connection::ConnectionRegistry;
 
@@ -35,20 +35,29 @@ impl AppState {
     /// Create a new AppState with all infrastructure connections
     pub async fn new(config: Config) -> Result<Self> {
         // Connect to SurrealDB
-        let db = db::connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME)
-            .await
-            .context("Failed to connect to SurrealDB")?;
+        let db = db::connect(
+            SHERPA_DB_SERVER,
+            SHERPA_DB_PORT,
+            SHERPA_DB_NAMESPACE,
+            SHERPA_DB_NAME,
+        )
+        .await
+        .context("Failed to connect to SurrealDB")?;
 
-        tracing::info!("Connected to SurrealDB at {}:{}", SHERPA_DB_SERVER, SHERPA_DB_PORT);
+        tracing::info!(
+            "Connected to SurrealDB at {}:{}",
+            SHERPA_DB_SERVER,
+            SHERPA_DB_PORT
+        );
 
         // Initialize libvirt client
         let qemu = Qemu::default();
         tracing::info!("Initialized libvirt/QEMU client");
 
         // Initialize Docker client
-        let docker = Docker::connect_with_local_defaults()
-            .context("Failed to connect to Docker daemon")?;
-        
+        let docker =
+            Docker::connect_with_local_defaults().context("Failed to connect to Docker daemon")?;
+
         tracing::info!("Connected to Docker daemon");
 
         Ok(Self {

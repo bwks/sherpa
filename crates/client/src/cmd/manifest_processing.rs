@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 
 use shared::data;
 use shared::konst::BRIDGE_PREFIX;

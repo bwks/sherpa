@@ -1,6 +1,6 @@
 use std::fs;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -38,9 +38,9 @@ use crate::daemon::state::AppState;
 pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<DestroyResponse> {
     let lab_id = &request.lab_id;
     let username = &request.username;
-    
+
     let start_time = std::time::Instant::now();
-    
+
     tracing::info!(
         lab_id = %lab_id,
         username = %username,
@@ -81,11 +81,10 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file. Is the lab running?")?;
-    let lab_info =
-        LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
+    let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
 
     let lab_name = lab_info.name.clone();
-    
+
     tracing::debug!(
         lab_id = %lab_id,
         lab_name = %lab_name,
@@ -169,11 +168,7 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
         }
         Err(e) => {
             summary.database_records_deleted = false;
-            errors.push(DestroyError::new(
-                "database",
-                lab_id,
-                format!("{:?}", e),
-            ));
+            errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
             tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
     }
@@ -205,7 +200,7 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // Determine overall success
     let success = errors.is_empty();
     let total_duration = start_time.elapsed().as_secs();
-    
+
     tracing::info!(
         lab_id = %lab_id,
         lab_name = %lab_name,
@@ -242,18 +237,18 @@ async fn destroy_containers(
             let lab_containers: Vec<_> = containers
                 .iter()
                 .filter(|c| {
-                    c.names
-                        .as_ref()
-                        .map_or(false, |names| names.iter().any(|name| name.contains(lab_id)))
+                    c.names.as_ref().map_or(false, |names| {
+                        names.iter().any(|name| name.contains(lab_id))
+                    })
                 })
                 .collect();
-            
+
             tracing::debug!(
                 lab_id = %lab_id,
                 container_count = lab_containers.len(),
                 "Found containers to destroy"
             );
-            
+
             for container in containers {
                 if let Some(names) = &container.names {
                     // Check if any container name contains the lab_id
@@ -318,8 +313,9 @@ fn destroy_vms_and_disks(
     let domains = qemu_conn
         .list_all_domains(0)
         .context("Failed to list domains")?;
-    let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)
-        .context(format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL))?;
+    let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
+        format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
+    )?;
     let pool_disks = storage_pool
         .list_volumes()
         .context("Failed to list storage volumes")?;
@@ -472,7 +468,9 @@ fn destroy_libvirt_networks(
                 Ok(())
             })() {
                 Ok(_) => {
-                    summary.libvirt_networks_destroyed.push(network_name.clone());
+                    summary
+                        .libvirt_networks_destroyed
+                        .push(network_name.clone());
                     tracing::info!("Destroyed libvirt network: {}", network_name);
                 }
                 Err(e) => {

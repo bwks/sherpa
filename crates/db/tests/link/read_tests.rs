@@ -13,7 +13,7 @@ use crate::helper::{setup_db, teardown_db};
 async fn test_get_link_by_id_success() -> Result<()> {
     let db = setup_db("link_read_get_by_id_success").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -66,7 +66,7 @@ async fn test_get_link_by_id_success() -> Result<()> {
 async fn test_get_link_not_found() -> Result<()> {
     let db = setup_db("link_read_get_not_found").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let _lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
 
     let fake_id = ("link", "nonexistent").into();
@@ -86,7 +86,7 @@ async fn test_get_link_not_found() -> Result<()> {
 async fn test_get_link_by_peers_success() -> Result<()> {
     let db = setup_db("link_read_get_by_peers_success").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -145,7 +145,7 @@ async fn test_get_link_by_peers_success() -> Result<()> {
 async fn test_get_link_by_peers_not_found() -> Result<()> {
     let db = setup_db("link_read_get_by_peers_not_found").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -201,7 +201,7 @@ async fn test_list_links_empty() -> Result<()> {
 async fn test_list_links_returns_all() -> Result<()> {
     let db = setup_db("link_read_list_returns_all").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -275,7 +275,7 @@ async fn test_list_links_returns_all() -> Result<()> {
 async fn test_list_links_by_lab_empty() -> Result<()> {
     let db = setup_db("link_read_list_by_lab_empty").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
 
     let links = list_links_by_lab(&db, lab.id.clone().unwrap()).await?;
@@ -291,7 +291,7 @@ async fn test_list_links_by_lab_empty() -> Result<()> {
 async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
     let db = setup_db("link_read_list_by_lab_filters").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0001", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0002", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -405,7 +405,7 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
 async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
     let db = setup_db("link_read_list_by_node").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -520,7 +520,7 @@ async fn test_count_links_zero() -> Result<()> {
 async fn test_count_links_accurate() -> Result<()> {
     let db = setup_db("link_read_count_accurate").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
@@ -572,7 +572,7 @@ async fn test_count_links_accurate() -> Result<()> {
 async fn test_count_links_by_lab_accurate() -> Result<()> {
     let db = setup_db("link_read_count_by_lab").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0001", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0002", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -694,7 +694,7 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
 async fn test_count_links_by_node_accurate() -> Result<()> {
     let db = setup_db("link_read_count_by_node").await?;
 
-    let user = create_user(&db, "testuser".to_string(), vec![]).await?;
+    let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
     let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 

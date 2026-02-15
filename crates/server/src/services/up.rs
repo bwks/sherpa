@@ -307,7 +307,7 @@ pub async fn up_lab(
     // Get connections from AppState
     let docker_conn = state.docker.clone();
     tracing::info!(lab_id = %lab_id, "Connected to Docker daemon");
-    
+
     let qemu_conn = Arc::new(
         state
             .qemu
@@ -365,7 +365,7 @@ pub async fn up_lab(
         lab_name = %manifest.name,
         "Validating lab manifest"
     );
-    
+
     tracing::debug!(lab_id = %lab_id, node_configs = node_configs.len(), "Fetched node configs from database");
 
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
@@ -385,7 +385,7 @@ pub async fn up_lab(
         bridges = bridges_detailed.len(),
         "Processed manifest structures"
     );
-    
+
     let mut ztp_records = vec![];
 
     for node in &nodes_expanded {
@@ -819,7 +819,7 @@ pub async fn up_lab(
     )?;
 
     tracing::info!(lab_id = %lab_id, "Creating Docker networks for container-connected bridges");
-    
+
     let mut docker_net_count = 0;
     for link_data in &lab_link_data {
         let node_a_data = lab_node_data
@@ -1052,7 +1052,7 @@ pub async fn up_lab(
         vm_count = vm_nodes.len(),
         "Generating VM ZTP configurations and domain templates"
     );
-    
+
     for node in &mut vm_nodes {
         let node_data = get_node_data(&node.name, &node_setup_data)?;
         let node_idx = node_data.index;
@@ -1124,7 +1124,7 @@ pub async fn up_lab(
                 ipv4 = %node_ipv4_address,
                 "Generating VM ZTP configuration"
             );
-            
+
             match node_config.ztp_method {
                 data::ZtpMethod::CloudInit => {
                     progress
@@ -2152,13 +2152,13 @@ pub async fn up_lab(
     if !clone_disks.is_empty() {
         let disk_timer = Instant::now();
         let disk_count = clone_disks.len();
-        
+
         tracing::info!(
             lab_id = %lab_id,
             disk_count = disk_count,
             "Starting disk cloning (parallel)"
         );
-        
+
         progress.send_status(format!("Cloning {} disks in parallel", disk_count))?;
 
         let qemu_conn_arc = Arc::clone(&qemu_conn);
@@ -2174,17 +2174,19 @@ pub async fn up_lab(
 
                 tokio::task::spawn(async move {
                     // Extract node name from disk path (e.g., "router1-abc123-hdd.qcow2" -> "router1-abc123")
-                    let node_name = dst.split('/').last()
+                    let node_name = dst
+                        .split('/')
+                        .last()
                         .and_then(|f| f.strip_suffix("-hdd.qcow2"))
                         .unwrap_or("unknown");
-                    
+
                     tracing::info!(
                         lab_id = %lab_id_task,
                         node_name = %node_name,
                         src = %src,
                         "Cloning disk"
                     );
-                    
+
                     progress_clone.send_status(format!("Cloning disk from: {}", src))?;
 
                     // libvirt operations are synchronous, so we need to use spawn_blocking
@@ -2250,7 +2252,7 @@ pub async fn up_lab(
     if !domains.is_empty() {
         let vm_timer = std::time::Instant::now();
         let vm_count = domains.len();
-        
+
         tracing::info!(
             lab_id = %lab_id,
             vm_count = vm_count,
@@ -2284,7 +2286,7 @@ pub async fn up_lab(
                     let rendered_xml = domain
                         .render()
                         .with_context(|| format!("Failed to render XML for VM: {}", vm_name))?;
-                    
+
                     tracing::debug!(
                         lab_id = %lab_id_clone,
                         vm_name = %vm_name,
@@ -2343,7 +2345,7 @@ pub async fn up_lab(
         data::UpPhase::SshConfig,
         "Generating SSH config".to_string(),
     )?;
-    
+
     tracing::info!(lab_id = %lab_id, "Generating SSH configuration");
 
     // Load server config to get server_ipv4
@@ -2355,7 +2357,7 @@ pub async fn up_lab(
 
     // Use client's username for ProxyJump (same user that initiated the lab creation)
     let proxy_user = current_user;
-    
+
     tracing::debug!(
         lab_id = %lab_id,
         proxy_user = %proxy_user,
@@ -2371,10 +2373,7 @@ pub async fn up_lab(
     };
     let ssh_config_content = ssh_config_template.render()?;
     let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");
-    util::create_file(
-        &ssh_config_path,
-        ssh_config_content.clone(),
-    )?;
+    util::create_file(&ssh_config_path, ssh_config_content.clone())?;
     tracing::info!(
         lab_id = %lab_id,
         config_path = %ssh_config_path,
@@ -2434,7 +2433,7 @@ pub async fn up_lab(
                 });
         }
     }
-    
+
     tracing::info!(
         lab_id = %lab_id,
         container_count = container_link_networks.len(),
@@ -2468,7 +2467,7 @@ pub async fn up_lab(
     ]
     .concat();
     let total_lab_nodes = all_lab_nodes.len();
-    
+
     tracing::info!(
         lab_id = %lab_id,
         total_nodes = total_lab_nodes,
@@ -2484,17 +2483,14 @@ pub async fn up_lab(
         .map(|x| x.name.as_str())
         .collect::<Vec<&str>>()
         .join(", ");
-    
+
     tracing::debug!(
         lab_id = %lab_id,
         nodes = %node_names,
         "Waiting for nodes"
     );
 
-    progress.send_status(format!(
-        "Waiting for nodes: {}",
-        node_names
-    ))?;
+    progress.send_status(format!("Waiting for nodes: {}", node_names))?;
 
     while start_time_readiness.elapsed() < timeout && connected_nodes.len() < total_lab_nodes {
         // Start containers
@@ -2534,7 +2530,7 @@ pub async fn up_lab(
             if let Some(link_networks) = container_link_networks.get(&container.name) {
                 additional_networks.extend_from_slice(link_networks);
             }
-            
+
             tracing::info!(
                 lab_id = %lab_id,
                 node_name = %container.name,
@@ -2544,7 +2540,7 @@ pub async fn up_lab(
                 privileged = privileged,
                 "Starting container"
             );
-            
+
             tracing::debug!(
                 lab_id = %lab_id,
                 node_name = %container.name,
@@ -2633,7 +2629,7 @@ pub async fn up_lab(
     }
 
     let readiness_elapsed = readiness_timer.elapsed().as_secs();
-    
+
     if connected_nodes.len() == total_lab_nodes {
         tracing::info!(
             lab_id = %lab_id,

@@ -11,7 +11,7 @@ use crate::helper::{setup_db, teardown_db};
 async fn test_get_lab_by_lab_id() -> Result<()> {
     let db = setup_db("test_get_lab").await?;
 
-    let user = create_user(&db, "alice".to_string(), vec![]).await?;
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let created = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
 
     let fetched = get_lab(&db, "lab-0001").await?;
@@ -42,7 +42,7 @@ async fn test_get_lab_not_found() -> Result<()> {
 async fn test_get_lab_by_id() -> Result<()> {
     let db = setup_db("test_get_lab_by_id").await?;
 
-    let user = create_user(&db, "bob".to_string(), vec![]).await?;
+    let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let created = create_lab(&db, "Test Lab", "lab-0002", &user).await?;
     let lab_id = created.id.clone().unwrap();
 
@@ -74,7 +74,7 @@ async fn test_get_lab_by_id_not_found() -> Result<()> {
 async fn test_get_lab_by_name_and_user() -> Result<()> {
     let db = setup_db("test_get_lab_by_name_user").await?;
 
-    let user = create_user(&db, "charlie".to_string(), vec![]).await?;
+    let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.as_ref().unwrap().clone();
 
     let created = create_lab(&db, "My Lab", "lab-0003", &user).await?;
@@ -93,7 +93,7 @@ async fn test_get_lab_by_name_and_user() -> Result<()> {
 async fn test_get_lab_by_name_and_user_not_found() -> Result<()> {
     let db = setup_db("test_get_lab_name_user_not_found").await?;
 
-    let user = create_user(&db, "diana".to_string(), vec![]).await?;
+    let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.unwrap();
 
     let result = get_lab_by_name_and_user(&db, "Nonexistent", user_id).await;
@@ -109,7 +109,7 @@ async fn test_get_lab_by_name_and_user_not_found() -> Result<()> {
 async fn test_list_labs() -> Result<()> {
     let db = setup_db("test_list_labs").await?;
 
-    let user = create_user(&db, "eve".to_string(), vec![]).await?;
+    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
 
     create_lab(&db, "Lab 1", "lab-0004", &user).await?;
     create_lab(&db, "Lab 2", "lab-0005", &user).await?;
@@ -141,8 +141,8 @@ async fn test_list_labs_empty() -> Result<()> {
 async fn test_list_labs_by_user() -> Result<()> {
     let db = setup_db("test_list_labs_by_user").await?;
 
-    let user1 = create_user(&db, "frank".to_string(), vec![]).await?;
-    let user2 = create_user(&db, "grace".to_string(), vec![]).await?;
+    let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
+    let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
 
     create_lab(&db, "Frank Lab 1", "lab-0007", &user1).await?;
     create_lab(&db, "Frank Lab 2", "lab-0008", &user1).await?;
@@ -163,7 +163,7 @@ async fn test_list_labs_by_user() -> Result<()> {
 async fn test_list_labs_returns_all_fields() -> Result<()> {
     let db = setup_db("test_list_labs_fields").await?;
 
-    let user = create_user(&db, "heidi".to_string(), vec![]).await?;
+    let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.as_ref().unwrap().clone();
     create_lab(&db, "Complete Lab", "lab-0010", &user).await?;
 
@@ -186,7 +186,7 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
 async fn test_count_labs() -> Result<()> {
     let db = setup_db("test_count_labs").await?;
 
-    let user = create_user(&db, "ivan".to_string(), vec![]).await?;
+    let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
 
     let count_before = count_labs(&db).await?;
     assert_eq!(count_before, 0, "Should start with 0 labs");
@@ -206,8 +206,8 @@ async fn test_count_labs() -> Result<()> {
 async fn test_count_labs_by_user() -> Result<()> {
     let db = setup_db("test_count_labs_by_user").await?;
 
-    let user1 = create_user(&db, "judy".to_string(), vec![]).await?;
-    let user2 = create_user(&db, "karl".to_string(), vec![]).await?;
+    let user1 = create_user(&db, "judy".to_string(), "TestPass123!", false, vec![]).await?;
+    let user2 = create_user(&db, "karl".to_string(), "TestPass123!", false, vec![]).await?;
 
     create_lab(&db, "Judy Lab 1", "lab-0013", &user1).await?;
     create_lab(&db, "Judy Lab 2", "lab-0014", &user1).await?;

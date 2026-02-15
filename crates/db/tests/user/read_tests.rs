@@ -10,7 +10,14 @@ async fn test_get_user_by_username() -> Result<()> {
     let db = setup_db("test_get_user_by_username").await?;
 
     // Create a user
-    create_user(&db, "alice".to_string(), vec!["key1".to_string()]).await?;
+    create_user(
+        &db,
+        "alice".to_string(),
+        "TestPass123!",
+        false,
+        vec!["key1".to_string()],
+    )
+    .await?;
 
     // Get the user
     let user = get_user(&db, "alice").await?;
@@ -48,7 +55,7 @@ async fn test_get_user_by_id() -> Result<()> {
     let db = setup_db("test_get_user_by_id").await?;
 
     // Create a user
-    let created = create_user(&db, "bob".to_string(), vec![]).await?;
+    let created = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = created.id.expect("User should have ID");
 
     // Get by ID
@@ -84,9 +91,9 @@ async fn test_list_users() -> Result<()> {
     let db = setup_db("test_list_users").await?;
 
     // Create multiple users
-    create_user(&db, "alice".to_string(), vec![]).await?;
-    create_user(&db, "bob".to_string(), vec![]).await?;
-    create_user(&db, "charlie".to_string(), vec![]).await?;
+    create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
+    create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
+    create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
 
     let users = list_users(&db).await?;
 
@@ -107,7 +114,14 @@ async fn test_list_users_returns_all_fields() -> Result<()> {
     let db = setup_db("test_list_users_all_fields").await?;
 
     let ssh_keys = vec!["key1".to_string(), "key2".to_string()];
-    create_user(&db, "dave".to_string(), ssh_keys.clone()).await?;
+    create_user(
+        &db,
+        "dave".to_string(),
+        "TestPass123!",
+        false,
+        ssh_keys.clone(),
+    )
+    .await?;
 
     let users = list_users(&db).await?;
     let dave = users.iter().find(|u| u.username == "dave").unwrap();
@@ -128,8 +142,8 @@ async fn test_count_users() -> Result<()> {
     let initial_count = count_users(&db).await?;
 
     // Create users
-    create_user(&db, "alice".to_string(), vec![]).await?;
-    create_user(&db, "bob".to_string(), vec![]).await?;
+    create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
+    create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
 
     let new_count = count_users(&db).await?;
 

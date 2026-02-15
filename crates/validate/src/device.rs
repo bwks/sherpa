@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use topology::Node;
 
@@ -56,10 +56,12 @@ mod tests {
         ];
         let result = check_duplicate_device(&devices);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Manifest - device: 'router1' defined more than once"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Manifest - device: 'router1' defined more than once")
+        );
     }
 
     #[test]

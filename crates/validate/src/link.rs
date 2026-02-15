@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use shared::data::NodeModel;
 use topology::{BridgeDetailed, LinkDetailed, Node};
