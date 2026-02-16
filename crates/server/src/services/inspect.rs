@@ -147,8 +147,6 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
     }
 
     Ok(InspectResponse {
-        lab_name: db_lab.name,
-        lab_id: lab_id.to_string(),
         lab_info,
         devices,
         inactive_devices,

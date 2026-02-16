@@ -3,7 +3,10 @@ use std::time::Duration;
 
 use shared::data::{Config, InspectResponse};
 use shared::error::RpcErrorCode;
-use shared::util::{Emoji, get_username, term_msg_surround, term_msg_underline};
+use shared::util::{
+    Emoji, get_username, render_devices_table, render_lab_info_table, term_msg_surround,
+    term_msg_underline,
+};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -87,21 +90,14 @@ pub async fn inspect_ws(
         serde_json::from_value(result).context("Failed to parse inspect response")?;
 
     // Display results (similar format to original inspect command)
-    term_msg_underline("Lab Info");
-    println!("{}", inspect_data.lab_info);
+    let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
+    println!("{}", lab_info_table);
 
-    // Display active devices
-    for device in &inspect_data.devices {
-        term_msg_underline(&device.name);
-        println!("Model: {}", device.model);
-        println!("Kind: {}", device.kind);
-        println!("Active: {}", device.active);
-        if !device.mgmt_ip.is_empty() {
-            println!("Mgmt IP: {}", device.mgmt_ip);
-        }
-        for disk in &device.disks {
-            println!("Disk: {}", disk);
-        }
+    // Display active devices in table format
+    if !inspect_data.devices.is_empty() {
+        println!();
+        let table = render_devices_table(&inspect_data.devices);
+        println!("{}", table);
     }
 
     // Display inactive devices

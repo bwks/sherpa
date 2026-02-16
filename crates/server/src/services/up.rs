@@ -2694,8 +2694,7 @@ pub async fn up_lab(
 
     let response = data::UpResponse {
         success,
-        lab_id: lab_id.clone(),
-        lab_name: manifest.name.clone(),
+        lab_info: lab_info.clone(),
         total_time_secs: total_time,
         phases_completed: phases_completed.clone(),
         summary: summary.clone(),

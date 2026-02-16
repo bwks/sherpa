@@ -43,7 +43,7 @@ reqwest = "0.11.27"
 askama = "0.14.0"
 
 # Table formatting
-tabled = "0.16"
+tabled = "0.20.0"
 
 # CLI
 clap = { version = "4.5.16", features = ["derive"] }

@@ -3,11 +3,12 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use shared::data::{Config, DestroyResponse, InspectResponse};
+use shared::data::{Config, DestroyResponse, InspectResponse, NodeInfo, NodeState};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline,
+    Emoji, file_exists, get_cwd, get_username, render_lab_info_table, render_nodes_table,
+    term_msg_surround, term_msg_underline,
 };
 
 use crate::token::load_token;
@@ -94,14 +95,36 @@ pub async fn destroy_ws(
         serde_json::from_value(inspect_result).context("Failed to parse inspect response")?;
 
     // Display lab details
-    term_msg_underline("Lab Info");
-    println!("{}", inspect_data.lab_info);
+    let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
+    println!("{}", lab_info_table);
+
+    // Convert DeviceInfo to NodeInfo for table rendering
+    let nodes: Vec<NodeInfo> = inspect_data
+        .devices
+        .iter()
+        .map(|device| NodeInfo {
+            name: device.name.clone(),
+            kind: device.kind.to_string(),
+            model: device.model.clone(),
+            status: if device.active {
+                NodeState::Running
+            } else {
+                NodeState::Stopped
+            },
+            ip_address: if device.mgmt_ip.is_empty() {
+                None
+            } else {
+                Some(device.mgmt_ip.clone())
+            },
+            ssh_port: Some(22), // Default SSH port
+        })
+        .collect();
+
+    if !nodes.is_empty() {
+        println!("\n{}", render_nodes_table(&nodes));
+    }
 
     let device_count = inspect_data.devices.len();
-    println!("\nDevices to destroy: {}", device_count);
-    for device in &inspect_data.devices {
-        println!("  - {} ({})", device.name, device.model);
-    }
 
     // Phase 2: Ask for confirmation
     if !confirm_destroy(lab_name, lab_id, device_count)? {

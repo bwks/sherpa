@@ -10,7 +10,8 @@ use shared::data::{Config, NodeState, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, get_cwd, get_username, render_nodes_table, term_msg_surround, term_msg_underline,
+    Emoji, get_cwd, get_username, render_lab_info_table, render_nodes_table, term_msg_surround,
+    term_msg_underline,
 };
 
 use crate::token::load_token;
@@ -231,23 +232,13 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     println!();
     term_msg_surround("Lab Creation Results");
 
-    // Summary
-    let summary = &response.summary;
-    println!("\nResources Created:");
-    println!("  Containers: {}", summary.containers_created);
-    println!("  VMs: {}", summary.vms_created);
-    println!("  Networks: {}", summary.networks_created);
-    println!("  Bridges: {}", summary.bridges_created);
-    println!("  Interfaces: {}", summary.interfaces_created);
-
-    // Phases completed
-    println!("\nPhases Completed: {}", response.phases_completed.len());
+    // Lab Info
+    let lab_info_table = render_lab_info_table(&response.lab_info);
+    println!("{}", lab_info_table);
 
     // Node information
     if !response.nodes.is_empty() {
-        println!("\nNodes:");
-        let table = render_nodes_table(&response.nodes);
-        println!("{}", table);
+        println!("\n{}", render_nodes_table(&response.nodes));
     }
 
     // Timing

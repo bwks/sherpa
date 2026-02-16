@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::lab::LabInfo;
 use super::node::{NodeModel, NodeState};
 
 /// Request type for starting a lab
@@ -18,8 +19,7 @@ pub struct UpRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpResponse {
     pub success: bool,
-    pub lab_id: String,
-    pub lab_name: String,
+    pub lab_info: LabInfo,
     pub total_time_secs: u64,
     pub phases_completed: Vec<String>,
     pub summary: UpSummary,

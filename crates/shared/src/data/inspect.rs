@@ -15,8 +15,6 @@ pub struct InspectRequest {
 /// Response structure for inspect operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InspectResponse {
-    pub lab_name: String,
-    pub lab_id: String,
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub inactive_devices: Vec<String>,
