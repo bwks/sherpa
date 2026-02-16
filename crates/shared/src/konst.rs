@@ -191,48 +191,6 @@ pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
 
 // ============================================================================
-// JSON-RPC 2.0 Error Codes
-// ============================================================================
-// Standard JSON-RPC 2.0 error codes as defined in the specification
-// https://www.jsonrpc.org/specification#error_object
-
-/// Parse error: Invalid JSON was received by the server.
-pub const RPC_ERROR_PARSE: i32 = -32700;
-
-/// Invalid Request: The JSON sent is not a valid Request object.
-pub const RPC_ERROR_INVALID_REQUEST: i32 = -32600;
-
-/// Method not found: The method does not exist / is not available.
-pub const RPC_ERROR_METHOD_NOT_FOUND: i32 = -32601;
-
-/// Invalid params: Invalid method parameter(s).
-pub const RPC_ERROR_INVALID_PARAMS: i32 = -32602;
-
-/// Internal error: Internal JSON-RPC error.
-pub const RPC_ERROR_INTERNAL: i32 = -32603;
-
-// ============================================================================
-// Application-Specific JSON-RPC Error Codes
-// ============================================================================
-// Implementation-defined server errors (range: -32000 to -32099)
-// As per JSON-RPC 2.0 spec section 5.1
-
-/// Server error: General operation failure or unhandled error.
-pub const RPC_ERROR_SERVER: i32 = -32000;
-
-/// Authentication error: Invalid credentials provided.
-pub const RPC_ERROR_AUTH_INVALID: i32 = -32001;
-
-/// Authentication required: Request requires authentication token.
-pub const RPC_ERROR_AUTH_REQUIRED: i32 = -32002;
-
-/// Access denied: User lacks permission for requested operation.
-pub const RPC_ERROR_ACCESS_DENIED: i32 = -32003;
-
-/// Not found: Requested resource does not exist.
-pub const RPC_ERROR_NOT_FOUND: i32 = -32004;
-
-// ============================================================================
 // JSON-RPC Error Messages
 // ============================================================================
 

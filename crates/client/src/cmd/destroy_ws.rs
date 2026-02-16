@@ -4,6 +4,7 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{Config, DestroyResponse, InspectResponse};
+use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline, Emoji};
 
@@ -75,7 +76,7 @@ pub async fn destroy_ws(
         }
         
         // Check for authentication errors
-        if error.code == -32401 {
+        if error.code == RpcErrorCode::AuthRequired {
             eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }
@@ -134,7 +135,7 @@ pub async fn destroy_ws(
         }
         
         // Check for authentication errors
-        if error.code == -32401 {
+        if error.code == RpcErrorCode::AuthRequired {
             eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }

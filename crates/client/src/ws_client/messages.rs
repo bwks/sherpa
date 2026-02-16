@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use shared::error::RpcErrorCode;
 use uuid::Uuid;
 
 /// RPC request sent from client to server
@@ -21,7 +22,7 @@ pub struct RpcResponse {
 /// RPC error information
 #[derive(Debug, Clone, Deserialize)]
 pub struct RpcError {
-    pub code: i32,
+    pub code: RpcErrorCode,
     pub message: String,
     pub context: Option<String>,
 }

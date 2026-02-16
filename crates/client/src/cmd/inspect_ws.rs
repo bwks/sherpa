@@ -2,6 +2,7 @@ use anyhow::{Context, Result, bail};
 use std::time::Duration;
 
 use shared::data::{Config, InspectResponse};
+use shared::error::RpcErrorCode;
 use shared::util::{get_username, term_msg_surround, term_msg_underline, Emoji};
 
 use crate::token::load_token;
@@ -70,7 +71,7 @@ pub async fn inspect_ws(
         }
         
         // Check for authentication errors
-        if error.code == -32401 {
+        if error.code == RpcErrorCode::AuthRequired {
             eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
+use shared::error::RpcErrorCode;
 use std::time::Duration;
 use uuid::Uuid;
 
@@ -31,7 +32,7 @@ pub struct RpcResponse {
 /// JSON-RPC error
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RpcError {
-    pub code: i32,
+    pub code: RpcErrorCode,
     pub message: String,
     pub context: Option<String>,
 }

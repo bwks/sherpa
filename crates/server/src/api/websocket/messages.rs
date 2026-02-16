@@ -1,12 +1,13 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use shared::error::RpcErrorCode;
 use std::collections::HashMap;
 
 /// RPC error information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RpcError {
     /// JSON-RPC error code
-    pub code: i32,
+    pub code: RpcErrorCode,
     /// Human-readable error message
     pub message: String,
     /// Additional debug context (file:line, stack trace)
@@ -180,7 +181,7 @@ mod tests {
             id: "test-002".to_string(),
             result: None,
             error: Some(RpcError {
-                code: -32603,
+                code: RpcErrorCode::InternalError,
                 message: "Internal error".to_string(),
                 context: Some("file.rs:123".to_string()),
             }),
