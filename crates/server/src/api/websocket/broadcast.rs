@@ -90,7 +90,7 @@ mod tests {
         let message = ServerMessage::Log {
             level: LogLevel::Info,
             message: "Test log".to_string(),
-            timestamp: Utc::now(),
+            timestamp: jiff::Timestamp::now(),
             context: None,
         };
 
