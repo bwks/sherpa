@@ -85,6 +85,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .await
         .context("Failed to initialize application state")?;
 
+    // Clone state for HTTP /cert endpoint before moving into main router
+    let http_state = state.clone();
+
     // Build the router with REST endpoints
     let app = build_router()
         // Add WebSocket route
@@ -124,7 +127,42 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
         tracing::info!("Starting TLS-enabled server on wss://{}", addr);
 
-        // Use axum-server with TLS
+        // Start HTTP-only listener for certificate download endpoint on port + 1
+        // This allows clients to fetch the certificate via HTTP before trusting it
+        let http_port = config.server_port + 1;
+        let http_addr: SocketAddr = format!("{}:{}", config.server_ipv4, http_port)
+            .parse()
+            .context("Invalid HTTP server address")?;
+        
+        tokio::spawn(async move {
+            // Build a minimal router with just the /cert endpoint
+            let http_app = axum::Router::new()
+                .route("/cert", get(crate::api::get_certificate_handler))
+                .with_state(http_state);
+
+            match tokio::net::TcpListener::bind(&http_addr).await {
+                Ok(listener) => {
+                    tracing::info!(
+                        "HTTP certificate endpoint available at http://{}:{}/cert", 
+                        listener.local_addr().unwrap().ip(),
+                        listener.local_addr().unwrap().port()
+                    );
+
+                    if let Err(e) = axum::serve(listener, http_app).await {
+                        tracing::error!("HTTP certificate endpoint server error: {}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to bind HTTP listener on port {} for /cert endpoint: {}. \
+                         Certificate download will not be available.", 
+                        http_port, e
+                    );
+                }
+            }
+        });
+
+        // Use axum-server with TLS for main server
         axum_server::bind_rustls(addr, tls_config)
             .serve(app.into_make_service())
             .await

@@ -45,6 +45,7 @@ futures-util = "0.3.31"
 
 # http client
 reqwest = "0.11.27"
+url = "2.5"
 
 # WebSocket client with TLS support
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -73,6 +74,16 @@ rustls-pki-types = "1.10"
 webpki-roots = "0.26"
 rustls-native-certs = "0.8"
 rustls-pemfile = "2.2"
+
+# Cryptography
+sha2 = "0.10"
+hex = "0.4"
+
+# Certificate parsing
+x509-parser = "0.16"
+
+# Home directory detection
+dirs = "6.0"
 
 [dev-dependencies]
 tempfile = "3.25.0"

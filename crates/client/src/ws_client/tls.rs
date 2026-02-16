@@ -3,10 +3,14 @@ use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use shared::data::ServerConnection;
+use shared::util::{term_msg_surround, term_msg_underline};
 use std::fs::File;
-use std::io::BufReader;
+use std::io::{self, BufReader, Write};
 use std::path::Path;
 use std::sync::Arc;
+
+use crate::cert_fetch::fetch_server_certificate;
+use crate::trust_store::{extract_cert_info, TrustStore};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
@@ -53,6 +57,114 @@ impl TlsConfigBuilder {
             .with_no_client_auth();
 
         Ok(Arc::new(config))
+    }
+
+    /// Build rustls ClientConfig with Trust-On-First-Use flow
+    ///
+    /// This method implements an interactive trust flow for self-signed certificates:
+    /// 1. If insecure mode or custom CA path is set, use existing logic
+    /// 2. Check if certificate exists in trust store
+    /// 3. If not, fetch certificate from server and prompt user to trust it
+    /// 4. Save to trust store if user confirms
+    pub async fn build_with_trust_flow(&self, server_url: &str) -> Result<Arc<ClientConfig>> {
+        // If insecure mode, bypass all validation
+        if self.insecure {
+            tracing::warn!("INSECURE MODE: TLS certificate validation is DISABLED");
+            return Ok(Arc::new(Self::build_insecure()));
+        }
+
+        // If custom CA path provided, use existing logic
+        if let Some(ref ca_path) = self.ca_cert_path {
+            tracing::info!("Using custom CA certificate: {}", ca_path);
+            let ca_cert = Self::load_ca_cert(Path::new(ca_path))
+                .context("Failed to load custom CA certificate")?;
+            
+            let mut root_store = RootCertStore::empty();
+            root_store
+                .add(ca_cert)
+                .context("Failed to add custom CA certificate to root store")?;
+
+            let config = ClientConfig::builder()
+                .with_root_certificates(root_store)
+                .with_no_client_auth();
+
+            return Ok(Arc::new(config));
+        }
+
+        // Initialize trust store
+        let trust_store = TrustStore::new()
+            .context("Failed to initialize certificate trust store")?;
+
+        // Check if certificate already exists in trust store
+        let cert_pem = match trust_store.get_cert(server_url)? {
+            Some(existing_cert) => {
+                tracing::info!("Using trusted certificate for: {}", server_url);
+                existing_cert
+            }
+            None => {
+                // Certificate not in trust store - fetch from server
+                tracing::info!("Certificate not found in trust store, fetching from server...");
+                
+                let fetched_cert = fetch_server_certificate(server_url)
+                    .await
+                    .context("Failed to fetch server certificate")?;
+
+                // Extract certificate info for display
+                let cert_info = extract_cert_info(server_url, &fetched_cert)
+                    .context("Failed to parse certificate information")?;
+
+                // Display certificate information
+                display_certificate_info(&cert_info)?;
+
+                // Prompt user to trust the certificate
+                if !prompt_trust_certificate()? {
+                    anyhow::bail!(
+                        "Certificate not trusted by user.\n\n\
+                         Connection aborted. To bypass certificate validation (not recommended),\n\
+                         use the --insecure flag."
+                    );
+                }
+
+                // Save certificate to trust store
+                trust_store
+                    .save_cert(server_url, &fetched_cert)
+                    .context("Failed to save certificate to trust store")?;
+
+                println!("✅ Certificate saved to trust store");
+                println!();
+
+                fetched_cert
+            }
+        };
+
+        // Load the certificate into a root store
+        let mut root_store = RootCertStore::empty();
+        let cert = Self::load_cert_from_pem(&cert_pem)
+            .context("Failed to parse trusted certificate")?;
+        
+        root_store
+            .add(cert)
+            .context("Failed to add trusted certificate to root store")?;
+
+        let config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        Ok(Arc::new(config))
+    }
+
+    /// Load a certificate from PEM string
+    fn load_cert_from_pem(pem: &str) -> Result<CertificateDer<'static>> {
+        let mut reader = BufReader::new(pem.as_bytes());
+        let mut certs = rustls_pemfile::certs(&mut reader)
+            .collect::<Result<Vec<_>, _>>()
+            .context("Failed to parse certificate from PEM")?;
+
+        if certs.is_empty() {
+            anyhow::bail!("No certificates found in PEM data");
+        }
+
+        Ok(certs.remove(0))
     }
 
     /// Load a CA certificate from file
@@ -128,6 +240,51 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
             rustls::SignatureScheme::ED25519,
         ]
     }
+}
+
+/// Display certificate information to the user in a formatted way
+fn display_certificate_info(cert_info: &crate::trust_store::CertificateInfo) -> Result<()> {
+    println!();
+    term_msg_surround("Certificate Information");
+    println!();
+    println!("  Server:      {}", cert_info.server_url);
+    println!("  Subject:     {}", cert_info.subject);
+    
+    // Show if self-signed
+    if cert_info.subject == cert_info.issuer {
+        println!("  Issuer:      {} (self-signed)", cert_info.issuer);
+    } else {
+        println!("  Issuer:      {}", cert_info.issuer);
+    }
+    
+    println!("  Valid From:  {}", cert_info.valid_from);
+    println!("  Valid To:    {}", cert_info.valid_to);
+    println!();
+    term_msg_underline("Certificate Fingerprint (SHA-256)");
+    println!("  {}", cert_info.fingerprint);
+    println!();
+    println!("⚠️  WARNING: This is the first time connecting to this server.");
+    println!("   Verify the fingerprint matches what you expect to prevent");
+    println!("   man-in-the-middle attacks.");
+    println!();
+    
+    Ok(())
+}
+
+/// Prompt the user to trust a certificate
+///
+/// Returns true if the user confirms trust, false otherwise.
+fn prompt_trust_certificate() -> Result<bool> {
+    print!("Do you trust this certificate? (yes/no): ");
+    io::stdout().flush().context("Failed to flush stdout")?;
+    
+    let mut response = String::new();
+    io::stdin()
+        .read_line(&mut response)
+        .context("Failed to read user input")?;
+    
+    let response = response.trim().to_lowercase();
+    Ok(response == "yes" || response == "y")
 }
 
 #[cfg(test)]

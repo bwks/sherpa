@@ -1,5 +1,7 @@
+mod cert_fetch;
 mod cmd;
 mod token;
+mod trust_store;
 mod ws_client;
 
 use std::process::ExitCode;

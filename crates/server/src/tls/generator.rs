@@ -68,12 +68,23 @@ pub fn generate_self_signed_certificate(
         tracing::debug!("Added default IP SAN: 127.0.0.1");
     }
 
-    // Set validity period - use a simple approach
-    // Not perfect but good enough for self-signed certs
-    let years = validity_days / 365;
-    let remaining_days = (validity_days % 365) as u8;
-    params.not_before = rcgen::date_time_ymd(2024, 1, 1);
-    params.not_after = rcgen::date_time_ymd(2024 + years as i32, 1, 1 + remaining_days);
+    // Set validity period using jiff for time calculation
+    // Note: Timestamp only supports units of hours or smaller, so convert days to hours
+    let now = jiff::Timestamp::now();
+    let validity_hours = (validity_days as i64) * 24;
+    let future = now
+        .checked_add(jiff::Span::new().hours(validity_hours))
+        .context("Failed to calculate certificate expiration date")?;
+
+    // Convert jiff timestamps to time::OffsetDateTime for rcgen
+    // rcgen requires time::OffsetDateTime, so we convert via Unix timestamp
+    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
+        .context("Failed to convert start time to OffsetDateTime")?;
+    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
+        .context("Failed to convert end time to OffsetDateTime")?;
+
+    params.not_before = not_before;
+    params.not_after = not_after;
 
     // Generate certificate
     let cert = params

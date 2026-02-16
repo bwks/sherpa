@@ -40,10 +40,11 @@ impl WebSocketClient {
             // TLS connection with custom configuration
             tracing::debug!("Using secure WebSocket connection (wss://)");
 
-            // Build TLS configuration
+            // Build TLS configuration with trust-on-first-use flow
             let tls_builder = TlsConfigBuilder::new(&self.server_connection);
             let tls_config = tls_builder
-                .build()
+                .build_with_trust_flow(&self.url)
+                .await
                 .context("Failed to build TLS configuration")?;
 
             // Create connector with our TLS config
