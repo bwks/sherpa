@@ -409,6 +409,64 @@ impl NodeKind {
     }
 }
 
+/// Runtime state of a node in the lab lifecycle
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter)]
+#[serde(rename_all = "lowercase")]
+pub enum NodeState {
+    /// Node is running and operational
+    Running,
+
+    /// Node has been created but not yet started
+    Created,
+
+    /// Node is in the process of starting
+    Starting,
+
+    /// Node has been stopped
+    Stopped,
+
+    /// Node failed to start or encountered an error
+    Failed,
+
+    /// Unknown or unrecognized node state
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for NodeState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NodeState::Running => write!(f, "running"),
+            NodeState::Created => write!(f, "created"),
+            NodeState::Starting => write!(f, "starting"),
+            NodeState::Stopped => write!(f, "stopped"),
+            NodeState::Failed => write!(f, "failed"),
+            NodeState::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+impl std::str::FromStr for NodeState {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "running" => Ok(NodeState::Running),
+            "created" => Ok(NodeState::Created),
+            "starting" => Ok(NodeState::Starting),
+            "stopped" => Ok(NodeState::Stopped),
+            "failed" => Ok(NodeState::Failed),
+            _ => Ok(NodeState::Unknown), // Graceful degradation
+        }
+    }
+}
+
+impl NodeState {
+    pub fn to_vec() -> Vec<NodeState> {
+        NodeState::iter().collect()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct NodeConfig {
     pub id: Option<RecordId>,

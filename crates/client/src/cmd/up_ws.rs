@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use shared::data::{Config, UpResponse};
+use shared::data::{Config, NodeState, UpResponse};
 use shared::konst::{
     EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
@@ -237,10 +237,12 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     if !response.nodes.is_empty() {
         println!("\nNodes:");
         for node in &response.nodes {
-            let status_icon = match node.status.as_str() {
-                "running" => EMOJI_GOOD,
-                "created" => EMOJI_WARN,
-                _ => EMOJI_BAD,
+            let status_icon = match node.status {
+                NodeState::Running => EMOJI_GOOD,
+                NodeState::Created => EMOJI_WARN,
+                NodeState::Starting => EMOJI_WARN,
+                NodeState::Stopped => EMOJI_WARN,
+                NodeState::Failed | NodeState::Unknown => EMOJI_BAD,
             };
 
             println!("  {} {} ({})", status_icon, node.name, node.kind);

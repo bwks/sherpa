@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use super::node::NodeState;
+
 /// Request type for starting a lab
 /// Note: manifest is passed as JSON Value to avoid cyclic dependencies
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,7 +45,7 @@ pub struct UpSummary {
 pub struct NodeInfo {
     pub name: String,
     pub kind: String,
-    pub status: String,
+    pub status: NodeState,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ip_address: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -13,6 +13,7 @@ use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 
 use shared::data;
+use shared::data::NodeState;
 use shared::konst::{
     ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
@@ -22,11 +23,11 @@ use shared::konst::{
     CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO,
     CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_DB_NAME,
-    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
+    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BASE_DIR, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE,
+    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
@@ -2576,7 +2577,7 @@ pub async fn up_lab(
             node_info_list.push(data::NodeInfo {
                 name: container.name.clone(),
                 kind: "Container".to_string(),
-                status: "Running".to_string(),
+                status: NodeState::Running,
                 ip_address: mgmt_ipv4,
                 ssh_port: Some(SSH_PORT),
             });
@@ -2605,7 +2606,7 @@ pub async fn up_lab(
                         node_info_list.push(data::NodeInfo {
                             name: vm.name.clone(),
                             kind: "VirtualMachine".to_string(),
-                            status: "Running".to_string(),
+                            status: NodeState::Running,
                             ip_address: Some(vm_data.ipv4_address.to_string()),
                             ssh_port: Some(SSH_PORT),
                         });

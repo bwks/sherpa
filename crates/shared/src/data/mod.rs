@@ -46,7 +46,7 @@ pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, Qemu
 pub use network::{BridgeKind, NetworkV4, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
-    OsVariant, ZtpMethod,
+    NodeState, OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
