@@ -4,10 +4,8 @@ use std::io::{self, Write};
 use std::time::Duration;
 
 use shared::data::{Config, DestroyResponse, InspectResponse};
-use shared::konst::{
-    EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-};
-use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline};
+use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline, Emoji};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -32,7 +30,7 @@ pub async fn destroy_ws(
     let token = match load_token() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("\n{EMOJI_BAD} Authentication required");
+            eprintln!("\n{} Authentication required", Emoji::Error);
             eprintln!("   Please run: sherpa login");
             eprintln!("   Error: {}", e);
             bail!("Authentication token not found");
@@ -69,7 +67,7 @@ pub async fn destroy_ws(
 
     // Handle inspect errors
     if let Some(error) = inspect_response.error {
-        eprintln!("\n{EMOJI_BAD} Server Error:");
+        eprintln!("\n{} Server Error:", Emoji::Error);
         eprintln!("   Message: {}", error.message);
         eprintln!("   Code: {}", error.code);
         if let Some(context) = error.context {
@@ -78,7 +76,7 @@ pub async fn destroy_ws(
         
         // Check for authentication errors
         if error.code == -32401 {
-            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }
         
@@ -103,12 +101,12 @@ pub async fn destroy_ws(
 
     // Phase 2: Ask for confirmation
     if !confirm_destroy(lab_name, lab_id, device_count)? {
-        println!("\n{EMOJI_WARN} Destroy operation cancelled by user");
+        println!("\n{} Destroy operation cancelled by user", Emoji::Warning);
         return Ok(());
     }
 
     // Phase 3: Destroy lab
-    println!("\n{EMOJI_WARN} Destroying lab resources...\n");
+    println!("\n{} Destroying lab resources...\n", Emoji::Warning);
 
     let destroy_request = RpcRequest::new(
         "destroy",
@@ -128,7 +126,7 @@ pub async fn destroy_ws(
 
     // Handle destroy errors
     if let Some(error) = destroy_response.error {
-        eprintln!("\n{EMOJI_BAD} Server Error:");
+        eprintln!("\n{} Server Error:", Emoji::Error);
         eprintln!("   Message: {}", error.message);
         eprintln!("   Code: {}", error.code);
         if let Some(context) = error.context {
@@ -137,7 +135,7 @@ pub async fn destroy_ws(
         
         // Check for authentication errors
         if error.code == -32401 {
-            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }
         
@@ -162,13 +160,13 @@ pub async fn destroy_ws(
                     Ok(_) => {
                         println!(
                             "\n{} Local SSH config deleted: {}",
-                            EMOJI_GOOD, local_ssh_config_path
+                            Emoji::Success, local_ssh_config_path
                         );
                     }
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH config: {}",
-                            EMOJI_WARN, e
+                            Emoji::Warning, e
                         );
                     }
                 }
@@ -178,7 +176,7 @@ pub async fn destroy_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                EMOJI_WARN, e
+                Emoji::Warning, e
             );
         }
     }
@@ -192,13 +190,13 @@ pub async fn destroy_ws(
                     Ok(_) => {
                         println!(
                             "{} Local SSH private key deleted: {}",
-                            EMOJI_GOOD, local_ssh_key_path
+                            Emoji::Success, local_ssh_key_path
                         );
                     }
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH private key: {}",
-                            EMOJI_WARN, e
+                            Emoji::Warning, e
                         );
                     }
                 }
@@ -208,7 +206,7 @@ pub async fn destroy_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                EMOJI_WARN, e
+                Emoji::Warning, e
             );
         }
     }
@@ -218,7 +216,7 @@ pub async fn destroy_ws(
 
 /// Ask user for confirmation before destroying lab
 fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<bool> {
-    println!("\n{EMOJI_WARN} WARNING: This will permanently destroy all lab resources!");
+    println!("\n{} WARNING: This will permanently destroy all lab resources!", Emoji::Warning);
     print!(
         "\nAre you sure you want to destroy lab {}-{} ({} devices)? [y/N]: ",
         lab_name, lab_id, device_count
@@ -241,7 +239,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Containers
     if !summary.containers_destroyed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Containers Destroyed ({})",
+            "{} Containers Destroyed ({})",
+            Emoji::Success,
             summary.containers_destroyed.len()
         ));
         for container in &summary.containers_destroyed {
@@ -251,7 +250,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.containers_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Containers Failed ({})",
+            "{} Containers Failed ({})",
+            Emoji::Error,
             summary.containers_failed.len()
         ));
         for container in &summary.containers_failed {
@@ -263,7 +263,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Virtual Machines
     if !summary.vms_destroyed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Virtual Machines Destroyed ({})",
+            "{} Virtual Machines Destroyed ({})",
+            Emoji::Success,
             summary.vms_destroyed.len()
         ));
         for vm in &summary.vms_destroyed {
@@ -273,7 +274,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.vms_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Virtual Machines Failed ({})",
+            "{} Virtual Machines Failed ({})",
+            Emoji::Error,
             summary.vms_failed.len()
         ));
         for vm in &summary.vms_failed {
@@ -285,7 +287,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Disks
     if !summary.disks_deleted.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Disks Deleted ({})",
+            "{} Disks Deleted ({})",
+            Emoji::Success,
             summary.disks_deleted.len()
         ));
         for disk in &summary.disks_deleted {
@@ -295,7 +298,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.disks_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Disks Failed ({})",
+            "{} Disks Failed ({})",
+            Emoji::Error,
             summary.disks_failed.len()
         ));
         for disk in &summary.disks_failed {
@@ -307,7 +311,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Libvirt Networks
     if !summary.libvirt_networks_destroyed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Libvirt Networks Destroyed ({})",
+            "{} Libvirt Networks Destroyed ({})",
+            Emoji::Success,
             summary.libvirt_networks_destroyed.len()
         ));
         for network in &summary.libvirt_networks_destroyed {
@@ -317,7 +322,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.libvirt_networks_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Libvirt Networks Failed ({})",
+            "{} Libvirt Networks Failed ({})",
+            Emoji::Error,
             summary.libvirt_networks_failed.len()
         ));
         for network in &summary.libvirt_networks_failed {
@@ -329,7 +335,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Docker Networks
     if !summary.docker_networks_destroyed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Docker Networks Destroyed ({})",
+            "{} Docker Networks Destroyed ({})",
+            Emoji::Success,
             summary.docker_networks_destroyed.len()
         ));
         for network in &summary.docker_networks_destroyed {
@@ -339,7 +346,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.docker_networks_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Docker Networks Failed ({})",
+            "{} Docker Networks Failed ({})",
+            Emoji::Error,
             summary.docker_networks_failed.len()
         ));
         for network in &summary.docker_networks_failed {
@@ -351,7 +359,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Interfaces
     if !summary.interfaces_deleted.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_GOOD} Interfaces Deleted ({})",
+            "{} Interfaces Deleted ({})",
+            Emoji::Success,
             summary.interfaces_deleted.len()
         ));
         for interface in &summary.interfaces_deleted {
@@ -361,7 +370,8 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     }
     if !summary.interfaces_failed.is_empty() {
         term_msg_underline(&format!(
-            "{EMOJI_BAD} Interfaces Failed ({})",
+            "{} Interfaces Failed ({})",
+            Emoji::Error,
             summary.interfaces_failed.len()
         ));
         for interface in &summary.interfaces_failed {
@@ -372,20 +382,20 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
 
     // Database and filesystem
     if summary.database_records_deleted {
-        println!("{EMOJI_GOOD} Database: Cleaned");
+        println!("{} Database: Cleaned", Emoji::Success);
     } else {
-        println!("{EMOJI_BAD} Database: Failed to clean");
+        println!("{} Database: Failed to clean", Emoji::Error);
     }
 
     if summary.lab_directory_deleted {
-        println!("{EMOJI_GOOD} Lab Directory: Deleted");
+        println!("{} Lab Directory: Deleted", Emoji::Success);
     } else {
-        println!("{EMOJI_BAD} Lab Directory: Failed to delete");
+        println!("{} Lab Directory: Failed to delete", Emoji::Error);
     }
 
     // Display error details if any
     if !response.errors.is_empty() {
-        println!("\n{EMOJI_WARN} Error Details:\n");
+        println!("\n{} Error Details:\n", Emoji::Warning);
         for error in &response.errors {
             println!(
                 "  {} {}: {}",
@@ -397,15 +407,15 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     // Final status
     if response.success {
         println!(
-            "\n{EMOJI_GOOD} Lab {}-{} destroyed successfully\n",
-            response.lab_name, response.lab_id
+            "\n{} Lab {}-{} destroyed successfully\n",
+            Emoji::Success, response.lab_name, response.lab_id
         );
     } else {
         println!(
-            "\n{EMOJI_WARN} Lab {}-{} partially destroyed - review errors above\n",
-            response.lab_name, response.lab_id
+            "\n{} Lab {}-{} partially destroyed - review errors above\n",
+            Emoji::Warning, response.lab_name, response.lab_id
         );
-        println!("{EMOJI_WARN} Manual cleanup may be required for failed resources\n");
+        println!("{} Manual cleanup may be required for failed resources\n", Emoji::Warning);
     }
 
     Ok(())

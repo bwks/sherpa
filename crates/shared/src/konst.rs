@@ -190,11 +190,6 @@ pub const SHERPAD_PORT: u16 = 3030;
 pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
 
-// Emojis
-pub const EMOJI_GOOD: &str = "✅";
-pub const EMOJI_BAD: &str = "❌";
-pub const EMOJI_WARN: &str = "⚠️";
-
 // ============================================================================
 // JSON-RPC 2.0 Error Codes
 // ============================================================================

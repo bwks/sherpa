@@ -7,10 +7,8 @@ use std::time::Duration;
 use std::os::unix::fs::PermissionsExt;
 
 use shared::data::{Config, NodeState, UpResponse};
-use shared::konst::{
-    EMOJI_BAD, EMOJI_GOOD, EMOJI_WARN, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
-};
-use shared::util::{get_cwd, get_username, term_msg_surround};
+use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::util::{get_cwd, get_username, term_msg_surround, Emoji};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -38,7 +36,7 @@ pub async fn up_ws(
     let token = match load_token() {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("\n{EMOJI_BAD} Authentication required");
+            eprintln!("\n{} Authentication required", Emoji::Error);
             eprintln!("   Please run: sherpa login");
             eprintln!("   Error: {}", e);
             bail!("Authentication token not found");
@@ -108,7 +106,7 @@ pub async fn up_ws(
 
     // Handle errors
     if let Some(error) = up_response.error {
-        eprintln!("\n{EMOJI_BAD} Server Error:");
+        eprintln!("\n{} Server Error:", Emoji::Error);
         eprintln!("   Message: {}", error.message);
         eprintln!("   Code: {}", error.code);
         if let Some(context) = error.context {
@@ -117,7 +115,7 @@ pub async fn up_ws(
         
         // Check for authentication errors
         if error.code == -32401 {
-            eprintln!("\n{EMOJI_BAD} Your authentication token has expired or is invalid");
+            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
             eprintln!("   Please run: sherpa login");
         }
         
@@ -136,13 +134,13 @@ pub async fn up_ws(
                 Ok(_) => {
                     println!(
                         "\n{} SSH config created: {}",
-                        EMOJI_GOOD, local_ssh_config_path
+                        Emoji::Success, local_ssh_config_path
                     );
                 }
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH config: {}",
-                        EMOJI_WARN, e
+                        Emoji::Warning, e
                     );
                 }
             }
@@ -150,7 +148,7 @@ pub async fn up_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                EMOJI_WARN, e
+                Emoji::Warning, e
             );
         }
     }
@@ -170,19 +168,19 @@ pub async fn up_ws(
                         ) {
                             println!(
                                 "\n{} Warning: Failed to set permissions on SSH key: {}",
-                                EMOJI_WARN, e
+                                Emoji::Warning, e
                             );
                         }
                     }
                     println!(
                         "{} SSH private key created: {}",
-                        EMOJI_GOOD, local_ssh_key_path
+                        Emoji::Success, local_ssh_key_path
                     );
                 }
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH private key: {}",
-                        EMOJI_WARN, e
+                        Emoji::Warning, e
                     );
                 }
             }
@@ -190,7 +188,7 @@ pub async fn up_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                EMOJI_WARN, e
+                Emoji::Warning, e
             );
         }
     }
@@ -238,11 +236,11 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
         println!("\nNodes:");
         for node in &response.nodes {
             let status_icon = match node.status {
-                NodeState::Running => EMOJI_GOOD,
-                NodeState::Created => EMOJI_WARN,
-                NodeState::Starting => EMOJI_WARN,
-                NodeState::Stopped => EMOJI_WARN,
-                NodeState::Failed | NodeState::Unknown => EMOJI_BAD,
+                NodeState::Running => Emoji::Success,
+                NodeState::Created => Emoji::Warning,
+                NodeState::Starting => Emoji::Warning,
+                NodeState::Stopped => Emoji::Warning,
+                NodeState::Failed | NodeState::Unknown => Emoji::Error,
             };
 
             println!("  {} {} ({})", status_icon, node.name, node.kind);
@@ -260,12 +258,12 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
 
     // Errors (if any)
     if !response.errors.is_empty() {
-        println!("\n{EMOJI_WARN} Warnings/Errors:");
+        println!("\n{} Warnings/Errors:", Emoji::Warning);
         for error in &response.errors {
             let icon = if error.is_critical {
-                EMOJI_BAD
+                Emoji::Error
             } else {
-                EMOJI_WARN
+                Emoji::Warning
             };
             println!("  {} [{}] {}", icon, error.phase, error.message);
         }
@@ -273,9 +271,9 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
 
     // Final status
     if response.success {
-        println!("\n{EMOJI_GOOD} Lab created successfully!\n");
+        println!("\n{} Lab created successfully!\n", Emoji::Success);
     } else {
-        println!("\n{EMOJI_WARN} Lab partially created - review errors above\n");
+        println!("\n{} Lab partially created - review errors above\n", Emoji::Warning);
     }
 
     Ok(())

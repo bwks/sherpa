@@ -19,7 +19,7 @@ mod user;
 pub use config::{create_config, default_config, load_config};
 pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;
-pub use emoji::{emoji_error, emoji_success, emoji_warning};
+pub use emoji::{Emoji, emoji_error, emoji_success, emoji_warning};
 pub use encode::{base64_encode, base64_encode_file};
 pub use env::get_server_url;
 pub use file_system::{
