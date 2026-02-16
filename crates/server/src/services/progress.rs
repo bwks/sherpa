@@ -1,6 +1,6 @@
 use anyhow::Result;
 use axum::extract::ws::Message;
-use chrono::Utc;
+use jiff::Timestamp;
 use tokio::sync::mpsc;
 
 use crate::api::websocket::messages::{ServerMessage, StatusProgress};
@@ -22,7 +22,7 @@ impl ProgressSender {
     pub fn send_phase(&self, phase: UpPhase, message: String) -> Result<()> {
         let server_msg = ServerMessage::Status {
             message: message.clone(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             phase: Some(phase.as_str().to_string()),
             progress: Some(StatusProgress {
                 current_phase: phase.as_str().to_string(),
@@ -40,7 +40,7 @@ impl ProgressSender {
     pub fn send_status(&self, message: String) -> Result<()> {
         let server_msg = ServerMessage::Status {
             message,
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             phase: None,
             progress: None,
         };

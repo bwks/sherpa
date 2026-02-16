@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use shared::error::RpcErrorCode;
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ pub enum ServerMessage {
     Log {
         level: LogLevel,
         message: String,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
         #[serde(skip_serializing_if = "Option::is_none")]
         context: Option<HashMap<String, String>>,
     },
@@ -31,7 +31,7 @@ pub enum ServerMessage {
     /// Status update
     Status {
         message: String,
-        timestamp: DateTime<Utc>,
+        timestamp: Timestamp,
         #[serde(skip_serializing_if = "Option::is_none")]
         phase: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,7 +122,7 @@ mod tests {
         let msg = ServerMessage::Log {
             level: LogLevel::Info,
             message: "Test log".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             context: None,
         };
 

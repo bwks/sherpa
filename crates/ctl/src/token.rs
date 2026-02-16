@@ -55,6 +55,7 @@ pub fn load_token() -> Result<String> {
 /// - The directory cannot be created
 /// - The file cannot be written
 /// - File permissions cannot be set
+#[allow(dead_code)]
 #[cfg(unix)]
 pub fn save_token(token: &str) -> Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -71,6 +72,7 @@ pub fn save_token(token: &str) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 #[cfg(not(unix))]
 pub fn save_token(token: &str) -> Result<()> {
     let path = token_path()?;
@@ -82,6 +84,7 @@ pub fn save_token(token: &str) -> Result<()> {
 ///
 /// # Errors
 /// Returns an error if the file cannot be deleted
+#[allow(dead_code)]
 pub fn delete_token() -> Result<()> {
     let path = token_path()?;
 
@@ -93,6 +96,7 @@ pub fn delete_token() -> Result<()> {
 }
 
 /// Check if a token file exists
+#[allow(dead_code)]
 pub fn token_exists() -> bool {
     token_path().map(|p| p.exists()).unwrap_or(false)
 }

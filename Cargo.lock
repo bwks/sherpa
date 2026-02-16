@@ -2533,6 +2533,47 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
+name = "jiff"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c867c356cc096b33f4981825ab281ecba3db0acefe60329f044c1789d94c6543"
+dependencies = [
+ "jiff-static",
+ "jiff-tzdb-platform",
+ "log",
+ "portable-atomic",
+ "portable-atomic-util",
+ "serde_core",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "jiff-static"
+version = "0.2.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7946b4325269738f270bb55b3c19ab5c5040525f83fd625259422a9d25d9be5"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.108",
+]
+
+[[package]]
+name = "jiff-tzdb"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "68971ebff725b9e2ca27a601c5eb38a4c5d64422c4cbab0c535f248087eda5c2"
+
+[[package]]
+name = "jiff-tzdb-platform"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
+dependencies = [
+ "jiff-tzdb",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3502,6 +3543,21 @@ dependencies = [
  "pin-project-lite",
  "rustix",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "portable-atomic"
+version = "1.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c33a9471896f1c69cecef8d20cbe2f7accd12527ce60845ff44c153bb2a21b49"
+
+[[package]]
+name = "portable-atomic-util"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7a9db96d7fa8782dd8c15ce32ffe8680bbd1e978a43bf51a34d39483540495f5"
+dependencies = [
+ "portable-atomic",
 ]
 
 [[package]]
@@ -4642,10 +4698,10 @@ dependencies = [
  "argon2",
  "askama",
  "base64 0.22.1",
- "chrono",
  "clap",
  "getifaddrs",
  "ipnet",
+ "jiff",
  "md5",
  "rand 0.8.5",
  "regex",
@@ -4682,12 +4738,12 @@ dependencies = [
  "anyhow",
  "askama",
  "async-compression",
- "chrono",
  "clap",
  "container",
  "db",
  "futures",
  "futures-util",
+ "jiff",
  "libvirt",
  "network",
  "petname",
@@ -4718,9 +4774,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "chrono",
  "clap",
  "futures-util",
+ "jiff",
  "rpassword",
  "serde",
  "serde_json",
@@ -4742,13 +4798,13 @@ dependencies = [
  "axum 0.8.7",
  "axum-extra",
  "bollard",
- "chrono",
  "clap",
  "container",
  "dashmap 6.1.0",
  "db",
  "futures",
  "futures-util",
+ "jiff",
  "jsonwebtoken",
  "libvirt",
  "network",

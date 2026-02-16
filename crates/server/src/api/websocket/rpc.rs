@@ -549,7 +549,7 @@ async fn handle_auth_login(
                 JWT_TOKEN_EXPIRY_SECONDS,
             ) {
                 Ok(token) => {
-                    let expires_at = chrono::Utc::now().timestamp() + JWT_TOKEN_EXPIRY_SECONDS;
+                    let expires_at = jiff::Timestamp::now().as_second() + JWT_TOKEN_EXPIRY_SECONDS;
 
                     let response = data::LoginResponse {
                         token,

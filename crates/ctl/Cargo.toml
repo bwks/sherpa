@@ -30,7 +30,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 rpassword = "7.3"
 
 # Time/date
-chrono = { version = "0.4", features = ["serde"] }
+jiff = { version = "0.2.20", features = ["serde"] }
 
 # Base64 decoding (for JWT)
 base64 = "0.22"

@@ -66,7 +66,7 @@ uuid = { version = "1.11", features = ["v4", "serde"] }
 dashmap = "6.1"
 
 # Timestamps for messages
-chrono = { version = "0.4", features = ["serde"] }
+jiff = { version = "0.2.20", features = ["serde"] }
 
 # http client
 reqwest = "0.11.27"

@@ -174,8 +174,9 @@ async fn list_users(server_url: &str, output_format: &OutputFormat) -> Result<()
                             format!("{} key(s)", user.ssh_keys.len())
                         }
                     );
-                    let created = chrono::DateTime::from_timestamp(user.created_at, 0)
-                        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+                    let created = jiff::Timestamp::from_second(user.created_at)
+                        .ok()
+                        .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
                         .unwrap_or_else(|| "Unknown".to_string());
                     println!("    Created: {}", created);
                     println!();
@@ -389,11 +390,13 @@ async fn get_user_info(
                     println!("    {}. {}", i + 1, key_preview);
                 }
             }
-            let created = chrono::DateTime::from_timestamp(user.created_at, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            let created = jiff::Timestamp::from_second(user.created_at)
+                .ok()
+                .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
-            let updated = chrono::DateTime::from_timestamp(user.updated_at, 0)
-                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S UTC").to_string())
+            let updated = jiff::Timestamp::from_second(user.updated_at)
+                .ok()
+                .map(|ts| ts.strftime("%Y-%m-%d %H:%M:%S UTC").to_string())
                 .unwrap_or_else(|| "Unknown".to_string());
             println!("  Created: {}", created);
             println!("  Updated: {}", updated);

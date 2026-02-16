@@ -66,7 +66,7 @@ pub async fn broadcast_log(registry: &ConnectionRegistry, message: &ServerMessag
 mod tests {
     use super::*;
     use crate::api::websocket::messages::LogLevel;
-    use chrono::Utc;
+    use jiff::Timestamp;
 
     #[tokio::test]
     async fn test_broadcast_to_empty_registry() {
@@ -74,7 +74,7 @@ mod tests {
 
         let message = ServerMessage::Status {
             message: "Test".to_string(),
-            timestamp: Utc::now(),
+            timestamp: Timestamp::now(),
             phase: None,
             progress: None,
         };

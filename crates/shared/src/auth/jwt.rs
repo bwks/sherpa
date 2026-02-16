@@ -35,7 +35,7 @@ impl Claims {
     /// # Returns
     /// A new `Claims` instance with the current time as `iat` and calculated `exp`
     pub fn new(username: String, is_admin: bool, expiry_seconds: i64) -> Self {
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         Self {
             sub: username,
             exp: now + expiry_seconds,
@@ -49,7 +49,7 @@ impl Claims {
     /// # Returns
     /// `true` if the current time is past the expiration time
     pub fn is_expired(&self) -> bool {
-        chrono::Utc::now().timestamp() > self.exp
+        jiff::Timestamp::now().as_second() > self.exp
     }
 }
 
@@ -84,7 +84,7 @@ mod tests {
 
     #[test]
     fn test_claims_expired() {
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let claims = Claims {
             sub: "user".to_string(),
             exp: now - 100, // expired 100 seconds ago

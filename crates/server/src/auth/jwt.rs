@@ -213,7 +213,7 @@ mod tests {
         let secret = b"test_secret_32_bytes_long_enough";
 
         // Create token that's already expired (negative expiry)
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let expired_claims = Claims {
             sub: "user".to_string(),
             exp: now - 100, // Expired 100 seconds ago

@@ -85,7 +85,7 @@ pub async fn login(server_url: &str) -> Result<()> {
     );
 
     // Calculate expiry in human-readable format
-    let now = chrono::Utc::now().timestamp();
+    let now = jiff::Timestamp::now().as_second();
     let expires_in_seconds = login_response.expires_at - now;
     let expires_in_days = expires_in_seconds / 86400;
     println!("   Token expires in: {} days", expires_in_days);
@@ -166,7 +166,7 @@ pub async fn whoami(server_url: &str) -> Result<()> {
         println!("   Admin: {}", if is_admin { "Yes" } else { "No" });
     }
     if let Some(expires_at) = validate_response.expires_at {
-        let now = chrono::Utc::now().timestamp();
+        let now = jiff::Timestamp::now().as_second();
         let expires_in_seconds = expires_at - now;
         if expires_in_seconds > 0 {
             let expires_in_days = expires_in_seconds / 86400;

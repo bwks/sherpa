@@ -5,9 +5,6 @@ use shared::error::RpcErrorCode;
 use std::time::Duration;
 use uuid::Uuid;
 
-// Reuse the WebSocket client from the client crate
-use shared::data;
-
 // Import the ws_client types (we'll reference them from client crate)
 // This is a bit hacky but avoids duplicating code
 // In a real project, this would be in a shared crate
@@ -69,10 +66,10 @@ impl RpcClient {
         let mut params_value =
             serde_json::to_value(&params).context("Failed to serialize request params")?;
 
-        if let Some(token) = token {
-            if let Some(obj) = params_value.as_object_mut() {
-                obj.insert("token".to_string(), serde_json::Value::String(token));
-            }
+        if let Some(token) = token
+            && let Some(obj) = params_value.as_object_mut()
+        {
+            obj.insert("token".to_string(), serde_json::Value::String(token));
         }
 
         // Create RPC request
@@ -111,20 +108,20 @@ impl RpcClient {
             };
 
             // Check if this is an RPC response by looking for the "type" field
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                if let Some(msg_type) = value.get("type").and_then(|v| v.as_str()) {
-                    if msg_type == "rpc_response" {
-                        // Check if this is the response to our request
-                        if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
-                            if id == request_id {
-                                break text;
-                            } else {
-                                continue; // Skip RPC responses with different IDs
-                            }
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text)
+                && let Some(msg_type) = value.get("type").and_then(|v| v.as_str())
+            {
+                if msg_type == "rpc_response" {
+                    // Check if this is the response to our request
+                    if let Some(id) = value.get("id").and_then(|v| v.as_str()) {
+                        if id == request_id {
+                            break text;
+                        } else {
+                            continue; // Skip RPC responses with different IDs
                         }
-                    } else {
-                        continue; // Skip non-RPC messages (connected, ping, log, etc.)
                     }
+                } else {
+                    continue; // Skip non-RPC messages (connected, ping, log, etc.)
                 }
             }
         };
