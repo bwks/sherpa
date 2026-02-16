@@ -9,12 +9,12 @@ use std::os::unix::fs::PermissionsExt;
 use shared::data::{Config, NodeState, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{get_cwd, get_username, term_msg_surround, Emoji};
+use shared::util::{Emoji, get_cwd, get_username, term_msg_surround, term_msg_underline};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-/// Start lab via WebSocket RPC to sherpad server with streaming progress updates
+/// Start lab  to sherpad server with streaming progress updates
 ///
 /// Flow:
 /// 1. Load manifest from TOML file
@@ -29,9 +29,7 @@ pub async fn up_ws(
     server_url: &str,
     _config: &Config,
 ) -> Result<()> {
-    term_msg_surround(&format!(
-        "Start Lab - {lab_name}-{lab_id} (via WebSocket RPC)"
-    ));
+    term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id}"));
 
     // Load authentication token
     let token = match load_token() {
@@ -85,12 +83,13 @@ pub async fn up_ws(
             // Parse and display progress messages
             if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text) {
                 if status_msg.r#type == "status" {
-                    // Display phase progress if available
+                    // Display phase header if available
                     if let Some(phase) = &status_msg.phase {
-                        println!("[{}] {}", phase, status_msg.message);
-                    } else {
-                        println!("{}", status_msg.message);
+                        println!(); // Blank line before phase header
+                        term_msg_underline(phase);
                     }
+                    // Display the message with success emoji
+                    println!("{} {}", Emoji::Success, status_msg.message);
                 }
             } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text) {
                 if log_msg.r#type == "log" {
@@ -113,13 +112,16 @@ pub async fn up_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
-        
+
         // Check for authentication errors
         if error.code == RpcErrorCode::AuthRequired {
-            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
             eprintln!("   Please run: sherpa login");
         }
-        
+
         bail!("Lab creation failed");
     }
 
@@ -135,13 +137,15 @@ pub async fn up_ws(
                 Ok(_) => {
                     println!(
                         "\n{} SSH config created: {}",
-                        Emoji::Success, local_ssh_config_path
+                        Emoji::Success,
+                        local_ssh_config_path
                     );
                 }
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH config: {}",
-                        Emoji::Warning, e
+                        Emoji::Warning,
+                        e
                     );
                 }
             }
@@ -149,7 +153,8 @@ pub async fn up_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning, e
+                Emoji::Warning,
+                e
             );
         }
     }
@@ -169,19 +174,22 @@ pub async fn up_ws(
                         ) {
                             println!(
                                 "\n{} Warning: Failed to set permissions on SSH key: {}",
-                                Emoji::Warning, e
+                                Emoji::Warning,
+                                e
                             );
                         }
                     }
                     println!(
                         "{} SSH private key created: {}",
-                        Emoji::Success, local_ssh_key_path
+                        Emoji::Success,
+                        local_ssh_key_path
                     );
                 }
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH private key: {}",
-                        Emoji::Warning, e
+                        Emoji::Warning,
+                        e
                     );
                 }
             }
@@ -189,7 +197,8 @@ pub async fn up_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning, e
+                Emoji::Warning,
+                e
             );
         }
     }
@@ -247,9 +256,13 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
             println!("  {} {} ({})", status_icon, node.name, node.kind);
             if let Some(ip) = &node.ip_address {
                 println!("      IP: {}", ip);
-            }
-            if let Some(ssh_port) = node.ssh_port {
-                println!("      SSH: localhost:{}", ssh_port);
+                // Show SSH connection info using management IP
+                if let Some(ssh_port) = node.ssh_port {
+                    println!("      SSH: {}:{}", ip, ssh_port);
+                }
+            } else if let Some(ssh_port) = node.ssh_port {
+                // Fallback if IP is not available (shouldn't happen normally)
+                println!("      SSH: port {}", ssh_port);
             }
         }
     }
@@ -274,7 +287,10 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     if response.success {
         println!("\n{} Lab created successfully!\n", Emoji::Success);
     } else {
-        println!("\n{} Lab partially created - review errors above\n", Emoji::Warning);
+        println!(
+            "\n{} Lab partially created - review errors above\n",
+            Emoji::Warning
+        );
     }
 
     Ok(())

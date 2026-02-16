@@ -23,11 +23,7 @@ impl ProgressSender {
         let server_msg = ServerMessage::Status {
             message: message.clone(),
             timestamp: Utc::now(),
-            phase: Some(format!(
-                "Phase {}/{}",
-                phase.number(),
-                UpPhase::total_phases()
-            )),
+            phase: Some(phase.as_str().to_string()),
             progress: Some(StatusProgress {
                 current_phase: phase.as_str().to_string(),
                 phase_number: phase.number(),

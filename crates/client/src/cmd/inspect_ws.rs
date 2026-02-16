@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use shared::data::{Config, InspectResponse};
 use shared::error::RpcErrorCode;
-use shared::util::{get_username, term_msg_surround, term_msg_underline, Emoji};
+use shared::util::{Emoji, get_username, term_msg_surround, term_msg_underline};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -15,9 +15,7 @@ pub async fn inspect_ws(
     server_url: &str,
     config: &Config,
 ) -> Result<()> {
-    term_msg_surround(&format!(
-        "Sherpa Environment - {lab_name}-{lab_id} (via WebSocket RPC)"
-    ));
+    term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 
     // Load authentication token
     let token = match load_token() {
@@ -69,13 +67,16 @@ pub async fn inspect_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
-        
+
         // Check for authentication errors
         if error.code == RpcErrorCode::AuthRequired {
-            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
             eprintln!("   Please run: sherpa login");
         }
-        
+
         bail!("Inspection failed");
     }
 

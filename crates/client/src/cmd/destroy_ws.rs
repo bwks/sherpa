@@ -6,12 +6,14 @@ use std::time::Duration;
 use shared::data::{Config, DestroyResponse, InspectResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline, Emoji};
+use shared::util::{
+    Emoji, file_exists, get_cwd, get_username, term_msg_surround, term_msg_underline,
+};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-/// Destroy lab via WebSocket RPC to sherpad server
+/// Destroy lab  to sherpad server
 ///
 /// Flow:
 /// 1. Inspect lab to show what will be destroyed
@@ -23,9 +25,7 @@ pub async fn destroy_ws(
     server_url: &str,
     config: &Config,
 ) -> Result<()> {
-    term_msg_surround(&format!(
-        "Destroy environment - {lab_name}-{lab_id} (via WebSocket RPC)"
-    ));
+    term_msg_surround(&format!("Destroy environment - {lab_name}-{lab_id}"));
 
     // Load authentication token
     let token = match load_token() {
@@ -74,13 +74,16 @@ pub async fn destroy_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
-        
+
         // Check for authentication errors
         if error.code == RpcErrorCode::AuthRequired {
-            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
             eprintln!("   Please run: sherpa login");
         }
-        
+
         bail!("Failed to inspect lab before destroy");
     }
 
@@ -133,13 +136,16 @@ pub async fn destroy_ws(
         if let Some(context) = error.context {
             eprintln!("   Context:\n{}", context);
         }
-        
+
         // Check for authentication errors
         if error.code == RpcErrorCode::AuthRequired {
-            eprintln!("\n{} Your authentication token has expired or is invalid", Emoji::Error);
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
             eprintln!("   Please run: sherpa login");
         }
-        
+
         bail!("Destroy operation failed");
     }
 
@@ -161,13 +167,15 @@ pub async fn destroy_ws(
                     Ok(_) => {
                         println!(
                             "\n{} Local SSH config deleted: {}",
-                            Emoji::Success, local_ssh_config_path
+                            Emoji::Success,
+                            local_ssh_config_path
                         );
                     }
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH config: {}",
-                            Emoji::Warning, e
+                            Emoji::Warning,
+                            e
                         );
                     }
                 }
@@ -177,7 +185,8 @@ pub async fn destroy_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning, e
+                Emoji::Warning,
+                e
             );
         }
     }
@@ -191,13 +200,15 @@ pub async fn destroy_ws(
                     Ok(_) => {
                         println!(
                             "{} Local SSH private key deleted: {}",
-                            Emoji::Success, local_ssh_key_path
+                            Emoji::Success,
+                            local_ssh_key_path
                         );
                     }
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH private key: {}",
-                            Emoji::Warning, e
+                            Emoji::Warning,
+                            e
                         );
                     }
                 }
@@ -207,7 +218,8 @@ pub async fn destroy_ws(
         Err(e) => {
             println!(
                 "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning, e
+                Emoji::Warning,
+                e
             );
         }
     }
@@ -217,7 +229,10 @@ pub async fn destroy_ws(
 
 /// Ask user for confirmation before destroying lab
 fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<bool> {
-    println!("\n{} WARNING: This will permanently destroy all lab resources!", Emoji::Warning);
+    println!(
+        "\n{} WARNING: This will permanently destroy all lab resources!",
+        Emoji::Warning
+    );
     print!(
         "\nAre you sure you want to destroy lab {}-{} ({} devices)? [y/N]: ",
         lab_name, lab_id, device_count
@@ -409,14 +424,21 @@ fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     if response.success {
         println!(
             "\n{} Lab {}-{} destroyed successfully\n",
-            Emoji::Success, response.lab_name, response.lab_id
+            Emoji::Success,
+            response.lab_name,
+            response.lab_id
         );
     } else {
         println!(
             "\n{} Lab {}-{} partially destroyed - review errors above\n",
-            Emoji::Warning, response.lab_name, response.lab_id
+            Emoji::Warning,
+            response.lab_name,
+            response.lab_id
         );
-        println!("{} Manual cleanup may be required for failed resources\n", Emoji::Warning);
+        println!(
+            "{} Manual cleanup may be required for failed resources\n",
+            Emoji::Warning
+        );
     }
 
     Ok(())

@@ -70,7 +70,7 @@ enum Commands {
     },
     /// Build environment
     Up,
-    /// Build environment via WebSocket RPC (experimental)
+    /// Build environment  (experimental)
     #[command(name = "upws")]
     UpWs {
         /// Path to manifest file (defaults to manifest.toml)
@@ -84,12 +84,12 @@ enum Commands {
     Resume,
     /// Destroy environment
     Destroy,
-    /// Destroy environment via WebSocket RPC (experimental)
+    /// Destroy environment  (experimental)
     #[command(name = "destroyws")]
     DestroyWs,
     /// Inspect environment
     Inspect,
-    /// Inspect environment via WebSocket RPC (experimental)
+    /// Inspect environment  (experimental)
     #[command(name = "inspectws")]
     InspectWs,
 

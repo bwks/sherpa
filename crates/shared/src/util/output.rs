@@ -14,8 +14,7 @@ pub fn term_msg_underline(message: &str) {
     let msg_len = message.len();
     let underline = "-".repeat(msg_len);
     println!(
-        r#"
-{message}
+        r#"{message}
 {underline}"#,
     );
 }
