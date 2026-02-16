@@ -9,7 +9,9 @@ use std::os::unix::fs::PermissionsExt;
 use shared::data::{Config, NodeState, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
-use shared::util::{Emoji, get_cwd, get_username, term_msg_surround, term_msg_underline};
+use shared::util::{
+    Emoji, get_cwd, get_username, render_nodes_table, term_msg_surround, term_msg_underline,
+};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -244,27 +246,8 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     // Node information
     if !response.nodes.is_empty() {
         println!("\nNodes:");
-        for node in &response.nodes {
-            let status_icon = match node.status {
-                NodeState::Running => Emoji::Success,
-                NodeState::Created => Emoji::Warning,
-                NodeState::Starting => Emoji::Warning,
-                NodeState::Stopped => Emoji::Warning,
-                NodeState::Failed | NodeState::Unknown => Emoji::Error,
-            };
-
-            println!("  {} {} ({})", status_icon, node.name, node.kind);
-            if let Some(ip) = &node.ip_address {
-                println!("      IP: {}", ip);
-                // Show SSH connection info using management IP
-                if let Some(ssh_port) = node.ssh_port {
-                    println!("      SSH: {}:{}", ip, ssh_port);
-                }
-            } else if let Some(ssh_port) = node.ssh_port {
-                // Fallback if IP is not available (shouldn't happen normally)
-                println!("      SSH: port {}", ssh_port);
-            }
-        }
+        let table = render_nodes_table(&response.nodes);
+        println!("{}", table);
     }
 
     // Timing

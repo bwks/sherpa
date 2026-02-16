@@ -6,12 +6,12 @@ use crate::auth::jwt;
 use crate::daemon::state::AppState;
 
 /// Extract and validate JWT token from RPC request params
-/// 
+///
 /// This function:
 /// 1. Extracts the "token" field from params
 /// 2. Validates the token signature and expiration
 /// 3. Returns an AuthContext with user info
-/// 
+///
 /// Returns an error if:
 /// - Token is missing
 /// - Token is invalid or expired
@@ -24,8 +24,8 @@ pub async fn authenticate_request(params: &Value, state: &AppState) -> Result<Au
         .context("Missing 'token' field in request params")?;
 
     // Validate token
-    let claims = jwt::validate_token(&state.jwt_secret, token)
-        .context("Invalid or expired token")?;
+    let claims =
+        jwt::validate_token(&state.jwt_secret, token).context("Invalid or expired token")?;
 
     // Create auth context from claims
     Ok(AuthContext::new(claims.sub, claims.is_admin))

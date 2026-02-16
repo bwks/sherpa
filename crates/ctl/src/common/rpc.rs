@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 use shared::error::RpcErrorCode;
 use std::time::Duration;
 use uuid::Uuid;
@@ -60,12 +60,15 @@ impl RpcClient {
         // Connect to WebSocket
         let (mut ws_stream, _) = tokio_tungstenite::connect_async(&self.server_url)
             .await
-            .context(format!("Failed to connect to server at {}", self.server_url))?;
+            .context(format!(
+                "Failed to connect to server at {}",
+                self.server_url
+            ))?;
 
         // Add token to params if provided
-        let mut params_value = serde_json::to_value(&params)
-            .context("Failed to serialize request params")?;
-        
+        let mut params_value =
+            serde_json::to_value(&params).context("Failed to serialize request params")?;
+
         if let Some(token) = token {
             if let Some(obj) = params_value.as_object_mut() {
                 obj.insert("token".to_string(), serde_json::Value::String(token));
@@ -81,12 +84,12 @@ impl RpcClient {
         };
 
         // Send request
-        let request_json = serde_json::to_string(&request)
-            .context("Failed to serialize RPC request")?;
-        
-        use tokio_tungstenite::tungstenite::Message;
+        let request_json =
+            serde_json::to_string(&request).context("Failed to serialize RPC request")?;
+
         use futures_util::{SinkExt, StreamExt};
-        
+        use tokio_tungstenite::tungstenite::Message;
+
         ws_stream
             .send(Message::Text(request_json))
             .await
@@ -127,8 +130,10 @@ impl RpcClient {
         };
 
         // Now parse just the RPC response fields (without the "type" field)
-        let response: RpcResponse = serde_json::from_str(&response_text)
-            .context(format!("Failed to parse RPC response. Raw JSON: {}", response_text))?;
+        let response: RpcResponse = serde_json::from_str(&response_text).context(format!(
+            "Failed to parse RPC response. Raw JSON: {}",
+            response_text
+        ))?;
 
         // Check for RPC error
         if let Some(error) = response.error {
@@ -137,8 +142,8 @@ impl RpcClient {
 
         // Parse result
         let result = response.result.context("No result in response")?;
-        let typed_result: R = serde_json::from_value(result)
-            .context("Failed to deserialize response")?;
+        let typed_result: R =
+            serde_json::from_value(result).context("Failed to deserialize response")?;
 
         // Gracefully close the WebSocket connection
         let _ = ws_stream.close(None).await;

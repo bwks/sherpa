@@ -31,10 +31,7 @@ async fn test_get_lab_owner_username_not_found() -> Result<()> {
     // Try to get owner of non-existent lab
     let result = get_lab_owner_username(&db, "no-exist").await;
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Lab not found"));
+    assert!(result.unwrap_err().to_string().contains("Lab not found"));
 
     teardown_db(&db).await?;
     Ok(())

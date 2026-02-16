@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use super::user::{user_commands, UserCommands};
-use shared::util::{get_server_url, load_config};
+use super::user::{UserCommands, user_commands};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
+use shared::util::{get_server_url, load_config};
 
 #[derive(Debug, Parser)]
 #[command(name = "sherpactl")]

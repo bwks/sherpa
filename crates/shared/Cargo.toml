@@ -42,6 +42,9 @@ reqwest = "0.11.27"
 # Templates
 askama = "0.14.0"
 
+# Table formatting
+tabled = "0.16"
+
 # CLI
 clap = { version = "4.5.16", features = ["derive"] }
 
