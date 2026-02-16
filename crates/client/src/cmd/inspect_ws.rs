@@ -33,7 +33,11 @@ pub async fn inspect_ws(
 
     // Create WebSocket client
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
-    let ws_client = WebSocketClient::new(server_url.to_string(), timeout);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
 
     // Connect to server
     println!("Connecting to server: {}", server_url);

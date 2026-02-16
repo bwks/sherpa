@@ -28,7 +28,7 @@ use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
 };
-use shared::util::{get_id, get_server_url, load_config};
+use shared::util::{build_websocket_url, get_id, get_server_url, load_config};
 use topology::Manifest;
 
 #[derive(Default, Debug, Parser)]
@@ -40,6 +40,10 @@ pub struct Cli {
     /// Remote server URL for WebSocket RPC (e.g., ws://localhost:3030/ws)
     #[arg(long, global = true, env = "SHERPA_SERVER_URL")]
     server_url: Option<String>,
+
+    /// Skip TLS certificate validation (insecure - for development only)
+    #[arg(long, global = true)]
+    insecure: bool,
 
     #[clap(subcommand)]
     commands: Commands,
@@ -176,23 +180,16 @@ impl Cli {
             Commands::Login => {
                 let config = load_config(&sherpa.config_file_path).ok();
 
-                // Resolve server URL (CLI > env > config > default)
+                // Resolve server URL (CLI > env > config > explicit URL > build from config)
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| {
-                        config
-                            .as_ref()
-                            .and_then(|c| c.server_connection.url.clone())
+                        config.as_ref().map(build_websocket_url)
                     })
-                    .unwrap_or_else(|| {
-                        config
-                            .as_ref()
-                            .map(|c| format!("ws://{}:{}/ws", c.server_ipv4, c.server_port))
-                            .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
-                    });
+                    .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
 
-                login(&server_url).await?;
+                login(&server_url, cli.insecure).await?;
             }
             Commands::Logout => {
                 logout()?;
@@ -200,23 +197,16 @@ impl Cli {
             Commands::Whoami => {
                 let config = load_config(&sherpa.config_file_path).ok();
 
-                // Resolve server URL (CLI > env > config > default)
+                // Resolve server URL (CLI > env > config > explicit URL > build from config)
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
                     .or_else(|| {
-                        config
-                            .as_ref()
-                            .and_then(|c| c.server_connection.url.clone())
+                        config.as_ref().map(build_websocket_url)
                     })
-                    .unwrap_or_else(|| {
-                        config
-                            .as_ref()
-                            .map(|c| format!("ws://{}:{}/ws", c.server_ipv4, c.server_port))
-                            .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
-                    });
+                    .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
 
-                whoami(&server_url).await?;
+                whoami(&server_url, cli.insecure).await?;
             }
             Commands::Init {
                 config_file,
@@ -238,16 +228,19 @@ impl Cli {
                 let manifest_obj = Manifest::load_file(manifest)?;
                 let lab_id = get_id(&manifest_obj.name)?;
                 let lab_name = manifest_obj.name.clone();
-                let config = load_config(&sherpa.config_file_path)?;
+                let mut config = load_config(&sherpa.config_file_path)?;
 
-                // Resolve server URL (CLI > env > config > default)
+                // Apply --insecure flag if set
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                // Resolve server URL (CLI > env > config > build from config)
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| {
-                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
-                    });
+                    .unwrap_or_else(|| build_websocket_url(&config));
 
                 up_ws(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
@@ -271,16 +264,19 @@ impl Cli {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
-                let config = load_config(&sherpa.config_file_path)?;
+                let mut config = load_config(&sherpa.config_file_path)?;
 
-                // Resolve server URL (CLI > env > config > default)
+                // Apply --insecure flag if set
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                // Resolve server URL (CLI > env > config > build from config)
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| {
-                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
-                    });
+                    .unwrap_or_else(|| build_websocket_url(&config));
 
                 destroy_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }
@@ -295,16 +291,19 @@ impl Cli {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
-                let config = load_config(&sherpa.config_file_path)?;
+                let mut config = load_config(&sherpa.config_file_path)?;
 
-                // Resolve server URL (CLI > env > config > default)
+                // Apply --insecure flag if set
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                // Resolve server URL (CLI > env > config > build from config)
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| config.server_connection.url.clone())
-                    .unwrap_or_else(|| {
-                        format!("ws://{}:{}/ws", config.server_ipv4, config.server_port)
-                    });
+                    .unwrap_or_else(|| build_websocket_url(&config));
 
                 inspect_ws(&lab_name, &lab_id, &server_url, &config).await?;
             }

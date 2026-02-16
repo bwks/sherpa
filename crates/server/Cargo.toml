@@ -83,6 +83,12 @@ surrealdb = "2.4.1"
 # Generate SSH keys
 ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
 
+# TLS support
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.2"
+rcgen = "0.13"
+
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.25.0"

@@ -43,7 +43,11 @@ pub async fn destroy_ws(
     println!("\nFetching lab details...\n");
 
     let timeout = Duration::from_secs(config.server_connection.timeout_secs);
-    let ws_client = WebSocketClient::new(server_url.to_string(), timeout);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
 
     // Connect and inspect
     let mut rpc_client = ws_client

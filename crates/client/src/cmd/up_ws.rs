@@ -8,10 +8,13 @@ use std::os::unix::fs::PermissionsExt;
 
 use shared::data::{Config, NodeState, UpResponse};
 use shared::error::RpcErrorCode;
-use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::konst::{
+    SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE,
+};
 use shared::util::{
-    Emoji, get_cwd, get_username, render_lab_info_table, render_nodes_table, term_msg_surround,
-    term_msg_underline,
+    Emoji, get_cwd, get_username, render_lab_info_table, render_nodes_table,
+    term_msg_surround, term_msg_underline,
 };
 
 use crate::token::load_token;
@@ -30,7 +33,7 @@ pub async fn up_ws(
     lab_id: &str,
     manifest_path: &str,
     server_url: &str,
-    _config: &Config,
+    config: &Config,
 ) -> Result<()> {
     term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id}"));
 
@@ -57,7 +60,11 @@ pub async fn up_ws(
 
     // Extended timeout for long-running up operation (15 minutes)
     let timeout = Duration::from_secs(900);
-    let ws_client = WebSocketClient::new(server_url.to_string(), timeout);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
 
     // Connect
     let mut rpc_client = ws_client

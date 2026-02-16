@@ -22,7 +22,7 @@ mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 
-pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, ZtpServer};
+pub use config::{Config, ConfigurationManagement, ServerConnection, Sherpa, TlsConfig, ZtpServer};
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::CpuModels;
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};

@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::UtcTime;
@@ -8,6 +9,7 @@ use tracing_subscriber::fmt::time::UtcTime;
 use crate::api::build_router;
 use crate::api::websocket;
 use crate::daemon::state::AppState;
+use crate::tls::CertificateManager;
 use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR, SHERPAD_LOG_FILE,
 };
@@ -63,11 +65,20 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let config = load_config(&config_path)
         .context("Failed to load sherpa.toml config - cannot start server")?;
 
+    // Log server configuration
+    let protocol = if config.tls.enabled { "wss" } else { "ws" };
     tracing::info!(
-        "Server will listen on {}:{}",
+        "Server will listen on {}://{}:{}",
+        protocol,
         config.server_ipv4,
         config.server_port
     );
+    
+    if config.tls.enabled {
+        tracing::info!("TLS is enabled for secure WebSocket connections");
+    } else {
+        tracing::warn!("TLS is DISABLED - connections will NOT be encrypted!");
+    }
 
     // Create application state (includes db, libvirt, docker connections)
     let state = AppState::new(config.clone())
@@ -81,23 +92,63 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         // Attach state to all routes
         .with_state(state);
 
-    // Bind to configured host:port
-    let addr = format!("{}:{}", config.server_ipv4, config.server_port);
-    let listener = tokio::net::TcpListener::bind(&addr)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to bind to {} - ensure the IP address is valid and available",
-                addr
-            )
-        })?;
+    // Socket address for binding
+    let addr: SocketAddr = format!("{}:{}", config.server_ipv4, config.server_port)
+        .parse()
+        .context("Invalid server IP or port")?;
 
-    tracing::info!("sherpad listening on {}", addr);
+    // Start server with or without TLS
+    if config.tls.enabled {
+        // TLS-enabled server
+        let cert_mgr = CertificateManager::new(&config.tls)
+            .context("Failed to create certificate manager")?;
 
-    // Setup graceful shutdown signal handler
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+        // Determine SANs from config or use server IP as default
+        let mut san = config.tls.san.clone();
+        if san.is_empty() {
+            san.push(format!("IP:{}", config.server_ipv4));
+            tracing::info!("No SANs configured, using server IP: {}", config.server_ipv4);
+        }
+
+        // Ensure certificates exist (generate if needed)
+        cert_mgr
+            .ensure_certificates(&san)
+            .await
+            .context("Failed to ensure TLS certificates exist")?;
+
+        // Load TLS configuration
+        let tls_config = cert_mgr
+            .load_server_config()
+            .await
+            .context("Failed to load TLS server configuration")?;
+
+        tracing::info!("Starting TLS-enabled server on wss://{}", addr);
+
+        // Use axum-server with TLS
+        axum_server::bind_rustls(addr, tls_config)
+            .serve(app.into_make_service())
+            .await
+            .context("Failed to start TLS server")?;
+    } else {
+        // Plain TCP server (no TLS)
+        tracing::warn!("Starting server WITHOUT TLS encryption on ws://{}", addr);
+
+        let listener = tokio::net::TcpListener::bind(&addr)
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to bind to {} - ensure the IP address is valid and available",
+                    addr
+                )
+            })?;
+
+        tracing::info!("sherpad listening on ws://{}", addr);
+
+        axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown_signal())
+            .await
+            .context("Failed to start server")?;
+    }
 
     tracing::info!("sherpad server stopped");
 

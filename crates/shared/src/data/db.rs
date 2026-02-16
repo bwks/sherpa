@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
-use surrealdb::RecordId;
 use surrealdb::sql::Datetime;
+use surrealdb::RecordId;
 
 use super::BridgeKind;
 

@@ -17,7 +17,7 @@ mod table;
 mod text;
 mod user;
 
-pub use config::{create_config, default_config, load_config};
+pub use config::{build_websocket_url, create_config, default_config, load_config};
 pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;
 pub use emoji::{Emoji, emoji_error, emoji_success, emoji_warning};

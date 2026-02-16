@@ -38,16 +38,75 @@ pub struct ConfigurationManagement {
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerConnection {
     /// WebSocket URL (e.g., ws://localhost:3030/ws)
+    #[serde(default)]
     pub url: Option<String>,
     /// Connection timeout in seconds
+    #[serde(default)]
     pub timeout_secs: u64,
+    /// Validate server TLS certificates against system CA store
+    #[serde(default)]
+    pub validate_certs: bool,
+    /// Path to custom CA certificate for validating server cert
+    /// Use this for self-signed certificates
+    #[serde(default)]
+    pub ca_cert_path: Option<String>,
+    /// Allow insecure connections (skip cert validation)
+    /// DANGEROUS: Only for development/testing
+    #[serde(default)]
+    pub insecure: bool,
 }
 
 impl Default for ServerConnection {
     fn default() -> Self {
         Self {
-            url: None, // Will be constructed from server_ipv4 and server_port if not set
+            url: None,
             timeout_secs: 3,
+            validate_certs: true,
+            ca_cert_path: None,
+            insecure: false,
+        }
+    }
+}
+
+/// TLS configuration for server
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct TlsConfig {
+    /// Enable TLS for WebSocket connections
+    #[serde(default)]
+    pub enabled: bool,
+
+    /// Path to server certificate (PEM format)
+    /// If not provided, uses /opt/sherpa/.certs/server.crt
+    #[serde(default)]
+    pub cert_path: Option<String>,
+
+    /// Path to server private key (PEM format)
+    /// If not provided, uses /opt/sherpa/.certs/server.key
+    #[serde(default)]
+    pub key_path: Option<String>,
+
+    /// Auto-generate self-signed certificate if none exists
+    #[serde(default)]
+    pub auto_generate_cert: bool,
+
+    /// Certificate validity in days (for auto-generated certs)
+    #[serde(default)]
+    pub cert_validity_days: u32,
+
+    /// Subject Alternative Names for certificate (e.g., DNS names, IPs)
+    #[serde(default)]
+    pub san: Vec<String>,
+}
+
+impl Default for TlsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            cert_path: None,
+            key_path: None,
+            auto_generate_cert: true,
+            cert_validity_days: 365,
+            san: vec![],
         }
     }
 }
@@ -68,6 +127,8 @@ pub struct Config {
     pub container_images: Vec<ContainerImage>,
     #[serde(default)]
     pub server_connection: ServerConnection,
+    #[serde(default)]
+    pub tls: TlsConfig,
 }
 
 #[derive(Clone, Debug)]

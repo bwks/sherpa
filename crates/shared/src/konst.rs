@@ -9,6 +9,7 @@ pub const SHERPA_BINS_DIR: &str = "bins";
 pub const SHERPA_LABS_DIR: &str = "labs";
 pub const SHERPA_RUN_DIR: &str = "run";
 pub const SHERPA_LOG_DIR: &str = "logs";
+pub const SHERPA_CERTS_DIR: &str = ".certs";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
 pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
@@ -189,6 +190,11 @@ pub const SHERPAD_PORT: u16 = 3030;
 // JWT Authentication constants
 pub const JWT_SECRET_PATH: &str = "/opt/sherpa/.secret/jwt.secret";
 pub const JWT_TOKEN_EXPIRY_SECONDS: i64 = 604_800; // 7 days
+
+// TLS certificate paths
+pub const SHERPA_SERVER_CERT_FILE: &str = "server.crt";
+pub const SHERPA_SERVER_KEY_FILE: &str = "server.key";
+pub const SHERPA_CA_CERT_FILE: &str = "ca.crt";
 
 // ============================================================================
 // JSON-RPC Error Messages

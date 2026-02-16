@@ -3,6 +3,7 @@ mod auth;
 mod cli;
 mod daemon;
 mod services;
+mod tls;
 
 use anyhow::Result;
 use clap::Parser;
@@ -13,6 +14,10 @@ use daemon::manager::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize rustls crypto provider (required for rustls 0.23+)
+    // This must be done before any rustls operations
+    let _ = rustls::crypto::ring::default_provider().install_default();
+
     // Check if we're being spawned as a background child
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 1 && args[1] == "--background-child" {

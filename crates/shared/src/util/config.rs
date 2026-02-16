@@ -8,12 +8,28 @@ use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
 use crate::data::{
-    Config, ConfigurationManagement, ContainerImage, ServerConnection, VmProviders, ZtpServer,
+    Config, ConfigurationManagement, ContainerImage, ServerConnection, TlsConfig, VmProviders,
+    ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
     SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
+
+/// Build WebSocket URL from config
+pub fn build_websocket_url(config: &Config) -> String {
+    // Check if explicit URL is set
+    if let Some(ref url) = config.server_connection.url {
+        return url.clone();
+    }
+
+    // Construct URL based on TLS config
+    let scheme = if config.tls.enabled { "wss" } else { "ws" };
+    let host = config.server_ipv4;
+    let port = config.server_port;
+
+    format!("{}://{}:{}/ws", scheme, host, port)
+}
 
 pub fn create_config(config: &Config, path: &str) -> Result<()> {
     let toml_string = toml::to_string_pretty(&config)?;
@@ -61,5 +77,6 @@ pub fn default_config() -> Config {
         server_connection: ServerConnection::default(),
         server_ipv4: Ipv4Addr::new(127, 0, 0, 1),
         server_port: 3030,
+        tls: TlsConfig::default(),
     }
 }

@@ -1,10 +1,15 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
+use shared::data::ServerConnection;
 use std::time::Duration;
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async, tungstenite::Message};
+use tokio_tungstenite::{
+    connect_async, connect_async_tls_with_config, tungstenite::Message, Connector, MaybeTlsStream,
+    WebSocketStream,
+};
 
 use super::messages::{RpcRequest, RpcResponse};
+use super::tls::TlsConfigBuilder;
 
 type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 
@@ -12,24 +17,60 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 pub struct WebSocketClient {
     url: String,
     timeout: Duration,
+    server_connection: ServerConnection,
 }
 
 impl WebSocketClient {
     /// Create a new WebSocket client
-    pub fn new(url: String, timeout: Duration) -> Self {
-        Self { url, timeout }
+    pub fn new(url: String, timeout: Duration, server_connection: ServerConnection) -> Self {
+        Self {
+            url,
+            timeout,
+            server_connection,
+        }
     }
 
     /// Connect to the WebSocket server and return an RPC client
     pub async fn connect(&self) -> Result<RpcClient> {
         tracing::debug!("Connecting to WebSocket: {}", self.url);
 
-        // Connect with timeout
-        let connect_future = connect_async(&self.url);
-        let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
-            .await
-            .context("Connection timeout")?
-            .context("Failed to connect to WebSocket")?;
+        let is_secure = self.url.starts_with("wss://");
+
+        let ws_stream = if is_secure {
+            // TLS connection with custom configuration
+            tracing::debug!("Using secure WebSocket connection (wss://)");
+
+            // Build TLS configuration
+            let tls_builder = TlsConfigBuilder::new(&self.server_connection);
+            let tls_config = tls_builder
+                .build()
+                .context("Failed to build TLS configuration")?;
+
+            // Create connector with our TLS config
+            let connector = Connector::Rustls(tls_config);
+
+            // Connect with TLS and timeout
+            let connect_future =
+                connect_async_tls_with_config(&self.url, None, false, Some(connector));
+            let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
+                .await
+                .context("Connection timeout")?
+                .context("Failed to connect to secure WebSocket")?;
+
+            ws_stream
+        } else {
+            // Plain WebSocket connection
+            tracing::debug!("Using plain WebSocket connection (ws://)");
+            tracing::warn!("Connection is NOT encrypted - data transmitted in plaintext");
+
+            let connect_future = connect_async(&self.url);
+            let (ws_stream, _) = tokio::time::timeout(self.timeout, connect_future)
+                .await
+                .context("Connection timeout")?
+                .context("Failed to connect to WebSocket")?;
+
+            ws_stream
+        };
 
         tracing::debug!("WebSocket connected successfully");
 
