@@ -2404,11 +2404,21 @@ pub async fn up_lab(
         let node_a_data = lab_node_data
             .iter()
             .find(|n| n.record.id == link_data.node_a.id)
-            .unwrap();
+            .ok_or_else(|| {
+                anyhow!(
+                    "Node A not found in lab_node_data for link index {}",
+                    link_data.index
+                )
+            })?;
         let node_b_data = lab_node_data
             .iter()
             .find(|n| n.record.id == link_data.node_b.id)
-            .unwrap();
+            .ok_or_else(|| {
+                anyhow!(
+                    "Node B not found in lab_node_data for link index {}",
+                    link_data.index
+                )
+            })?;
 
         if node_a_data.kind == data::NodeKind::Container {
             let docker_net_name =
@@ -2502,11 +2512,19 @@ pub async fn up_lab(
 
             let mgmt_ipv4 = container.ipv4_address.map(|i| i.to_string());
             let container_name = format!("{}-{}", container.name, lab_id);
-            let container_image = format!(
-                "{}:{}",
-                container.image.as_ref().unwrap(),
-                container.version.as_ref().unwrap()
-            );
+
+            // Extract image and version with proper error handling
+            let container_image_name = container
+                .image
+                .as_ref()
+                .ok_or_else(|| anyhow!("Container image not set for node: {}", container.name))?;
+
+            let container_version = container
+                .version
+                .as_ref()
+                .ok_or_else(|| anyhow!("Container version not set for node: {}", container.name))?;
+
+            let container_image = format!("{}:{}", container_image_name, container_version);
             let privileged = container.privileged.unwrap_or(false);
             let env_vars = container
                 .environment_variables
