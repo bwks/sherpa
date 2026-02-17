@@ -114,7 +114,6 @@ pub struct LoginForm {
 
 /// Signup form data
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)] // Fields will be used when signup is implemented
 pub struct SignupForm {
     username: String,
     password: String,
@@ -253,28 +252,166 @@ pub async fn signup_page_handler() -> impl IntoResponse {
 ///
 /// POST /signup
 ///
-/// Currently returns "not implemented" error as signup functionality
-/// is not yet implemented on the backend.
+/// Creates a new user account with the provided credentials.
+/// All self-registered users are created as non-admin.
 ///
 /// Form fields:
-/// - username: Desired username
-/// - password: Desired password
-/// - confirm_password: Password confirmation
-pub async fn signup_form_handler(axum::Form(form): axum::Form<SignupForm>) -> impl IntoResponse {
+/// - username: Desired username (min 3 chars, alphanumeric + @._-)
+/// - password: Desired password (must meet strength requirements)
+/// - confirm_password: Password confirmation (must match password)
+///
+/// Success: Creates user, sets auth cookie, returns HX-Redirect to dashboard
+/// Failure: Returns error HTML fragment for HTMX swap
+///
+/// # Validation
+/// - Passwords must match
+/// - Username must meet format requirements (handled by db::create_user)
+/// - Password must meet strength requirements (handled by db::create_user)
+/// - Username must be unique (enforced by database)
+pub async fn signup_form_handler(
+    State(state): State<AppState>,
+    axum::Form(form): axum::Form<SignupForm>,
+) -> impl IntoResponse {
     tracing::info!("Signup attempt for username: {}", form.username);
 
-    // TODO: Implement signup logic
-    // - Validate password matches confirm_password
-    // - Validate username requirements
-    // - Validate password strength
-    // - Create user in database
-    // - Auto-login and set cookie
-    // - Redirect to dashboard
-
-    SignupErrorTemplate {
-        message: "User registration is not yet available. Please contact your administrator."
-            .to_string(),
+    // 1. Validate passwords match
+    if form.password != form.confirm_password {
+        tracing::debug!(
+            "Password mismatch during signup for user: {}",
+            form.username
+        );
+        return SignupErrorTemplate {
+            message: "Passwords do not match".to_string(),
+        }
+        .into_response();
     }
+
+    // 2. Create user in database
+    // This will validate username format and password strength
+    let user = match db::create_user(
+        &state.db,
+        form.username.clone(),
+        &form.password,
+        false,  // is_admin = false (all self-registered users are non-admin)
+        vec![], // ssh_keys = empty (can be added later in profile)
+    )
+    .await
+    {
+        Ok(user) => user,
+        Err(e) => {
+            // Parse error and return appropriate user-friendly message
+            let error_str = e.to_string();
+
+            let error_msg = if error_str.contains("unique")
+                || error_str.contains("already exists")
+                || error_str.contains("duplicate")
+            {
+                // Username already taken
+                tracing::debug!("Username already exists: {}", form.username);
+                "Username is unavailable".to_string()
+            } else if error_str.contains("Username") {
+                // Username validation error - extract the message
+                tracing::debug!("Username validation failed: {}", error_str);
+                // Extract the specific validation message from anyhow error
+                extract_validation_message(&error_str, "Username")
+            } else if error_str.contains("Password") || error_str.contains("password") {
+                // Password validation error - extract the message
+                tracing::debug!("Password validation failed for user: {}", form.username);
+                // Extract the specific validation message from anyhow error
+                extract_validation_message(&error_str, "Password")
+            } else {
+                // Generic database or other error
+                tracing::error!("Registration error for user '{}': {:?}", form.username, e);
+                "Registration failed. Please try again.".to_string()
+            };
+
+            return SignupErrorTemplate { message: error_msg }.into_response();
+        }
+    };
+
+    // 3. Generate JWT token for auto-login (7-day expiry)
+    let token = match jwt::create_token(
+        &state.jwt_secret,
+        &user.username,
+        user.is_admin,
+        cookies::COOKIE_MAX_AGE_NORMAL,
+    ) {
+        Ok(token) => token,
+        Err(e) => {
+            // User was created successfully but JWT generation failed
+            // This is rare but possible
+            tracing::error!(
+                "Failed to create JWT token after registration for user '{}': {:?}",
+                user.username,
+                e
+            );
+            return SignupErrorTemplate {
+                message: "Registration succeeded but login failed. Please sign in manually."
+                    .to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // 4. Create auth cookie and redirect to dashboard
+    let cookie_value = cookies::create_auth_cookie(&token, false);
+
+    tracing::info!(
+        "New user '{}' registered successfully and logged in",
+        user.username
+    );
+
+    // Return success response with cookie and redirect
+    (
+        StatusCode::OK,
+        [
+            (header::SET_COOKIE, cookie_value),
+            ("HX-Redirect".parse().unwrap(), "/".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Helper function to extract user-friendly validation messages from error strings
+///
+/// Takes an error string and extracts the most relevant part for display to the user.
+/// Handles errors from username and password validation.
+fn extract_validation_message(error_str: &str, context: &str) -> String {
+    // For password errors, look for the bulleted list of requirements
+    if context == "Password" {
+        // The password validation error includes a detailed message like:
+        // "Password does not meet security requirements:\n• Minimum 8 characters\n• ..."
+        if let Some(pos) = error_str.find("Password does not meet security requirements") {
+            // Extract everything after this point until we hit a non-validation message
+            let msg_part = &error_str[pos..];
+            // Find the end of the validation message (usually at the next context marker or end)
+            if let Some(end) = msg_part.find("\n\nCaused by:") {
+                return msg_part[..end].to_string();
+            }
+            return msg_part.to_string();
+        }
+    }
+
+    // For username errors, extract the specific requirement message
+    if context == "Username" {
+        // Username errors typically have the format:
+        // "Username must be at least 3 characters long" or
+        // "Username can only contain alphanumeric characters and @._- symbols"
+        if let Some(pos) = error_str.find("Username") {
+            let msg_part = &error_str[pos..];
+            // Take everything until we hit a newline or end
+            if let Some(end) = msg_part.find('\n') {
+                return msg_part[..end].to_string();
+            }
+            return msg_part.to_string();
+        }
+    }
+
+    // Fallback: return a generic message
+    format!(
+        "{} validation failed. Please check the requirements.",
+        context
+    )
 }
 
 /// Logout handler
