@@ -4,7 +4,20 @@ use std::fs::OpenOptions;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
-use tracing_subscriber::fmt::time::UtcTime;
+use tracing_subscriber::fmt::time::FormatTime;
+
+/// Custom time formatter that outputs UTC time with millisecond precision
+/// Format: 2026-02-17T00:59:15.920Z
+struct MillisecondTime;
+
+impl FormatTime for MillisecondTime {
+    fn format_time(&self, w: &mut tracing_subscriber::fmt::format::Writer<'_>) -> std::fmt::Result {
+        let now = jiff::Zoned::now();
+        // Format with millisecond precision (3 decimal places)
+        // Format: YYYY-MM-DDTHH:MM:SS.sssZ
+        write!(w, "{}", now.strftime("%Y-%m-%dT%H:%M:%S.%3fZ"))
+    }
+}
 
 use crate::api::build_router;
 use crate::api::websocket;
@@ -27,7 +40,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     if foreground {
         // Foreground mode: log to stdout with colors
         tracing_subscriber::fmt()
-            .with_timer(UtcTime::rfc_3339())
+            .with_timer(MillisecondTime)
             .with_env_filter(filter)
             .with_target(false)
             .with_thread_ids(false)
@@ -43,7 +56,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let log_file = Arc::new(log_file);
 
         tracing_subscriber::fmt()
-            .with_timer(UtcTime::rfc_3339())
+            .with_timer(MillisecondTime)
             .with_env_filter(filter)
             .with_writer(move || log_file.clone())
             .with_target(false)
