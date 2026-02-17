@@ -28,6 +28,11 @@
 - [] Update actions to utilise API endpoints.
 - [] Use websockets to connect to Sherpa server.
 
+## SSH
+ - Get node SSH fingerprints and generate a `lab_known_hosts_file`
+ - This can be sent to the client and added to the SSH config file so that we can
+   stop ignoring SSH certs.
+
 ## TLS
 - [] Provision tls certificates for lab nodes.
 - [] Lets encrypt certificates for Sherpa application.

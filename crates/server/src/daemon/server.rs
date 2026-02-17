@@ -153,7 +153,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         tokio::spawn(async move {
             // Build a minimal router with just the /cert endpoint
             let http_app = axum::Router::new()
-                .route("/cert", get(crate::api::get_certificate_handler))
+                .route("/cert", get(crate::api::handlers::get_certificate_handler))
                 .with_state(http_state);
 
             match tokio::net::TcpListener::bind(&http_addr).await {
