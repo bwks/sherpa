@@ -64,3 +64,51 @@
     background-color: #fef3c7;
     color: #92400e;
 }
+
+/* Authentication Pages */
+.auth-page {
+    background: linear-gradient(135deg, #fff 0%, #97cbe8 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 420px;
+}
+
+.auth-logo {
+    margin-bottom: 2rem;
+}
+
+.auth-card {
+    background: white;
+    border-radius: 1rem;
+    padding: 2rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Form styles specific to auth pages */
+.auth-card input[type="text"],
+.auth-card input[type="password"] {
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.auth-card input[type="text"]:focus,
+.auth-card input[type="password"]:focus {
+    outline: none;
+    border-color: var(--sherpa-primary);
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+}
+
+.auth-card button[type="submit"] {
+    transition: background-color 0.15s, transform 0.1s;
+}
+
+.auth-card button[type="submit"]:active {
+    transform: scale(0.98);
+}
+

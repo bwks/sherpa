@@ -7,13 +7,16 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::auth::jwt;
+use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::{inspect, list_labs};
-use crate::templates::{DashboardTemplate, EmptyStateTemplate, ErrorTemplate, LabsGridTemplate};
+use crate::templates::{
+    DashboardTemplate, EmptyStateTemplate, ErrorTemplate, LabsGridTemplate, LoginErrorTemplate,
+    LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
+};
 
 use super::errors::ApiError;
-use super::extractors::AuthenticatedUser;
+use super::extractors::{AuthenticatedUser, AuthenticatedUserFromCookie};
 
 use shared::auth::password;
 use shared::data::{
@@ -94,6 +97,203 @@ pub async fn login(
         is_admin: user.is_admin,
         expires_at,
     }))
+}
+
+// ============================================================================
+// HTML Authentication Handlers (Cookie-based)
+// ============================================================================
+
+/// Login form data
+#[derive(Debug, Deserialize)]
+pub struct LoginForm {
+    username: String,
+    password: String,
+    #[serde(default)]
+    remember_me: bool,
+}
+
+/// Signup form data
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)] // Fields will be used when signup is implemented
+pub struct SignupForm {
+    username: String,
+    password: String,
+    confirm_password: String,
+}
+
+/// Display login page
+///
+/// GET /login
+///
+/// Shows the login form. If user is already authenticated (valid cookie),
+/// redirects to dashboard.
+///
+/// Query parameters:
+/// - `error`: Optional error code (session_required, session_expired, logout_success)
+/// - `message`: Optional informational message
+pub async fn login_page_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let error = params
+        .get("error")
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+    let message = params
+        .get("message")
+        .map(|s| s.to_string())
+        .unwrap_or_default();
+
+    LoginPageTemplate { error, message }
+}
+
+/// Process login form submission
+///
+/// POST /login
+///
+/// Validates credentials and sets authentication cookie on success.
+/// Returns HTMX-compatible response (either error HTML or redirect header).
+///
+/// Form fields:
+/// - username: User's username
+/// - password: User's password
+/// - remember_me: Optional checkbox (extends cookie to 30 days)
+///
+/// Success: Returns HX-Redirect header to dashboard
+/// Failure: Returns error HTML fragment for HTMX swap
+pub async fn login_form_handler(
+    State(state): State<AppState>,
+    axum::Form(form): axum::Form<LoginForm>,
+) -> impl IntoResponse {
+    // Get user from database
+    let user = match db::get_user_for_auth(&state.db, &form.username).await {
+        Ok(user) => user,
+        Err(_) => {
+            tracing::debug!("Login attempt for non-existent user: {}", form.username);
+            return LoginErrorTemplate {
+                message: "Invalid username or password".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // Verify password
+    let is_valid = match password::verify_password(&form.password, &user.password_hash) {
+        Ok(valid) => valid,
+        Err(e) => {
+            tracing::error!("Password verification error: {:?}", e);
+            return LoginErrorTemplate {
+                message: "An error occurred during authentication".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    if !is_valid {
+        tracing::debug!("Invalid password for user: {}", form.username);
+        return LoginErrorTemplate {
+            message: "Invalid username or password".to_string(),
+        }
+        .into_response();
+    }
+
+    // Determine cookie expiry based on remember_me
+    let expiry_seconds = if form.remember_me {
+        cookies::COOKIE_MAX_AGE_REMEMBER
+    } else {
+        cookies::COOKIE_MAX_AGE_NORMAL
+    };
+
+    // Create JWT token
+    let token = match jwt::create_token(
+        &state.jwt_secret,
+        &user.username,
+        user.is_admin,
+        expiry_seconds,
+    ) {
+        Ok(token) => token,
+        Err(e) => {
+            tracing::error!("Failed to create JWT token: {:?}", e);
+            return LoginErrorTemplate {
+                message: "An error occurred during authentication".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // Create auth cookie
+    let cookie_value = cookies::create_auth_cookie(&token, form.remember_me);
+
+    tracing::info!(
+        "User '{}' logged in successfully (remember_me: {})",
+        user.username,
+        form.remember_me
+    );
+
+    // Return response with Set-Cookie header and HX-Redirect
+    (
+        StatusCode::OK,
+        [
+            (header::SET_COOKIE, cookie_value),
+            ("HX-Redirect".parse().unwrap(), "/".to_string()),
+        ],
+    )
+        .into_response()
+}
+
+/// Display signup page
+///
+/// GET /signup
+///
+/// Shows the signup form with password requirements.
+pub async fn signup_page_handler() -> impl IntoResponse {
+    SignupPageTemplate {}
+}
+
+/// Process signup form submission
+///
+/// POST /signup
+///
+/// Currently returns "not implemented" error as signup functionality
+/// is not yet implemented on the backend.
+///
+/// Form fields:
+/// - username: Desired username
+/// - password: Desired password
+/// - confirm_password: Password confirmation
+pub async fn signup_form_handler(axum::Form(form): axum::Form<SignupForm>) -> impl IntoResponse {
+    tracing::info!("Signup attempt for username: {}", form.username);
+
+    // TODO: Implement signup logic
+    // - Validate password matches confirm_password
+    // - Validate username requirements
+    // - Validate password strength
+    // - Create user in database
+    // - Auto-login and set cookie
+    // - Redirect to dashboard
+
+    SignupErrorTemplate {
+        message: "User registration is not yet available. Please contact your administrator."
+            .to_string(),
+    }
+}
+
+/// Logout handler
+///
+/// POST /logout
+///
+/// Clears the authentication cookie and redirects to login page.
+pub async fn logout_handler() -> impl IntoResponse {
+    tracing::debug!("User logging out");
+
+    let clear_cookie = cookies::create_clear_cookie();
+
+    (
+        StatusCode::SEE_OTHER,
+        [
+            (header::SET_COOKIE, clear_cookie),
+            (header::LOCATION, "/login?error=logout_success".to_string()),
+        ],
+    )
 }
 
 /// Get detailed information about a lab
@@ -333,27 +533,23 @@ pub async fn get_labs_json(
 /// Serves the main dashboard HTML page with HTMX support.
 /// The page will use HTMX to dynamically load labs.
 ///
-/// # Query Parameters
-/// - `username` (optional) - The username to display, defaults to "bradmin"
+/// Requires authentication via cookie.
 ///
 /// # Response (200 OK)
 /// Returns HTML page rendered from dashboard template
 ///
 /// # Example
 /// ```bash
-/// curl https://server:3030/?username=bradmin
+/// curl -b "sherpa_auth=..." https://server:3030/
 /// ```
 pub async fn dashboard_handler(
-    Query(params): Query<HashMap<String, String>>,
+    auth: AuthenticatedUserFromCookie,
 ) -> Result<DashboardTemplate, ApiError> {
-    let username = params
-        .get("username")
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "bradmin".to_string());
+    tracing::debug!("Serving dashboard for user '{}'", auth.username);
 
-    tracing::debug!("Serving dashboard for user '{}'", username);
-
-    Ok(DashboardTemplate { username })
+    Ok(DashboardTemplate {
+        username: auth.username,
+    })
 }
 
 /// Labs grid HTML fragment handler
@@ -361,38 +557,35 @@ pub async fn dashboard_handler(
 /// Returns an HTML fragment containing the labs grid for HTMX swapping.
 /// This endpoint is called by HTMX on page load and periodically for auto-refresh.
 ///
-/// # Query Parameters
-/// - `username` (optional) - The username to list labs for, defaults to "bradmin"
+/// Requires authentication via cookie.
 ///
 /// # Response (200 OK)
 /// Returns HTML fragment with labs grid, empty state, or error message
 ///
 /// # Example
 /// ```bash
-/// curl https://server:3030/labs?username=bradmin
+/// curl -b "sherpa_auth=..." https://server:3030/labs
 /// ```
 pub async fn get_labs_html(
     State(state): State<AppState>,
-    Query(params): Query<HashMap<String, String>>,
+    auth: AuthenticatedUserFromCookie,
 ) -> impl IntoResponse {
-    let username = params
-        .get("username")
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| "bradmin".to_string());
+    tracing::debug!("Fetching labs HTML for user '{}'", auth.username);
 
-    tracing::debug!("Fetching labs HTML for user '{}'", username);
-
-    // Call service layer
-    match list_labs::list_labs(&username, &state).await {
+    // Call service layer with authenticated username
+    match list_labs::list_labs(&auth.username, &state).await {
         Ok(response) => {
             if response.labs.is_empty() {
-                tracing::debug!("No labs found for user '{}'", username);
-                EmptyStateTemplate { username }.into_response()
+                tracing::debug!("No labs found for user '{}'", auth.username);
+                EmptyStateTemplate {
+                    username: auth.username,
+                }
+                .into_response()
             } else {
                 tracing::debug!(
                     "Returning {} labs for user '{}'",
                     response.labs.len(),
-                    username
+                    auth.username
                 );
                 LabsGridTemplate {
                     labs: response.labs,
@@ -401,9 +594,9 @@ pub async fn get_labs_html(
             }
         }
         Err(e) => {
-            tracing::error!("Failed to load labs for user '{}': {:?}", username, e);
+            tracing::error!("Failed to load labs for user '{}': {:?}", auth.username, e);
             let message = if e.to_string().contains("User not found") {
-                format!("User '{}' not found", username)
+                format!("User '{}' not found", auth.username)
             } else {
                 format!("Failed to load labs: {}", e)
             };

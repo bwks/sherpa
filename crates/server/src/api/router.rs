@@ -8,7 +8,8 @@ use tower_http::services::ServeDir;
 
 use super::handlers::{
     dashboard_handler, get_certificate_handler, get_lab, get_labs_html, get_labs_json,
-    health_check, lab_destroy, lab_up, login,
+    health_check, lab_destroy, lab_up, login, login_form_handler, login_page_handler,
+    logout_handler, signup_form_handler, signup_page_handler,
 };
 
 /// Build the Axum router with all API routes
@@ -35,13 +36,19 @@ pub fn build_router() -> Router<AppState> {
         .allow_credentials(true); // Allow credentials (cookies, auth headers)
 
     Router::new()
-        // HTML routes (must come before static fallback)
+        // Public HTML routes (authentication pages)
+        .route("/login", get(login_page_handler))
+        .route("/login", post(login_form_handler))
+        .route("/signup", get(signup_page_handler))
+        .route("/signup", post(signup_form_handler))
+        .route("/logout", post(logout_handler))
+        // Protected HTML routes (require cookie authentication)
         .route("/", get(dashboard_handler))
         .route("/labs", get(get_labs_html))
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))
-        .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)
         .route("/api/v1/labs/{id}", get(get_lab))

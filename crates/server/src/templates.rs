@@ -82,3 +82,86 @@ impl IntoResponse for ErrorTemplate {
         }
     }
 }
+
+// ============================================================================
+// Authentication Templates
+// ============================================================================
+
+/// Login page template
+#[derive(Template)]
+#[template(path = "login.html.jinja")]
+pub struct LoginPageTemplate {
+    pub error: String,
+    pub message: String,
+}
+
+impl IntoResponse for LoginPageTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Login error partial template
+#[derive(Template)]
+#[template(path = "partials/login-error.html.jinja")]
+pub struct LoginErrorTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for LoginErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Signup page template
+#[derive(Template)]
+#[template(path = "signup.html.jinja")]
+pub struct SignupPageTemplate {}
+
+impl IntoResponse for SignupPageTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Signup error partial template
+#[derive(Template)]
+#[template(path = "partials/signup-error.html.jinja")]
+pub struct SignupErrorTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for SignupErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
