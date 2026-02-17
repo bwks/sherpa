@@ -1,11 +1,13 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
+use askama::Template;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use surrealdb::sql::Datetime;
 
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
@@ -13,7 +15,8 @@ use crate::services::{inspect, list_labs};
 use crate::templates::{
     DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
     LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate,
-    SignupErrorTemplate, SignupPageTemplate,
+    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
+    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -433,6 +436,318 @@ pub async fn logout_handler() -> impl IntoResponse {
         ],
     )
 }
+
+// ============================================================================
+// Profile Management Handlers
+// ============================================================================
+
+/// Form data for password update
+#[derive(Debug, Deserialize)]
+pub struct UpdatePasswordForm {
+    current_password: String,
+    new_password: String,
+    confirm_new_password: String,
+}
+
+/// Form data for adding SSH key
+#[derive(Debug, Deserialize)]
+pub struct AddSshKeyForm {
+    ssh_key: String,
+}
+
+/// Display user profile page
+///
+/// GET /profile
+///
+/// Shows user profile with password change form and SSH key management.
+/// Requires authentication via cookie.
+pub async fn profile_handler(
+    State(state): State<AppState>,
+    auth: AuthenticatedUserFromCookie,
+) -> impl IntoResponse {
+    // Fetch user from database to get current SSH keys
+    let user = match db::get_user(&state.db, &auth.username).await {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load user '{}' for profile page: {:?}",
+                auth.username,
+                e
+            );
+            return (StatusCode::INTERNAL_SERVER_ERROR, "Failed to load profile").into_response();
+        }
+    };
+
+    ProfileTemplate {
+        username: auth.username,
+        ssh_keys_html: SshKeysListTemplate {
+            ssh_keys: user.ssh_keys,
+        }
+        .render()
+        .unwrap_or_else(|_| String::from("Error rendering SSH keys")),
+    }
+    .into_response()
+}
+
+/// Update user password
+///
+/// POST /profile/password
+///
+/// Validates current password, checks new password strength, and updates password.
+/// Returns HTML fragment for HTMX swap (success or error message).
+pub async fn update_password_handler(
+    State(state): State<AppState>,
+    auth: AuthenticatedUserFromCookie,
+    axum::Form(form): axum::Form<UpdatePasswordForm>,
+) -> impl IntoResponse {
+    // 1. Validate passwords match
+    if form.new_password != form.confirm_new_password {
+        return PasswordErrorTemplate {
+            message: "New passwords do not match".to_string(),
+        }
+        .into_response();
+    }
+
+    // 2. Get user from database (with password_hash)
+    let user = match db::get_user_for_auth(&state.db, &auth.username).await {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load user '{}' for password update: {:?}",
+                auth.username,
+                e
+            );
+            return PasswordErrorTemplate {
+                message: "Failed to verify current password".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // 3. Verify current password
+    let is_valid = match password::verify_password(&form.current_password, &user.password_hash) {
+        Ok(valid) => valid,
+        Err(e) => {
+            tracing::error!(
+                "Password verification error for user '{}': {:?}",
+                auth.username,
+                e
+            );
+            return PasswordErrorTemplate {
+                message: "Failed to verify current password".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    if !is_valid {
+        return PasswordErrorTemplate {
+            message: "Current password is incorrect".to_string(),
+        }
+        .into_response();
+    }
+
+    // 4. Validate new password strength
+    if let Err(e) = password::validate_password_strength(&form.new_password) {
+        return PasswordErrorTemplate {
+            message: format!("New password does not meet requirements: {}", e),
+        }
+        .into_response();
+    }
+
+    // 5. Hash new password
+    let new_password_hash = match password::hash_password(&form.new_password) {
+        Ok(hash) => hash,
+        Err(e) => {
+            tracing::error!(
+                "Failed to hash new password for user '{}': {:?}",
+                auth.username,
+                e
+            );
+            return PasswordErrorTemplate {
+                message: "Failed to update password".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // 6. Update user in database
+    let mut updated_user = user;
+    updated_user.password_hash = new_password_hash;
+    updated_user.updated_at = Datetime::default();
+
+    if let Err(e) = db::update_user(&state.db, updated_user).await {
+        tracing::error!(
+            "Failed to update password for user '{}': {:?}",
+            auth.username,
+            e
+        );
+        return PasswordErrorTemplate {
+            message: "Failed to update password".to_string(),
+        }
+        .into_response();
+    }
+
+    tracing::info!("Password updated successfully for user '{}'", auth.username);
+
+    PasswordSuccessTemplate {
+        message: "Password updated successfully".to_string(),
+    }
+    .into_response()
+}
+
+/// Add SSH key to user profile
+///
+/// POST /profile/ssh-keys
+///
+/// Validates SSH key format and adds it to user's profile.
+/// Returns updated SSH keys list HTML fragment for HTMX swap.
+pub async fn add_ssh_key_handler(
+    State(state): State<AppState>,
+    auth: AuthenticatedUserFromCookie,
+    axum::Form(form): axum::Form<AddSshKeyForm>,
+) -> impl IntoResponse {
+    // 1. Validate SSH key format
+    if let Err(e) = shared::auth::ssh::validate_ssh_key(&form.ssh_key) {
+        return SshKeyErrorTemplate {
+            message: format!("Invalid SSH key: {}", e),
+        }
+        .into_response();
+    }
+
+    // 2. Get user from database
+    let mut user = match db::get_user(&state.db, &auth.username).await {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load user '{}' for SSH key addition: {:?}",
+                auth.username,
+                e
+            );
+            return SshKeyErrorTemplate {
+                message: "Failed to add SSH key".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // 3. Check if key already exists
+    if user.ssh_keys.contains(&form.ssh_key) {
+        return SshKeyErrorTemplate {
+            message: "This SSH key is already added".to_string(),
+        }
+        .into_response();
+    }
+
+    // 4. Add SSH key to user
+    user.ssh_keys.push(form.ssh_key.clone());
+    user.updated_at = Datetime::default();
+
+    if let Err(e) = db::update_user(&state.db, user).await {
+        tracing::error!(
+            "Failed to add SSH key for user '{}': {:?}",
+            auth.username,
+            e
+        );
+        return SshKeyErrorTemplate {
+            message: "Failed to add SSH key".to_string(),
+        }
+        .into_response();
+    }
+
+    tracing::info!("SSH key added for user '{}'", auth.username);
+
+    // 5. Return updated SSH keys list
+    fetch_and_render_ssh_keys(&state, &auth.username).await
+}
+
+/// Delete SSH key from user profile
+///
+/// DELETE /profile/ssh-keys/{index}
+///
+/// Removes SSH key at the specified index from user's profile.
+/// Returns updated SSH keys list HTML fragment for HTMX swap.
+pub async fn delete_ssh_key_handler(
+    State(state): State<AppState>,
+    auth: AuthenticatedUserFromCookie,
+    Path(index): Path<usize>,
+) -> impl IntoResponse {
+    // 1. Get user from database
+    let mut user = match db::get_user(&state.db, &auth.username).await {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load user '{}' for SSH key deletion: {:?}",
+                auth.username,
+                e
+            );
+            return SshKeyErrorTemplate {
+                message: "Failed to delete SSH key".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // 2. Validate index
+    if index >= user.ssh_keys.len() {
+        return SshKeyErrorTemplate {
+            message: "SSH key not found".to_string(),
+        }
+        .into_response();
+    }
+
+    // 3. Remove SSH key
+    user.ssh_keys.remove(index);
+    user.updated_at = Datetime::default();
+
+    if let Err(e) = db::update_user(&state.db, user).await {
+        tracing::error!(
+            "Failed to delete SSH key for user '{}': {:?}",
+            auth.username,
+            e
+        );
+        return SshKeyErrorTemplate {
+            message: "Failed to delete SSH key".to_string(),
+        }
+        .into_response();
+    }
+
+    tracing::info!(
+        "SSH key at index {} deleted for user '{}'",
+        index,
+        auth.username
+    );
+
+    // 4. Return updated SSH keys list
+    fetch_and_render_ssh_keys(&state, &auth.username).await
+}
+
+/// Helper function to fetch user's SSH keys and render the list template
+async fn fetch_and_render_ssh_keys(state: &AppState, username: &str) -> Response {
+    let user = match db::get_user(&state.db, username).await {
+        Ok(user) => user,
+        Err(e) => {
+            tracing::error!(
+                "Failed to load user '{}' for SSH keys list: {:?}",
+                username,
+                e
+            );
+            return SshKeyErrorTemplate {
+                message: "Failed to load SSH keys".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    SshKeysListTemplate {
+        ssh_keys: user.ssh_keys,
+    }
+    .into_response()
+}
+
+// ============================================================================
+// Lab Management Handlers
+// ============================================================================
 
 /// Get detailed information about a lab
 ///

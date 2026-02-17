@@ -1,15 +1,16 @@
 use crate::daemon::state::AppState;
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{delete, get, post},
 };
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use super::handlers::{
-    dashboard_handler, get_certificate_handler, get_lab, get_labs_html, get_labs_json,
-    health_check, lab_destroy, lab_detail_handler, lab_up, login, login_form_handler,
-    login_page_handler, logout_handler, signup_form_handler, signup_page_handler,
+    add_ssh_key_handler, dashboard_handler, delete_ssh_key_handler, get_certificate_handler,
+    get_lab, get_labs_html, get_labs_json, health_check, lab_destroy, lab_detail_handler, lab_up,
+    login, login_form_handler, login_page_handler, logout_handler, profile_handler,
+    signup_form_handler, signup_page_handler, update_password_handler,
 };
 
 /// Build the Axum router with all API routes
@@ -46,6 +47,10 @@ pub fn build_router() -> Router<AppState> {
         .route("/", get(dashboard_handler))
         .route("/labs", get(get_labs_html))
         .route("/labs/{lab_id}", get(lab_detail_handler))
+        .route("/profile", get(profile_handler))
+        .route("/profile/password", post(update_password_handler))
+        .route("/profile/ssh-keys", post(add_ssh_key_handler))
+        .route("/profile/ssh-keys/{index}", delete(delete_ssh_key_handler))
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))

@@ -1,0 +1,95 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Profile - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Dashboard
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="profile-container">
+    <h1>User Profile</h1>
+    
+    <!-- Change Password Section -->
+    <div class="profile-card">
+        <h2>Change Password</h2>
+        <form hx-post="/profile/password" hx-target="#password-result" hx-swap="innerHTML">
+            <div id="password-result"></div>
+            
+            <div class="form-group">
+                <label for="current_password">Current Password</label>
+                <input 
+                    type="password" 
+                    id="current_password" 
+                    name="current_password" 
+                    required 
+                    autocomplete="current-password"
+                >
+            </div>
+            
+            <div class="form-group">
+                <label for="new_password">New Password</label>
+                <input 
+                    type="password" 
+                    id="new_password" 
+                    name="new_password" 
+                    required 
+                    autocomplete="new-password"
+                >
+                <small class="form-hint">
+                    Password must be at least 8 characters and contain uppercase, lowercase, and special characters (!@#$%^&*_+-=)
+                </small>
+            </div>
+            
+            <div class="form-group">
+                <label for="confirm_new_password">Confirm New Password</label>
+                <input 
+                    type="password" 
+                    id="confirm_new_password" 
+                    name="confirm_new_password" 
+                    required 
+                    autocomplete="new-password"
+                >
+            </div>
+            
+            <button type="submit" class="btn btn-primary">Update Password</button>
+        </form>
+    </div>
+    
+    <!-- SSH Keys Section -->
+    <div class="profile-card">
+        <h2>SSH Keys</h2>
+        
+        <!-- Add SSH Key Form -->
+        <form hx-post="/profile/ssh-keys" hx-target="#ssh-keys-list" hx-swap="outerHTML">
+            <div class="form-group">
+                <label for="ssh_key">Add SSH Public Key</label>
+                <textarea 
+                    id="ssh_key" 
+                    name="ssh_key" 
+                    rows="3" 
+                    placeholder="ssh-ed25519 AAAAC3Nza... user@host"
+                    required
+                ></textarea>
+                <small class="form-hint">
+                    Paste your SSH public key (ssh-rsa, ssh-ed25519, ecdsa-sha2-*)
+                </small>
+            </div>
+            <button type="submit" class="btn btn-secondary">Add Key</button>
+        </form>
+        
+        <!-- SSH Keys List (loaded via partial) -->
+        {{ ssh_keys_html | safe }}
+    </div>
+</div>
+{% endblock %}

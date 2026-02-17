@@ -238,3 +238,108 @@ impl IntoResponse for LabDetailTemplate {
         }
     }
 }
+
+// ============================================================================
+// Profile Management Templates
+// ============================================================================
+
+/// User profile page template
+#[derive(Template)]
+#[template(path = "profile.html.jinja")]
+pub struct ProfileTemplate {
+    pub username: String,
+    pub ssh_keys_html: String,
+}
+
+impl IntoResponse for ProfileTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// SSH keys list partial template
+#[derive(Template)]
+#[template(path = "partials/ssh-keys-list.html.jinja")]
+pub struct SshKeysListTemplate {
+    pub ssh_keys: Vec<String>,
+}
+
+impl IntoResponse for SshKeysListTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Password update success message template
+#[derive(Template)]
+#[template(path = "partials/password-success.html.jinja")]
+pub struct PasswordSuccessTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for PasswordSuccessTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Password update error message template
+#[derive(Template)]
+#[template(path = "partials/password-error.html.jinja")]
+pub struct PasswordErrorTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for PasswordErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// SSH key operation error message template
+#[derive(Template)]
+#[template(path = "partials/ssh-key-error.html.jinja")]
+pub struct SshKeyErrorTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for SshKeyErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
