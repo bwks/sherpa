@@ -11,8 +11,9 @@ use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::{inspect, list_labs};
 use crate::templates::{
-    DashboardTemplate, EmptyStateTemplate, ErrorTemplate, LabsGridTemplate, LoginErrorTemplate,
-    LoginPageTemplate, SignupErrorTemplate, SignupPageTemplate,
+    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
+    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate,
+    SignupErrorTemplate, SignupPageTemplate,
 };
 
 use super::errors::ApiError;
@@ -738,6 +739,106 @@ pub async fn get_labs_html(
                 format!("Failed to load labs: {}", e)
             };
             ErrorTemplate { message }.into_response()
+        }
+    }
+}
+
+/// Lab detail page handler
+///
+/// Displays detailed information about a specific lab including:
+/// - Lab metadata (name, ID, network configuration)
+/// - List of devices (active and inactive) with their details
+///
+/// Requires authentication via cookie.
+///
+/// # Path Parameters
+/// - `lab_id`: Lab ID (UUID format)
+///
+/// # Response (200 OK)
+/// Returns HTML page with lab details
+///
+/// # Errors
+/// - `403 Forbidden` - User doesn't have permission to view this lab
+/// - `404 Not Found` - Lab doesn't exist
+/// - `500 Internal Server Error` - Server error while fetching lab details
+///
+/// # Example
+/// ```bash
+/// curl -b "sherpa_auth=..." https://server:3030/labs/550e8400-e29b-41d4-a716-446655440000
+/// ```
+pub async fn lab_detail_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    tracing::debug!(
+        "Fetching lab details for lab '{}' by user '{}'",
+        lab_id,
+        auth.username
+    );
+
+    // Create inspect request
+    let request = InspectRequest {
+        lab_id: lab_id.clone(),
+        username: auth.username.clone(),
+    };
+
+    // Call inspect service
+    match inspect::inspect_lab(request, &state).await {
+        Ok(response) => {
+            tracing::info!(
+                "Successfully loaded lab '{}' details for user '{}'",
+                lab_id,
+                auth.username
+            );
+            let device_count = response.devices.len();
+            LabDetailTemplate {
+                username: auth.username,
+                lab_info: response.lab_info,
+                devices: response.devices,
+                device_count,
+            }
+            .into_response()
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+
+            // Check for permission denied
+            if error_msg.contains("Permission denied") {
+                tracing::warn!(
+                    "User '{}' attempted to access lab '{}' without permission",
+                    auth.username,
+                    lab_id
+                );
+                Error403Template {
+                    username: auth.username,
+                    message: "You don't have permission to view this lab.".to_string(),
+                }
+                .into_response()
+            }
+            // Check for not found
+            else if error_msg.contains("not found") {
+                tracing::debug!("Lab '{}' not found for user '{}'", lab_id, auth.username);
+                Error404Template {
+                    username: auth.username,
+                    message: "Lab not found.".to_string(),
+                }
+                .into_response()
+            }
+            // Generic error - log and return error page
+            else {
+                tracing::error!(
+                    "Failed to load lab '{}' for user '{}': {:?}",
+                    lab_id,
+                    auth.username,
+                    e
+                );
+                Error404Template {
+                    username: auth.username,
+                    message: "An error occurred loading the lab.".to_string(),
+                }
+                .into_response()
+            }
         }
     }
 }

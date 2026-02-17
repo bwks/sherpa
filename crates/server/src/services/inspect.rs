@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DeviceInfo, InspectRequest, InspectResponse, LabInfo, NodeKind, NodeModel};
+use shared::data::{DeviceInfo, InspectRequest, InspectResponse, LabInfo};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
 use std::str::FromStr;
@@ -89,7 +89,6 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
 
     // Process each node
     let mut devices = Vec::new();
-    let mut inactive_devices = Vec::new();
 
     for node in db_nodes {
         let node_name = node.name.clone();
@@ -138,17 +137,15 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
                     device_info.disks.push(volume);
                 }
             }
-
-            devices.push(device_info);
-        } else {
-            // Device not found in libvirt, mark as inactive
-            inactive_devices.push(node_name);
         }
+
+        // Always add device info, regardless of whether it's active or not
+        devices.push(device_info);
     }
 
     Ok(InspectResponse {
         lab_info,
         devices,
-        inactive_devices,
+        inactive_devices: Vec::new(), // Keep field for API compatibility
     })
 }

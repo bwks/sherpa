@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use shared::data::LabSummary;
+use shared::data::{DeviceInfo, LabInfo, LabSummary};
 
 /// Main dashboard page template
 #[derive(Template)]
@@ -154,6 +154,79 @@ pub struct SignupErrorTemplate {
 }
 
 impl IntoResponse for SignupErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// Error Page Templates
+// ============================================================================
+
+/// 404 Not Found error page template
+#[derive(Template)]
+#[template(path = "error-404.html.jinja")]
+pub struct Error404Template {
+    pub username: String,
+    pub message: String,
+}
+
+impl IntoResponse for Error404Template {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => (StatusCode::NOT_FOUND, Html(html)).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// 403 Forbidden error page template
+#[derive(Template)]
+#[template(path = "error-403.html.jinja")]
+pub struct Error403Template {
+    pub username: String,
+    pub message: String,
+}
+
+impl IntoResponse for Error403Template {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => (StatusCode::FORBIDDEN, Html(html)).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// Lab Detail Templates
+// ============================================================================
+
+/// Lab detail page template
+#[derive(Template)]
+#[template(path = "lab-detail.html.jinja")]
+pub struct LabDetailTemplate {
+    pub username: String,
+    pub lab_info: LabInfo,
+    pub devices: Vec<DeviceInfo>,
+    pub device_count: usize,
+}
+
+impl IntoResponse for LabDetailTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),

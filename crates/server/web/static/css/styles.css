@@ -112,3 +112,22 @@
     transform: scale(0.98);
 }
 
+/* Error Container */
+.error-container {
+    text-align: center;
+    padding: 4rem 2rem;
+}
+
+/* Metadata Grid (Lab Detail) */
+.metadata-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Breadcrumb Navigation */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+}
+

@@ -1,0 +1,152 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}{{ lab_info.name }} - Lab Details{% endblock %}
+
+{% block header_actions %}
+<div class="flex items-center space-x-4">
+    <span class="text-gray-700">Welcome, <strong>{{ username }}</strong></span>
+    <button onclick="location.reload()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+        Refresh
+    </button>
+    <form method="POST" action="/logout" class="inline">
+        <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">
+            Logout
+        </button>
+    </form>
+</div>
+{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb Navigation -->
+<nav class="breadcrumb mb-6 text-sm text-gray-600">
+    <a href="/" class="text-blue-600 hover:text-blue-800 hover:underline">Dashboard</a>
+    <span class="mx-2">/</span>
+    <a href="/" class="text-blue-600 hover:text-blue-800 hover:underline">Labs</a>
+    <span class="mx-2">/</span>
+    <span class="text-gray-900 font-medium">{{ lab_info.name }}</span>
+</nav>
+
+<!-- Lab Metadata Card -->
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
+    <h2 class="text-xl font-semibold text-gray-900 mb-4">Lab Information</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="metadata-item">
+            <span class="block text-sm font-medium text-gray-500 mb-1">Name</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.name }}</span>
+        </div>
+        <div class="metadata-item">
+            <span class="block text-sm font-medium text-gray-500 mb-1">ID</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.id }}</span>
+        </div>
+        <div class="metadata-item">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Network</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_network }}</span>
+        </div>
+        <div class="metadata-item">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Gateway</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_gateway }}</span>
+        </div>
+        <div class="metadata-item">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Router</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_router }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Devices Section -->
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+    <h2 class="text-xl font-semibold text-gray-900 mb-4">
+        Devices 
+        <span class="text-base font-normal text-gray-500">
+            ({{ device_count }} total)
+        </span>
+    </h2>
+    
+    {% if device_count > 0 %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Name
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Model
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Type
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Status
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Management IP
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Disks
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                    </th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for device in devices %}
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                        {{ device.name }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                        {{ device.model }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                        {{ device.kind }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        {% if device.active %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Active
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                            Inactive
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                        {% if device.mgmt_ip != "" %}{{ device.mgmt_ip }}{% else %}-{% endif %}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {% if device.disks.is_empty() %}-{% else %}✓{% endif %}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                        {% if device.active %}
+                        <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded opacity-50 cursor-not-allowed">
+                            Stop
+                        </button>
+                        <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-blue-600 rounded opacity-50 cursor-not-allowed">
+                            Console
+                        </button>
+                        {% else %}
+                        <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded opacity-50 cursor-not-allowed">
+                            Start
+                        </button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-center text-gray-500 py-8 italic">No devices configured in this lab.</p>
+    {% endif %}
+</div>
+
+<!-- Actions -->
+<div class="mt-6 flex space-x-4">
+    <a href="/" class="px-6 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+        Back to Dashboard
+    </a>
+</div>
+{% endblock %}
