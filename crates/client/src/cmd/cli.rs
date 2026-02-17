@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use clap::{Parser, Subcommand};
 
+use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
 use super::clean::clean;
 use super::console::console;
 use super::container::{ContainerCommands, parse_container_commands};
@@ -150,7 +151,35 @@ enum Commands {
         #[command(subcommand)]
         commands: ImageCommands,
     },
+
+    /// Certificate management commands (TOFU system)
+    Cert {
+        #[command(subcommand)]
+        commands: CertCommands,
+    },
 }
+
+#[derive(Debug, Subcommand)]
+enum CertCommands {
+    /// List all trusted certificates
+    List,
+    /// Show detailed certificate information
+    Show {
+        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        server_url: String,
+    },
+    /// Trust a certificate without connecting
+    Trust {
+        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        server_url: String,
+    },
+    /// Delete a trusted certificate
+    Delete {
+        /// Server URL (e.g., wss://10.100.58.10:3030/ws)
+        server_url: String,
+    },
+}
+
 impl Default for Commands {
     fn default() -> Self {
         let config_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}");
@@ -184,9 +213,7 @@ impl Cli {
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| {
-                        config.as_ref().map(build_websocket_url)
-                    })
+                    .or_else(|| config.as_ref().map(build_websocket_url))
                     .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
 
                 login(&server_url, cli.insecure).await?;
@@ -201,9 +228,7 @@ impl Cli {
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| {
-                        config.as_ref().map(build_websocket_url)
-                    })
+                    .or_else(|| config.as_ref().map(build_websocket_url))
                     .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
 
                 whoami(&server_url, cli.insecure).await?;
@@ -347,6 +372,12 @@ impl Cli {
             Commands::Image { commands } => {
                 parse_image_commands(commands, &sherpa).await?;
             }
+            Commands::Cert { commands } => match commands {
+                CertCommands::List => cert_list().await?,
+                CertCommands::Show { server_url } => cert_show(server_url).await?,
+                CertCommands::Trust { server_url } => cert_trust(server_url).await?,
+                CertCommands::Delete { server_url } => cert_delete(server_url).await?,
+            },
         }
         Ok(())
     }

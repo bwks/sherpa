@@ -468,3 +468,65 @@ mod tests {
         println!("\n{}", table);
     }
 }
+
+/// Represents a row in the certificates table
+#[derive(Tabled)]
+struct CertTableRow {
+    #[tabled(rename = "Server")]
+    server: String,
+
+    #[tabled(rename = "Subject")]
+    subject: String,
+
+    #[tabled(rename = "Valid Until")]
+    valid_until: String,
+}
+
+/// Certificate information for table display
+pub struct CertificateTableInfo {
+    pub server: String,
+    pub subject: String,
+    pub valid_until: String,
+}
+
+/// Renders a table of trusted certificates
+///
+/// # Arguments
+/// * `certs` - Slice of CertificateTableInfo structs to display in the table
+///
+/// # Returns
+/// A formatted table string using modern Unicode box-drawing characters
+///
+/// # Example
+/// ```
+/// use shared::util::table::{render_certificates_table, CertificateTableInfo};
+///
+/// let certs = vec![
+///     CertificateTableInfo {
+///         server: "10.100.58.10:3030".to_string(),
+///         subject: "Sherpa Server".to_string(),
+///         valid_until: "Feb 16 23:05:43 2027".to_string(),
+///     },
+/// ];
+///
+/// let table = render_certificates_table(&certs);
+/// assert!(table.contains("10.100.58.10:3030"));
+/// assert!(table.contains("Sherpa Server"));
+/// ```
+pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
+    let rows: Vec<CertTableRow> = certs
+        .iter()
+        .map(|cert| CertTableRow {
+            server: cert.server.clone(),
+            subject: cert.subject.clone(),
+            valid_until: cert.valid_until.clone(),
+        })
+        .collect();
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header("Trusted Server Certificates"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}

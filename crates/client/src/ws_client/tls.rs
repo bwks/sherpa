@@ -1,16 +1,16 @@
 use anyhow::{Context, Result};
-use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::ClientConfig;
 use rustls::RootCertStore;
+use rustls::pki_types::{CertificateDer, ServerName};
 use shared::data::ServerConnection;
 use shared::util::{term_msg_surround, term_msg_underline};
 use std::fs::File;
-use std::io::{self, BufReader, Write};
+use std::io::{self, BufReader, IsTerminal, Write};
 use std::path::Path;
 use std::sync::Arc;
 
 use crate::cert_fetch::fetch_server_certificate;
-use crate::trust_store::{extract_cert_info, TrustStore};
+use crate::trust_store::{TrustStore, extract_cert_info};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
@@ -78,7 +78,7 @@ impl TlsConfigBuilder {
             tracing::info!("Using custom CA certificate: {}", ca_path);
             let ca_cert = Self::load_ca_cert(Path::new(ca_path))
                 .context("Failed to load custom CA certificate")?;
-            
+
             let mut root_store = RootCertStore::empty();
             root_store
                 .add(ca_cert)
@@ -92,8 +92,8 @@ impl TlsConfigBuilder {
         }
 
         // Initialize trust store
-        let trust_store = TrustStore::new()
-            .context("Failed to initialize certificate trust store")?;
+        let trust_store =
+            TrustStore::new().context("Failed to initialize certificate trust store")?;
 
         // Check if certificate already exists in trust store
         let cert_pem = match trust_store.get_cert(server_url)? {
@@ -104,7 +104,7 @@ impl TlsConfigBuilder {
             None => {
                 // Certificate not in trust store - fetch from server
                 tracing::info!("Certificate not found in trust store, fetching from server...");
-                
+
                 let fetched_cert = fetch_server_certificate(server_url)
                     .await
                     .context("Failed to fetch server certificate")?;
@@ -139,9 +139,9 @@ impl TlsConfigBuilder {
 
         // Load the certificate into a root store
         let mut root_store = RootCertStore::empty();
-        let cert = Self::load_cert_from_pem(&cert_pem)
-            .context("Failed to parse trusted certificate")?;
-        
+        let cert =
+            Self::load_cert_from_pem(&cert_pem).context("Failed to parse trusted certificate")?;
+
         root_store
             .add(cert)
             .context("Failed to add trusted certificate to root store")?;
@@ -249,14 +249,14 @@ fn display_certificate_info(cert_info: &crate::trust_store::CertificateInfo) -> 
     println!();
     println!("  Server:      {}", cert_info.server_url);
     println!("  Subject:     {}", cert_info.subject);
-    
+
     // Show if self-signed
     if cert_info.subject == cert_info.issuer {
         println!("  Issuer:      {} (self-signed)", cert_info.issuer);
     } else {
         println!("  Issuer:      {}", cert_info.issuer);
     }
-    
+
     println!("  Valid From:  {}", cert_info.valid_from);
     println!("  Valid To:    {}", cert_info.valid_to);
     println!();
@@ -267,7 +267,7 @@ fn display_certificate_info(cert_info: &crate::trust_store::CertificateInfo) -> 
     println!("   Verify the fingerprint matches what you expect to prevent");
     println!("   man-in-the-middle attacks.");
     println!();
-    
+
     Ok(())
 }
 
@@ -275,16 +275,33 @@ fn display_certificate_info(cert_info: &crate::trust_store::CertificateInfo) -> 
 ///
 /// Returns true if the user confirms trust, false otherwise.
 fn prompt_trust_certificate() -> Result<bool> {
+    // Check if running in interactive mode
+    if !is_interactive() {
+        anyhow::bail!(
+            "Cannot prompt for certificate trust in non-interactive mode.\n\n\
+             The server certificate is not in your trust store and user confirmation\n\
+             is required. This environment does not have an interactive terminal.\n\n\
+             Options:\n\
+             1. Run 'sherpa cert trust <server-url>' from an interactive terminal\n\
+             2. Use --insecure flag to skip validation (NOT RECOMMENDED for production)"
+        );
+    }
+
     print!("Do you trust this certificate? (yes/no): ");
     io::stdout().flush().context("Failed to flush stdout")?;
-    
+
     let mut response = String::new();
     io::stdin()
         .read_line(&mut response)
         .context("Failed to read user input")?;
-    
+
     let response = response.trim().to_lowercase();
     Ok(response == "yes" || response == "y")
+}
+
+/// Check if running in an interactive terminal
+fn is_interactive() -> bool {
+    io::stdin().is_terminal()
 }
 
 #[cfg(test)]

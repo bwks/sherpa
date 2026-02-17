@@ -87,4 +87,3 @@ dirs = "6.0"
 
 [dev-dependencies]
 tempfile = "3.25.0"
-

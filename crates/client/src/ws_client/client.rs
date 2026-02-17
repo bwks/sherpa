@@ -1,11 +1,11 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
 use serde::Deserialize;
 use shared::data::ServerConnection;
 use std::time::Duration;
 use tokio_tungstenite::{
-    connect_async, connect_async_tls_with_config, tungstenite::Message, Connector, MaybeTlsStream,
-    WebSocketStream,
+    Connector, MaybeTlsStream, WebSocketStream, connect_async, connect_async_tls_with_config,
+    tungstenite::Message,
 };
 
 use super::messages::{RpcRequest, RpcResponse};

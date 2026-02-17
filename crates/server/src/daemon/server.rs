@@ -73,7 +73,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         config.server_ipv4,
         config.server_port
     );
-    
+
     if config.tls.enabled {
         tracing::info!("TLS is enabled for secure WebSocket connections");
     } else {
@@ -103,14 +103,17 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     // Start server with or without TLS
     if config.tls.enabled {
         // TLS-enabled server
-        let cert_mgr = CertificateManager::new(&config.tls)
-            .context("Failed to create certificate manager")?;
+        let cert_mgr =
+            CertificateManager::new(&config.tls).context("Failed to create certificate manager")?;
 
         // Determine SANs from config or use server IP as default
         let mut san = config.tls.san.clone();
         if san.is_empty() {
             san.push(format!("IP:{}", config.server_ipv4));
-            tracing::info!("No SANs configured, using server IP: {}", config.server_ipv4);
+            tracing::info!(
+                "No SANs configured, using server IP: {}",
+                config.server_ipv4
+            );
         }
 
         // Ensure certificates exist (generate if needed)
@@ -133,7 +136,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let http_addr: SocketAddr = format!("{}:{}", config.server_ipv4, http_port)
             .parse()
             .context("Invalid HTTP server address")?;
-        
+
         tokio::spawn(async move {
             // Build a minimal router with just the /cert endpoint
             let http_app = axum::Router::new()
@@ -143,7 +146,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             match tokio::net::TcpListener::bind(&http_addr).await {
                 Ok(listener) => {
                     tracing::info!(
-                        "HTTP certificate endpoint available at http://{}:{}/cert", 
+                        "HTTP certificate endpoint available at http://{}:{}/cert",
                         listener.local_addr().unwrap().ip(),
                         listener.local_addr().unwrap().port()
                     );
@@ -155,8 +158,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
                 Err(e) => {
                     tracing::error!(
                         "Failed to bind HTTP listener on port {} for /cert endpoint: {}. \
-                         Certificate download will not be available.", 
-                        http_port, e
+                         Certificate download will not be available.",
+                        http_port,
+                        e
                     );
                 }
             }

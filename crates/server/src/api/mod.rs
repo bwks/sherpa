@@ -3,11 +3,11 @@ pub mod websocket;
 
 use crate::daemon::state::AppState;
 use axum::{
+    Json, Router,
     extract::State,
-    http::{header, StatusCode},
+    http::{StatusCode, header},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
 };
 use handlers::{lab_destroy, lab_inspect, lab_up};
 use serde_json::json;

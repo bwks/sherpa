@@ -142,16 +142,98 @@ impl TrustStore {
     pub fn store_dir(&self) -> &Path {
         &self.store_dir
     }
+
+    /// List all trusted certificates
+    ///
+    /// Returns a vector of (server_url, cert_pem) tuples for all trusted certificates.
+    /// The server_url is reconstructed from the filename.
+    pub fn list_all(&self) -> Result<Vec<(String, String)>> {
+        let mut certs = Vec::new();
+
+        // Read all .pem files in the trust store directory
+        let entries = fs::read_dir(&self.store_dir).with_context(|| {
+            format!(
+                "Failed to read trust store directory: {}",
+                self.store_dir.display()
+            )
+        })?;
+
+        for entry in entries {
+            let entry = entry.context("Failed to read directory entry")?;
+            let path = entry.path();
+
+            // Only process .pem files
+            if path.extension().and_then(|s| s.to_str()) != Some("pem") {
+                continue;
+            }
+
+            // Read certificate
+            let cert_pem = fs::read_to_string(&path)
+                .with_context(|| format!("Failed to read certificate from: {}", path.display()))?;
+
+            // Validate it's a valid PEM format
+            if !cert_pem.contains("-----BEGIN CERTIFICATE-----") {
+                tracing::warn!("Skipping invalid certificate: {}", path.display());
+                continue;
+            }
+
+            // Reconstruct server URL from filename
+            // Format: host_port.pem -> wss://host:port/ws
+            if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
+                let server_url = filename_to_url(filename);
+                certs.push((server_url, cert_pem));
+            }
+        }
+
+        Ok(certs)
+    }
 }
 
 /// Convert a server URL to a safe filename
 ///
-/// Uses SHA-256 hash of the URL to ensure unique, filesystem-safe filenames.
+/// Extracts host and port from URL and creates a readable filename.
+/// Example: wss://10.100.58.10:3030/ws -> 10.100.58.10_3030.pem
 fn url_to_filename(server_url: &str) -> String {
+    use url::Url;
+
+    // Parse URL to extract host and port
+    if let Ok(url) = Url::parse(server_url) {
+        let host = url.host_str().unwrap_or("unknown");
+        let port = url.port().or_else(|| match url.scheme() {
+            "ws" => Some(80),
+            "wss" => Some(443),
+            _ => None,
+        });
+
+        if let Some(port) = port {
+            // Replace : with _ for Windows compatibility
+            // Replace other unsafe chars with _
+            let safe_host = host.replace(':', "_").replace('/', "_");
+            return format!("{}_{}", safe_host, port);
+        }
+    }
+
+    // Fallback: use SHA-256 hash if URL parsing fails
     let mut hasher = Sha256::new();
     hasher.update(server_url.as_bytes());
     let hash = hasher.finalize();
     hex::encode(hash)
+}
+
+/// Convert a filename back to a server URL
+///
+/// Example: 10.100.58.10_3030 -> wss://10.100.58.10:3030/ws
+fn filename_to_url(filename: &str) -> String {
+    // Try to parse as host_port format
+    if let Some((host, port_str)) = filename.rsplit_once('_') {
+        if port_str.parse::<u16>().is_ok() {
+            // Reconstruct as wss:// URL (assume secure by default for display)
+            return format!("wss://{}:{}/ws", host, port_str);
+        }
+    }
+
+    // Fallback: return filename as-is if can't parse
+    format!("unknown://{}", filename)
 }
 
 /// Extract information from a certificate PEM string

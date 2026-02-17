@@ -21,13 +21,11 @@ use url::Url;
 /// - Invalid PEM format received
 pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
     // Parse the WebSocket URL to extract host and port
-    let ws_url = Url::parse(server_url)
-        .with_context(|| format!("Invalid server URL: {}", server_url))?;
+    let ws_url =
+        Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
 
-    let host = ws_url
-        .host_str()
-        .context("Server URL missing host")?;
-    
+    let host = ws_url.host_str().context("Server URL missing host")?;
+
     let port = ws_url
         .port()
         .or_else(|| {
@@ -59,16 +57,12 @@ pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
         .context("Failed to create HTTP client")?;
 
     // Fetch certificate
-    let response = client
-        .get(&cert_url)
-        .send()
-        .await
-        .with_context(|| {
-            format!(
-                "Unable to reach server at {}. Is the server running?",
-                cert_url
-            )
-        })?;
+    let response = client.get(&cert_url).send().await.with_context(|| {
+        format!(
+            "Unable to reach server at {}. Is the server running?",
+            cert_url
+        )
+    })?;
 
     // Check status code
     match response.status() {
@@ -112,11 +106,7 @@ pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
                 .await
                 .unwrap_or_else(|_| "Unknown error".to_string());
 
-            anyhow::bail!(
-                "Server returned error status {}:\n{}",
-                status,
-                error_msg
-            )
+            anyhow::bail!("Server returned error status {}:\n{}", status, error_msg)
         }
     }
 }
@@ -129,21 +119,17 @@ pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
 /// # Returns
 /// A string in the format "host:port" for use in trust store lookups
 pub fn parse_server_address(server_url: &str) -> Result<String> {
-    let ws_url = Url::parse(server_url)
-        .with_context(|| format!("Invalid server URL: {}", server_url))?;
+    let ws_url =
+        Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
 
-    let host = ws_url
-        .host_str()
-        .context("Server URL missing host")?;
-    
+    let host = ws_url.host_str().context("Server URL missing host")?;
+
     let port = ws_url
         .port()
-        .or_else(|| {
-            match ws_url.scheme() {
-                "ws" => Some(80),
-                "wss" => Some(443),
-                _ => None,
-            }
+        .or_else(|| match ws_url.scheme() {
+            "ws" => Some(80),
+            "wss" => Some(443),
+            _ => None,
         })
         .context("Unable to determine server port")?;
 

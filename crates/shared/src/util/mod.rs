@@ -39,6 +39,9 @@ pub use ssh::{
     find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash,
     pub_ssh_key_to_sha256_hash,
 };
-pub use table::{render_devices_table, render_lab_info_table, render_nodes_table};
+pub use table::{
+    CertificateTableInfo, render_certificates_table, render_devices_table, render_lab_info_table,
+    render_nodes_table,
+};
 pub use text::split_node_int;
 pub use user::{get_username, sherpa_user};
