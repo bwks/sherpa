@@ -151,3 +151,88 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
         })
     }
 }
+
+/// Admin user extracted from cookie for admin-only HTML pages
+///
+/// Use this for HTML routes that require admin privileges.
+/// This extractor checks for valid authentication AND admin status.
+///
+/// On authentication failure, redirects to `/login?error=session_required`
+/// On non-admin access, returns a 403 Forbidden page
+///
+/// # Example
+/// ```rust
+/// pub async fn admin_dashboard(
+///     admin: AdminUser,
+/// ) -> impl IntoResponse {
+///     Html(format!("Welcome, admin {}!", admin.username))
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct AdminUser {
+    pub username: String,
+}
+
+impl AdminUser {
+    /// Convert to AuthContext for service layer
+    pub fn into_context(self) -> AuthContext {
+        AuthContext::new(self.username, true)
+    }
+}
+
+/// Custom rejection type for non-admin access (403 Forbidden)
+pub struct AdminForbidden {
+    pub username: String,
+}
+
+impl IntoResponse for AdminForbidden {
+    fn into_response(self) -> Response {
+        use crate::templates::Admin403Template;
+        Admin403Template {
+            username: self.username,
+        }
+        .into_response()
+    }
+}
+
+impl FromRequestParts<AppState> for AdminUser {
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        // Extract cookie header
+        let cookie_header = parts
+            .headers
+            .get(header::COOKIE)
+            .and_then(|h| h.to_str().ok())
+            .ok_or_else(|| AuthRedirect.into_response())?;
+
+        // Extract token from cookies
+        let token = cookies::extract_token_from_cookie(cookie_header)
+            .ok_or_else(|| AuthRedirect.into_response())?;
+
+        // Validate token
+        let claims = jwt::validate_token(&state.jwt_secret, &token).map_err(|e| {
+            tracing::debug!("Cookie token validation failed: {}", e);
+            AuthRedirect.into_response()
+        })?;
+
+        // Check if user is admin
+        if !claims.is_admin {
+            tracing::warn!(
+                "User {} attempted to access admin route without privileges",
+                claims.sub
+            );
+            return Err(AdminForbidden {
+                username: claims.sub,
+            }
+            .into_response());
+        }
+
+        Ok(AdminUser {
+            username: claims.sub,
+        })
+    }
+}

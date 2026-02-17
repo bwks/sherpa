@@ -1,0 +1,28 @@
+<div id="admin-ssh-keys-list" class="ssh-keys-container">
+    {% if !success_message.is_empty() %}
+    <div class="notification {% if is_error %}notification-error{% else %}notification-success{% endif %}">
+        {{ success_message }}
+    </div>
+    {% endif %}
+    
+    {% if !ssh_keys.is_empty() %}
+        {% for key in ssh_keys %}
+        <div class="ssh-key-card">
+            <div class="ssh-key-content">
+                <code class="ssh-key-text">{{ key }}</code>
+            </div>
+            <form 
+                hx-delete="/admin/users/{{ target_username }}/ssh-keys/{{ loop.index0 }}" 
+                hx-target="#admin-ssh-keys-list" 
+                hx-swap="outerHTML"
+                hx-confirm="Are you sure you want to delete this SSH key?"
+                class="inline"
+            >
+                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+            </form>
+        </div>
+        {% endfor %}
+    {% else %}
+        <p class="empty-message">No SSH keys configured for this user.</p>
+    {% endif %}
+</div>

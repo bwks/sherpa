@@ -1,8 +1,9 @@
+use askama::Template;
+use axum::Form;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use askama::Template;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -13,16 +14,19 @@ use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::{inspect, list_labs};
 use crate::templates::{
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate,
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
-    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
+    AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
+    Error403Template, Error404Template, ErrorTemplate, LabDetailTemplate, LabsGridTemplate,
+    LoginErrorTemplate, LoginPageTemplate, PasswordErrorTemplate, PasswordSuccessTemplate,
+    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
+    SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
-use super::extractors::{AuthenticatedUser, AuthenticatedUserFromCookie};
+use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie};
 
 use shared::auth::password;
+use shared::auth::ssh;
 use shared::data::{
     InspectRequest, InspectResponse, ListLabsResponse, LoginRequest, LoginResponse,
 };
@@ -232,12 +236,15 @@ pub async fn login_form_handler(
         form.remember_me
     );
 
+    // Redirect admin users to /admin, regular users to /
+    let redirect_path = if user.is_admin { "/admin" } else { "/" };
+
     // Return response with Set-Cookie header and HX-Redirect
     (
         StatusCode::OK,
         [
             (header::SET_COOKIE, cookie_value),
-            ("HX-Redirect".parse().unwrap(), "/".to_string()),
+            ("HX-Redirect".parse().unwrap(), redirect_path.to_string()),
         ],
     )
         .into_response()
@@ -479,7 +486,8 @@ pub async fn profile_handler(
     };
 
     ProfileTemplate {
-        username: auth.username,
+        username: auth.username.clone(),
+        is_admin: auth.is_admin,
         ssh_keys_html: SshKeysListTemplate {
             ssh_keys: user.ssh_keys,
         }
@@ -1001,7 +1009,8 @@ pub async fn dashboard_handler(
     tracing::debug!("Serving dashboard for user '{}'", auth.username);
 
     Ok(DashboardTemplate {
-        username: auth.username,
+        username: auth.username.clone(),
+        is_admin: auth.is_admin,
     })
 }
 
@@ -1108,7 +1117,8 @@ pub async fn lab_detail_handler(
             );
             let device_count = response.devices.len();
             LabDetailTemplate {
-                username: auth.username,
+                username: auth.username.clone(),
+                is_admin: auth.is_admin,
                 lab_info: response.lab_info,
                 devices: response.devices,
                 device_count,
@@ -1154,6 +1164,458 @@ pub async fn lab_detail_handler(
                 }
                 .into_response()
             }
+        }
+    }
+}
+
+// ============================================================================
+// Admin User Management Handlers
+// ============================================================================
+
+/// Helper struct for displaying user information in admin dashboard
+#[derive(Debug, Clone)]
+pub struct UserSummary {
+    pub username: String,
+    pub is_admin: bool,
+    pub ssh_key_count: usize,
+    pub lab_count: usize,
+    pub created_at_formatted: String,
+}
+
+/// Admin dashboard - lists all users
+pub async fn admin_dashboard_handler(
+    State(state): State<AppState>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    tracing::info!("Admin '{}' accessing admin dashboard", admin.username);
+
+    // Get all users from database
+    let users = db::list_users(&state.db).await.map_err(|e| {
+        tracing::error!("Failed to list users: {:?}", e);
+        ApiError::internal("Failed to load users")
+    })?;
+
+    // Transform users into display format and filter out the logged-in admin
+    let mut user_summaries: Vec<UserSummary> = Vec::new();
+
+    for user in users.into_iter() {
+        // Filter out current admin
+        if user.username == admin.username {
+            continue;
+        }
+
+        // Format created_at date using jiff
+        let created_at_formatted = format_date_simple(user.created_at);
+
+        // Count labs owned by this user
+        let lab_count = if let Some(ref user_id) = user.id {
+            db::count_labs_by_user(&state.db, user_id.clone())
+                .await
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        user_summaries.push(UserSummary {
+            username: user.username,
+            is_admin: user.is_admin,
+            ssh_key_count: user.ssh_keys.len(),
+            lab_count,
+            created_at_formatted,
+        });
+    }
+
+    // Sort users alphabetically by username
+    user_summaries.sort_by(|a, b| a.username.cmp(&b.username));
+
+    tracing::debug!(
+        "Loaded {} users for admin dashboard (filtered out current admin '{}')",
+        user_summaries.len(),
+        admin.username
+    );
+
+    Ok(AdminDashboardTemplate {
+        username: admin.username,
+        users: user_summaries,
+    }
+    .into_response())
+}
+
+/// Admin user edit page - shows user details and allows editing
+pub async fn admin_user_edit_handler(
+    State(state): State<AppState>,
+    Path(target_username): Path<String>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    tracing::info!(
+        "Admin '{}' accessing edit page for user '{}'",
+        admin.username,
+        target_username
+    );
+
+    // Get target user from database
+    let target_user = db::get_user(&state.db, &target_username)
+        .await
+        .map_err(|e| {
+            tracing::warn!("User '{}' not found: {:?}", target_username, e);
+            ApiError::not_found("User", format!("User '{}' not found", target_username))
+        })?;
+
+    // Check if admin is editing themselves
+    let is_self = admin.username == target_username;
+
+    if is_self {
+        tracing::debug!("Admin is editing their own account");
+    }
+
+    // Render SSH keys list
+    let ssh_keys_html = AdminSshKeysListTemplate {
+        target_username: target_username.clone(),
+        ssh_keys: target_user.ssh_keys.clone(),
+        success_message: String::new(),
+        is_error: false,
+    }
+    .render()
+    .map_err(|e| {
+        tracing::error!("Failed to render SSH keys template: {:?}", e);
+        ApiError::internal("Failed to render page")
+    })?;
+
+    Ok(AdminUserEditTemplate {
+        admin_username: admin.username,
+        target_user,
+        is_self,
+        ssh_keys_html,
+    }
+    .into_response())
+}
+
+/// Form for updating user password (admin action)
+#[derive(Deserialize)]
+pub struct AdminUpdatePasswordForm {
+    pub new_password: String,
+    pub confirm_new_password: String,
+}
+
+/// Admin update user password handler
+pub async fn admin_update_user_password_handler(
+    State(state): State<AppState>,
+    Path(target_username): Path<String>,
+    admin: AdminUser,
+    Form(form): Form<AdminUpdatePasswordForm>,
+) -> Result<Response, ApiError> {
+    tracing::info!(
+        "Admin '{}' attempting to update password for user '{}'",
+        admin.username,
+        target_username
+    );
+
+    // Prevent admin from updating their own password via admin dashboard
+    if admin.username == target_username {
+        tracing::warn!(
+            "Admin '{}' attempted to update their own password via admin dashboard",
+            admin.username
+        );
+        return Ok(AdminPasswordErrorTemplate {
+            error_message: "You cannot update your own password here. Please use the Profile page."
+                .to_string(),
+        }
+        .into_response());
+    }
+
+    // Validate passwords match
+    if form.new_password != form.confirm_new_password {
+        return Ok(AdminPasswordErrorTemplate {
+            error_message: "Passwords do not match".to_string(),
+        }
+        .into_response());
+    }
+
+    // Validate password strength
+    if let Err(e) = password::validate_password_strength(&form.new_password) {
+        return Ok(AdminPasswordErrorTemplate {
+            error_message: format!("Password validation failed: {}", e),
+        }
+        .into_response());
+    }
+
+    // Get user from database
+    let mut user = db::get_user(&state.db, &target_username)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
+            ApiError::internal("Failed to update password")
+        })?;
+
+    // Hash the new password
+    let new_password_hash = password::hash_password(&form.new_password).map_err(|e| {
+        tracing::error!("Failed to hash password: {:?}", e);
+        ApiError::internal("Failed to update password")
+    })?;
+
+    // Update user password
+    user.password_hash = new_password_hash;
+    user.updated_at = Datetime::default();
+
+    // Save to database
+    db::update_user(&state.db, user).await.map_err(|e| {
+        tracing::error!(
+            "Failed to update user '{}' in database: {:?}",
+            target_username,
+            e
+        );
+        ApiError::internal("Failed to update password")
+    })?;
+
+    tracing::info!(
+        "Admin '{}' successfully updated password for user '{}'",
+        admin.username,
+        target_username
+    );
+
+    Ok(AdminPasswordSuccessTemplate { target_username }.into_response())
+}
+
+/// Form for adding SSH key (admin action)
+#[derive(Deserialize)]
+pub struct AdminAddSshKeyForm {
+    pub ssh_key: String,
+}
+
+/// Admin add SSH key handler
+pub async fn admin_add_ssh_key_handler(
+    State(state): State<AppState>,
+    Path(target_username): Path<String>,
+    admin: AdminUser,
+    Form(form): Form<AdminAddSshKeyForm>,
+) -> Result<Response, ApiError> {
+    tracing::info!(
+        "Admin '{}' attempting to add SSH key for user '{}'",
+        admin.username,
+        target_username
+    );
+
+    let ssh_key = form.ssh_key.trim();
+
+    // Validate SSH key format
+    if let Err(e) = ssh::validate_ssh_key(ssh_key) {
+        tracing::debug!("Invalid SSH key format: {:?}", e);
+        return Ok(AdminSshKeysListTemplate {
+            target_username: target_username.clone(),
+            ssh_keys: vec![],
+            success_message: format!("Error: {}", e),
+            is_error: true,
+        }
+        .into_response());
+    }
+
+    // Get user from database
+    let mut user = db::get_user(&state.db, &target_username)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
+            ApiError::internal("Failed to add SSH key")
+        })?;
+
+    // Check for duplicate key
+    if user.ssh_keys.contains(&ssh_key.to_string()) {
+        tracing::debug!("SSH key already exists for user '{}'", target_username);
+        return Ok(AdminSshKeysListTemplate {
+            target_username: target_username.clone(),
+            ssh_keys: user.ssh_keys,
+            success_message: "Error: This SSH key already exists".to_string(),
+            is_error: true,
+        }
+        .into_response());
+    }
+
+    // Add SSH key
+    user.ssh_keys.push(ssh_key.to_string());
+    user.updated_at = Datetime::default();
+
+    // Save to database
+    db::update_user(&state.db, user.clone())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to update user '{}' in database: {:?}",
+                target_username,
+                e
+            );
+            ApiError::internal("Failed to add SSH key")
+        })?;
+
+    tracing::info!(
+        "Admin '{}' successfully added SSH key for user '{}'",
+        admin.username,
+        target_username
+    );
+
+    Ok(AdminSshKeysListTemplate {
+        target_username,
+        ssh_keys: user.ssh_keys,
+        success_message: "SSH key added successfully".to_string(),
+        is_error: false,
+    }
+    .into_response())
+}
+
+/// Admin delete SSH key handler
+pub async fn admin_delete_ssh_key_handler(
+    State(state): State<AppState>,
+    Path((target_username, key_index)): Path<(String, usize)>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    tracing::info!(
+        "Admin '{}' attempting to delete SSH key {} for user '{}'",
+        admin.username,
+        key_index,
+        target_username
+    );
+
+    // Get user from database
+    let mut user = db::get_user(&state.db, &target_username)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
+            ApiError::internal("Failed to delete SSH key")
+        })?;
+
+    // Validate index is in range
+    if key_index >= user.ssh_keys.len() {
+        tracing::warn!(
+            "Invalid SSH key index {} for user '{}' (only {} keys)",
+            key_index,
+            target_username,
+            user.ssh_keys.len()
+        );
+        return Ok(AdminSshKeysListTemplate {
+            target_username: target_username.clone(),
+            ssh_keys: user.ssh_keys,
+            success_message: "Error: Invalid SSH key index".to_string(),
+            is_error: true,
+        }
+        .into_response());
+    }
+
+    // Remove key at index
+    user.ssh_keys.remove(key_index);
+    user.updated_at = Datetime::default();
+
+    // Save to database
+    db::update_user(&state.db, user.clone())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to update user '{}' in database: {:?}",
+                target_username,
+                e
+            );
+            ApiError::internal("Failed to delete SSH key")
+        })?;
+
+    tracing::info!(
+        "Admin '{}' successfully deleted SSH key {} for user '{}'",
+        admin.username,
+        key_index,
+        target_username
+    );
+
+    Ok(AdminSshKeysListTemplate {
+        target_username,
+        ssh_keys: user.ssh_keys,
+        success_message: String::new(),
+        is_error: false,
+    }
+    .into_response())
+}
+
+/// Admin delete user handler
+pub async fn admin_delete_user_handler(
+    State(state): State<AppState>,
+    Path(target_username): Path<String>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    tracing::info!(
+        "Admin '{}' attempting to delete user '{}'",
+        admin.username,
+        target_username
+    );
+
+    // Get user from database to get their ID
+    let user = db::get_user(&state.db, &target_username)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
+            ApiError::not_found("User", &format!("User '{}' not found", target_username))
+        })?;
+
+    let user_id = user.id.ok_or_else(|| {
+        tracing::error!("User '{}' has no ID", target_username);
+        ApiError::internal("User record is invalid")
+    })?;
+
+    // Attempt safe deletion (will fail if user owns labs)
+    match db::delete_user_safe(&state.db, user_id).await {
+        Ok(_) => {
+            tracing::info!(
+                "Admin '{}' successfully deleted user '{}'",
+                admin.username,
+                target_username
+            );
+            // Return empty response - HTMX will remove the table row
+            Ok(StatusCode::OK.into_response())
+        }
+        Err(e) => {
+            let error_msg = e.to_string();
+            tracing::warn!(
+                "Admin '{}' failed to delete user '{}': {}",
+                admin.username,
+                target_username,
+                error_msg
+            );
+
+            // Check if error is about labs
+            if error_msg.contains("owns") && error_msg.contains("lab") {
+                Err(ApiError::bad_request(
+                    "Cannot delete user: user owns one or more labs. Delete the labs first.",
+                ))
+            } else {
+                Err(ApiError::internal("Failed to delete user"))
+            }
+        }
+    }
+}
+
+/// Helper function to format datetime as "MMM DD, YYYY"
+fn format_date_simple(dt: Datetime) -> String {
+    let timestamp = dt.timestamp();
+
+    // Convert to jiff Timestamp
+    match jiff::Timestamp::from_second(timestamp) {
+        Ok(ts) => {
+            // Format as "Feb 17, 2025"
+            let zoned = ts.in_tz("UTC").expect("UTC timezone should always work");
+            let month = match zoned.month() {
+                1 => "Jan",
+                2 => "Feb",
+                3 => "Mar",
+                4 => "Apr",
+                5 => "May",
+                6 => "Jun",
+                7 => "Jul",
+                8 => "Aug",
+                9 => "Sep",
+                10 => "Oct",
+                11 => "Nov",
+                12 => "Dec",
+                _ => "???",
+            };
+            format!("{} {}, {}", month, zoned.day(), zoned.year())
+        }
+        Err(_) => {
+            // Fallback to timestamp if conversion fails
+            format!("{}", timestamp)
         }
     }
 }

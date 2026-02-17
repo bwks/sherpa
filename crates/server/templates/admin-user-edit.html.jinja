@@ -1,18 +1,16 @@
 {% extends "base.html.jinja" %}
 
-{% block title %}Profile - Sherpa Labs{% endblock %}
+{% block title %}Edit User: {{ target_user.username }} - Sherpa Labs{% endblock %}
 
 {% block header_actions %}
     <div class="flex items-center space-x-4">
-        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
-        <a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-            Dashboard
-        </a>
-        {% if is_admin %}
-        <a href="/admin" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ admin_username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             Admin
         </a>
-        {% endif %}
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
         <form action="/logout" method="post" class="inline">
             <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
                 Logout
@@ -22,25 +20,29 @@
 {% endblock %}
 
 {% block content %}
+<!-- Breadcrumb Navigation -->
+<nav class="breadcrumb mb-6 text-sm text-gray-600">
+    <a href="/admin" class="text-blue-600 hover:text-blue-800 hover:underline">Admin</a>
+    <span class="mx-2">/</span>
+    <a href="/admin" class="text-blue-600 hover:text-blue-800 hover:underline">Users</a>
+    <span class="mx-2">/</span>
+    <span class="text-gray-900 font-medium">{{ target_user.username }}</span>
+</nav>
+
 <div class="profile-container">
-    <h1>User Profile</h1>
+    <h1>Edit User: {{ target_user.username }}</h1>
     
     <!-- Change Password Section -->
-    <div class="profile-card">
-        <h2>Change Password</h2>
-        <form hx-post="/profile/password" hx-target="#password-result" hx-swap="innerHTML">
+    <div class="profile-card {% if is_self %}admin-disabled-card{% endif %}">
+        {% if is_self %}
+        <div class="admin-disabled-overlay">
+            To update your own password, use the <a href="/profile" class="font-semibold text-blue-600 hover:text-blue-800 underline">Profile page</a>.
+        </div>
+        {% endif %}
+        
+        <h2>Update Password</h2>
+        <form hx-post="/admin/users/{{ target_user.username }}/password" hx-target="#password-result" hx-swap="innerHTML">
             <div id="password-result"></div>
-            
-            <div class="form-group">
-                <label for="current_password">Current Password</label>
-                <input 
-                    type="password" 
-                    id="current_password" 
-                    name="current_password" 
-                    required 
-                    autocomplete="current-password"
-                >
-            </div>
             
             <div class="form-group">
                 <label for="new_password">New Password</label>
@@ -50,6 +52,7 @@
                     name="new_password" 
                     required 
                     autocomplete="new-password"
+                    {% if is_self %}disabled{% endif %}
                 >
                 <small class="form-hint">
                     Password must be at least 8 characters and contain uppercase, lowercase, and special characters (!@#$%^&*_+-=)
@@ -64,19 +67,20 @@
                     name="confirm_new_password" 
                     required 
                     autocomplete="new-password"
+                    {% if is_self %}disabled{% endif %}
                 >
             </div>
             
-            <button type="submit" class="btn btn-primary">Update Password</button>
+            <button type="submit" class="btn btn-primary" {% if is_self %}disabled{% endif %}>Update Password</button>
         </form>
     </div>
     
     <!-- SSH Keys Section -->
     <div class="profile-card">
-        <h2>SSH Keys</h2>
+        <h2>Manage SSH Keys</h2>
         
         <!-- Add SSH Key Form -->
-        <form hx-post="/profile/ssh-keys" hx-target="#ssh-keys-list" hx-swap="outerHTML">
+        <form hx-post="/admin/users/{{ target_user.username }}/ssh-keys" hx-target="#admin-ssh-keys-list" hx-swap="outerHTML">
             <div class="form-group">
                 <label for="ssh_key">Add SSH Public Key</label>
                 <textarea 

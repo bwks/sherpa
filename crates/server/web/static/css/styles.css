@@ -304,3 +304,86 @@
     border-radius: 0.375rem;
     margin-top: 1rem;
 }
+
+/* Admin Dashboard Styles */
+.admin-table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+}
+
+.admin-table thead {
+    background-color: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.admin-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.admin-table tbody tr {
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.15s;
+}
+
+.admin-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.admin-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+.admin-table td {
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+.admin-table .username-col {
+    font-family: 'Courier New', monospace;
+    font-weight: 500;
+}
+
+.admin-table .admin-badge {
+    text-align: center;
+}
+
+.admin-table .admin-check {
+    color: #059669;
+    font-size: 1.25rem;
+}
+
+.admin-table .user-dash {
+    color: #9ca3af;
+    font-size: 1.25rem;
+}
+
+.admin-disabled-card {
+    position: relative;
+}
+
+.admin-disabled-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 1rem;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: #92400e;
+    z-index: 10;
+}
+
+.admin-disabled-card form {
+    opacity: 0.5;
+    pointer-events: none;
+}

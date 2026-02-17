@@ -5,6 +5,11 @@
 {% block header_actions %}
     <div class="flex items-center space-x-4">
         <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        {% if is_admin %}
+        <a href="/admin" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Admin
+        </a>
+        {% endif %}
         <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
             Profile
         </a>

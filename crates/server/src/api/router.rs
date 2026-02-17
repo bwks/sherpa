@@ -7,7 +7,9 @@ use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
 
 use super::handlers::{
-    add_ssh_key_handler, dashboard_handler, delete_ssh_key_handler, get_certificate_handler,
+    add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
+    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_update_user_password_handler,
+    admin_user_edit_handler, dashboard_handler, delete_ssh_key_handler, get_certificate_handler,
     get_lab, get_labs_html, get_labs_json, health_check, lab_destroy, lab_detail_handler, lab_up,
     login, login_form_handler, login_page_handler, logout_handler, profile_handler,
     signup_form_handler, signup_page_handler, update_password_handler,
@@ -51,6 +53,22 @@ pub fn build_router() -> Router<AppState> {
         .route("/profile/password", post(update_password_handler))
         .route("/profile/ssh-keys", post(add_ssh_key_handler))
         .route("/profile/ssh-keys/{index}", delete(delete_ssh_key_handler))
+        // Admin routes (require admin privileges)
+        .route("/admin", get(admin_dashboard_handler))
+        .route("/admin/users/{username}", get(admin_user_edit_handler))
+        .route("/admin/users/{username}", delete(admin_delete_user_handler))
+        .route(
+            "/admin/users/{username}/password",
+            post(admin_update_user_password_handler),
+        )
+        .route(
+            "/admin/users/{username}/ssh-keys",
+            post(admin_add_ssh_key_handler),
+        )
+        .route(
+            "/admin/users/{username}/ssh-keys/{index}",
+            delete(admin_delete_ssh_key_handler),
+        )
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))

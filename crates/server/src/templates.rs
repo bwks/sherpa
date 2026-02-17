@@ -1,13 +1,15 @@
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use shared::data::{DeviceInfo, LabInfo, LabSummary};
+use shared::data::{DbUser, DeviceInfo, LabInfo, LabSummary};
 
+use crate::api::handlers::UserSummary;
 /// Main dashboard page template
 #[derive(Template)]
 #[template(path = "dashboard.html.jinja")]
 pub struct DashboardTemplate {
     pub username: String,
+    pub is_admin: bool,
 }
 
 impl IntoResponse for DashboardTemplate {
@@ -212,6 +214,26 @@ impl IntoResponse for Error403Template {
     }
 }
 
+/// 403 Forbidden error page for admin access denied
+#[derive(Template)]
+#[template(path = "error-403-admin.html.jinja")]
+pub struct Admin403Template {
+    pub username: String,
+}
+
+impl IntoResponse for Admin403Template {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => (StatusCode::FORBIDDEN, Html(html)).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 // ============================================================================
 // Lab Detail Templates
 // ============================================================================
@@ -221,6 +243,7 @@ impl IntoResponse for Error403Template {
 #[template(path = "lab-detail.html.jinja")]
 pub struct LabDetailTemplate {
     pub username: String,
+    pub is_admin: bool,
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
@@ -248,6 +271,7 @@ impl IntoResponse for LabDetailTemplate {
 #[template(path = "profile.html.jinja")]
 pub struct ProfileTemplate {
     pub username: String,
+    pub is_admin: bool,
     pub ssh_keys_html: String,
 }
 
@@ -332,6 +356,117 @@ pub struct SshKeyErrorTemplate {
 }
 
 impl IntoResponse for SshKeyErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// Admin User Management Templates
+// ============================================================================
+
+/// Admin dashboard page template
+#[derive(Template)]
+#[template(path = "admin-dashboard.html.jinja")]
+pub struct AdminDashboardTemplate {
+    pub username: String,
+    pub users: Vec<UserSummary>,
+}
+
+impl IntoResponse for AdminDashboardTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Admin user edit page template
+#[derive(Template)]
+#[template(path = "admin-user-edit.html.jinja")]
+pub struct AdminUserEditTemplate {
+    pub admin_username: String,
+    pub target_user: DbUser,
+    pub is_self: bool,
+    pub ssh_keys_html: String,
+}
+
+impl IntoResponse for AdminUserEditTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Admin SSH keys list partial template
+#[derive(Template)]
+#[template(path = "partials/admin-ssh-keys-list.html.jinja")]
+pub struct AdminSshKeysListTemplate {
+    pub target_username: String,
+    pub ssh_keys: Vec<String>,
+    pub success_message: String,
+    pub is_error: bool,
+}
+
+impl IntoResponse for AdminSshKeysListTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Admin password update success message template
+#[derive(Template)]
+#[template(path = "partials/admin-password-success.html.jinja")]
+pub struct AdminPasswordSuccessTemplate {
+    pub target_username: String,
+}
+
+impl IntoResponse for AdminPasswordSuccessTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Admin password update error message template
+#[derive(Template)]
+#[template(path = "partials/admin-password-error.html.jinja")]
+pub struct AdminPasswordErrorTemplate {
+    pub error_message: String,
+}
+
+impl IntoResponse for AdminPasswordErrorTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),

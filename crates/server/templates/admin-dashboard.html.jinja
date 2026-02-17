@@ -1,0 +1,87 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Admin Dashboard - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">User Management</h2>
+            <p class="mt-1 text-sm text-gray-600">Manage user accounts, passwords, and SSH keys</p>
+        </div>
+    </div>
+
+    <!-- Users Table -->
+    {% if !users.is_empty() %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Username</th>
+                    <th style="text-align: center;">Admin</th>
+                    <th style="text-align: center;">SSH Keys</th>
+                    <th style="text-align: center;">Labs</th>
+                    <th style="text-align: right;">Created</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td class="username-col">{{ user.username }}</td>
+                    <td class="admin-badge">
+                        {% if user.is_admin %}
+                            <span class="admin-check">✓</span>
+                        {% else %}
+                            <span class="user-dash">−</span>
+                        {% endif %}
+                    </td>
+                    <td style="text-align: center;">{{ user.ssh_key_count }}</td>
+                    <td style="text-align: center;">{{ user.lab_count }}</td>
+                    <td style="text-align: right;">{{ user.created_at_formatted }}</td>
+                    <td style="text-align: right;">
+                        <div class="flex items-center justify-end space-x-2">
+                            <a href="/admin/users/{{ user.username }}" class="inline-block px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
+                                Edit
+                            </a>
+                            <button
+                                hx-delete="/admin/users/{{ user.username }}"
+                                hx-confirm="Are you sure you want to delete user '{{ user.username }}'? This action cannot be undone."
+                                hx-target="closest tr"
+                                hx-swap="outerHTML swap:0.5s"
+                                class="inline-block px-3 py-1 text-sm font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors"
+                            >
+                                Delete
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+        <p class="text-gray-500">No users found in the system.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
