@@ -1,0 +1,99 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Node Configurations - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Configs
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Node Configurations</h2>
+            <p class="mt-1 text-sm text-gray-600">View device templates and their specifications</p>
+        </div>
+    </div>
+
+    <!-- Configs Table -->
+    {% if !configs.is_empty() %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Model</th>
+                    <th style="text-align: center;">Kind</th>
+                    <th style="text-align: left;">Version</th>
+                    <th style="text-align: center;">CPU</th>
+                    <th style="text-align: center;">Memory (MB)</th>
+                    <th style="text-align: center;">Interfaces</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for config in configs %}
+                <tr>
+                    <td class="username-col">{{ config.model }}</td>
+                    <td style="text-align: center;">
+                        {% if config.kind == "virtual_machine" %}
+                            <span class="kind-badge kind-vm">VM</span>
+                        {% else if config.kind == "container" %}
+                            <span class="kind-badge kind-container">Container</span>
+                        {% else if config.kind == "unikernel" %}
+                            <span class="kind-badge kind-unikernel">Unikernel</span>
+                        {% else %}
+                            <span class="kind-badge">{{ config.kind }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ config.version }}</td>
+                    <td style="text-align: center;">{{ config.cpu_count }}</td>
+                    <td style="text-align: center;">{{ config.memory }}</td>
+                    <td style="text-align: center;">{{ config.data_interface_count }}</td>
+                    <td style="text-align: right;">
+                        <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}" class="inline-block px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
+                            View Details
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Model</th>
+                    <th style="text-align: center;">Kind</th>
+                    <th style="text-align: left;">Version</th>
+                    <th style="text-align: center;">CPU</th>
+                    <th style="text-align: center;">Memory (MB)</th>
+                    <th style="text-align: center;">Interfaces</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

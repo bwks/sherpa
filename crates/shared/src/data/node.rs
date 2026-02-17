@@ -143,6 +143,74 @@ impl fmt::Display for NodeModel {
         }
     }
 }
+impl std::str::FromStr for NodeModel {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            // Arista
+            "arista_veos" => Ok(NodeModel::AristaVeos),
+            "arista_ceos" => Ok(NodeModel::AristaCeos),
+
+            // Aruba
+            "aruba_aoscx" => Ok(NodeModel::ArubaAoscx),
+
+            // Cisco
+            "cisco_asav" => Ok(NodeModel::CiscoAsav),
+            "cisco_csr1000v" => Ok(NodeModel::CiscoCsr1000v),
+            "cisco_cat8000v" => Ok(NodeModel::CiscoCat8000v),
+            "cisco_cat9000v" => Ok(NodeModel::CiscoCat9000v),
+            "cisco_iosxrv9000" => Ok(NodeModel::CiscoIosxrv9000),
+            "cisco_nexus9300v" => Ok(NodeModel::CiscoNexus9300v),
+            "cisco_iosv" => Ok(NodeModel::CiscoIosv),
+            "cisco_iosvl2" => Ok(NodeModel::CiscoIosvl2),
+            "cisco_ise" => Ok(NodeModel::CiscoIse),
+            "cisco_ftdv" => Ok(NodeModel::CiscoFtdv),
+
+            // Juniper
+            "juniper_vrouter" => Ok(NodeModel::JuniperVrouter),
+            "juniper_vswitch" => Ok(NodeModel::JuniperVswitch),
+            "juniper_vevolved" => Ok(NodeModel::JuniperVevolved),
+            "juniper_vsrxv3" => Ok(NodeModel::JuniperVsrxv3),
+
+            // Nokia
+            "nokia_srlinux" => Ok(NodeModel::NokiaSrlinux),
+
+            // Linux
+            "alma_linux" => Ok(NodeModel::AlmaLinux),
+            "rocky_linux" => Ok(NodeModel::RockyLinux),
+            "alpine_linux" => Ok(NodeModel::AlpineLinux),
+            "cumulus_linux" => Ok(NodeModel::CumulusLinux),
+            "centos_linux" => Ok(NodeModel::CentosLinux),
+            "fedora_linux" => Ok(NodeModel::FedoraLinux),
+            "redhat_linux" => Ok(NodeModel::RedhatLinux),
+            "opensuse_linux" => Ok(NodeModel::OpensuseLinux),
+            "suse_linux" => Ok(NodeModel::SuseLinux),
+            "ubuntu_linux" => Ok(NodeModel::UbuntuLinux),
+            "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
+            "sonic_linux" => Ok(NodeModel::SonicLinux),
+
+            // Windows
+            "windows_server" => Ok(NodeModel::WindowsServer),
+
+            // SQL
+            "surreal_db" => Ok(NodeModel::SurrealDb),
+            "mysql_db" => Ok(NodeModel::MysqlDb),
+            "postgresql_db" => Ok(NodeModel::PostgresqlDb),
+
+            // BSD
+            "free_bsd" => Ok(NodeModel::FreeBsd),
+            "open_bsd" => Ok(NodeModel::OpenBsd),
+
+            // Generic
+            "generic_container" => Ok(NodeModel::GenericContainer),
+            "generic_unikernel" => Ok(NodeModel::GenericUnikernel),
+            "generic_vm" => Ok(NodeModel::GenericVm),
+
+            _ => Err(format!("Unknown node model: {}", s)),
+        }
+    }
+}
 impl NodeModel {
     pub fn to_vec() -> Vec<NodeModel> {
         NodeModel::iter().collect()
@@ -400,6 +468,18 @@ impl fmt::Display for NodeKind {
             NodeKind::VirtualMachine => write!(f, "virtual_machine"),
             NodeKind::Container => write!(f, "container"),
             NodeKind::Unikernel => write!(f, "unikernel"),
+        }
+    }
+}
+impl std::str::FromStr for NodeKind {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "virtual_machine" => Ok(NodeKind::VirtualMachine),
+            "container" => Ok(NodeKind::Container),
+            "unikernel" => Ok(NodeKind::Unikernel),
+            _ => Err(format!("Unknown node kind: {}", s)),
         }
     }
 }

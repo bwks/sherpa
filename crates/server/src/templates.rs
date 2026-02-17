@@ -1,9 +1,9 @@
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use shared::data::{DbUser, DeviceInfo, LabInfo, LabSummary};
+use shared::data::{DbUser, DeviceInfo, LabInfo, LabSummary, NodeConfig};
 
-use crate::api::handlers::UserSummary;
+use crate::api::handlers::{NodeConfigSummary, UserSummary};
 /// Main dashboard page template
 #[derive(Template)]
 #[template(path = "dashboard.html.jinja")]
@@ -467,6 +467,54 @@ pub struct AdminPasswordErrorTemplate {
 }
 
 impl IntoResponse for AdminPasswordErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// Admin Node Config Templates
+// ============================================================================
+
+/// Admin node configs list page template
+#[derive(Template)]
+#[template(path = "admin-node-configs.html.jinja")]
+pub struct AdminNodeConfigsListTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub configs: Vec<NodeConfigSummary>,
+}
+
+impl IntoResponse for AdminNodeConfigsListTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Admin node config detail page template
+#[derive(Template)]
+#[template(path = "admin-node-config-detail.html.jinja")]
+pub struct AdminNodeConfigDetailTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub config: NodeConfig,
+}
+
+impl IntoResponse for AdminNodeConfigDetailTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),

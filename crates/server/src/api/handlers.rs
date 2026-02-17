@@ -1547,7 +1547,7 @@ pub async fn admin_delete_user_handler(
         .await
         .map_err(|e| {
             tracing::error!("Failed to get user '{}': {:?}", target_username, e);
-            ApiError::not_found("User", &format!("User '{}' not found", target_username))
+            ApiError::not_found("User", format!("User '{}' not found", target_username))
         })?;
 
     let user_id = user.id.ok_or_else(|| {
@@ -1618,6 +1618,104 @@ fn format_date_simple(dt: Datetime) -> String {
             format!("{}", timestamp)
         }
     }
+}
+
+/// Helper struct to summarize node config data for list view
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeConfigSummary {
+    pub model: String,
+    pub kind: String,
+    pub version: String,
+    pub cpu_count: u8,
+    pub memory: u16,
+    pub data_interface_count: u8,
+}
+
+/// Admin handler to list all node configurations
+pub async fn admin_node_configs_list_handler(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Admin requesting node configs list");
+
+    // Fetch all node configs from database
+    let configs = db::list_node_configs(&state.db).await.map_err(|e| {
+        tracing::error!("Failed to list node configs: {:?}", e);
+        ApiError::internal("Failed to load node configurations")
+    })?;
+
+    // Convert to summary structs and sort alphabetically by model
+    let mut summaries: Vec<NodeConfigSummary> = configs
+        .into_iter()
+        .map(|config| NodeConfigSummary {
+            model: config.model.to_string(),
+            kind: config.kind.to_string(),
+            version: config.version,
+            cpu_count: config.cpu_count,
+            memory: config.memory,
+            data_interface_count: config.data_interface_count,
+        })
+        .collect();
+
+    summaries.sort_by(|a, b| a.model.cmp(&b.model));
+
+    let template = crate::templates::AdminNodeConfigsListTemplate {
+        username: _admin.username.clone(),
+        is_admin: true,
+        configs: summaries,
+    };
+
+    Ok(template)
+}
+
+/// Admin handler to view a single node configuration detail
+pub async fn admin_node_config_detail_handler(
+    State(state): State<AppState>,
+    Path((model, kind)): Path<(String, String)>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Admin requesting node config detail: {}/{}", model, kind);
+
+    // Parse model and kind from URL strings
+    use shared::data::{NodeKind, NodeModel};
+    use std::str::FromStr;
+
+    let node_model = NodeModel::from_str(&model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    })?;
+
+    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    })?;
+
+    // Fetch the specific config from database
+    let node_kind_str = node_kind.to_string();
+    let config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Node config not found for {}/{}", model, kind);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?;
+
+    let template = crate::templates::AdminNodeConfigDetailTemplate {
+        username: _admin.username.clone(),
+        is_admin: true,
+        config,
+    };
+
+    Ok(template)
 }
 
 // Stub handlers for future implementation

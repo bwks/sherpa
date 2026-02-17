@@ -1,0 +1,212 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}{{ config.model }} - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Configs
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">{{ config.model }}</h2>
+            <p class="mt-1 text-sm text-gray-600">Device template configuration details</p>
+        </div>
+        <a href="/admin/node-configs" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+            ← Back to List
+        </a>
+    </div>
+
+    <!-- Basic Info Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
+        <div class="config-detail-grid">
+            <div class="config-detail-item">
+                <span class="config-detail-label">Model:</span>
+                <span class="config-detail-value config-monospace">{{ config.model }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Kind:</span>
+                <span class="config-detail-value">
+                    {% let kind_str = config.kind.to_string() %}
+                    {% if kind_str == "virtual_machine" %}
+                        <span class="kind-badge kind-vm">Virtual Machine</span>
+                    {% else if kind_str == "container" %}
+                        <span class="kind-badge kind-container">Container</span>
+                    {% else if kind_str == "unikernel" %}
+                        <span class="kind-badge kind-unikernel">Unikernel</span>
+                    {% else %}
+                        <span class="kind-badge">{{ config.kind }}</span>
+                    {% endif %}
+                </span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Version:</span>
+                <span class="config-detail-value">{{ config.version }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">OS Variant:</span>
+                <span class="config-detail-value">{{ config.os_variant }}</span>
+            </div>
+            {% match config.repo %}
+            {% when Some with (repo_value) %}
+            <div class="config-detail-item">
+                <span class="config-detail-label">Repository:</span>
+                <span class="config-detail-value">{{ repo_value }}</span>
+            </div>
+            {% when None %}
+            {% endmatch %}
+        </div>
+    </div>
+
+    <!-- Hardware Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Hardware Configuration</h3>
+        <div class="config-detail-grid">
+            <div class="config-detail-item">
+                <span class="config-detail-label">CPU Count:</span>
+                <span class="config-detail-value">{{ config.cpu_count }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">CPU Architecture:</span>
+                <span class="config-detail-value">{{ config.cpu_architecture }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">CPU Model:</span>
+                <span class="config-detail-value">{{ config.cpu_model }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Memory:</span>
+                <span class="config-detail-value">{{ config.memory }} MB</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Machine Type:</span>
+                <span class="config-detail-value">{{ config.machine_type }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">BIOS:</span>
+                <span class="config-detail-value">{{ config.bios }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">VMX Enabled:</span>
+                <span class="config-detail-value">{% if config.vmx_enabled %}Yes{% else %}No{% endif %}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Storage Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Storage Configuration</h3>
+        <div class="config-detail-grid">
+            <div class="config-detail-item">
+                <span class="config-detail-label">HDD Bus:</span>
+                <span class="config-detail-value">{{ config.hdd_bus }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">CD-ROM Bus:</span>
+                <span class="config-detail-value">{{ config.cdrom_bus }}</span>
+            </div>
+            {% match config.cdrom %}
+            {% when Some with (cdrom_value) %}
+            <div class="config-detail-item">
+                <span class="config-detail-label">CD-ROM:</span>
+                <span class="config-detail-value">{{ cdrom_value }}</span>
+            </div>
+            {% when None %}
+            {% endmatch %}
+        </div>
+    </div>
+
+    <!-- ZTP Configuration Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">ZTP Configuration</h3>
+        <div class="config-detail-grid">
+            <div class="config-detail-item">
+                <span class="config-detail-label">ZTP Enabled:</span>
+                <span class="config-detail-value">{% if config.ztp_enable %}Yes{% else %}No{% endif %}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">ZTP Method:</span>
+                <span class="config-detail-value">{{ config.ztp_method }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Password Auth:</span>
+                <span class="config-detail-value">{% if config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
+            </div>
+            {% match config.ztp_username %}
+            {% when Some with (username_value) %}
+            <div class="config-detail-item">
+                <span class="config-detail-label">ZTP Username:</span>
+                <span class="config-detail-value">{{ username_value }}</span>
+            </div>
+            {% when None %}
+            {% endmatch %}
+            {% match config.ztp_password %}
+            {% when Some with (password_value) %}
+            <div class="config-detail-item">
+                <span class="config-detail-label">ZTP Password:</span>
+                <span class="config-detail-value">{{ password_value }}</span>
+            </div>
+            {% when None %}
+            {% endmatch %}
+        </div>
+    </div>
+
+    <!-- Network Configuration Card -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 mb-4">Network Configuration</h3>
+        <div class="config-detail-grid">
+            <div class="config-detail-item">
+                <span class="config-detail-label">Data Interfaces:</span>
+                <span class="config-detail-value">{{ config.data_interface_count }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Interface Prefix:</span>
+                <span class="config-detail-value config-monospace">{{ config.interface_prefix }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Interface Type:</span>
+                <span class="config-detail-value">{{ config.interface_type }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Interface MTU:</span>
+                <span class="config-detail-value">{{ config.interface_mtu }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">First Interface Index:</span>
+                <span class="config-detail-value">{{ config.first_interface_index }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Dedicated Management:</span>
+                <span class="config-detail-value">{% if config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Management Interface:</span>
+                <span class="config-detail-value config-monospace">{{ config.management_interface }}</span>
+            </div>
+            <div class="config-detail-item">
+                <span class="config-detail-label">Reserved Interfaces:</span>
+                <span class="config-detail-value">{{ config.reserved_interface_count }}</span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

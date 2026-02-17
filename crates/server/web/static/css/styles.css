@@ -387,3 +387,60 @@
     opacity: 0.5;
     pointer-events: none;
 }
+
+/* Node Config Kind Badges */
+.kind-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.kind-vm {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+.kind-container {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.kind-unikernel {
+    background-color: #e9d5ff;
+    color: #6b21a8;
+}
+
+/* Node Config Detail Grid */
+.config-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.config-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.config-detail-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.config-detail-value {
+    font-size: 0.875rem;
+    color: #374151;
+    font-weight: 500;
+}
+
+.config-monospace {
+    font-family: 'Courier New', monospace;
+}
