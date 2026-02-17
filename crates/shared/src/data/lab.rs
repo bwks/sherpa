@@ -139,3 +139,41 @@ pub struct LabReservedNetwork {
     pub network_name: String,
     pub bridge_name: String,
 }
+
+/// Lab status enumeration for displaying current state
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LabStatus {
+    /// Status cannot be determined
+    Unknown,
+}
+
+impl fmt::Display for LabStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            LabStatus::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+/// Summary information about a lab for list views
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct LabSummary {
+    /// Lab ID (business key)
+    pub id: String,
+    /// Human-readable lab name
+    pub name: String,
+    /// Number of nodes in the lab
+    pub node_count: usize,
+    /// Current status of the lab
+    pub status: LabStatus,
+}
+
+/// Response for listing labs
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ListLabsResponse {
+    /// List of lab summaries
+    pub labs: Vec<LabSummary>,
+    /// Total number of labs
+    pub total: usize,
+}

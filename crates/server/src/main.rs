@@ -3,6 +3,7 @@ mod auth;
 mod cli;
 mod daemon;
 mod services;
+mod templates;
 mod tls;
 
 use anyhow::Result;

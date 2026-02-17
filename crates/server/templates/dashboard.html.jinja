@@ -1,0 +1,37 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Dashboard - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <span class="font-medium text-gray-700">User:</span>
+    <span class="text-blue-600 font-semibold">{{ username }}</span>
+{% endblock %}
+
+{% block content %}
+    <div class="space-y-6">
+        <!-- Page Header -->
+        <div class="flex items-center justify-between">
+            <div>
+                <h2 class="text-3xl font-bold text-gray-900">Your Labs</h2>
+                <p class="mt-1 text-sm text-gray-600">Manage your virtual machines, containers, and unikernels</p>
+            </div>
+            <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+                Create New Lab
+            </button>
+        </div>
+
+        <!-- Loading Indicator (hidden by default, shown by HTMX) -->
+        <div class="htmx-indicator flex items-center justify-center py-8">
+            <div class="spinner"></div>
+            <span class="ml-3 text-gray-600">Loading labs...</span>
+        </div>
+
+        <!-- Labs Container (HTMX target) -->
+        <div id="labs-container"
+             hx-get="/labs?username={{ username }}"
+             hx-trigger="load, every 30s"
+             hx-indicator=".htmx-indicator">
+            <!-- Labs will be loaded here by HTMX -->
+        </div>
+    </div>
+{% endblock %}

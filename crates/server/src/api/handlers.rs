@@ -1,20 +1,24 @@
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::IntoResponse;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::auth::jwt;
 use crate::daemon::state::AppState;
-use crate::services::inspect;
+use crate::services::{inspect, list_labs};
+use crate::templates::{DashboardTemplate, EmptyStateTemplate, ErrorTemplate, LabsGridTemplate};
 
 use super::errors::ApiError;
 use super::extractors::AuthenticatedUser;
 
 use shared::auth::password;
-use shared::data::{InspectRequest, InspectResponse, LoginRequest, LoginResponse};
+use shared::data::{
+    InspectRequest, InspectResponse, ListLabsResponse, LoginRequest, LoginResponse,
+};
 use shared::konst::{
     JWT_TOKEN_EXPIRY_SECONDS, SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE,
 };
@@ -272,6 +276,142 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
     }
 }
 
+/// List all labs for a specific user (JSON API)
+///
+/// Query all labs owned by the specified user.
+/// Returns JSON response for programmatic API access.
+/// Publicly accessible (no authentication) for initial development.
+///
+/// # Query Parameters
+/// - `username` (required) - The username to list labs for
+///
+/// # Response (200 OK)
+/// Returns `ListLabsResponse` with lab summaries
+///
+/// # Errors
+/// - `404 Not Found` - User doesn't exist
+/// - `500 Internal Server Error` - Database error
+///
+/// # Example
+/// ```bash
+/// curl https://server:3030/api/v1/labs?username=bradmin
+/// ```
+pub async fn get_labs_json(
+    State(state): State<AppState>,
+    Query(params): Query<ListLabsQuery>,
+) -> Result<Json<ListLabsResponse>, ApiError> {
+    let username = params.username.trim();
+
+    if username.is_empty() {
+        return Err(ApiError::bad_request("Username parameter is required"));
+    }
+
+    tracing::debug!("Listing labs for user '{}'", username);
+
+    // Call service layer
+    let response = list_labs::list_labs(username, &state).await.map_err(|e| {
+        tracing::error!("Failed to list labs for user '{}': {:?}", username, e);
+        // Check if it's a user not found error
+        if e.to_string().contains("User not found") {
+            ApiError::not_found("User", format!("User '{}' not found", username))
+        } else {
+            ApiError::from(e)
+        }
+    })?;
+
+    tracing::info!(
+        "Successfully listed {} labs for user '{}'",
+        response.total,
+        username
+    );
+
+    Ok(Json(response))
+}
+
+/// Dashboard page handler (HTML)
+///
+/// Serves the main dashboard HTML page with HTMX support.
+/// The page will use HTMX to dynamically load labs.
+///
+/// # Query Parameters
+/// - `username` (optional) - The username to display, defaults to "bradmin"
+///
+/// # Response (200 OK)
+/// Returns HTML page rendered from dashboard template
+///
+/// # Example
+/// ```bash
+/// curl https://server:3030/?username=bradmin
+/// ```
+pub async fn dashboard_handler(
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<DashboardTemplate, ApiError> {
+    let username = params
+        .get("username")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "bradmin".to_string());
+
+    tracing::debug!("Serving dashboard for user '{}'", username);
+
+    Ok(DashboardTemplate { username })
+}
+
+/// Labs grid HTML fragment handler
+///
+/// Returns an HTML fragment containing the labs grid for HTMX swapping.
+/// This endpoint is called by HTMX on page load and periodically for auto-refresh.
+///
+/// # Query Parameters
+/// - `username` (optional) - The username to list labs for, defaults to "bradmin"
+///
+/// # Response (200 OK)
+/// Returns HTML fragment with labs grid, empty state, or error message
+///
+/// # Example
+/// ```bash
+/// curl https://server:3030/labs?username=bradmin
+/// ```
+pub async fn get_labs_html(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let username = params
+        .get("username")
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| "bradmin".to_string());
+
+    tracing::debug!("Fetching labs HTML for user '{}'", username);
+
+    // Call service layer
+    match list_labs::list_labs(&username, &state).await {
+        Ok(response) => {
+            if response.labs.is_empty() {
+                tracing::debug!("No labs found for user '{}'", username);
+                EmptyStateTemplate { username }.into_response()
+            } else {
+                tracing::debug!(
+                    "Returning {} labs for user '{}'",
+                    response.labs.len(),
+                    username
+                );
+                LabsGridTemplate {
+                    labs: response.labs,
+                }
+                .into_response()
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to load labs for user '{}': {:?}", username, e);
+            let message = if e.to_string().contains("User not found") {
+                format!("User '{}' not found", username)
+            } else {
+                format!("Failed to load labs: {}", e)
+            };
+            ErrorTemplate { message }.into_response()
+        }
+    }
+}
+
 // Stub handlers for future implementation
 
 /// Handler for creating a lab (stub)
@@ -285,6 +425,12 @@ pub async fn lab_destroy(Json(payload): Json<LabId>) -> String {
 }
 
 // Request/Response types
+
+/// Query parameters for listing labs
+#[derive(Deserialize)]
+pub struct ListLabsQuery {
+    pub username: String,
+}
 
 #[derive(Deserialize)]
 #[allow(dead_code)]

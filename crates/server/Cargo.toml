@@ -58,7 +58,7 @@ futures-util = "0.3.31"
 axum-extra = { version = "0.9", features = ["typed-header"] }
 tokio-tungstenite = "0.24"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
 
 # UUID for connection IDs
 uuid = { version = "1.11", features = ["v4", "serde"] }

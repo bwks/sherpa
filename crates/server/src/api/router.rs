@@ -4,8 +4,12 @@ use axum::{
     routing::{get, post},
 };
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
 
-use super::handlers::{get_certificate_handler, get_lab, health_check, lab_destroy, lab_up, login};
+use super::handlers::{
+    dashboard_handler, get_certificate_handler, get_lab, get_labs_html, get_labs_json,
+    health_check, lab_destroy, lab_up, login,
+};
 
 /// Build the Axum router with all API routes
 pub fn build_router() -> Router<AppState> {
@@ -31,10 +35,14 @@ pub fn build_router() -> Router<AppState> {
         .allow_credentials(true); // Allow credentials (cookies, auth headers)
 
     Router::new()
-        // Public endpoints (no authentication required)
+        // HTML routes (must come before static fallback)
+        .route("/", get(dashboard_handler))
+        .route("/labs", get(get_labs_html))
+        // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))
         .route("/api/v1/auth/login", post(login))
+        .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)
         .route("/api/v1/labs/{id}", get(get_lab))
         // Stub routes (future implementation)
@@ -42,4 +50,8 @@ pub fn build_router() -> Router<AppState> {
         .route("/destroy", post(lab_destroy))
         // Apply CORS middleware to all routes
         .layer(cors)
+        // Serve static files as fallback (catches all unmatched routes)
+        .fallback_service(
+            ServeDir::new("crates/server/web/static").append_index_html_on_directories(true),
+        )
 }
