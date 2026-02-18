@@ -31,8 +31,11 @@
             <p class="mt-1 text-sm text-gray-600">Device template configuration details</p>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}/edit" class="inline-block px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
+            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}/{{ config.version }}/edit" class="inline-block px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
                 Edit Configuration
+            </a>
+            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}/versions" class="inline-block px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 border border-blue-600 hover:border-blue-800 rounded transition-colors">
+                View All Versions
             </a>
             <a href="/admin/node-configs" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
                 ← Back to List
