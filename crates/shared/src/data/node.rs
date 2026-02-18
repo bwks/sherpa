@@ -578,6 +578,7 @@ pub struct NodeConfig {
     pub dedicated_management_interface: bool,
     pub management_interface: MgmtInterfaces,
     pub reserved_interface_count: u8,
+    pub default: bool,
 }
 
 impl Default for NodeConfig {
@@ -612,6 +613,7 @@ impl Default for NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::default(),
             reserved_interface_count: 0,
+            default: false,
         }
     }
 }
@@ -711,6 +713,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management1,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn arista_ceos() -> NodeConfig {
@@ -744,6 +747,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn aruba_aoscx() -> NodeConfig {
@@ -777,6 +781,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Mgmt,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_asav() -> NodeConfig {
@@ -810,6 +815,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_csr1000v() -> NodeConfig {
@@ -843,6 +849,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_cat8000v() -> NodeConfig {
@@ -876,6 +883,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_cat9000v() -> NodeConfig {
@@ -909,6 +917,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_iosxrv9000() -> NodeConfig {
@@ -942,6 +951,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
             reserved_interface_count: 2,
+            default: true,
         }
     }
     pub fn cisco_nexus9300v() -> NodeConfig {
@@ -975,6 +985,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_iosv() -> NodeConfig {
@@ -1008,6 +1019,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_iosvl2() -> NodeConfig {
@@ -1041,6 +1053,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_ise() -> NodeConfig {
@@ -1074,6 +1087,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cisco_ftdv() -> NodeConfig {
@@ -1107,6 +1121,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Management0_0,
             reserved_interface_count: 1,
+            default: true,
         }
     }
     pub fn juniper_vrouter() -> NodeConfig {
@@ -1140,6 +1155,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn juniper_vswitch() -> NodeConfig {
@@ -1173,6 +1189,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn juniper_vevolved() -> NodeConfig {
@@ -1206,6 +1223,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Re0Mgmt0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn juniper_vsrxv3() -> NodeConfig {
@@ -1239,6 +1257,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn alma_linux() -> NodeConfig {
@@ -1272,6 +1291,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn rocky_linux() -> NodeConfig {
@@ -1305,6 +1325,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn alpine_linux() -> NodeConfig {
@@ -1338,6 +1359,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn cumulus_linux() -> NodeConfig {
@@ -1371,6 +1393,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn nokia_srlinux() -> NodeConfig {
@@ -1404,6 +1427,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn centos_linux() -> NodeConfig {
@@ -1437,6 +1461,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn fedora_linux() -> NodeConfig {
@@ -1470,6 +1495,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn redhat_linux() -> NodeConfig {
@@ -1503,6 +1529,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn suse_linux() -> NodeConfig {
@@ -1536,6 +1563,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn opensuse_linux() -> NodeConfig {
@@ -1569,6 +1597,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn ubuntu_linux() -> NodeConfig {
@@ -1602,6 +1631,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn sonic_linux() -> NodeConfig {
@@ -1635,6 +1665,7 @@ impl NodeConfig {
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn flatcar_linux() -> NodeConfig {
@@ -1668,6 +1699,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn free_bsd() -> NodeConfig {
@@ -1701,6 +1733,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn open_bsd() -> NodeConfig {
@@ -1734,6 +1767,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn windows_server() -> NodeConfig {
@@ -1767,6 +1801,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn surreal_db() -> NodeConfig {
@@ -1790,6 +1825,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }
@@ -1814,6 +1850,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }
@@ -1838,6 +1875,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }
@@ -1862,6 +1900,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }
@@ -1886,6 +1925,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }
@@ -1910,6 +1950,7 @@ impl NodeConfig {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: true,
             ..Default::default()
         }
     }

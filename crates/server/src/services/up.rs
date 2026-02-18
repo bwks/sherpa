@@ -257,8 +257,8 @@ fn get_node_config(
 ) -> Result<data::NodeConfig> {
     Ok(data
         .iter()
-        .find(|x| &x.model == node_model)
-        .ok_or_else(|| anyhow!("Node config not found for model: {}", node_model))?
+        .find(|x| &x.model == node_model && x.default)
+        .ok_or_else(|| anyhow!("Default node config not found for model: {}", node_model))?
         .clone())
 }
 

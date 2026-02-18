@@ -14,11 +14,13 @@
 //! - Zero Touch Provisioning: `ztp_enable`, `ztp_method`, `ztp_username`, `ztp_password`, `ztp_password_auth`
 //! - Network interfaces: `data_interface_count`, `interface_prefix`, `interface_type`, `interface_mtu`,
 //!   `first_interface_index`, `dedicated_management_interface`, `management_interface`, `reserved_interface_count`
+//! - Version control: `default` (boolean indicating if this is the default version for the model/kind)
 //!
 //! ## Constraints
 //! - All enum fields are validated against their respective Rust enum variants
 //! - Numeric fields have min/max bounds and must be integers
-//! - Unique constraint on (model, kind) combination
+//! - Unique constraint on (model, kind, version) combination
+//! - Only one configuration per (model, kind) can have default=true (enforced by database event)
 //!
 //! ## Relationships
 //! - One-to-many with `node` table (one config can be used by many nodes)
@@ -43,9 +45,11 @@ use super::helpers::vec_to_str;
 /// # Schema Details
 ///
 /// - **Table**: `node_config` (SCHEMAFULL)
-/// - **Fields**: 24 fields covering model, hardware, and network configuration
+/// - **Fields**: 29 fields covering model, hardware, and network configuration
 /// - **Indexes**:
-///   - `unique_node_config_name_kind`: Ensures unique (model, kind) combinations
+///   - `unique_node_config_model_kind_version`: Ensures unique (model, kind, version) combinations
+/// - **Events**:
+///   - `enforce_single_default_node_config`: Ensures only one default per (model, kind)
 ///
 /// # Enum-Driven Validation
 ///
@@ -139,8 +143,27 @@ DEFINE FIELD management_interface ON TABLE node_config TYPE string
 DEFINE FIELD reserved_interface_count ON TABLE node_config TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 
-DEFINE INDEX unique_node_config_name_kind
-  ON TABLE node_config FIELDS model, kind UNIQUE;
+DEFINE FIELD default ON TABLE node_config TYPE bool;
+
+DEFINE INDEX unique_node_config_model_kind_version
+  ON TABLE node_config FIELDS model, kind, version UNIQUE;
+
+DEFINE EVENT enforce_single_default_node_config ON TABLE node_config
+    WHEN $event = "CREATE" OR $event = "UPDATE"
+    THEN {{
+        IF $after.default = true {{
+            LET $conflicts = (
+                SELECT id FROM node_config 
+                WHERE model = $after.model 
+                AND kind = $after.kind 
+                AND default = true 
+                AND id != $after.id
+            );
+            IF count($conflicts) > 0 {{
+                THROW "Only one default configuration allowed per (model, kind) combination";
+            }};
+        }};
+    }};
 "#,
         models,
         os_variants,

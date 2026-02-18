@@ -1690,8 +1690,7 @@ pub async fn admin_node_config_detail_handler(
     })?;
 
     // Fetch the specific config from database
-    let node_kind_str = node_kind.to_string();
-    let config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
@@ -1737,8 +1736,7 @@ pub async fn admin_node_config_edit_page_handler(
     })?;
 
     // Fetch the specific config from database
-    let node_kind_str = node_kind.to_string();
-    let config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
@@ -1824,9 +1822,8 @@ pub async fn admin_node_config_update_handler(
         ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
     })?;
 
-    // Fetch existing config to get ID and verify it exists
-    let node_kind_str = node_kind.to_string();
-    let existing_config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+    // Fetch the specific config from database
+    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
         .await
         .map_err(|e| {
             tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
@@ -1917,9 +1914,9 @@ pub async fn admin_node_config_update_handler(
 
     // Create updated config (keeping id, model, kind, management_interface from existing)
     let updated_config = shared::data::NodeConfig {
-        id: existing_config.id,
-        model: existing_config.model, // Keep original (read-only)
-        kind: existing_config.kind,   // Keep original (read-only)
+        id: config.id,
+        model: config.model, // Keep original (read-only)
+        kind: config.kind,   // Keep original (read-only)
         version: form.version,
         repo,
         os_variant,
@@ -1944,8 +1941,9 @@ pub async fn admin_node_config_update_handler(
         interface_mtu: form.interface_mtu,
         first_interface_index: form.first_interface_index,
         dedicated_management_interface,
-        management_interface: existing_config.management_interface, // Keep original (read-only)
+        management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
+        default: config.default, // Keep original default flag
     };
 
     // Update in database

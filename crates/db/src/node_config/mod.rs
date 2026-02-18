@@ -8,7 +8,8 @@ pub use create::{create_node_config, upsert_node_config};
 
 // Public exports - READ operations
 pub use read::{
-    count_node_configs, get_node_config_by_id, get_node_config_by_model_kind, list_node_configs,
+    count_node_configs, get_default_node_config, get_node_config_by_id,
+    get_node_config_by_model_kind_version, get_node_config_versions, list_node_configs,
 };
 
 // Public exports - UPDATE operations (to be implemented)

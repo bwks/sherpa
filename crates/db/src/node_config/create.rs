@@ -3,7 +3,7 @@ use shared::data::NodeConfig;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
-use crate::node_config::get_node_config_by_model_kind;
+use crate::node_config::get_node_config_by_model_kind_version;
 
 /// Create a node_config record in the database with auto-generated ID
 pub async fn create_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
@@ -12,30 +12,50 @@ pub async fn create_node_config(db: &Surreal<Client>, config: NodeConfig) -> Res
         .content(config.clone())
         .await
         .context(format!(
-            "Error creating node_config (model and kind must be unique):\n model: {}\n kind: {}\n",
-            config.model, config.kind
+            "Error creating node_config (model, kind, version must be unique):\n model: {}\n kind: {}\n version: {}\n",
+            config.model, config.kind, config.version
         ))?;
 
     created_config.ok_or_else(|| {
         anyhow!(
-            "Node config was not created:\n model: {}\n kind: {}\n",
+            "Node config was not created:\n model: {}\n kind: {}\n version: {}\n",
             config.model,
-            config.kind
+            config.kind,
+            config.version
         )
     })
 }
 
 /// Upsert a node_config record (create if not exists, update if exists)
 /// This uses a query-based approach to handle the unique constraint gracefully.
+/// If config.default is true, it will automatically unset default on other versions
+/// of the same (model, kind) combination.
 /// SurrealDB will auto-generate IDs for new records.
 pub async fn upsert_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
-    // First, try to find existing config by model + kind using the unique constraint
-    let existing = get_node_config_by_model_kind(db, &config.model, &config.kind.to_string())
+    // If setting default=true, first unset default on other versions of same (model, kind)
+    if config.default {
+        db.query(
+            "UPDATE node_config SET default = false 
+             WHERE model = $model AND kind = $kind AND version != $version",
+        )
+        .bind(("model", config.model.to_string()))
+        .bind(("kind", config.kind.to_string()))
+        .bind(("version", config.version.clone()))
         .await
         .context(format!(
-            "Error querying existing node_config:\n model: {}\n kind: {}\n",
+            "Error unsetting default flag on other versions:\n model: {}\n kind: {}\n",
             config.model, config.kind
         ))?;
+    }
+
+    // Try to find existing config by (model, kind, version) using the unique constraint
+    let existing =
+        get_node_config_by_model_kind_version(db, &config.model, &config.kind, &config.version)
+            .await
+            .context(format!(
+                "Error querying existing node_config:\n model: {}\n kind: {}\n version: {}\n",
+                config.model, config.kind, config.version
+            ))?;
 
     if let Some(existing_config) = existing {
         // Update existing record, preserving the auto-generated ID
@@ -47,15 +67,16 @@ pub async fn upsert_node_config(db: &Surreal<Client>, config: NodeConfig) -> Res
             .content(updated_config)
             .await
             .context(format!(
-                "Error updating existing node_config:\n model: {}\n kind: {}\n",
-                config.model, config.kind
+                "Error updating existing node_config:\n model: {}\n kind: {}\n version: {}\n",
+                config.model, config.kind, config.version
             ))?;
 
         updated.ok_or_else(|| {
             anyhow!(
-                "Node config was not updated:\n model: {}\n kind: {}\n",
+                "Node config was not updated:\n model: {}\n kind: {}\n version: {}\n",
                 config.model,
-                config.kind
+                config.kind,
+                config.version
             )
         })
     } else {

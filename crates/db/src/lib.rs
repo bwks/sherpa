@@ -25,8 +25,9 @@ pub use lab::{
 
 // Node config CRUD operations
 pub use node_config::{
-    count_node_configs, create_node_config, delete_node_config, get_node_config_by_id,
-    get_node_config_by_model_kind, list_node_configs, update_node_config, upsert_node_config,
+    count_node_configs, create_node_config, delete_node_config, get_default_node_config,
+    get_node_config_by_id, get_node_config_by_model_kind_version, get_node_config_versions,
+    list_node_configs, update_node_config, upsert_node_config,
 };
 
 // Node CRUD operations

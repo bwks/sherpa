@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{NodeConfig, NodeModel, RecordId};
+use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -13,24 +13,66 @@ pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> 
     Ok(configs)
 }
 
-/// Get node_config by model and kind
-pub async fn get_node_config_by_model_kind(
+/// Get node_config by model, kind, and version
+pub async fn get_node_config_by_model_kind_version(
     db: &Surreal<Client>,
     model: &NodeModel,
-    kind: &str,
+    kind: &NodeKind,
+    version: &str,
 ) -> Result<Option<NodeConfig>> {
     let mut response = db
-        .query("SELECT * FROM ONLY node_config WHERE model = $model AND kind = $kind")
+        .query("SELECT * FROM ONLY node_config WHERE model = $model AND kind = $kind AND version = $version")
+        .bind(("model", model.to_string()))
+        .bind(("kind", kind.to_string()))
+        .bind(("version", version.to_string()))
+        .await
+        .context(format!(
+            "Failed to query node_config from database: model={}, kind={}, version={}",
+            model, kind, version
+        ))?;
+
+    let config: Option<NodeConfig> = response.take(0)?;
+    Ok(config)
+}
+
+/// Get the default node_config for a specific model and kind
+pub async fn get_default_node_config(
+    db: &Surreal<Client>,
+    model: &NodeModel,
+    kind: &NodeKind,
+) -> Result<Option<NodeConfig>> {
+    let mut response = db
+        .query("SELECT * FROM ONLY node_config WHERE model = $model AND kind = $kind AND default = true")
         .bind(("model", model.to_string()))
         .bind(("kind", kind.to_string()))
         .await
         .context(format!(
-            "Failed to query node_config from database: model={}, kind={}",
+            "Failed to query default node_config from database: model={}, kind={}",
             model, kind
         ))?;
 
     let config: Option<NodeConfig> = response.take(0)?;
     Ok(config)
+}
+
+/// Get all versions of a node_config for a specific model and kind
+pub async fn get_node_config_versions(
+    db: &Surreal<Client>,
+    model: &NodeModel,
+    kind: &NodeKind,
+) -> Result<Vec<NodeConfig>> {
+    let mut response = db
+        .query("SELECT * FROM node_config WHERE model = $model AND kind = $kind ORDER BY version")
+        .bind(("model", model.to_string()))
+        .bind(("kind", kind.to_string()))
+        .await
+        .context(format!(
+            "Failed to query node_config versions from database: model={}, kind={}",
+            model, kind
+        ))?;
+
+    let configs: Vec<NodeConfig> = response.take(0)?;
+    Ok(configs)
 }
 
 /// Get node_config by RecordId
