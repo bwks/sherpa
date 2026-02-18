@@ -1,0 +1,334 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Edit {{ config.model }} - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Configs
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Edit {{ config.model }}</h2>
+            <p class="mt-1 text-sm text-gray-600">Update device template configuration</p>
+        </div>
+        <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+            ← Cancel
+        </a>
+    </div>
+
+    <!-- Form Result Div for HTMX responses -->
+    <div id="form-result"></div>
+
+    <!-- Edit Form -->
+    <form hx-post="/admin/node-configs/{{ config.model }}/{{ config.kind }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
+        
+        <!-- Basic Information Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <!-- Model (Read-only) -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Model</label>
+                    <input type="text" value="{{ config.model }}" disabled class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed">
+                    <p class="mt-1 text-xs text-gray-500">Read-only identifier</p>
+                </div>
+
+                <!-- Kind (Read-only) -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Kind</label>
+                    {% let kind_str = config.kind.to_string() %}
+                    <input type="text" value="{% if kind_str == "virtual_machine" %}Virtual Machine{% else if kind_str == "container" %}Container{% else if kind_str == "unikernel" %}Unikernel{% else %}{{ config.kind }}{% endif %}" disabled class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed">
+                    <p class="mt-1 text-xs text-gray-500">Read-only identifier</p>
+                </div>
+
+                <!-- Version -->
+                <div>
+                    <label for="version" class="block text-sm font-medium text-gray-700 mb-2">Version *</label>
+                    <input type="text" id="version" name="version" value="{{ config.version }}" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- OS Variant -->
+                <div>
+                    <label for="os_variant" class="block text-sm font-medium text-gray-700 mb-2">OS Variant *</label>
+                    <select id="os_variant" name="os_variant" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_os = config.os_variant.to_string() %}
+                        {% for variant in os_variants %}
+                        <option value="{{ variant }}" {% if *variant == current_os %}selected{% endif %}>{{ variant }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Repository -->
+                <div class="md:col-span-2">
+                    <label for="repo" class="block text-sm font-medium text-gray-700 mb-2">Repository</label>
+                    {% match config.repo %}
+                    {% when Some with (repo_value) %}
+                    <input type="text" id="repo" name="repo" value="{{ repo_value }}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% when None %}
+                    <input type="text" id="repo" name="repo" value="" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% endmatch %}
+                    <p class="mt-1 text-xs text-gray-500">Optional software repository URL</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Hardware Configuration Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Hardware Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <!-- CPU Count -->
+                <div>
+                    <label for="cpu_count" class="block text-sm font-medium text-gray-700 mb-2">CPU Count *</label>
+                    <input type="number" id="cpu_count" name="cpu_count" value="{{ config.cpu_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Range: 1-255</p>
+                </div>
+
+                <!-- CPU Architecture -->
+                <div>
+                    <label for="cpu_architecture" class="block text-sm font-medium text-gray-700 mb-2">CPU Architecture *</label>
+                    <select id="cpu_architecture" name="cpu_architecture" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_arch = config.cpu_architecture.to_string() %}
+                        {% for arch in cpu_architectures %}
+                        <option value="{{ arch }}" {% if *arch == current_arch %}selected{% endif %}>{{ arch }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- CPU Model -->
+                <div>
+                    <label for="cpu_model" class="block text-sm font-medium text-gray-700 mb-2">CPU Model *</label>
+                    <select id="cpu_model" name="cpu_model" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_cpu = config.cpu_model.to_string() %}
+                        {% for model in cpu_models %}
+                        <option value="{{ model }}" {% if *model == current_cpu %}selected{% endif %}>{{ model }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Memory -->
+                <div>
+                    <label for="memory" class="block text-sm font-medium text-gray-700 mb-2">Memory (MB) *</label>
+                    <input type="number" id="memory" name="memory" value="{{ config.memory }}" min="64" max="65535" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Range: 64-65535 MB</p>
+                </div>
+
+                <!-- Machine Type -->
+                <div>
+                    <label for="machine_type" class="block text-sm font-medium text-gray-700 mb-2">Machine Type *</label>
+                    <select id="machine_type" name="machine_type" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_machine = config.machine_type.to_string() %}
+                        {% for mtype in machine_types %}
+                        <option value="{{ mtype }}" {% if *mtype == current_machine %}selected{% endif %}>{{ mtype }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- BIOS -->
+                <div>
+                    <label for="bios" class="block text-sm font-medium text-gray-700 mb-2">BIOS Type *</label>
+                    <select id="bios" name="bios" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_bios = config.bios.to_string() %}
+                        {% for btype in bios_types %}
+                        <option value="{{ btype }}" {% if *btype == current_bios %}selected{% endif %}>{{ btype }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- VMX Enabled -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="vmx_enabled" name="vmx_enabled" {% if config.vmx_enabled %}checked{% endif %} class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="vmx_enabled" class="ml-2 block text-sm font-medium text-gray-700">Enable VMX (Nested Virtualization)</label>
+                </div>
+            </div>
+        </div>
+
+        <!-- Storage Configuration Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Storage Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <!-- HDD Bus -->
+                <div>
+                    <label for="hdd_bus" class="block text-sm font-medium text-gray-700 mb-2">HDD Bus *</label>
+                    <select id="hdd_bus" name="hdd_bus" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_hdd_bus = config.hdd_bus.to_string() %}
+                        {% for bus in disk_buses %}
+                        <option value="{{ bus }}" {% if *bus == current_hdd_bus %}selected{% endif %}>{{ bus }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- CD-ROM Bus -->
+                <div>
+                    <label for="cdrom_bus" class="block text-sm font-medium text-gray-700 mb-2">CD-ROM Bus *</label>
+                    <select id="cdrom_bus" name="cdrom_bus" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_cdrom_bus = config.cdrom_bus.to_string() %}
+                        {% for bus in disk_buses %}
+                        <option value="{{ bus }}" {% if *bus == current_cdrom_bus %}selected{% endif %}>{{ bus }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- CD-ROM -->
+                <div class="md:col-span-2">
+                    <label for="cdrom" class="block text-sm font-medium text-gray-700 mb-2">CD-ROM Path</label>
+                    {% match config.cdrom %}
+                    {% when Some with (cdrom_value) %}
+                    <input type="text" id="cdrom" name="cdrom" value="{{ cdrom_value }}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% when None %}
+                    <input type="text" id="cdrom" name="cdrom" value="" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% endmatch %}
+                    <p class="mt-1 text-xs text-gray-500">Optional CD-ROM image path</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- ZTP Configuration Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">ZTP Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <!-- ZTP Enable -->
+                <div class="flex items-center md:col-span-2">
+                    <input type="checkbox" id="ztp_enable" name="ztp_enable" {% if config.ztp_enable %}checked{% endif %} class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="ztp_enable" class="ml-2 block text-sm font-medium text-gray-700">Enable Zero Touch Provisioning</label>
+                </div>
+
+                <!-- ZTP Method -->
+                <div>
+                    <label for="ztp_method" class="block text-sm font-medium text-gray-700 mb-2">ZTP Method *</label>
+                    <select id="ztp_method" name="ztp_method" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_ztp = config.ztp_method.to_string() %}
+                        {% for method in ztp_methods %}
+                        <option value="{{ method }}" {% if *method == current_ztp %}selected{% endif %}>{{ method }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- ZTP Password Auth -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="ztp_password_auth" name="ztp_password_auth" {% if config.ztp_password_auth %}checked{% endif %} class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="ztp_password_auth" class="ml-2 block text-sm font-medium text-gray-700">Password Authentication</label>
+                </div>
+
+                <!-- ZTP Username -->
+                <div>
+                    <label for="ztp_username" class="block text-sm font-medium text-gray-700 mb-2">ZTP Username</label>
+                    {% match config.ztp_username %}
+                    {% when Some with (username_value) %}
+                    <input type="text" id="ztp_username" name="ztp_username" value="{{ username_value }}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% when None %}
+                    <input type="text" id="ztp_username" name="ztp_username" value="" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% endmatch %}
+                </div>
+
+                <!-- ZTP Password -->
+                <div>
+                    <label for="ztp_password" class="block text-sm font-medium text-gray-700 mb-2">ZTP Password</label>
+                    {% match config.ztp_password %}
+                    {% when Some with (password_value) %}
+                    <input type="password" id="ztp_password" name="ztp_password" value="{{ password_value }}" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% when None %}
+                    <input type="password" id="ztp_password" name="ztp_password" value="" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    {% endmatch %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Network Configuration Card -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Network Configuration</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                
+                <!-- Data Interface Count -->
+                <div>
+                    <label for="data_interface_count" class="block text-sm font-medium text-gray-700 mb-2">Data Interface Count *</label>
+                    <input type="number" id="data_interface_count" name="data_interface_count" value="{{ config.data_interface_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Range: 1-255</p>
+                </div>
+
+                <!-- Interface Prefix -->
+                <div>
+                    <label for="interface_prefix" class="block text-sm font-medium text-gray-700 mb-2">Interface Prefix *</label>
+                    <input type="text" id="interface_prefix" name="interface_prefix" value="{{ config.interface_prefix }}" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">e.g., eth, ens, enp</p>
+                </div>
+
+                <!-- Interface Type -->
+                <div>
+                    <label for="interface_type" class="block text-sm font-medium text-gray-700 mb-2">Interface Type *</label>
+                    <select id="interface_type" name="interface_type" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                        {% let current_if_type = config.interface_type.to_string() %}
+                        {% for iftype in interface_types %}
+                        <option value="{{ iftype }}" {% if *iftype == current_if_type %}selected{% endif %}>{{ iftype }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Interface MTU -->
+                <div>
+                    <label for="interface_mtu" class="block text-sm font-medium text-gray-700 mb-2">Interface MTU *</label>
+                    <input type="number" id="interface_mtu" name="interface_mtu" value="{{ config.interface_mtu }}" min="576" max="9600" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                    <p class="mt-1 text-xs text-gray-500">Range: 576-9600</p>
+                </div>
+
+                <!-- First Interface Index -->
+                <div>
+                    <label for="first_interface_index" class="block text-sm font-medium text-gray-700 mb-2">First Interface Index *</label>
+                    <input type="number" id="first_interface_index" name="first_interface_index" value="{{ config.first_interface_index }}" min="0" max="255" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- Reserved Interface Count -->
+                <div>
+                    <label for="reserved_interface_count" class="block text-sm font-medium text-gray-700 mb-2">Reserved Interface Count *</label>
+                    <input type="number" id="reserved_interface_count" name="reserved_interface_count" value="{{ config.reserved_interface_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
+                </div>
+
+                <!-- Dedicated Management Interface -->
+                <div class="flex items-center md:col-span-2">
+                    <input type="checkbox" id="dedicated_management_interface" name="dedicated_management_interface" {% if config.dedicated_management_interface %}checked{% endif %} class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded">
+                    <label for="dedicated_management_interface" class="ml-2 block text-sm font-medium text-gray-700">Dedicated Management Interface</label>
+                </div>
+
+                <!-- Management Interface (Read-only) -->
+                <div>
+                    <label for="management_interface" class="block text-sm font-medium text-gray-700 mb-2">Management Interface</label>
+                    <input type="text" value="{{ config.management_interface }}" disabled class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-100 text-gray-500 cursor-not-allowed">
+                    <p class="mt-1 text-xs text-gray-500">Read-only identifier</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Form Actions -->
+        <div class="flex items-center justify-end space-x-4 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}" class="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                Cancel
+            </a>
+            <button type="submit" class="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">
+                Save Changes
+            </button>
+        </div>
+    </form>
+</div>
+{% endblock %}

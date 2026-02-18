@@ -5105,6 +5105,7 @@ dependencies = [
  "serde_json",
  "shared",
  "ssh-key",
+ "strum",
  "surrealdb",
  "tempfile",
  "template",

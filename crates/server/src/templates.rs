@@ -526,3 +526,33 @@ impl IntoResponse for AdminNodeConfigDetailTemplate {
         }
     }
 }
+
+/// Admin node config edit page template
+#[derive(Template)]
+#[template(path = "admin-node-config-edit.html.jinja")]
+pub struct AdminNodeConfigEditTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub config: NodeConfig,
+    pub os_variants: Vec<String>,
+    pub bios_types: Vec<String>,
+    pub cpu_architectures: Vec<String>,
+    pub cpu_models: Vec<String>,
+    pub machine_types: Vec<String>,
+    pub disk_buses: Vec<String>,
+    pub ztp_methods: Vec<String>,
+    pub interface_types: Vec<String>,
+}
+
+impl IntoResponse for AdminNodeConfigEditTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}

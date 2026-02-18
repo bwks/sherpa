@@ -1,34 +1,36 @@
 use askama::Template;
-use axum::Form;
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response};
+use axum::{Form, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::str::FromStr;
+use strum::IntoEnumIterator;
 use surrealdb::sql::Datetime;
 
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::{inspect, list_labs};
 use crate::templates::{
-    AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
-    AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
-    Error403Template, Error404Template, ErrorTemplate, LabDetailTemplate, LabsGridTemplate,
-    LoginErrorTemplate, LoginPageTemplate, PasswordErrorTemplate, PasswordSuccessTemplate,
-    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
-    SshKeysListTemplate,
+    AdminDashboardTemplate, AdminNodeConfigEditTemplate, AdminPasswordErrorTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
+    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
+    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate,
+    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
+    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
 use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie};
 
-use shared::auth::password;
-use shared::auth::ssh;
+use shared::auth::{password, ssh};
 use shared::data::{
-    InspectRequest, InspectResponse, ListLabsResponse, LoginRequest, LoginResponse,
+    BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InspectRequest, InspectResponse,
+    InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType, NodeKind, NodeModel,
+    OsVariant, ZtpMethod,
 };
 use shared::konst::{
     JWT_TOKEN_EXPIRY_SECONDS, SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE,
@@ -1677,9 +1679,6 @@ pub async fn admin_node_config_detail_handler(
     tracing::debug!("Admin requesting node config detail: {}/{}", model, kind);
 
     // Parse model and kind from URL strings
-    use shared::data::{NodeKind, NodeModel};
-    use std::str::FromStr;
-
     let node_model = NodeModel::from_str(&model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", model, e);
         ApiError::not_found("Node Config", format!("Invalid model: {}", model))
@@ -1716,6 +1715,257 @@ pub async fn admin_node_config_detail_handler(
     };
 
     Ok(template)
+}
+
+/// Admin handler to render the edit page for a node configuration
+pub async fn admin_node_config_edit_page_handler(
+    State(state): State<AppState>,
+    Path((model, kind)): Path<(String, String)>,
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Admin requesting node config edit page: {}/{}", model, kind);
+
+    // Parse model and kind from URL strings
+    let node_model = NodeModel::from_str(&model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    })?;
+
+    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    })?;
+
+    // Fetch the specific config from database
+    let node_kind_str = node_kind.to_string();
+    let config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Node config not found for {}/{}", model, kind);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?;
+
+    // Generate enum options for dropdowns
+    let template = crate::templates::AdminNodeConfigEditTemplate {
+        username: _admin.username.clone(),
+        is_admin: true,
+        config,
+        os_variants: OsVariant::iter().map(|v| v.to_string()).collect(),
+        bios_types: BiosTypes::iter().map(|v| v.to_string()).collect(),
+        cpu_architectures: CpuArchitecture::iter().map(|v| v.to_string()).collect(),
+        cpu_models: CpuModels::iter().map(|v| v.to_string()).collect(),
+        machine_types: MachineType::iter().map(|v| v.to_string()).collect(),
+        disk_buses: DiskBuses::iter().map(|v| v.to_string()).collect(),
+        ztp_methods: ZtpMethod::iter().map(|v| v.to_string()).collect(),
+        interface_types: InterfaceType::iter().map(|v| v.to_string()).collect(),
+    };
+
+    Ok(template)
+}
+
+/// Form data for updating a node configuration
+#[derive(Deserialize)]
+pub struct NodeConfigForm {
+    // Model, kind, and management_interface come from URL path/existing config, not form
+    pub version: String,
+    pub repo: Option<String>,
+    pub os_variant: String,
+    pub bios: String,
+    pub cpu_count: u8,
+    pub cpu_architecture: String,
+    pub cpu_model: String,
+    pub machine_type: String,
+    pub vmx_enabled: Option<String>, // checkbox
+    pub memory: u16,
+    pub hdd_bus: String,
+    pub cdrom: Option<String>,
+    pub cdrom_bus: String,
+    pub ztp_enable: Option<String>, // checkbox
+    pub ztp_method: String,
+    pub ztp_username: Option<String>,
+    pub ztp_password: Option<String>,
+    pub ztp_password_auth: Option<String>, // checkbox
+    pub data_interface_count: u8,
+    pub interface_prefix: String,
+    pub interface_type: String,
+    pub interface_mtu: u16,
+    pub first_interface_index: u8,
+    pub dedicated_management_interface: Option<String>, // checkbox
+    pub reserved_interface_count: u8,
+}
+
+/// Admin handler to process node configuration update
+pub async fn admin_node_config_update_handler(
+    State(state): State<AppState>,
+    Path((model, kind)): Path<(String, String)>,
+    _admin: AdminUser,
+    Form(form): Form<NodeConfigForm>,
+) -> Result<Response, ApiError> {
+    tracing::info!("Admin updating node config: {}/{}", model, kind);
+
+    // Parse model and kind from URL strings
+    let node_model = NodeModel::from_str(&model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    })?;
+
+    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    })?;
+
+    // Fetch existing config to get ID and verify it exists
+    let node_kind_str = node_kind.to_string();
+    let existing_config = db::get_node_config_by_model_kind(&state.db, &node_model, &node_kind_str)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("Node config not found for {}/{}", model, kind);
+            ApiError::not_found(
+                "Node Config",
+                format!("Configuration for {}/{} not found", model, kind),
+            )
+        })?;
+
+    // Parse enum fields from form strings using serde_json
+    // The enums have #[serde(rename_all = "snake_case")] so we parse via JSON
+
+    // Helper to parse enum from snake_case string
+    let parse_enum = |value: &str, field_name: &str| -> Result<serde_json::Value, ApiError> {
+        serde_json::from_str(&format!("\"{}\"", value))
+            .map_err(|_| ApiError::bad_request(format!("Invalid {}: {}", field_name, value)))
+    };
+
+    let os_variant: OsVariant = serde_json::from_value(parse_enum(&form.os_variant, "OS variant")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid OS variant: {}", form.os_variant)))?;
+
+    let bios: BiosTypes = serde_json::from_value(parse_enum(&form.bios, "BIOS type")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid BIOS type: {}", form.bios)))?;
+
+    let cpu_architecture: CpuArchitecture =
+        serde_json::from_value(parse_enum(&form.cpu_architecture, "CPU architecture")?).map_err(
+            |_| {
+                ApiError::bad_request(format!(
+                    "Invalid CPU architecture: {}",
+                    form.cpu_architecture
+                ))
+            },
+        )?;
+
+    let cpu_model: CpuModels = serde_json::from_value(parse_enum(&form.cpu_model, "CPU model")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid CPU model: {}", form.cpu_model)))?;
+
+    let machine_type: MachineType =
+        serde_json::from_value(parse_enum(&form.machine_type, "machine type")?).map_err(|_| {
+            ApiError::bad_request(format!("Invalid machine type: {}", form.machine_type))
+        })?;
+
+    let hdd_bus: DiskBuses = serde_json::from_value(parse_enum(&form.hdd_bus, "HDD bus")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid HDD bus: {}", form.hdd_bus)))?;
+
+    let cdrom_bus: DiskBuses = serde_json::from_value(parse_enum(&form.cdrom_bus, "CDROM bus")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid CDROM bus: {}", form.cdrom_bus)))?;
+
+    let ztp_method: ZtpMethod = serde_json::from_value(parse_enum(&form.ztp_method, "ZTP method")?)
+        .map_err(|_| ApiError::bad_request(format!("Invalid ZTP method: {}", form.ztp_method)))?;
+
+    let interface_type: InterfaceType =
+        serde_json::from_value(parse_enum(&form.interface_type, "interface type")?).map_err(
+            |_| ApiError::bad_request(format!("Invalid interface type: {}", form.interface_type)),
+        )?;
+
+    // Convert checkboxes (Some("on") or None) to bool
+    let vmx_enabled = form.vmx_enabled.is_some();
+    let ztp_enable = form.ztp_enable.is_some();
+    let ztp_password_auth = form.ztp_password_auth.is_some();
+    let dedicated_management_interface = form.dedicated_management_interface.is_some();
+
+    // Handle optional string fields - convert empty strings to None
+    let repo = form.repo.filter(|s| !s.trim().is_empty());
+    let cdrom = form.cdrom.filter(|s| !s.trim().is_empty());
+    let ztp_username = form.ztp_username.filter(|s| !s.trim().is_empty());
+    let ztp_password = form.ztp_password.filter(|s| !s.trim().is_empty());
+
+    // Validate form data
+    if let Err(e) = validate::validate_node_config_update(
+        form.cpu_count,
+        form.memory,
+        form.data_interface_count,
+        form.interface_mtu,
+        &form.version,
+        &form.interface_prefix,
+    ) {
+        tracing::warn!("Node config validation failed: {:?}", e);
+        return Ok(Html(format!(r#"<div class="notification-error">{}</div>"#, e)).into_response());
+    }
+
+    // Create updated config (keeping id, model, kind, management_interface from existing)
+    let updated_config = shared::data::NodeConfig {
+        id: existing_config.id,
+        model: existing_config.model, // Keep original (read-only)
+        kind: existing_config.kind,   // Keep original (read-only)
+        version: form.version,
+        repo,
+        os_variant,
+        bios,
+        cpu_count: form.cpu_count,
+        cpu_architecture,
+        cpu_model,
+        machine_type,
+        vmx_enabled,
+        memory: form.memory,
+        hdd_bus,
+        cdrom,
+        cdrom_bus,
+        ztp_enable,
+        ztp_method,
+        ztp_username,
+        ztp_password,
+        ztp_password_auth,
+        data_interface_count: form.data_interface_count,
+        interface_prefix: form.interface_prefix,
+        interface_type,
+        interface_mtu: form.interface_mtu,
+        first_interface_index: form.first_interface_index,
+        dedicated_management_interface,
+        management_interface: existing_config.management_interface, // Keep original (read-only)
+        reserved_interface_count: form.reserved_interface_count,
+    };
+
+    // Update in database
+    db::update_node_config(&state.db, updated_config)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to update node config: {:?}", e);
+            ApiError::internal(format!("Failed to update configuration: {}", e))
+        })?;
+
+    tracing::info!("Successfully updated node config: {}/{}", model, kind);
+
+    // Redirect to detail page using HX-Redirect header
+    let mut response = Html("").into_response();
+    response.headers_mut().insert(
+        header::HeaderName::from_static("hx-redirect"),
+        header::HeaderValue::from_str(&format!("/admin/node-configs/{}/{}", model, kind)).unwrap(),
+    );
+
+    Ok(response)
 }
 
 // Stub handlers for future implementation

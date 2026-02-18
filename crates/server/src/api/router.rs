@@ -9,6 +9,7 @@ use tower_http::services::ServeDir;
 use super::handlers::{
     add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
     admin_delete_ssh_key_handler, admin_delete_user_handler, admin_node_config_detail_handler,
+    admin_node_config_edit_page_handler, admin_node_config_update_handler,
     admin_node_configs_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
     dashboard_handler, delete_ssh_key_handler, get_certificate_handler, get_lab, get_labs_html,
     get_labs_json, health_check, lab_destroy, lab_detail_handler, lab_up, login,
@@ -74,6 +75,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             "/admin/node-configs/{model}/{kind}",
             get(admin_node_config_detail_handler),
+        )
+        .route(
+            "/admin/node-configs/{model}/{kind}/edit",
+            get(admin_node_config_edit_page_handler).post(admin_node_config_update_handler),
         )
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))

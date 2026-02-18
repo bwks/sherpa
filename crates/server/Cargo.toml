@@ -35,6 +35,9 @@ serde_json = "1.0.128"
 toml = "0.8.19"
 toml_edit = "0.22.22"
 
+# Enum utilities
+strum = "0.27"
+
 # De/Compression
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 
