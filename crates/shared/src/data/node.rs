@@ -14,7 +14,7 @@ use super::interface::MgmtInterfaces;
 use crate::konst::{CONTAINER_ARISTA_CEOS_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
 
 #[derive(
-    Default, PartialEq, Eq, Hash, Clone, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
+    Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
 )]
 #[serde(rename_all = "snake_case")]
 #[clap(rename_all = "snake_case")]
@@ -214,6 +214,12 @@ impl std::str::FromStr for NodeModel {
 impl NodeModel {
     pub fn to_vec() -> Vec<NodeModel> {
         NodeModel::iter().collect()
+    }
+
+    /// Get the NodeKind for this model
+    /// Uses the existing hardcoded mapping in NodeConfig::get_model()
+    pub fn kind(&self) -> NodeKind {
+        NodeConfig::get_model(*self).kind
     }
 }
 

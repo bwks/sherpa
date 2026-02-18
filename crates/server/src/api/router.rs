@@ -75,25 +75,25 @@ pub fn build_router() -> Router<AppState> {
         .route("/admin/node-configs", get(admin_node_configs_list_handler))
         // Versions list route (most specific, must come first)
         .route(
-            "/admin/node-configs/{model}/{kind}/versions",
+            "/admin/node-configs/{model}/versions",
             get(admin_node_config_versions_handler),
         )
         // Version-specific routes (must come before non-version routes for proper matching)
         .route(
-            "/admin/node-configs/{model}/{kind}/{version}",
+            "/admin/node-configs/{model}/{version}",
             get(admin_node_config_detail_handler),
         )
         .route(
-            "/admin/node-configs/{model}/{kind}/{version}/edit",
+            "/admin/node-configs/{model}/{version}/edit",
             get(admin_node_config_edit_page_handler).post(admin_node_config_update_handler),
         )
         // Non-version routes (fallback to default version)
         .route(
-            "/admin/node-configs/{model}/{kind}",
+            "/admin/node-configs/{model}",
             get(admin_node_config_detail_handler),
         )
         .route(
-            "/admin/node-configs/{model}/{kind}/edit",
+            "/admin/node-configs/{model}/edit",
             get(admin_node_config_edit_page_handler).post(admin_node_config_update_handler),
         )
         // Public API endpoints (no authentication required)

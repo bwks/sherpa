@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -36,7 +36,7 @@ pub fn validate_and_resolve_node_versions(
 
     // Build lookup map for faster access
     let config_map: HashMap<NodeModel, &NodeConfig> =
-        node_configs.iter().map(|c| (c.model.clone(), c)).collect();
+        node_configs.iter().map(|c| (c.model, c)).collect();
 
     for node in nodes {
         let mut updated_node = node.clone();
@@ -78,7 +78,7 @@ pub fn validate_and_resolve_node_versions(
                     &node.model,
                     node_config.repo.as_deref(),
                     &resolved_version,
-                    &docker_images,
+                    docker_images,
                 )?;
             }
             NodeKind::VirtualMachine => {
