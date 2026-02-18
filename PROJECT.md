@@ -63,5 +63,7 @@
 ## Testing
 - [] There a many tests to add.
 
+## SurrealDB
+- [] Migrate to v3.0 now that it is stabalized.
 
 # Completed

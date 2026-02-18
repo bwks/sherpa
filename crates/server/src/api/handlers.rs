@@ -1631,6 +1631,7 @@ pub struct NodeConfigSummary {
     pub cpu_count: u8,
     pub memory: u16,
     pub data_interface_count: u8,
+    pub default: bool,
 }
 
 /// Admin handler to list all node configurations
@@ -1647,8 +1648,10 @@ pub async fn admin_node_configs_list_handler(
     })?;
 
     // Convert to summary structs and sort alphabetically by model
+    // Filter to show only default configurations
     let mut summaries: Vec<NodeConfigSummary> = configs
         .into_iter()
+        .filter(|config| config.default)
         .map(|config| NodeConfigSummary {
             model: config.model.to_string(),
             kind: config.kind.to_string(),
@@ -1656,6 +1659,7 @@ pub async fn admin_node_configs_list_handler(
             cpu_count: config.cpu_count,
             memory: config.memory,
             data_interface_count: config.data_interface_count,
+            default: config.default,
         })
         .collect();
 
