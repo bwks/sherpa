@@ -1622,6 +1622,14 @@ fn format_date_simple(dt: Datetime) -> String {
     }
 }
 
+/// Helper struct for extracting node config path parameters with optional version
+#[derive(Debug, Deserialize)]
+pub struct NodeConfigPath {
+    pub model: String,
+    pub kind: String,
+    pub version: Option<String>,
+}
+
 /// Helper struct to summarize node config data for list view
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeConfigSummary {
@@ -1677,39 +1685,96 @@ pub async fn admin_node_configs_list_handler(
 /// Admin handler to view a single node configuration detail
 pub async fn admin_node_config_detail_handler(
     State(state): State<AppState>,
-    Path((model, kind)): Path<(String, String)>,
+    Path(params): Path<NodeConfigPath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!("Admin requesting node config detail: {}/{}", model, kind);
+    tracing::debug!(
+        "Admin requesting node config detail: {}/{} (version: {:?})",
+        params.model,
+        params.kind,
+        params.version
+    );
 
     // Parse model and kind from URL strings
-    let node_model = NodeModel::from_str(&model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
     })?;
 
-    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
-        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
-        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    let node_kind = NodeKind::from_str(&params.kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", params.kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", params.kind))
     })?;
 
     // Fetch the specific config from database
-    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?
-        .ok_or_else(|| {
-            tracing::warn!("Node config not found for {}/{}", model, kind);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?;
+    // If version is specified, fetch that specific version; otherwise fetch default
+    let config = if let Some(version) = &params.version {
+        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get node config for {}/{}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    version,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Node config not found for {}/{}/{}",
+                    params.model,
+                    params.kind,
+                    version
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+    } else {
+        db::get_default_node_config(&state.db, &node_model, &node_kind)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get default node config for {}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Default node config not found for {}/{}",
+                    params.model,
+                    params.kind
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+    };
 
     let template = crate::templates::AdminNodeConfigDetailTemplate {
         username: _admin.username.clone(),
@@ -1723,39 +1788,96 @@ pub async fn admin_node_config_detail_handler(
 /// Admin handler to render the edit page for a node configuration
 pub async fn admin_node_config_edit_page_handler(
     State(state): State<AppState>,
-    Path((model, kind)): Path<(String, String)>,
+    Path(params): Path<NodeConfigPath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!("Admin requesting node config edit page: {}/{}", model, kind);
+    tracing::debug!(
+        "Admin requesting node config edit page: {}/{} (version: {:?})",
+        params.model,
+        params.kind,
+        params.version
+    );
 
     // Parse model and kind from URL strings
-    let node_model = NodeModel::from_str(&model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
     })?;
 
-    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
-        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
-        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    let node_kind = NodeKind::from_str(&params.kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", params.kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", params.kind))
     })?;
 
     // Fetch the specific config from database
-    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?
-        .ok_or_else(|| {
-            tracing::warn!("Node config not found for {}/{}", model, kind);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?;
+    // If version is specified, fetch that specific version; otherwise fetch default
+    let config = if let Some(version) = &params.version {
+        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get node config for {}/{}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    version,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Node config not found for {}/{}/{}",
+                    params.model,
+                    params.kind,
+                    version
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+    } else {
+        db::get_default_node_config(&state.db, &node_model, &node_kind)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get default node config for {}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Default node config not found for {}/{}",
+                    params.model,
+                    params.kind
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+    };
 
     // Generate enum options for dropdowns
     let template = crate::templates::AdminNodeConfigEditTemplate {
@@ -1804,45 +1926,103 @@ pub struct NodeConfigForm {
     pub first_interface_index: u8,
     pub dedicated_management_interface: Option<String>, // checkbox
     pub reserved_interface_count: u8,
+    pub default: Option<String>, // checkbox
 }
 
 /// Admin handler to process node configuration update
 pub async fn admin_node_config_update_handler(
     State(state): State<AppState>,
-    Path((model, kind)): Path<(String, String)>,
+    Path(params): Path<NodeConfigPath>,
     _admin: AdminUser,
     Form(form): Form<NodeConfigForm>,
 ) -> Result<Response, ApiError> {
-    tracing::info!("Admin updating node config: {}/{}", model, kind);
+    tracing::info!(
+        "Admin updating node config: {}/{} (version: {:?})",
+        params.model,
+        params.kind,
+        params.version
+    );
 
     // Parse model and kind from URL strings
-    let node_model = NodeModel::from_str(&model).map_err(|e| {
-        tracing::warn!("Invalid node model in URL: {} - {}", model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", model))
+    let node_model = NodeModel::from_str(&params.model).map_err(|e| {
+        tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
+        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
     })?;
 
-    let node_kind = NodeKind::from_str(&kind).map_err(|e| {
-        tracing::warn!("Invalid node kind in URL: {} - {}", kind, e);
-        ApiError::not_found("Node Config", format!("Invalid kind: {}", kind))
+    let node_kind = NodeKind::from_str(&params.kind).map_err(|e| {
+        tracing::warn!("Invalid node kind in URL: {} - {}", params.kind, e);
+        ApiError::not_found("Node Config", format!("Invalid kind: {}", params.kind))
     })?;
 
     // Fetch the specific config from database
-    let config = db::get_default_node_config(&state.db, &node_model, &node_kind)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get node config for {}/{}: {:?}", model, kind, e);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?
-        .ok_or_else(|| {
-            tracing::warn!("Node config not found for {}/{}", model, kind);
-            ApiError::not_found(
-                "Node Config",
-                format!("Configuration for {}/{} not found", model, kind),
-            )
-        })?;
+    // If version is specified, fetch that specific version; otherwise fetch default
+    let config = if let Some(version) = &params.version {
+        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get node config for {}/{}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    version,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Node config not found for {}/{}/{}",
+                    params.model,
+                    params.kind,
+                    version
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Configuration for {}/{} version {} not found",
+                        params.model, params.kind, version
+                    ),
+                )
+            })?
+    } else {
+        db::get_default_node_config(&state.db, &node_model, &node_kind)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get default node config for {}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    e
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    "Default node config not found for {}/{}",
+                    params.model,
+                    params.kind
+                );
+                ApiError::not_found(
+                    "Node Config",
+                    format!(
+                        "Default configuration for {}/{} not found",
+                        params.model, params.kind
+                    ),
+                )
+            })?
+    };
 
     // Parse enum fields from form strings using serde_json
     // The enums have #[serde(rename_all = "snake_case")] so we parse via JSON
@@ -1896,6 +2076,37 @@ pub async fn admin_node_config_update_handler(
     let ztp_enable = form.ztp_enable.is_some();
     let ztp_password_auth = form.ztp_password_auth.is_some();
     let dedicated_management_interface = form.dedicated_management_interface.is_some();
+    let form_default = form.default.is_some();
+
+    // Validate: prevent unsetting the last default for this (model, kind)
+    if config.default && !form_default {
+        // User is trying to unset default - check if this is the only default
+        let versions = db::get_node_config_versions(&state.db, &node_model, &node_kind)
+            .await
+            .map_err(|e| {
+                tracing::error!(
+                    "Failed to get versions for {}/{}: {:?}",
+                    params.model,
+                    params.kind,
+                    e
+                );
+                ApiError::internal("Failed to validate default status")
+            })?;
+
+        let default_count = versions.iter().filter(|v| v.default).count();
+
+        if default_count == 1 {
+            tracing::warn!(
+                "Cannot unset default - only one default exists for {}/{}",
+                params.model,
+                params.kind
+            );
+            return Ok(Html(format!(
+                r#"<div class="notification-error">Cannot unset default - at least one version must be marked as default for {}/{}</div>"#,
+                params.model, params.kind
+            )).into_response());
+        }
+    }
 
     // Handle optional string fields - convert empty strings to None
     let repo = form.repo.filter(|s| !s.trim().is_empty());
@@ -1947,7 +2158,7 @@ pub async fn admin_node_config_update_handler(
         dedicated_management_interface,
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
-        default: config.default, // Keep original default flag
+        default: form_default, // Use value from form checkbox
     };
 
     // Update in database
@@ -1958,16 +2169,72 @@ pub async fn admin_node_config_update_handler(
             ApiError::internal(format!("Failed to update configuration: {}", e))
         })?;
 
-    tracing::info!("Successfully updated node config: {}/{}", model, kind);
+    tracing::info!(
+        "Successfully updated node config: {}/{} (version: {:?})",
+        params.model,
+        params.kind,
+        params.version
+    );
 
     // Redirect to detail page using HX-Redirect header
+    // Include version in URL if it was specified
+    let redirect_url = if let Some(version) = &params.version {
+        format!(
+            "/admin/node-configs/{}/{}/{}",
+            params.model, params.kind, version
+        )
+    } else {
+        format!("/admin/node-configs/{}/{}", params.model, params.kind)
+    };
+
     let mut response = Html("").into_response();
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
-        header::HeaderValue::from_str(&format!("/admin/node-configs/{}/{}", model, kind)).unwrap(),
+        header::HeaderValue::from_str(&redirect_url).unwrap(),
     );
 
     Ok(response)
+}
+
+/// Handler for listing all versions of a node config (GET /admin/node-configs/{model}/{kind}/versions)
+pub async fn admin_node_config_versions_handler(
+    State(state): State<AppState>,
+    AdminUser { username }: AdminUser,
+    Path((model, kind)): Path<(String, String)>,
+) -> Result<Response, ApiError> {
+    tracing::debug!(
+        "Node config versions list request: model={}, kind={}",
+        model,
+        kind
+    );
+
+    // Parse model and kind enums
+    let model_enum = shared::data::NodeModel::from_str(&model)
+        .map_err(|_| ApiError::bad_request(format!("Invalid model: {}", model)))?;
+
+    let kind_enum = shared::data::NodeKind::from_str(&kind)
+        .map_err(|_| ApiError::bad_request(format!("Invalid kind: {}", kind)))?;
+
+    // Fetch all versions for this model/kind
+    let versions = db::get_node_config_versions(&state.db, &model_enum, &kind_enum)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to fetch node config versions: {:?}", e);
+            ApiError::internal(format!("Failed to fetch versions: {}", e))
+        })?;
+
+    tracing::debug!("Found {} versions for {}/{}", versions.len(), model, kind);
+
+    // Create template and render
+    let template = crate::templates::AdminNodeConfigVersionsTemplate {
+        username,
+        is_admin: true,
+        model,
+        kind,
+        versions,
+    };
+
+    Ok(template.into_response())
 }
 
 // Stub handlers for future implementation

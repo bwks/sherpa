@@ -1,0 +1,144 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Versions: {{ model }} ({{ kind }}) - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Configs
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Configuration Versions</h2>
+            <p class="mt-1 text-sm text-gray-600">
+                All versions for <span class="font-semibold">{{ model }}</span>
+                {% let kind_str = kind.clone() %}
+                {% if kind_str == "virtual_machine" %}
+                    (Virtual Machine)
+                {% else if kind_str == "container" %}
+                    (Container)
+                {% else if kind_str == "unikernel" %}
+                    (Unikernel)
+                {% else %}
+                    ({{ kind }})
+                {% endif %}
+            </p>
+        </div>
+        <div class="flex items-center space-x-3">
+            <a href="/admin/node-configs" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+                ← Back to List
+            </a>
+        </div>
+    </div>
+
+    <!-- Versions Table -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        {% if versions.is_empty() %}
+        <div class="text-center py-12">
+            <p class="text-gray-500">No versions found for this configuration.</p>
+        </div>
+        {% else %}
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Version
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Default
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        CPU
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Memory
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        OS Variant
+                    </th>
+                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        Actions
+                    </th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for config in versions %}
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        <span class="text-sm font-medium text-gray-900">{{ config.version }}</span>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                        {% if config.default %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            Default
+                        </span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                            -
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {{ config.cpu_count }} cores
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {{ config.memory }} MB
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
+                        {{ config.os_variant }}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <div class="flex items-center justify-end space-x-3">
+                            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}/{{ config.version }}" 
+                               class="text-blue-600 hover:text-blue-900 transition-colors">
+                                View
+                            </a>
+                            <a href="/admin/node-configs/{{ config.model }}/{{ config.kind }}/{{ config.version }}/edit" 
+                               class="text-blue-600 hover:text-blue-900 transition-colors">
+                                Edit
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endif %}
+    </div>
+
+    <!-- Info Box -->
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="flex">
+            <div class="flex-shrink-0">
+                <svg class="h-5 w-5 text-blue-400" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd" />
+                </svg>
+            </div>
+            <div class="ml-3">
+                <h3 class="text-sm font-medium text-blue-800">About Versions</h3>
+                <div class="mt-2 text-sm text-blue-700">
+                    <p>Versions are sorted by creation date (newest first). Only one version can be marked as default at a time.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

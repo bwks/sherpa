@@ -556,3 +556,27 @@ impl IntoResponse for AdminNodeConfigEditTemplate {
         }
     }
 }
+
+/// Admin node config versions list page template
+#[derive(Template)]
+#[template(path = "admin-node-config-versions.html.jinja")]
+pub struct AdminNodeConfigVersionsTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub model: String,
+    pub kind: String,
+    pub versions: Vec<NodeConfig>,
+}
+
+impl IntoResponse for AdminNodeConfigVersionsTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}

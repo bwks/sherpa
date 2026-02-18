@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 /// Validate node config form data before database update
 pub fn validate_node_config_update(
