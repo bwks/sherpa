@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -217,10 +217,10 @@ mod tests {
             repo: Some("test-repo".to_string()),
             os_variant: OsVariant::Linux,
             kind,
-            bios: BiosTypes::Bios,
+            bios: BiosTypes::SeaBios,
             cpu_count: 1,
-            cpu_architecture: CpuArchitecture::X8664,
-            cpu_model: CpuModels::Host,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
             machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
@@ -240,6 +240,7 @@ mod tests {
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
+            default: false,
         }
     }
 

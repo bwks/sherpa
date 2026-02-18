@@ -1,4 +1,4 @@
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 /// Validate node config form data before database update
 pub fn validate_node_config_update(
@@ -51,8 +51,12 @@ fn validate_interface_mtu(mtu: u16) -> Result<()> {
 }
 
 fn validate_version(version: &str) -> Result<()> {
-    if version.trim().is_empty() {
+    let trimmed = version.trim();
+    if trimmed.is_empty() {
         bail!("Version cannot be empty");
+    }
+    if trimmed.len() <= 4 {
+        bail!("Version must be more than 4 characters");
     }
     Ok(())
 }
@@ -94,7 +98,12 @@ mod tests {
     #[test]
     fn test_validate_version() {
         assert!(validate_version("1.0.0").is_ok());
+        assert!(validate_version("latest").is_ok());
+        assert!(validate_version("v2024").is_ok());
         assert!(validate_version("").is_err());
         assert!(validate_version("   ").is_err());
+        assert!(validate_version("1.0").is_err()); // 3 chars
+        assert!(validate_version("abcd").is_err()); // 4 chars
+        assert!(validate_version("abcde").is_ok()); // 5 chars (> 4)
     }
 }

@@ -62,7 +62,7 @@ pub async fn get_node_config_versions(
     kind: &NodeKind,
 ) -> Result<Vec<NodeConfig>> {
     let mut response = db
-        .query("SELECT * FROM node_config WHERE model = $model AND kind = $kind ORDER BY version")
+        .query("SELECT * FROM node_config WHERE model = $model AND kind = $kind ORDER BY id DESC")
         .bind(("model", model.to_string()))
         .bind(("kind", kind.to_string()))
         .await
