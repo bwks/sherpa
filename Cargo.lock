@@ -6371,6 +6371,7 @@ dependencies = [
  "anyhow",
  "shared",
  "topology",
+ "tracing",
 ]
 
 [[package]]

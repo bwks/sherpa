@@ -373,7 +373,21 @@ pub async fn up_lab(
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
 
-    let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
+    // Fetch local Docker images for validation
+    let docker_images = container::get_local_images(&docker_conn)
+        .await
+        .context("Failed to list local Docker images")?;
+
+    let validated_nodes = validate::validate_and_resolve_node_versions(
+        &manifest.nodes,
+        &node_configs,
+        &config.images_dir,
+        &docker_images,
+    )
+    .context("Manifest validation failed: version/image validation")?;
+
+    let nodes_expanded = process_manifest_nodes(&validated_nodes);
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
         .context("Failed to process manifest links")?;
     let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)

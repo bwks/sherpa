@@ -9,3 +9,6 @@ topology = { path = "../topology" }
 
 # Errors
 anyhow = "1.0.100"
+
+# Logging
+tracing = "0.1"

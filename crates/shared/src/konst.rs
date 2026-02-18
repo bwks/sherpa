@@ -146,7 +146,7 @@ pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] =
     &["sudo", "bash", "/opt/srlinux/bin/sr_linux"];
 
-pub const CONTAINER_ARISTA_CEOS_REPO: &str = "arista/ceos";
+pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
     "INTFTYPE=eth",
     "ETBA=1",
