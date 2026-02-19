@@ -1,0 +1,26 @@
+#! /usr/bin/bash
+
+CONTAINER_NAME="sherpa-db"
+SURREALDB_VERSION="v3.0.0"
+SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"
+DB_PORT=8000
+DB_USER="sherpa"
+DB_NAMESPACE="sherpa"
+DB_DATABASE="sherpa"
+SHERPA_BASE_DIR="/opt/sherpa"
+SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
+SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
+MIN_PASSWORD_LENGTH=8
+
+docker kill sherpa-db;
+docker rm sherpa-db;
+sudo rm -rf /opt/sherpa/db/sherpa.db;
+sudo -u sherpa docker run -d \
+        --name "${CONTAINER_NAME}" \
+        --restart unless-stopped \
+        -p "${DB_PORT}:8000" \
+        -v "${SHERPA_DB_DIR}:/data" \
+        --user "${SHERPA_UID}:${SHERPA_GID}" \
+        "${SURREALDB_IMAGE}" \
+        start --log info --user "${SHERPA_DB_USER:-sherpa}" --pass "${SHERPA_DB_USER:-Everest1953!}" rocksdb:/data/sherpa.db;
+cargo run -p sherpa -- init;

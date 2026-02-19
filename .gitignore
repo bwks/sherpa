@@ -18,3 +18,5 @@ srl-config.json
 test_*.toml
 sherpa_ssh_*
 CLAUDE.md
+.claude/
+.ruff_cache
