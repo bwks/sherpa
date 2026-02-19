@@ -17,6 +17,7 @@ use crate::konst::{CONTAINER_ARISTA_CEOS_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU
     Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
 )]
 #[clap(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub enum NodeModel {
     #[default]
     // Arista

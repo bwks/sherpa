@@ -996,7 +996,20 @@ pub async fn up_lab(
         );
 
         let dir = format!("{}/{}", lab_dir, node.name);
-        node.ipv4_address = Some(util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?);
+        let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
+        node.ipv4_address = Some(node_ipv4_address);
+
+        let node_config = get_node_config(&node.model, &node_configs)?;
+
+        // Add to ZTP records for SSH config and DNS resolution
+        ztp_records.push(data::ZtpRecord {
+            node_name: node.name.clone(),
+            config_file: format!("{}.conf", &node.name),
+            ipv4_address: node_ipv4_address,
+            mac_address: String::new(),
+            ztp_method: node_config.ztp_method.clone(),
+            ssh_port: SSH_PORT,
+        });
 
         match node.model {
             data::NodeModel::AristaCeos => {
