@@ -27,6 +27,6 @@ pub struct DeviceInfo {
     pub model: NodeModel,
     pub kind: NodeKind,
     pub active: bool,
-    pub mgmt_ip: String,
+    pub mgmt_ipv4: String,
     pub disks: Vec<String>,
 }

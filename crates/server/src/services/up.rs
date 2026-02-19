@@ -999,6 +999,12 @@ pub async fn up_lab(
         let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
         node.ipv4_address = Some(node_ipv4_address);
 
+        // Persist management IPv4 to the database
+        if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
+            let record_id = db::get_node_id(&node_data.record)?;
+            db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
+        }
+
         let node_config = get_node_config(&node.model, &node_configs)?;
 
         // Add to ZTP records for SSH config and DNS resolution
@@ -1096,6 +1102,12 @@ pub async fn up_lab(
         let mac_address = util::random_mac(KVM_OUI);
         let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
         node.ipv4_address = Some(node_ipv4_address);
+
+        // Persist management IPv4 to the database
+        if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
+            let record_id = db::get_node_id(&node_data.record)?;
+            db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
+        }
 
         // Add to ZTP records
         ztp_records.push(data::ZtpRecord {

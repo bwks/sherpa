@@ -35,6 +35,7 @@ pub use node::{
     count_nodes, count_nodes_by_lab, create_node, delete_node, delete_node_by_id,
     delete_node_cascade, delete_node_links, delete_node_safe, delete_nodes_by_lab, get_node,
     get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab, update_node,
+    update_node_mgmt_ipv4,
 };
 
 // Link CRUD operations

@@ -15,7 +15,7 @@ struct InpsectDevice {
     name: String,
     model: NodeModel,
     active: bool,
-    mgmt_ip: String,
+    mgmt_ipv4: String,
     disks: Vec<String>,
 }
 
@@ -67,7 +67,7 @@ pub async fn inspect(
             name: device.name.clone(),
             model: device.model.clone(),
             active: false,
-            mgmt_ip: "".to_string(),
+            mgmt_ipv4: "".to_string(),
             disks: vec![],
         };
         let device_name = format!("{}-{}", device.name, lab_id);
@@ -87,7 +87,7 @@ pub async fn inspect(
             println!("Active: {:#?}", domain.is_active()?);
             if !vm_ip.is_empty() {
                 println!("Mgmt IP: {vm_ip}");
-                device_data.mgmt_ip = vm_ip;
+                device_data.mgmt_ipv4 = vm_ip;
                 device_data.active = true;
             }
             let mut device_disks = vec![];

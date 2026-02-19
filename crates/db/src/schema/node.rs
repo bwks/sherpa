@@ -10,6 +10,7 @@
 //! - `index`: Node index for ordering (unique within lab, 0-65535)
 //! - `config`: Foreign key reference to node_config template
 //! - `lab`: Foreign key reference to owning lab
+//! - `mgmt_ipv4`: Management IPv4 address (optional, set during lab setup)
 //!
 //! ## Constraints
 //! - Node name must be unique per lab
@@ -40,6 +41,7 @@
 ///   - `index`: number (0-65535, integer only)
 ///   - `config`: record reference to node_config table
 ///   - `lab`: record reference to lab table
+///   - `mgmt_ipv4`: optional string (management IPv4 address)
 /// - **Indexes**:
 ///   - `unique_node_name_per_lab`: Ensures node names are unique within each lab
 ///   - `unique_node_index_per_lab`: Ensures node indexes are unique within each lab
@@ -66,6 +68,7 @@ DEFINE FIELD index ON TABLE node TYPE number
 DEFINE FIELD config ON TABLE node TYPE record<node_config>;
 DEFINE FIELD lab ON TABLE node TYPE record<lab>;
     // ON DELETE CASCADE;
+DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
 
 DEFINE INDEX unique_node_name_per_lab
   ON TABLE node FIELDS lab, name UNIQUE;

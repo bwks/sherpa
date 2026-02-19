@@ -29,6 +29,7 @@ pub struct DbNode {
     pub config: RecordId,
     pub index: u16,
     pub lab: RecordId,
+    pub mgmt_ipv4: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]

@@ -115,10 +115,10 @@ pub async fn destroy_ws(
             } else {
                 NodeState::Stopped
             },
-            ip_address: if device.mgmt_ip.is_empty() {
+            ip_address: if device.mgmt_ipv4.is_empty() {
                 None
             } else {
-                Some(device.mgmt_ip.clone())
+                Some(device.mgmt_ipv4.clone())
             },
             ssh_port: Some(22), // Default SSH port
         })

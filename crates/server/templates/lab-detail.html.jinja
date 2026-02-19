@@ -122,7 +122,7 @@
                         {% endif %}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
-                        {% if device.mgmt_ip != "" %}{{ device.mgmt_ip }}{% else %}-{% endif %}
+                        {% if device.mgmt_ipv4 != "" %}{{ device.mgmt_ipv4 }}{% else %}-{% endif %}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                         {% if device.disks.is_empty() %}-{% else %}✓{% endif %}

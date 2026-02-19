@@ -3,6 +3,7 @@ use anyhow::{Context, Result, anyhow};
 use shared::data::DbNode;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use surrealdb_types::RecordId;
 
 use crate::node::read::get_node;
 
@@ -68,4 +69,39 @@ pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNo
         .context(format!("Failed to update node: {}", node.name))?;
 
     updated.ok_or_else(|| anyhow!("Node update failed: {}", node.name))
+}
+
+/// Update a node's management IPv4 address.
+///
+/// Fetches the existing node, sets the `mgmt_ipv4` field, and writes it back.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `node_id` - RecordId of the node to update
+/// * `mgmt_ipv4` - The management IPv4 address to set
+///
+/// # Returns
+/// The updated DbNode record
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+pub async fn update_node_mgmt_ipv4(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    mgmt_ipv4: &str,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.mgmt_ipv4 = Some(mgmt_ipv4.to_string());
+
+    let updated: Option<DbNode> = db
+        .update(node_id.clone())
+        .content(node.clone())
+        .await
+        .context(format!(
+            "Failed to update mgmt_ipv4 for node: {}",
+            node.name
+        ))?;
+
+    updated.ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
 }

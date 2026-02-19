@@ -105,7 +105,7 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
             model: node_config.model.clone(),
             kind: node_config.kind.clone(),
             active: false,
-            mgmt_ip: String::new(),
+            mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
             disks: Vec::new(),
         };
 
@@ -123,7 +123,7 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
 
             // Get management IP from DHCP leases
             if let Some(lease) = leases.iter().find(|l| l.hostname == node_name) {
-                device_info.mgmt_ip = lease.ipv4_address.clone();
+                device_info.mgmt_ipv4 = lease.ipv4_address.clone();
             }
 
             // Get disk volumes for this device

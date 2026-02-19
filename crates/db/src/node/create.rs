@@ -66,6 +66,7 @@ pub async fn create_node(
             config: config_id.clone(),
             index,
             lab: lab_id.clone(),
+            mgmt_ipv4: None,
         })
         .await
         .context(format!(

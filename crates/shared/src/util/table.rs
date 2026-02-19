@@ -119,7 +119,7 @@ struct DeviceTableRow {
 ///         model: NodeModel::CiscoCat8000v,
 ///         kind: NodeKind::VirtualMachine,
 ///         active: true,
-///         mgmt_ip: "172.31.0.11".to_string(),
+///         mgmt_ipv4: "172.31.0.11".to_string(),
 ///         disks: vec![],
 ///     },
 /// ];
@@ -132,10 +132,10 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
     let rows: Vec<DeviceTableRow> = devices
         .iter()
         .map(|device| {
-            let mgmt_ip = if device.mgmt_ip.is_empty() {
+            let mgmt_ip = if device.mgmt_ipv4.is_empty() {
                 "-".to_string()
             } else {
-                device.mgmt_ip.clone()
+                device.mgmt_ipv4.clone()
             };
             let active = if device.active { "Yes" } else { "No" };
 
@@ -340,7 +340,7 @@ mod tests {
             model: NodeModel::CiscoCat8000v,
             kind: NodeKind::VirtualMachine,
             active: true,
-            mgmt_ip: "172.31.0.11".to_string(),
+            mgmt_ipv4: "172.31.0.11".to_string(),
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
 
@@ -366,7 +366,7 @@ mod tests {
                 model: NodeModel::CiscoCat8000v,
                 kind: NodeKind::VirtualMachine,
                 active: true,
-                mgmt_ip: "172.31.0.11".to_string(),
+                mgmt_ipv4: "172.31.0.11".to_string(),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
                     "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
@@ -377,7 +377,7 @@ mod tests {
                 model: NodeModel::ArubaAoscx,
                 kind: NodeKind::VirtualMachine,
                 active: true,
-                mgmt_ip: "172.31.0.12".to_string(),
+                mgmt_ipv4: "172.31.0.12".to_string(),
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
             },
         ];
@@ -403,7 +403,7 @@ mod tests {
             model: NodeModel::AlpineLinux,
             kind: NodeKind::Container,
             active: false,
-            mgmt_ip: "".to_string(),
+            mgmt_ipv4: "".to_string(),
             disks: vec![],
         }];
 
@@ -413,7 +413,7 @@ mod tests {
         assert!(table.contains("container01"));
         assert!(table.contains("alpine_linux"));
         assert!(table.contains("No")); // active = false
-        assert!(table.contains("-")); // empty mgmt_ip
+        assert!(table.contains("-")); // empty mgmt_ipv4
     }
 
     #[test]
