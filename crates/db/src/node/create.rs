@@ -1,10 +1,10 @@
 //! CREATE operations for nodes
 
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbNode;
-use surrealdb::engine::remote::ws::Client;
+use std::sync::Arc;
 use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
 
 /// Create a new node in the database.

@@ -22,6 +22,12 @@
 //! - Many-to-one with `node_config` table (multiple nodes can use same config)
 //! - Many-to-one with `lab` table (each node belongs to one lab)
 //! - One-to-many with `link` table (node can have multiple links to other nodes)
+//!
+//! ## Referential Integrity
+//! - `config` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
+//!   node_config that is still referenced by nodes.
+//! - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
+//!   all its nodes are automatically deleted by the database.
 
 /// Generate the node table schema.
 ///
@@ -46,12 +52,12 @@
 ///   - `unique_node_name_per_lab`: Ensures node names are unique within each lab
 ///   - `unique_node_index_per_lab`: Ensures node indexes are unique within each lab
 ///
-/// # Cascade Deletion
+/// # Referential Integrity
 ///
-/// Note: CASCADE DELETE is commented out in the schema (SurrealDB 2.4 limitation).
-/// The application handles cascade deletion manually:
-/// - When a lab is deleted, all its nodes must be explicitly deleted first
-/// - When a node_config is deleted, referential integrity is not enforced
+/// - `config` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
+///   node_config that is still referenced by nodes.
+/// - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
+///   all its nodes are automatically removed by the database.
 ///
 /// # Examples
 ///
@@ -65,9 +71,8 @@ DEFINE TABLE node SCHEMAFULL;
 DEFINE FIELD name ON TABLE node TYPE string;
 DEFINE FIELD index ON TABLE node TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
-DEFINE FIELD config ON TABLE node TYPE record<node_config>;
-DEFINE FIELD lab ON TABLE node TYPE record<lab>;
-    // ON DELETE CASCADE;
+DEFINE FIELD config ON TABLE node TYPE record<node_config> REFERENCE ON DELETE REJECT;
+DEFINE FIELD lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
 DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
 
 DEFINE INDEX unique_node_name_per_lab

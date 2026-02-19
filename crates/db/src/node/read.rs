@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, RecordId};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -156,7 +156,7 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// ```
 pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
     let mut response = db
-        .query("SELECT * FROM node WHERE lab = $lab_id")
+        .query("SELECT * FROM node WHERE lab = $lab_id ORDER BY name ASC")
         .bind(("lab_id", lab_id.clone()))
         .await
         .context(format!("Failed to list nodes for lab: {:?}", lab_id))?;

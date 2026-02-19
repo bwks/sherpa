@@ -1,8 +1,8 @@
 /// READ operation tests for node_config
 use anyhow::Result;
 use db::{
-    count_node_configs, create_node_config, get_node_config_by_id, get_node_config_by_model_kind_version,
-    list_node_configs,
+    count_node_configs, create_node_config, get_node_config_by_id,
+    get_node_config_by_model_kind_version, list_node_configs,
 };
 use shared::data::NodeModel;
 
@@ -43,9 +43,13 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
     let _created = create_node_config(&db, test_config.clone()).await?;
 
     // Get by model and kind
-    let retrieved: Option<_> =
-        get_node_config_by_model_kind_version(&db, &NodeModel::CiscoAsav, &test_config.kind, &test_config.version)
-            .await?;
+    let retrieved: Option<_> = get_node_config_by_model_kind_version(
+        &db,
+        &NodeModel::CiscoAsav,
+        &test_config.kind,
+        &test_config.version,
+    )
+    .await?;
 
     assert!(retrieved.is_some(), "Should find config by model and kind");
     let retrieved = retrieved.unwrap();
@@ -83,8 +87,13 @@ async fn test_get_nonexistent_config() -> Result<()> {
     let db = setup_db("test_get_nonexistent_config").await?;
 
     // Try to get a config that doesn't exist
-    let result: Option<_> =
-        get_node_config_by_model_kind_version(&db, &NodeModel::WindowsServer, &shared::data::NodeKind::VirtualMachine, "nonexistent_version").await?;
+    let result: Option<_> = get_node_config_by_model_kind_version(
+        &db,
+        &NodeModel::WindowsServer,
+        &shared::data::NodeKind::VirtualMachine,
+        "nonexistent_version",
+    )
+    .await?;
 
     // Should return None if not found
     assert!(

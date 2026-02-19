@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbLink, DbNode, RecordId};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -157,16 +157,11 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
     Ok(())
 }
 
-/// Delete a lab with explicit cascade (delete links, nodes, then lab)
+/// Delete a lab and cascade delete all dependent records.
 ///
-/// This function explicitly deletes all dependencies in the correct order:
-/// 1. Delete all links
-/// 2. Delete all nodes
-/// 3. Delete the lab
-///
-/// If CASCADE DELETE is enabled in the schema, you can use `delete_lab()` instead,
-/// and the database will automatically handle the cascade. However, this function
-/// provides explicit control over the deletion order.
+/// Deletes the lab record. The database automatically cascade deletes
+/// all associated nodes, links, and bridges via `REFERENCE ON DELETE CASCADE`
+/// constraints defined in the schema.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -174,7 +169,7 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 ///
 /// # Errors
 /// - If lab not found
-/// - If there's a database error during any deletion step
+/// - If there's a database error
 ///
 /// # Example
 /// ```no_run
@@ -188,12 +183,7 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 /// # }
 /// ```
 pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
-    // Delete in order: links -> nodes -> lab
-    delete_lab_links(db, lab_id).await?;
-    delete_lab_nodes(db, lab_id).await?;
-    delete_lab(db, lab_id).await?;
-
-    Ok(())
+    delete_lab(db, lab_id).await
 }
 
 /// Delete a lab safely (only if it has no nodes or links)
@@ -233,7 +223,7 @@ pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<
 
     // Check for nodes
     let nodes: Vec<DbNode> = db
-        .query("SELECT * FROM node WHERE lab = $lab_record_id")
+        .query("SELECT * FROM node WHERE lab = $lab_record_id ORDER BY name ASC")
         .bind(("lab_record_id", lab_record_id.clone()))
         .await
         .context("Failed to check for nodes")?

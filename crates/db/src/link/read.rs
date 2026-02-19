@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLink, RecordId};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -210,7 +210,10 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<Vec<DbLink>> {
+pub async fn list_links_by_node(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+) -> Result<Vec<DbLink>> {
     let mut response = db
         .query("SELECT * FROM link WHERE node_a = $node_id OR node_b = $node_id")
         .bind(("node_id", node_id.clone()))

@@ -1,7 +1,7 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::auth::password::hash_password;
 use shared::data::DbUser;
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::Datetime;

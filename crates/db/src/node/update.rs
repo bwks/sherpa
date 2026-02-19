@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbNode;
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;

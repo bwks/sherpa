@@ -19,6 +19,10 @@
 //! - Many-to-one with `user` table (each lab has one owner)
 //! - One-to-many with `node` table (lab contains multiple nodes)
 //! - One-to-many with `link` table (lab contains multiple links between nodes)
+//!
+//! ## Cascade Deletion
+//! The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user is
+//! deleted, all their labs are automatically deleted by the database.
 
 /// Generate the lab table schema.
 ///
@@ -43,8 +47,8 @@
 ///
 /// # Cascade Deletion
 ///
-/// Note: CASCADE DELETE is commented out in the schema (SurrealDB 2.4 limitation).
-/// The application handles cascade deletion manually when a user is deleted.
+/// The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user
+/// is deleted, all their labs are automatically removed by the database.
 ///
 /// # Examples
 ///
@@ -58,7 +62,7 @@ DEFINE TABLE lab SCHEMAFULL;
 DEFINE FIELD lab_id ON TABLE lab TYPE string
     ASSERT string::len($value) >= 1;
 DEFINE FIELD name ON TABLE lab TYPE string;
-DEFINE FIELD user ON TABLE lab TYPE record<user>;
+DEFINE FIELD user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
 
 DEFINE INDEX unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
 

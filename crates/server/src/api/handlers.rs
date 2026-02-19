@@ -2023,11 +2023,7 @@ pub async fn admin_node_config_update_handler(
         let versions = db::get_node_config_versions(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
-                tracing::error!(
-                    "Failed to get versions for {}: {:?}",
-                    params.model,
-                    e
-                );
+                tracing::error!("Failed to get versions for {}: {:?}", params.model, e);
                 ApiError::internal("Failed to validate default status")
             })?;
 

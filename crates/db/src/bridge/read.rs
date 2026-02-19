@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result};
 use shared::data::DbBridge;
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
@@ -75,7 +75,10 @@ pub async fn list_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Resul
         .query("SELECT * FROM bridge WHERE lab = $lab_id ORDER BY index")
         .bind(("lab_id", lab_id.clone()))
         .await
-        .context(format!("Failed to list bridges for lab: lab_id={:?}", lab_id))?;
+        .context(format!(
+            "Failed to list bridges for lab: lab_id={:?}",
+            lab_id
+        ))?;
 
     let bridges: Vec<DbBridge> = result.take(0).context("Failed to deserialize bridges")?;
 

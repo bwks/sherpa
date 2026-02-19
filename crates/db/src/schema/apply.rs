@@ -5,8 +5,8 @@
 //! in the correct dependency order to ensure foreign key relationships
 //! are properly established.
 
-use std::sync::Arc;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 

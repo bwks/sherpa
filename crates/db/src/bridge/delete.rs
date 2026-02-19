@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use anyhow::{Context, Result};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
@@ -22,7 +22,10 @@ pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> R
     let _: Option<RecordId> = db
         .delete::<Option<RecordId>>(bridge_id)
         .await
-        .context(format!("Failed to delete bridge: bridge_id={:?}", bridge_id))?;
+        .context(format!(
+            "Failed to delete bridge: bridge_id={:?}",
+            bridge_id
+        ))?;
 
     Ok(())
 }

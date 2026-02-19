@@ -1,6 +1,6 @@
 use std::fmt;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;

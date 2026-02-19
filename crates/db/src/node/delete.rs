@@ -1,6 +1,6 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLink, DbNode, RecordId};
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -135,14 +135,11 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
     Ok(())
 }
 
-/// Delete a node with explicit cascade (delete links, then node)
+/// Delete a node and cascade delete all dependent records.
 ///
-/// This function explicitly deletes all dependencies in the correct order:
-/// 1. Delete all links where this node appears (as node_a or node_b)
-/// 2. Delete the node
-///
-/// This provides explicit control over the deletion order and ensures
-/// no foreign key constraint violations occur.
+/// Deletes the node record. The database automatically cascade deletes
+/// all associated links via `REFERENCE ON DELETE CASCADE` constraints
+/// defined in the schema.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -150,7 +147,7 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
 ///
 /// # Errors
 /// - If node not found
-/// - If there's a database error during any deletion step
+/// - If there's a database error
 ///
 /// # Example
 /// ```no_run
@@ -166,11 +163,7 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
 /// # }
 /// ```
 pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
-    // Delete in order: links -> node
-    delete_node_links(db, id.clone()).await?;
-    delete_node(db, id).await?;
-
-    Ok(())
+    delete_node(db, id).await
 }
 
 /// Delete a node safely (only if it has no links)

@@ -1,8 +1,8 @@
 use axum::extract::ws::Message;
 use serde_json;
 use std::sync::Arc;
-use tokio::sync::mpsc;
 use surrealdb_types::Datetime;
+use tokio::sync::mpsc;
 
 use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};

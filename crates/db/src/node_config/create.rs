@@ -1,13 +1,16 @@
-use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::NodeConfig;
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
 use crate::node_config::get_node_config_by_model_kind_version;
 
 /// Create a node_config record in the database with auto-generated ID
-pub async fn create_node_config(db: &Arc<Surreal<Client>>, config: NodeConfig) -> Result<NodeConfig> {
+pub async fn create_node_config(
+    db: &Arc<Surreal<Client>>,
+    config: NodeConfig,
+) -> Result<NodeConfig> {
     let created_config: Option<NodeConfig> = db
         .create("node_config")
         .content(config.clone())
@@ -32,7 +35,10 @@ pub async fn create_node_config(db: &Arc<Surreal<Client>>, config: NodeConfig) -
 /// If config.default is true, it will automatically unset default on other versions
 /// of the same (model, kind) combination.
 /// SurrealDB will auto-generate IDs for new records.
-pub async fn upsert_node_config(db: &Arc<Surreal<Client>>, config: NodeConfig) -> Result<NodeConfig> {
+pub async fn upsert_node_config(
+    db: &Arc<Surreal<Client>>,
+    config: NodeConfig,
+) -> Result<NodeConfig> {
     // If setting default=true, first unset default on other versions of same (model, kind)
     if config.default {
         db.query(
