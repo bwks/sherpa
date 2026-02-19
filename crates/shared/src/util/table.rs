@@ -90,8 +90,8 @@ struct DeviceTableRow {
     #[tabled(rename = "Kind")]
     kind: String,
 
-    #[tabled(rename = "Active")]
-    active: String,
+    #[tabled(rename = "State")]
+    state: String,
 
     #[tabled(rename = "Mgmt IP")]
     mgmt_ip: String,
@@ -137,8 +137,6 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
             } else {
                 device.mgmt_ipv4.clone()
             };
-            let active = device.state.to_string();
-
             // Format disks - join multiple disks with newline for table display
             let disks = if device.disks.is_empty() {
                 "-".to_string()
@@ -150,7 +148,7 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
                 device: device.name.clone(),
                 model: device.model.to_string(),
                 kind: device.kind.to_string(),
-                active: active.to_string(),
+                state: device.state.to_string(),
                 mgmt_ip,
                 disks,
             }
