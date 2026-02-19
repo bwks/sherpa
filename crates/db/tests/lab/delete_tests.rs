@@ -3,7 +3,7 @@ use db::{
     count_labs, create_lab, create_node_config, create_user, delete_lab, delete_lab_by_id,
     delete_lab_cascade, delete_lab_safe, get_lab,
 };
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{create_test_node_with_model, setup_db, teardown_db};
 
@@ -229,7 +229,7 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
 async fn test_delete_lab_nonexistent_by_id() -> Result<()> {
     let db = setup_db("test_delete_nonexistent_id").await?;
 
-    let fake_id = ("lab", "nonexistent").into();
+    let fake_id = RecordId::new("lab", "nonexistent");
     let result = delete_lab_by_id(&db, fake_id).await;
 
     // This might succeed (deleting non-existent returns Ok) or fail depending on implementation

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbUser;
 use surrealdb::Surreal;
@@ -45,7 +46,7 @@ use crate::helpers::get_user_id;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn update_user(db: &Surreal<Client>, user: DbUser) -> Result<DbUser> {
+pub async fn update_user(db: &Arc<Surreal<Client>>, user: DbUser) -> Result<DbUser> {
     // Extract and validate the ID
     let id = get_user_id(&user)?;
 

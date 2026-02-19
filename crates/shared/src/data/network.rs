@@ -30,6 +30,7 @@ impl BridgeKind {
         BridgeKind::iter().collect()
     }
 }
+impl_surreal_value_for_enum!(BridgeKind);
 
 #[derive(Clone)]
 pub struct NetworkV4 {

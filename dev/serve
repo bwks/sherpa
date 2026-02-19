@@ -2,4 +2,4 @@
 
 cargo build -p sherpad
 sudo setcap cap_net_admin,cap_net_raw+ep target/debug/sherpad
-sudo -u sherpa SHERPA_ADMIN_PASSWORD='$SHEPRA_ADMIN_PASS' target/debug/sherpad start --foreground
+sudo -u sherpa SHERPA_ADMIN_PASSWORD=$SHERPA_ADMIN_PASS target/debug/sherpad start --foreground

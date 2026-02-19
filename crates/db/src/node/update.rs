@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbNode;
 use surrealdb::Surreal;
@@ -40,7 +41,7 @@ use crate::node::read::get_node;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn update_node(db: &Surreal<Client>, node: DbNode) -> Result<DbNode> {
+pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNode> {
     // Require id field for updates
     let id = node
         .id
@@ -53,7 +54,7 @@ pub async fn update_node(db: &Surreal<Client>, node: DbNode) -> Result<DbNode> {
     // Verify lab is not being changed - it's immutable
     if existing.lab != node.lab {
         return Err(anyhow!(
-            "Cannot change node lab: lab field is immutable. Nodes cannot be moved between labs. Existing lab: {}, attempted new lab: {}",
+            "Cannot change node lab: lab field is immutable. Nodes cannot be moved between labs. Existing lab: {:?}, attempted new lab: {:?}",
             existing.lab,
             node.lab
         ));

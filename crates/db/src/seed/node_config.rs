@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -8,7 +9,7 @@ use crate::node_config::upsert_node_config;
 
 /// Delete all node_config records from the database
 /// WARNING: This will remove all node configs including any custom ones
-pub async fn delete_node_configs(db: &Surreal<Client>) -> Result<usize> {
+pub async fn delete_node_configs(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let deleted: Vec<NodeConfig> = db.query("DELETE node_config").await?.take(0)?;
 
     Ok(deleted.len())
@@ -20,7 +21,7 @@ pub async fn delete_node_configs(db: &Surreal<Client>) -> Result<usize> {
 /// Uses upsert logic: if a config already exists, it's returned unchanged; otherwise it's created.
 ///
 /// Returns the number of configs successfully created (not including pre-existing ones).
-pub async fn seed_node_configs(db: &Surreal<Client>) -> Result<usize> {
+pub async fn seed_node_configs(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let models = NodeModel::to_vec();
 
     let mut created_count = 0;

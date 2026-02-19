@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result};
 use shared::data::{DbBridge, RecordId};
 use surrealdb::Surreal;
@@ -24,7 +25,7 @@ use surrealdb::engine::remote::ws::Client;
 /// - If lab doesn't exist
 /// - If there's a database error
 pub async fn create_bridge(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     index: u16,
     bridge_name: String,
     network_name: String,
@@ -43,13 +44,13 @@ pub async fn create_bridge(
         })
         .await
         .context(format!(
-            "Failed to create bridge: index={}, bridge_name={}, lab_id={}",
+            "Failed to create bridge: index={}, bridge_name={}, lab_id={:?}",
             index, bridge_name, lab_id
         ))?;
 
     bridge.ok_or_else(|| {
         anyhow::anyhow!(
-            "Bridge was not created: index={}, bridge_name={}, lab_id={}",
+            "Bridge was not created: index={}, bridge_name={}, lab_id={:?}",
             index,
             bridge_name,
             lab_id

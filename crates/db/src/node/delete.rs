@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLink, DbNode, RecordId};
 use surrealdb::Surreal;
@@ -34,14 +35,14 @@ use crate::node::read::get_node;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify node exists
     let _ = get_node(db, id.clone()).await?;
 
     let _deleted: Option<DbNode> = db
         .delete(id.clone())
         .await
-        .context(format!("Failed to delete node: {}", id))?;
+        .context(format!("Failed to delete node: {:?}", id))?;
 
     Ok(())
 }
@@ -56,7 +57,7 @@ pub async fn delete_node(db: &Surreal<Client>, id: RecordId) -> Result<()> {
 /// - If node not found
 /// - If node has associated links
 /// - If there's a database error
-pub async fn delete_node_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_node(db, id).await
 }
 
@@ -87,12 +88,12 @@ pub async fn delete_node_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()>
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result<()> {
+pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbNode> = db
         .query("DELETE node WHERE lab = $lab_id")
         .bind(("lab_id", lab_id.clone()))
         .await
-        .context(format!("Failed to delete nodes for lab: {}", lab_id))?
+        .context(format!("Failed to delete nodes for lab: {:?}", lab_id))?
         .take(0)?;
 
     Ok(())
@@ -123,12 +124,12 @@ pub async fn delete_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Resu
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node_links(db: &Surreal<Client>, node_id: RecordId) -> Result<()> {
+pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
         .bind(("node_id", node_id.clone()))
         .await
-        .context(format!("Failed to delete links for node: {}", node_id))?
+        .context(format!("Failed to delete links for node: {:?}", node_id))?
         .take(0)?;
 
     Ok(())
@@ -164,7 +165,7 @@ pub async fn delete_node_links(db: &Surreal<Client>, node_id: RecordId) -> Resul
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node_cascade(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Delete in order: links -> node
     delete_node_links(db, id.clone()).await?;
     delete_node(db, id).await?;
@@ -205,7 +206,7 @@ pub async fn delete_node_cascade(db: &Surreal<Client>, id: RecordId) -> Result<(
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node_safe(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_node_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Get the node to verify it exists
     let node = get_node(db, id.clone()).await?;
 
@@ -219,7 +220,7 @@ pub async fn delete_node_safe(db: &Surreal<Client>, id: RecordId) -> Result<()> 
 
     if !links.is_empty() {
         return Err(anyhow!(
-            "Cannot delete node '{}' ({}): node has {} associated link(s). Delete links first or use delete_node_cascade()",
+            "Cannot delete node '{}' ({:?}): node has {} associated link(s). Delete links first or use delete_node_cascade()",
             node.name,
             id,
             links.len()

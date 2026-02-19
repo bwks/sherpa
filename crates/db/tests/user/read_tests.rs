@@ -74,8 +74,8 @@ async fn test_get_user_by_id() -> Result<()> {
 async fn test_get_user_by_id_not_found() -> Result<()> {
     let db = setup_db("test_get_user_by_id_not_found").await?;
 
-    use surrealdb::RecordId;
-    let fake_id = RecordId::from(("user", "nonexistent"));
+    use surrealdb_types::RecordId;
+    let fake_id = RecordId::new("user", "nonexistent");
 
     let user = get_user_by_id(&db, fake_id).await?;
 

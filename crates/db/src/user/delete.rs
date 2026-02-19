@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow, bail};
 use shared::data::{DbLab, DbUser, RecordId};
 use surrealdb::Surreal;
@@ -38,7 +39,7 @@ use crate::helpers::get_user_id;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_user(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
     let deleted: Option<DbUser> = db.delete(id.clone()).await.context(format!(
         "Failed to delete user: {:?}\nNote: This will cascade delete all labs owned by this user",
@@ -82,7 +83,7 @@ pub async fn delete_user(db: &Surreal<Client>, id: RecordId) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_user_by_username(db: &Surreal<Client>, username: &str) -> Result<()> {
+pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) -> Result<()> {
     // First get the user to obtain their ID
     let mut response = db
         .query("SELECT * FROM ONLY user WHERE username = $username")
@@ -137,7 +138,7 @@ pub async fn delete_user_by_username(db: &Surreal<Client>, username: &str) -> Re
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_user_safe(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // First check if the user exists
     let user: Option<DbUser> = db
         .select(id.clone())

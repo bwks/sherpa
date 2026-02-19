@@ -1,3 +1,41 @@
+// Macro to implement SurrealValue for enums that use serde serialization
+// This works around the SurrealValue derive macro not respecting serde rename attributes
+macro_rules! impl_surreal_value_for_enum {
+    ($enum_type:ty) => {
+        impl surrealdb_types::SurrealValue for $enum_type {
+            fn kind_of() -> surrealdb_types::Kind {
+                surrealdb_types::kind!(string)
+            }
+
+            fn is_value(value: &surrealdb_types::Value) -> bool {
+                matches!(value, surrealdb_types::Value::String(_))
+            }
+
+            fn into_value(self) -> surrealdb_types::Value {
+                // Use serde to serialize to JSON, then convert to SurrealDB String Value
+                // This respects all serde rename attributes
+                let json_value = serde_json::to_value(self).expect(concat!(
+                    stringify!($enum_type),
+                    " serialization should never fail (BALLSACK)"
+                ));
+                // Convert the serde_json::Value to surrealdb_types::Value
+                surrealdb_types::SurrealValue::into_value(json_value)
+            }
+
+            fn from_value(value: surrealdb_types::Value) -> Result<Self, surrealdb_types::Error> {
+                // Convert SurrealDB Value to serde_json::Value, then use serde to deserialize
+                let json_value = surrealdb_types::SurrealValue::from_value(value)?;
+                serde_json::from_value(json_value).map_err(|e| {
+                    surrealdb_types::Error::internal(format!(
+                        concat!("Failed to deserialize ", stringify!($enum_type), ": {}"),
+                        e
+                    ))
+                })
+            }
+        }
+    };
+}
+
 mod auth;
 mod config;
 mod container;
@@ -60,4 +98,4 @@ pub use user_management::{
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience
-pub use surrealdb::RecordId;
+pub use surrealdb_types::RecordId;

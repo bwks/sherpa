@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-use surrealdb::sql::Datetime;
+use surrealdb_types::Datetime;
 
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;

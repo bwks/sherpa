@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use surrealdb_types::SurrealValue;
 
 /// Get the username associated with a lab
 ///
@@ -17,7 +19,7 @@ use surrealdb::engine::remote::ws::Client;
 /// - If lab with lab_id not found
 /// - If the user record cannot be found
 /// - If there's a database error
-pub async fn get_lab_owner_username(db: &Surreal<Client>, lab_id: &str) -> Result<String> {
+pub async fn get_lab_owner_username(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<String> {
     let mut response = db
         .query("SELECT user.username AS username FROM ONLY lab WHERE lab_id = $lab_id")
         .bind(("lab_id", lab_id.to_string()))
@@ -27,7 +29,7 @@ pub async fn get_lab_owner_username(db: &Surreal<Client>, lab_id: &str) -> Resul
             lab_id
         ))?;
 
-    #[derive(serde::Deserialize)]
+    #[derive(serde::Deserialize, SurrealValue)]
     struct OwnerResult {
         username: String,
     }

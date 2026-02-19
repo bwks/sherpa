@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbUser, RecordId};
 use surrealdb::Surreal;
@@ -31,7 +32,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
+pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUser> {
     let mut response = db
         .query("SELECT * FROM ONLY user WHERE username = $username")
         .bind(("username", username.to_string()))
@@ -68,7 +69,7 @@ pub async fn get_user(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn get_user_by_id(db: &Surreal<Client>, id: RecordId) -> Result<Option<DbUser>> {
+pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<Option<DbUser>> {
     let user: Option<DbUser> = db
         .select(id.clone())
         .await
@@ -102,7 +103,7 @@ pub async fn get_user_by_id(db: &Surreal<Client>, id: RecordId) -> Result<Option
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_users(db: &Surreal<Client>) -> Result<Vec<DbUser>> {
+pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
     let users: Vec<DbUser> = db
         .select("user")
         .await
@@ -137,7 +138,7 @@ pub async fn list_users(db: &Surreal<Client>) -> Result<Vec<DbUser>> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn count_users(db: &Surreal<Client>) -> Result<usize> {
+pub async fn count_users(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let users: Vec<DbUser> = db
         .select("user")
         .await
@@ -165,6 +166,6 @@ pub async fn count_users(db: &Surreal<Client>) -> Result<usize> {
 /// # Security Note
 /// This function returns the password hash. Only use it for authentication purposes
 /// and never expose the hash in API responses or logs.
-pub async fn get_user_for_auth(db: &Surreal<Client>, username: &str) -> Result<DbUser> {
+pub async fn get_user_for_auth(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUser> {
     get_user(db, username).await
 }

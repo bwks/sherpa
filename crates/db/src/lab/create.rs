@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbUser};
 use surrealdb::Surreal;
@@ -70,7 +71,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// # }
 /// ```
 pub async fn create_lab(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     name: &str,
     lab_id: &str,
     user: &DbUser,
@@ -133,7 +134,7 @@ pub async fn create_lab(
 /// # Ok(())
 /// # }
 /// ```
-pub async fn upsert_lab(db: &Surreal<Client>, lab: DbLab) -> Result<DbLab> {
+pub async fn upsert_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(&lab.lab_id)?;
 

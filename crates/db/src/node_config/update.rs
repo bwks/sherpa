@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::NodeConfig;
 use surrealdb::Surreal;
@@ -41,7 +42,7 @@ use crate::helpers::get_config_id;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn update_node_config(db: &Surreal<Client>, config: NodeConfig) -> Result<NodeConfig> {
+pub async fn update_node_config(db: &Arc<Surreal<Client>>, config: NodeConfig) -> Result<NodeConfig> {
     // Extract and validate the ID
     let id = get_config_id(&config)?;
 

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{NodeConfig, RecordId};
 use surrealdb::Surreal;
@@ -39,7 +40,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_node_config(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_node_config(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
     let deleted: Option<NodeConfig> = db
         .delete(id.clone())

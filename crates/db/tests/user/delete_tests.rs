@@ -50,8 +50,8 @@ async fn test_delete_user_by_username() -> Result<()> {
 async fn test_delete_nonexistent_user_fails() -> Result<()> {
     let db = setup_db("test_delete_nonexistent_user").await?;
 
-    use surrealdb::RecordId;
-    let fake_id = RecordId::from(("user", "nonexistent"));
+    use surrealdb_types::RecordId;
+    let fake_id = RecordId::new("user", "nonexistent");
 
     let result = delete_user(&db, fake_id).await;
 
@@ -216,8 +216,8 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
 async fn test_delete_user_safe_nonexistent_fails() -> Result<()> {
     let db = setup_db("test_delete_user_safe_nonexistent").await?;
 
-    use surrealdb::RecordId;
-    let fake_id = RecordId::from(("user", "nonexistent"));
+    use surrealdb_types::RecordId;
+    let fake_id = RecordId::new("user", "nonexistent");
 
     let result = delete_user_safe(&db, fake_id).await;
 

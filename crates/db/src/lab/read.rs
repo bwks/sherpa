@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, RecordId};
 use surrealdb::Surreal;
@@ -27,7 +28,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn get_lab(db: &Surreal<Client>, lab_id: &str) -> Result<DbLab> {
+pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
     let mut response = db
         .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
         .bind(("lab_id", lab_id.to_string()))
@@ -63,13 +64,13 @@ pub async fn get_lab(db: &Surreal<Client>, lab_id: &str) -> Result<DbLab> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn get_lab_by_id(db: &Surreal<Client>, id: RecordId) -> Result<DbLab> {
+pub async fn get_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLab> {
     let lab: Option<DbLab> = db
         .select(id.clone())
         .await
-        .context(format!("Failed to get lab by id: {}", id))?;
+        .context(format!("Failed to get lab by id: {:?}", id))?;
 
-    lab.ok_or_else(|| anyhow!("Lab not found with id: {}", id))
+    lab.ok_or_else(|| anyhow!("Lab not found with id: {:?}", id))
 }
 
 /// Get a lab by name and user (unique constraint)
@@ -99,7 +100,7 @@ pub async fn get_lab_by_id(db: &Surreal<Client>, id: RecordId) -> Result<DbLab> 
 /// # }
 /// ```
 pub async fn get_lab_by_name_and_user(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     name: &str,
     user_id: RecordId,
 ) -> Result<DbLab> {
@@ -111,7 +112,7 @@ pub async fn get_lab_by_name_and_user(
         .context(format!("Failed to query lab by name and user: {}", name))?;
 
     let db_lab: Option<DbLab> = response.take(0)?;
-    db_lab.ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {}", name, user_id))
+    db_lab.ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {:?}", name, user_id))
 }
 
 /// List all labs in the database
@@ -136,7 +137,7 @@ pub async fn get_lab_by_name_and_user(
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_labs(db: &Surreal<Client>) -> Result<Vec<DbLab>> {
+pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
     let labs: Vec<DbLab> = db
         .select("lab")
         .await
@@ -170,12 +171,12 @@ pub async fn list_labs(db: &Surreal<Client>) -> Result<Vec<DbLab>> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_labs_by_user(db: &Surreal<Client>, user_id: RecordId) -> Result<Vec<DbLab>> {
+pub async fn list_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<Vec<DbLab>> {
     let mut response = db
         .query("SELECT * FROM lab WHERE user = $user_id")
         .bind(("user_id", user_id.clone()))
         .await
-        .context(format!("Failed to list labs for user: {}", user_id))?;
+        .context(format!("Failed to list labs for user: {:?}", user_id))?;
 
     let labs: Vec<DbLab> = response.take(0)?;
     Ok(labs)
@@ -203,7 +204,7 @@ pub async fn list_labs_by_user(db: &Surreal<Client>, user_id: RecordId) -> Resul
 /// # Ok(())
 /// # }
 /// ```
-pub async fn count_labs(db: &Surreal<Client>) -> Result<usize> {
+pub async fn count_labs(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM lab GROUP ALL")
         .await
@@ -238,7 +239,7 @@ pub async fn count_labs(db: &Surreal<Client>) -> Result<usize> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn count_labs_by_user(db: &Surreal<Client>, user_id: RecordId) -> Result<usize> {
+pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM lab WHERE user = $user_id GROUP ALL")
         .bind(("user_id", user_id))

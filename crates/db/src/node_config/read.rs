@@ -1,10 +1,11 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
 /// List all node_config records from the database
-pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> {
+pub async fn list_node_configs(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfig>> {
     let configs: Vec<NodeConfig> = db
         .select("node_config")
         .await
@@ -15,7 +16,7 @@ pub async fn list_node_configs(db: &Surreal<Client>) -> Result<Vec<NodeConfig>> 
 
 /// Get node_config by model, kind, and version
 pub async fn get_node_config_by_model_kind_version(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     model: &NodeModel,
     kind: &NodeKind,
     version: &str,
@@ -37,7 +38,7 @@ pub async fn get_node_config_by_model_kind_version(
 
 /// Get the default node_config for a specific model and kind
 pub async fn get_default_node_config(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     model: &NodeModel,
     kind: &NodeKind,
 ) -> Result<Option<NodeConfig>> {
@@ -57,7 +58,7 @@ pub async fn get_default_node_config(
 
 /// Get all versions of a node_config for a specific model and kind
 pub async fn get_node_config_versions(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     model: &NodeModel,
     kind: &NodeKind,
 ) -> Result<Vec<NodeConfig>> {
@@ -77,7 +78,7 @@ pub async fn get_node_config_versions(
 
 /// Get node_config by RecordId
 pub async fn get_node_config_by_id(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     id: RecordId,
 ) -> Result<Option<NodeConfig>> {
     let config: Option<NodeConfig> = db
@@ -92,7 +93,7 @@ pub async fn get_node_config_by_id(
 /// This is used internally for config lookups by model.
 #[allow(dead_code)]
 pub(crate) async fn get_node_config(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     node_model: &NodeModel,
 ) -> Result<NodeConfig> {
     let mut response = db
@@ -109,7 +110,7 @@ pub(crate) async fn get_node_config(
 }
 
 /// Count total number of node_config records in the database
-pub async fn count_node_configs(db: &Surreal<Client>) -> Result<usize> {
+pub async fn count_node_configs(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let configs: Vec<NodeConfig> = db
         .select("node_config")
         .await

@@ -1,7 +1,7 @@
 /// UPDATE operation tests for node_config
 use anyhow::Result;
 use db::{create_node_config, get_node_config_by_id, update_node_config};
-use shared::data::NodeModel;
+use shared::data::{NodeModel, RecordId};
 
 use crate::{create_test_config, setup_db, teardown_db};
 
@@ -69,7 +69,7 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
 
     // Create a config with a fake/nonexistent ID
     let mut test_config = create_test_config(NodeModel::JuniperVrouter);
-    test_config.id = Some("node_config:nonexistent_id_12345".parse()?);
+    test_config.id = Some(RecordId::new("node_config", "nonexistent_id_12345"));
 
     // Attempt to update should fail
     let result = update_node_config(&db, test_config).await;

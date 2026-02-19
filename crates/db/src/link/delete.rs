@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result};
 use shared::data::{DbLink, RecordId};
 use surrealdb::Surreal;
@@ -27,14 +28,14 @@ use crate::link::read::get_link;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_link(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify link exists
     let _ = get_link(db, id.clone()).await?;
 
     let _deleted: Option<DbLink> = db
         .delete(id.clone())
         .await
-        .context(format!("Failed to delete link: {}", id))?;
+        .context(format!("Failed to delete link: {:?}", id))?;
 
     Ok(())
 }
@@ -48,7 +49,7 @@ pub async fn delete_link(db: &Surreal<Client>, id: RecordId) -> Result<()> {
 /// # Errors
 /// - If link not found
 /// - If there's a database error
-pub async fn delete_link_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_link(db, id).await
 }
 
@@ -75,12 +76,12 @@ pub async fn delete_link_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()>
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_links_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result<()> {
+pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE lab = $lab_id")
         .bind(("lab_id", lab_id.clone()))
         .await
-        .context(format!("Failed to delete links for lab: {}", lab_id))?
+        .context(format!("Failed to delete links for lab: {:?}", lab_id))?
         .take(0)?;
 
     Ok(())
@@ -110,12 +111,12 @@ pub async fn delete_links_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Resu
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_links_by_node(db: &Surreal<Client>, node_id: RecordId) -> Result<()> {
+pub async fn delete_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
         .bind(("node_id", node_id.clone()))
         .await
-        .context(format!("Failed to delete links for node: {}", node_id))?
+        .context(format!("Failed to delete links for node: {:?}", node_id))?
         .take(0)?;
 
     Ok(())

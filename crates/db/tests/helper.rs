@@ -63,13 +63,14 @@ pub async fn create_test_node_with_model(
     model: NodeModel,
     lab: &DbLab,
 ) -> Result<DbNode> {
-    use db::{create_node, get_node_config_by_model_kind};
+    use db::{create_node, get_node_config_by_model_kind_version};
 
     // Get the model kind from the NodeModel
     let config_template = NodeConfig::get_model(model.clone());
-    let kind = config_template.kind.to_string();
+    let kind = config_template.kind;
+    let version = config_template.version;
 
-    let config = get_node_config_by_model_kind(db, &model, &kind)
+    let config = get_node_config_by_model_kind_version(db, &model, &kind, &version)
         .await?
         .expect("Config should exist for this model");
     let config_id = config.id.clone().expect("Config should have an id");

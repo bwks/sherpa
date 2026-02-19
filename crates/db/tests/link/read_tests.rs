@@ -4,7 +4,7 @@ use db::{
     create_node_config, create_user, get_link_by_id, get_link_by_peers, list_links,
     list_links_by_lab, list_links_by_node,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -69,7 +69,7 @@ async fn test_get_link_not_found() -> Result<()> {
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let _lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
 
-    let fake_id = ("link", "nonexistent").into();
+    let fake_id = RecordId::new("link", "nonexistent");
 
     let result = get_link_by_id(&db, fake_id).await;
 

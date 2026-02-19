@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbLab;
 use surrealdb::Surreal;
@@ -38,7 +39,7 @@ use crate::lab::validate_lab_id;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn update_lab(db: &Surreal<Client>, lab: DbLab) -> Result<DbLab> {
+pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Require id field for updates
     let id = lab
         .id
@@ -52,14 +53,14 @@ pub async fn update_lab(db: &Surreal<Client>, lab: DbLab) -> Result<DbLab> {
     let existing_lab: Option<DbLab> = db
         .select(id.clone())
         .await
-        .context(format!("Failed to fetch existing lab: {}", id))?;
+        .context(format!("Failed to fetch existing lab: {:?}", id))?;
 
-    let existing = existing_lab.ok_or_else(|| anyhow!("Lab not found: {}", id))?;
+    let existing = existing_lab.ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
 
     // Verify owner (user) is not being changed - it's immutable
     if existing.user != lab.user {
         return Err(anyhow!(
-            "Cannot change lab owner: owner is immutable. Existing owner: {}, attempted new owner: {}",
+            "Cannot change lab owner: owner is immutable. Existing owner: {:?}, attempted new owner: {:?}",
             existing.user,
             lab.user
         ));

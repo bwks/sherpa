@@ -5,6 +5,7 @@
 //! in the correct dependency order to ensure foreign key relationships
 //! are properly established.
 
+use std::sync::Arc;
 use anyhow::{Context, Result};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -39,7 +40,7 @@ use super::user::generate_user_schema;
 /// apply_schema_section(&db, "user", &user_schema).await?;
 /// ```
 async fn apply_schema_section(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     section_name: &str,
     schema: &str,
 ) -> Result<()> {
@@ -100,7 +101,7 @@ async fn apply_schema_section(
 ///     Ok(())
 /// }
 /// ```
-pub async fn apply_schema(db: &Surreal<Client>) -> Result<()> {
+pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Generate schemas dynamically from individual schema modules
     let user_schema = generate_user_schema();
     let node_config_schema = generate_node_config_schema();

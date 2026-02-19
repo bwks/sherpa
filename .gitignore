@@ -17,3 +17,4 @@ srl-config.json
 # Dev
 test_*.toml
 sherpa_ssh_*
+CLAUDE.md

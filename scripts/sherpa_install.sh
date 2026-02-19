@@ -24,7 +24,7 @@ set -e  # Exit on error
 
 # Script configuration
 CONTAINER_NAME="sherpa-db"
-SURREALDB_VERSION="v2.4"
+SURREALDB_VERSION="v3.0.0"
 SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"
 DB_PORT=8000
 DB_USER="sherpa"
@@ -357,7 +357,7 @@ start_container() {
         -v "${SHERPA_DB_DIR}:/data" \
         --user "${SHERPA_UID}:${SHERPA_GID}" \
         "${SURREALDB_IMAGE}" \
-        start --log info --user "${DB_USER}" --pass "${DB_PASSWORD}" file:/data/sherpa.db \
+        start --log info --user "${DB_USER}" --pass "${DB_PASSWORD}" rocksdb:/data/sherpa.db \
         >/dev/null; then
         print_success "Container started successfully"
     else

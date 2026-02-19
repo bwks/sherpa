@@ -3,7 +3,7 @@ use db::{
     count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_config, create_user,
     get_node, get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab,
 };
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -33,7 +33,7 @@ async fn test_get_node_by_id_success() -> Result<()> {
 async fn test_get_node_not_found() -> Result<()> {
     let db = setup_db("test_get_node_not_found").await?;
 
-    let fake_id = ("node", "nonexistent").into();
+    let fake_id = RecordId::new("node", "nonexistent");
     let result = get_node(&db, fake_id).await;
 
     assert!(result.is_err(), "Should fail when node not found");

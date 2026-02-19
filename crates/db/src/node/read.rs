@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, RecordId};
 use surrealdb::Surreal;
@@ -28,13 +29,13 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn get_node(db: &Surreal<Client>, id: RecordId) -> Result<DbNode> {
+pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
     let node: Option<DbNode> = db
         .select(id.clone())
         .await
-        .context(format!("Failed to get node by id: {}", id))?;
+        .context(format!("Failed to get node by id: {:?}", id))?;
 
-    node.ok_or_else(|| anyhow!("Node not found with id: {}", id))
+    node.ok_or_else(|| anyhow!("Node not found with id: {:?}", id))
 }
 
 /// Alias for get_node - kept for compatibility
@@ -49,7 +50,7 @@ pub async fn get_node(db: &Surreal<Client>, id: RecordId) -> Result<DbNode> {
 /// # Errors
 /// - If node with id not found
 /// - If there's a database error
-pub async fn get_node_by_id(db: &Surreal<Client>, id: RecordId) -> Result<DbNode> {
+pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
     get_node(db, id).await
 }
 
@@ -81,7 +82,7 @@ pub async fn get_node_by_id(db: &Surreal<Client>, id: RecordId) -> Result<DbNode
 /// # }
 /// ```
 pub async fn get_node_by_name_and_lab(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     name: &str,
     lab_id: RecordId,
 ) -> Result<DbNode> {
@@ -93,7 +94,7 @@ pub async fn get_node_by_name_and_lab(
         .context(format!("Failed to query node by name and lab: {}", name))?;
 
     let node: Option<DbNode> = response.take(0)?;
-    node.ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {}", name, lab_id))
+    node.ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {:?}", name, lab_id))
 }
 
 /// List all nodes in the database
@@ -118,7 +119,7 @@ pub async fn get_node_by_name_and_lab(
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_nodes(db: &Surreal<Client>) -> Result<Vec<DbNode>> {
+pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
     let nodes: Vec<DbNode> = db
         .select("node")
         .await
@@ -153,12 +154,12 @@ pub async fn list_nodes(db: &Surreal<Client>) -> Result<Vec<DbNode>> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn list_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result<Vec<DbNode>> {
+pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
     let mut response = db
         .query("SELECT * FROM node WHERE lab = $lab_id")
         .bind(("lab_id", lab_id.clone()))
         .await
-        .context(format!("Failed to list nodes for lab: {}", lab_id))?;
+        .context(format!("Failed to list nodes for lab: {:?}", lab_id))?;
 
     let nodes: Vec<DbNode> = response.take(0)?;
     Ok(nodes)
@@ -186,7 +187,7 @@ pub async fn list_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result
 /// # Ok(())
 /// # }
 /// ```
-pub async fn count_nodes(db: &Surreal<Client>) -> Result<usize> {
+pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM node GROUP ALL")
         .await
@@ -222,7 +223,7 @@ pub async fn count_nodes(db: &Surreal<Client>) -> Result<usize> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn count_nodes_by_lab(db: &Surreal<Client>, lab_id: RecordId) -> Result<usize> {
+pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM node WHERE lab = $lab_id GROUP ALL")
         .bind(("lab_id", lab_id))

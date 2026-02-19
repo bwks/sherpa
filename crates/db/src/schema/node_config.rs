@@ -20,7 +20,7 @@
 //! - All enum fields are validated against their respective Rust enum variants
 //! - Numeric fields have min/max bounds and must be integers
 //! - Unique constraint on (model, kind, version) combination
-//! - Only one configuration per (model, kind) can have default=true (enforced by database event)
+//! - Only one configuration per (model, kind) can have default=true (enforced by application logic)
 //!
 //! ## Relationships
 //! - One-to-many with `node` table (one config can be used by many nodes)
@@ -48,8 +48,6 @@ use super::helpers::vec_to_str;
 /// - **Fields**: 29 fields covering model, hardware, and network configuration
 /// - **Indexes**:
 ///   - `unique_node_config_model_kind_version`: Ensures unique (model, kind, version) combinations
-/// - **Events**:
-///   - `enforce_single_default_node_config`: Ensures only one default per (model, kind)
 ///
 /// # Enum-Driven Validation
 ///
@@ -147,23 +145,6 @@ DEFINE FIELD default ON TABLE node_config TYPE bool;
 
 DEFINE INDEX unique_node_config_model_kind_version
   ON TABLE node_config FIELDS model, kind, version UNIQUE;
-
-DEFINE EVENT enforce_single_default_node_config ON TABLE node_config
-    WHEN $event = "CREATE" OR $event = "UPDATE"
-    THEN {{
-        IF $after.default = true {{
-            LET $conflicts = (
-                SELECT id FROM node_config 
-                WHERE model = $after.model 
-                AND kind = $after.kind 
-                AND default = true 
-                AND id != $after.id
-            );
-            IF count($conflicts) > 0 {{
-                THROW "Only one default configuration allowed per (model, kind) combination";
-            }};
-        }};
-    }};
 "#,
         models,
         os_variants,

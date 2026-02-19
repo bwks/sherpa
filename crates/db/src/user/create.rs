@@ -1,9 +1,10 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::auth::password::hash_password;
 use shared::data::DbUser;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb::sql::Datetime;
+use surrealdb_types::Datetime;
 
 /// Validate username format according to schema constraints
 ///
@@ -64,7 +65,7 @@ fn validate_username(username: &str) -> Result<()> {
 /// # }
 /// ```
 pub async fn create_user(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     username: String,
     password: &str,
     is_admin: bool,
@@ -135,7 +136,7 @@ pub async fn create_user(
 /// # }
 /// ```
 pub async fn upsert_user(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     username: String,
     password: &str,
     is_admin: bool,

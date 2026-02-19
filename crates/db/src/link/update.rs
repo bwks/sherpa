@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbLink;
 use surrealdb::Surreal;
@@ -42,7 +43,7 @@ use crate::link::read::get_link;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
+pub async fn update_link(db: &Arc<Surreal<Client>>, link: DbLink) -> Result<DbLink> {
     // Require id field for updates
     let id = link
         .id
@@ -55,7 +56,7 @@ pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
     // Verify lab is not being changed - it's immutable
     if existing.lab != link.lab {
         return Err(anyhow!(
-            "Cannot change link lab: lab field is immutable. Links cannot be moved between labs. Existing lab: {}, attempted new lab: {}",
+            "Cannot change link lab: lab field is immutable. Links cannot be moved between labs. Existing lab: {:?}, attempted new lab: {:?}",
             existing.lab,
             link.lab
         ));
@@ -64,7 +65,7 @@ pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
     // Verify node_a is not being changed - it's immutable
     if existing.node_a != link.node_a {
         return Err(anyhow!(
-            "Cannot change link node_a: node_a field is immutable. Existing node_a: {}, attempted new node_a: {}",
+            "Cannot change link node_a: node_a field is immutable. Existing node_a: {:?}, attempted new node_a: {:?}",
             existing.node_a,
             link.node_a
         ));
@@ -73,7 +74,7 @@ pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
     // Verify node_b is not being changed - it's immutable
     if existing.node_b != link.node_b {
         return Err(anyhow!(
-            "Cannot change link node_b: node_b field is immutable. Existing node_b: {}, attempted new node_b: {}",
+            "Cannot change link node_b: node_b field is immutable. Existing node_b: {:?}, attempted new node_b: {:?}",
             existing.node_b,
             link.node_b
         ));
@@ -85,13 +86,13 @@ pub async fn update_link(db: &Surreal<Client>, link: DbLink) -> Result<DbLink> {
             .content(link.clone())
             .await
             .context(format!(
-                "Failed to update link: node_a={}, node_b={}",
+                "Failed to update link: node_a={:?}, node_b={:?}",
                 link.node_a, link.node_b
             ))?;
 
     updated.ok_or_else(|| {
         anyhow!(
-            "Link update failed: node_a={}, node_b={}",
+            "Link update failed: node_a={:?}, node_b={:?}",
             link.node_a,
             link.node_b
         )

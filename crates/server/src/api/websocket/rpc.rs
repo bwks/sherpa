@@ -2,6 +2,7 @@ use axum::extract::ws::Message;
 use serde_json;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+use surrealdb_types::Datetime;
 
 use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
@@ -1127,7 +1128,7 @@ async fn handle_user_passwd(
 
     // Update password and updated_at timestamp
     user.password_hash = new_password_hash;
-    user.updated_at = surrealdb::sql::Datetime::default();
+    user.updated_at = Datetime::default();
 
     match db::update_user(&state.db, user).await {
         Ok(_) => {

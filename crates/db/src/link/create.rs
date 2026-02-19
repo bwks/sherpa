@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result};
 use shared::data::{BridgeKind, DbLink, RecordId};
 use surrealdb::Surreal;
@@ -62,7 +63,7 @@ use surrealdb::engine::remote::ws::Client;
 /// ```
 #[allow(clippy::too_many_arguments)]
 pub async fn create_link(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     index: u16,
     kind: BridgeKind,
     node_a_id: RecordId,
@@ -93,13 +94,13 @@ pub async fn create_link(
         })
         .await
         .context(format!(
-            "Failed to create link: index={}, node_a={}, node_b={}, int_a={}, int_b={}",
+            "Failed to create link: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             index, node_a_id, node_b_id, int_a, int_b
         ))?;
 
     link.ok_or_else(|| {
         anyhow::anyhow!(
-            "Link was not created: index={}, node_a={}, node_b={}, int_a={}, int_b={}",
+            "Link was not created: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             index,
             node_a_id,
             node_b_id,

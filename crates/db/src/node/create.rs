@@ -1,9 +1,11 @@
 //! CREATE operations for nodes
 
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::DbNode;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb::{RecordId, Surreal};
+use surrealdb::Surreal;
+use surrealdb_types::RecordId;
 
 /// Create a new node in the database.
 ///
@@ -50,7 +52,7 @@ use surrealdb::{RecordId, Surreal};
 /// - The lab_id doesn't reference a valid lab
 /// - Database operation fails
 pub async fn create_node(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     name: &str,
     index: u16,
     config_id: RecordId,
@@ -67,13 +69,13 @@ pub async fn create_node(
         })
         .await
         .context(format!(
-            "Failed to create node: name='{}', index={}, lab_id={}",
+            "Failed to create node: name='{}', index={}, lab_id={:?}",
             name, index, lab_id
         ))?;
 
     node.ok_or_else(|| {
         anyhow!(
-            "Node was not created: name='{}', index={}, config_id={}, lab_id={}",
+            "Node was not created: name='{}', index={}, config_id={:?}, lab_id={:?}",
             name,
             index,
             config_id,

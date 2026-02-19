@@ -3,7 +3,7 @@ use db::{
     create_lab, create_link, create_node, create_node_config, create_user, get_link_by_id,
     update_link,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -565,7 +565,7 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
     .await?;
 
     // Create a fake ID
-    link.id = Some(("link", "nonexistent").into());
+    link.id = Some(RecordId::new("link", "nonexistent"));
     link.index = 999;
 
     let result = update_link(&db, link).await;

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{create_lab, create_user, get_lab, update_lab};
-use shared::data::DbLab;
+use shared::data::{DbLab, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -53,7 +53,7 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
     let db = setup_db("test_update_nonexistent").await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    let fake_id = ("lab", "nonexistent").into();
+    let fake_id = RecordId::new("lab", "nonexistent");
 
     let lab = DbLab {
         id: Some(fake_id),

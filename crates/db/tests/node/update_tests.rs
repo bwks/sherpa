@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{create_lab, create_node, create_node_config, create_user, get_node, update_node};
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -266,7 +266,7 @@ async fn test_update_node_nonexistent_fails() -> Result<()> {
         create_node(&db, "node1", 1, config.id.unwrap(), lab.id.clone().unwrap()).await?;
 
     // Change ID to nonexistent
-    node.id = Some(("node", "nonexistent").into());
+    node.id = Some(RecordId::new("node", "nonexistent"));
 
     let result = update_node(&db, node).await;
 

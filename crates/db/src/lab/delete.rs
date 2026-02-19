@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbLink, DbNode, RecordId};
 use surrealdb::Surreal;
@@ -33,7 +34,7 @@ use crate::lab::get_lab;
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
@@ -71,11 +72,11 @@ pub async fn delete_lab(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()> {
+pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     let _deleted: Option<DbLab> = db
         .delete(id.clone())
         .await
-        .context(format!("Failed to delete lab by id: {}", id))?;
+        .context(format!("Failed to delete lab by id: {:?}", id))?;
 
     Ok(())
 }
@@ -104,7 +105,7 @@ pub async fn delete_lab_by_id(db: &Surreal<Client>, id: RecordId) -> Result<()> 
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
@@ -142,7 +143,7 @@ pub async fn delete_lab_nodes(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab_links(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
@@ -186,7 +187,7 @@ pub async fn delete_lab_links(db: &Surreal<Client>, lab_id: &str) -> Result<()> 
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab_cascade(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     // Delete in order: links -> nodes -> lab
     delete_lab_links(db, lab_id).await?;
     delete_lab_nodes(db, lab_id).await?;
@@ -225,7 +226,7 @@ pub async fn delete_lab_cascade(db: &Surreal<Client>, lab_id: &str) -> Result<()
 /// # Ok(())
 /// # }
 /// ```
-pub async fn delete_lab_safe(db: &Surreal<Client>, lab_id: &str) -> Result<()> {
+pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     // Get the lab to verify it exists
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;

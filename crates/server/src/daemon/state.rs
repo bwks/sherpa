@@ -122,7 +122,7 @@ impl AppState {
 
         Ok(Self {
             connections: crate::api::websocket::connection::create_registry(),
-            db: Arc::new(db),
+            db,
             qemu: Arc::new(qemu),
             docker: Arc::new(docker),
             config: Arc::new(config),

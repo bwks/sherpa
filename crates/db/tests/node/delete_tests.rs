@@ -4,7 +4,7 @@ use db::{
     create_user, delete_node, delete_node_by_id, delete_node_cascade, delete_node_safe,
     delete_nodes_by_lab, get_node,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -68,7 +68,7 @@ async fn test_delete_node_by_id_success() -> Result<()> {
 async fn test_delete_node_nonexistent_fails() -> Result<()> {
     let db = setup_db("test_delete_node_nonexistent").await?;
 
-    let fake_id = ("node", "nonexistent").into();
+    let fake_id = RecordId::new("node", "nonexistent");
     let result = delete_node(&db, fake_id).await;
 
     assert!(result.is_err(), "Should fail when node doesn't exist");

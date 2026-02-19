@@ -1,7 +1,8 @@
+use std::sync::Arc;
 use anyhow::{Context, Result};
-use surrealdb::RecordId;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use surrealdb_types::RecordId;
 
 /// Delete a bridge
 ///
@@ -17,11 +18,11 @@ use surrealdb::engine::remote::ws::Client;
 /// # Errors
 /// - If the bridge doesn't exist
 /// - If there's a database error
-pub async fn delete_bridge(db: &Surreal<Client>, bridge_id: &RecordId) -> Result<()> {
+pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Result<()> {
     let _: Option<RecordId> = db
-        .delete(bridge_id)
+        .delete::<Option<RecordId>>(bridge_id)
         .await
-        .context(format!("Failed to delete bridge: bridge_id={}", bridge_id))?;
+        .context(format!("Failed to delete bridge: bridge_id={:?}", bridge_id))?;
 
     Ok(())
 }
@@ -39,12 +40,12 @@ pub async fn delete_bridge(db: &Surreal<Client>, bridge_id: &RecordId) -> Result
 ///
 /// # Errors
 /// - If there's a database error
-pub async fn delete_lab_bridges(db: &Surreal<Client>, lab_id: &RecordId) -> Result<()> {
+pub async fn delete_lab_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Result<()> {
     db.query("DELETE FROM bridge WHERE lab = $lab_id")
         .bind(("lab_id", lab_id.clone()))
         .await
         .context(format!(
-            "Failed to delete bridges for lab: lab_id={}",
+            "Failed to delete bridges for lab: lab_id={:?}",
             lab_id
         ))?;
 

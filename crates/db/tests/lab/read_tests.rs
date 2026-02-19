@@ -3,6 +3,7 @@ use db::{
     count_labs, count_labs_by_user, create_lab, create_user, get_lab, get_lab_by_id,
     get_lab_by_name_and_user, list_labs, list_labs_by_user,
 };
+use shared::data::RecordId;
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -60,7 +61,7 @@ async fn test_get_lab_by_id() -> Result<()> {
 async fn test_get_lab_by_id_not_found() -> Result<()> {
     let db = setup_db("test_get_lab_by_id_not_found").await?;
 
-    let fake_id = ("lab", "nonexistent").into();
+    let fake_id = RecordId::new("lab", "nonexistent");
     let result = get_lab_by_id(&db, fake_id).await;
 
     assert!(result.is_err(), "Should error on non-existent lab ID");

@@ -105,11 +105,11 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
     let db = setup_db("test_update_nonexistent_user").await?;
 
     use shared::data::DbUser;
-    use surrealdb::RecordId;
-    use surrealdb::sql::Datetime;
+    use surrealdb_types::RecordId;
+    use surrealdb_types::Datetime;
 
     let fake_user = DbUser {
-        id: Some(RecordId::from(("user", "nonexistent"))),
+        id: Some(RecordId::new("user", "nonexistent")),
         username: "fake".to_string(),
         password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
         is_admin: false,

@@ -3,7 +3,7 @@ use anyhow::Result;
 use db::{
     count_node_configs, create_lab, create_node_config, delete_node_config, get_node_config_by_id,
 };
-use shared::data::{DbUser, NodeModel};
+use shared::data::{DbUser, NodeModel, RecordId};
 
 use crate::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
 
@@ -34,7 +34,7 @@ async fn test_delete_nonexistent_config_fails() -> Result<()> {
     let db = setup_db("test_delete_nonexistent_config_fails").await?;
 
     // Attempt to delete a config with fake/nonexistent ID
-    let fake_id = "node_config:nonexistent_id_99999".parse()?;
+    let fake_id = RecordId::new("node_config", "nonexistent_id_99999");
     let result = delete_node_config(&db, fake_id).await;
 
     assert!(result.is_err(), "Delete with nonexistent ID should fail");
@@ -106,8 +106,8 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
             password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
             is_admin: false,
             ssh_keys: vec![],
-            created_at: surrealdb::sql::Datetime::default(),
-            updated_at: surrealdb::sql::Datetime::default(),
+            created_at: surrealdb_types::Datetime::default(),
+            updated_at: surrealdb_types::Datetime::default(),
         })
         .await?;
     let user = user.expect("User should be created");
@@ -134,8 +134,8 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
 
     // Verify the node references our config
     assert_eq!(
-        node.config.to_string(),
-        config_id.to_string(),
+        format!("{:?}", node.config),
+        format!("{:?}", config_id),
         "Node should reference the config we created"
     );
 
