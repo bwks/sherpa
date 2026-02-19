@@ -29,6 +29,10 @@
 //! - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
 //!   all its nodes are automatically deleted by the database.
 
+use shared::data::NodeState;
+
+use super::helpers::vec_to_str;
+
 /// Generate the node table schema.
 ///
 /// Creates the node table with unique constraints to ensure nodes within a lab
@@ -66,7 +70,10 @@
 /// db.query(&schema).await?;
 /// ```
 pub(crate) fn generate_node_schema() -> String {
-    r#"
+    let node_states = vec_to_str(NodeState::to_vec());
+
+    format!(
+        r#"
 DEFINE TABLE node SCHEMAFULL;
 DEFINE FIELD name ON TABLE node TYPE string;
 DEFINE FIELD index ON TABLE node TYPE number
@@ -74,6 +81,9 @@ DEFINE FIELD index ON TABLE node TYPE number
 DEFINE FIELD config ON TABLE node TYPE record<node_config> REFERENCE ON DELETE REJECT;
 DEFINE FIELD lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
 DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
+DEFINE FIELD state ON TABLE node TYPE string
+    ASSERT $value IN [{node_states}]
+    DEFAULT "unknown";
 
 DEFINE INDEX unique_node_name_per_lab
   ON TABLE node FIELDS lab, name UNIQUE;
@@ -81,5 +91,5 @@ DEFINE INDEX unique_node_name_per_lab
 DEFINE INDEX unique_node_index_per_lab
   ON TABLE node FIELDS lab, index UNIQUE;
 "#
-    .to_string()
+    )
 }

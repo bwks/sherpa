@@ -560,6 +560,7 @@ impl NodeState {
         NodeState::iter().collect()
     }
 }
+impl_surreal_value_for_enum!(NodeState);
 
 #[derive(Clone, Debug, Deserialize, Serialize, SurrealValue)]
 pub struct NodeConfig {

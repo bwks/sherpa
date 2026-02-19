@@ -1,7 +1,7 @@
 //! CREATE operations for nodes
 
 use anyhow::{Context, Result, anyhow};
-use shared::data::DbNode;
+use shared::data::{DbNode, NodeState};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -67,6 +67,7 @@ pub async fn create_node(
             index,
             lab: lab_id.clone(),
             mgmt_ipv4: None,
+            state: NodeState::Unknown,
         })
         .await
         .context(format!(

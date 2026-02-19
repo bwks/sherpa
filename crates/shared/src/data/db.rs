@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use surrealdb_types::{Datetime, RecordId, SurrealValue};
 
-use super::BridgeKind;
+use super::{BridgeKind, NodeState};
 
 #[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
 pub struct DbUser {
@@ -30,6 +30,7 @@ pub struct DbNode {
     pub index: u16,
     pub lab: RecordId,
     pub mgmt_ipv4: Option<String>,
+    pub state: NodeState,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
