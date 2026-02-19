@@ -125,7 +125,7 @@ pub async fn init(
     // Create unique set of models to avoid duplicate directories
     let mut created_models = std::collections::HashSet::new();
     for node_config in &node_configs {
-        if created_models.insert(node_config.model.clone()) {
+        if created_models.insert(node_config.model) {
             let model_dir = format!("{}/{}/latest", sherpa.images_dir, node_config.model);
             create_dir(&model_dir)?;
         }

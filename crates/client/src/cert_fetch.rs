@@ -118,7 +118,7 @@ pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
 ///
 /// # Returns
 /// A string in the format "host:port" for use in trust store lookups
-pub fn parse_server_address(server_url: &str) -> Result<String> {
+pub fn _parse_server_address(server_url: &str) -> Result<String> {
     let ws_url =
         Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
 
@@ -141,34 +141,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_server_address() {
+    fn test__parse_server_address() {
         // WSS with explicit port
-        let addr = parse_server_address("wss://192.168.1.100:3030/ws").unwrap();
+        let addr = _parse_server_address("wss://192.168.1.100:3030/ws").unwrap();
         assert_eq!(addr, "192.168.1.100:3030");
 
         // WS with explicit port
-        let addr = parse_server_address("ws://localhost:3030/ws").unwrap();
+        let addr = _parse_server_address("ws://localhost:3030/ws").unwrap();
         assert_eq!(addr, "localhost:3030");
 
         // WSS with default port
-        let addr = parse_server_address("wss://example.com/ws").unwrap();
+        let addr = _parse_server_address("wss://example.com/ws").unwrap();
         assert_eq!(addr, "example.com:443");
 
         // WS with default port
-        let addr = parse_server_address("ws://example.com/ws").unwrap();
+        let addr = _parse_server_address("ws://example.com/ws").unwrap();
         assert_eq!(addr, "example.com:80");
 
         // Hostname with port
-        let addr = parse_server_address("wss://sherpa.example.com:8443/ws").unwrap();
+        let addr = _parse_server_address("wss://sherpa.example.com:8443/ws").unwrap();
         assert_eq!(addr, "sherpa.example.com:8443");
     }
 
     #[test]
     fn test_parse_invalid_url() {
-        let result = parse_server_address("not a url");
+        let result = _parse_server_address("not a url");
         assert!(result.is_err());
 
-        let result = parse_server_address("http://example.com");
+        let result = _parse_server_address("http://example.com");
         assert!(result.is_ok()); // HTTP is technically valid for parsing
     }
 

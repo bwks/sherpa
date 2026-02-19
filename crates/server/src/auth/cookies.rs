@@ -62,10 +62,10 @@ pub fn extract_token_from_cookie(cookie_header: &str) -> Option<String> {
     // Parse cookies in format "name1=value1; name2=value2"
     for cookie in cookie_header.split(';') {
         let cookie = cookie.trim();
-        if let Some((name, value)) = cookie.split_once('=') {
-            if name == AUTH_COOKIE_NAME {
-                return Some(value.to_string());
-            }
+        if let Some((name, value)) = cookie.split_once('=')
+            && name == AUTH_COOKIE_NAME
+        {
+            return Some(value.to_string());
         }
     }
     None

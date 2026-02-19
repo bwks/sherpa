@@ -102,9 +102,9 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
 
         let mut device_info = DeviceInfo {
             name: node_name.clone(),
-            model: node_config.model.clone(),
-            kind: node_config.kind.clone(),
-            state: node.state.clone(),
+            model: node_config.model,
+            kind: node_config.kind,
+            state: node.state,
             mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
             disks: Vec::new(),
         };

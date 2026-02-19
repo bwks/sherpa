@@ -35,10 +35,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         connection_id: conn_id.to_string(),
     };
 
-    if let Ok(json) = serde_json::to_string(&connected_msg) {
-        if let Err(e) = connection.send(Message::Text(json.into())).await {
-            tracing::error!("Failed to send connected message: {}", e);
-        }
+    if let Ok(json) = serde_json::to_string(&connected_msg)
+        && let Err(e) = connection.send(Message::Text(json.into())).await
+    {
+        tracing::error!("Failed to send connected message: {}", e);
     }
 
     // Handle incoming messages
@@ -177,10 +177,10 @@ async fn handle_client_message(
                     .await;
 
                     // Send response back to client
-                    if let Ok(json) = serde_json::to_string(&response) {
-                        if let Err(e) = connection_clone.send(Message::Text(json.into())).await {
-                            tracing::error!("Failed to send RPC response: {:?}", e);
-                        }
+                    if let Ok(json) = serde_json::to_string(&response)
+                        && let Err(e) = connection_clone.send(Message::Text(json.into())).await
+                    {
+                        tracing::error!("Failed to send RPC response: {:?}", e);
                     }
                 });
             }

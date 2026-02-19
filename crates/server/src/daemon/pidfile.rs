@@ -9,7 +9,7 @@ use shared::konst::{SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_PID
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {
     if !Path::new(&format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).exists() {
-        fs::create_dir_all(&format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).context(format!(
+        fs::create_dir_all(format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).context(format!(
             "Failed to create run directory: {}",
             SHERPA_RUN_DIR
         ))?;
@@ -20,7 +20,7 @@ pub fn ensure_run_dir() -> Result<()> {
 /// Ensure the log directory exists
 pub fn ensure_log_dir() -> Result<()> {
     if !Path::new(&format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}")).exists() {
-        fs::create_dir_all(&format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}")).context(format!(
+        fs::create_dir_all(format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}")).context(format!(
             "Failed to create log directory: {}",
             SHERPA_LOG_DIR
         ))?;

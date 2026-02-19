@@ -87,10 +87,10 @@ impl WebSocketClient {
                 struct ConnectedMsg {
                     r#type: String,
                 }
-                if let Ok(connected) = serde_json::from_str::<ConnectedMsg>(&text) {
-                    if connected.r#type != "connected" {
-                        tracing::warn!("Expected 'connected' message, got: {}", connected.r#type);
-                    }
+                if let Ok(connected) = serde_json::from_str::<ConnectedMsg>(&text)
+                    && connected.r#type != "connected"
+                {
+                    tracing::warn!("Expected 'connected' message, got: {}", connected.r#type);
                 }
             }
         }

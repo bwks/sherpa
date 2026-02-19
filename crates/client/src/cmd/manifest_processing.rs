@@ -3,16 +3,15 @@ use anyhow::{Result, anyhow};
 use shared::data;
 use shared::konst::BRIDGE_PREFIX;
 use shared::util;
-use topology;
 
 /// Process manifest nodes into expanded format with indices assigned
 pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
-    let nodes_expanded = manifest_nodes
+    manifest_nodes
         .iter()
         .enumerate()
         .map(|(idx, node)| topology::NodeExpanded {
             name: node.name.clone(),
-            model: node.model.clone(),
+            model: node.model,
             // Node indexes start from 1. This aligns with IP address assignment
             index: idx as u16 + 1,
             version: node.version.clone(),
@@ -30,8 +29,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
         })
-        .collect();
-    nodes_expanded
+        .collect()
 }
 
 /// Process manifest links into detailed link format with resolved interface indices
@@ -50,7 +48,7 @@ pub fn process_manifest_links(
     for (link_idx, link) in links.iter().enumerate() {
         let mut this_link = topology::LinkDetailed::default();
         for device in manifest_nodes.iter() {
-            let device_model = device.model.clone();
+            let device_model = device.model;
             // let device_index = manifest_nodes.iter().map()
             if link.node_a == device.name {
                 let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
@@ -100,7 +98,7 @@ pub fn get_node_config(
 /// Process manifest bridges into detailed bridge format with resolved interface indices
 pub fn process_manifest_bridges(
     manifest_bridges: &Option<Vec<topology::Bridge>>,
-    manifest_nodes: &Vec<topology::NodeExpanded>,
+    manifest_nodes: &[topology::NodeExpanded],
     lab_id: &str,
 ) -> Result<Vec<topology::BridgeDetailed>> {
     let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
@@ -122,7 +120,7 @@ pub fn process_manifest_bridges(
                 let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
                 bridge_links.push(topology::BridgeLinkDetailed {
                     node_name: link.node.clone(),
-                    node_model: node.model.clone(),
+                    node_model: node.model,
                     interface_name: link.interface.clone(),
                     interface_index: interface_idx,
                 });

@@ -33,10 +33,10 @@ pub fn save_token(token: &str) -> Result<()> {
     let token_path = get_token_path()?;
 
     // Create ~/.sherpa directory if it doesn't exist
-    if let Some(parent) = token_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent).context("Failed to create ~/.sherpa directory")?;
-        }
+    if let Some(parent) = token_path.parent()
+        && !parent.exists()
+    {
+        fs::create_dir_all(parent).context("Failed to create ~/.sherpa directory")?;
     }
 
     // Write token to file

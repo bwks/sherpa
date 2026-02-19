@@ -20,6 +20,7 @@ pub struct RpcError {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     /// Log message
+    #[allow(dead_code)]
     Log {
         level: LogLevel,
         message: String,
@@ -50,6 +51,7 @@ pub enum ServerMessage {
     Connected { connection_id: String },
 
     /// Ping for keepalive
+    #[allow(dead_code)]
     Ping,
 
     /// RPC response

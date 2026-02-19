@@ -33,6 +33,7 @@ pub struct AuthenticatedUser {
 
 impl AuthenticatedUser {
     /// Convert to AuthContext for service layer
+    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
     }
@@ -68,16 +69,13 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
             .headers
             .get(header::COOKIE)
             .and_then(|h| h.to_str().ok())
+            && let Some(token) = cookies::extract_token_from_cookie(cookie_header)
+            && let Ok(claims) = jwt::validate_token(&state.jwt_secret, &token)
         {
-            if let Some(token) = cookies::extract_token_from_cookie(cookie_header) {
-                // Validate token
-                if let Ok(claims) = jwt::validate_token(&state.jwt_secret, &token) {
-                    return Ok(AuthenticatedUser {
-                        username: claims.sub,
-                        is_admin: claims.is_admin,
-                    });
-                }
-            }
+            return Ok(AuthenticatedUser {
+                username: claims.sub,
+                is_admin: claims.is_admin,
+            });
         }
 
         // No valid authentication found
@@ -108,6 +106,7 @@ pub struct AuthenticatedUserFromCookie {
 
 impl AuthenticatedUserFromCookie {
     /// Convert to AuthContext for service layer
+    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
     }
@@ -175,6 +174,7 @@ pub struct AdminUser {
 
 impl AdminUser {
     /// Convert to AuthContext for service layer
+    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, true)
     }

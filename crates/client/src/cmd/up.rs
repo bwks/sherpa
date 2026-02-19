@@ -31,12 +31,11 @@ use shared::konst::{
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
-use topology;
 
 fn find_interface_link(
     node_name: &str,
     interface_name: &str,
-    links_detailed: &Vec<topology::LinkDetailed>,
+    links_detailed: &[topology::LinkDetailed],
 ) -> Option<data::NodeInterface> {
     let mut interface_data = None;
     for link in links_detailed {
@@ -118,7 +117,7 @@ fn node_reserved_network_data(
     }
 }
 
-fn get_node_data(node_name: &str, data: &Vec<data::NodeSetupData>) -> Result<data::NodeSetupData> {
+fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<data::NodeSetupData> {
     Ok(data
         .iter()
         .find(|x| x.name == node_name)
@@ -299,7 +298,7 @@ pub async fn up(
 
         lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),
-            model: node_config.model.clone(),
+            model: node_config.model,
             kind: node_config.kind.clone(),
             index: node.index,
             record: lab_node,
@@ -379,7 +378,7 @@ pub async fn up(
     };
 
     println!("{}", lab_info);
-    util::create_dir(&format!("{lab_dir}"))?;
+    util::create_dir(&lab_dir)?;
     util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
     let mgmt_net = data::SherpaNetwork {
@@ -863,10 +862,9 @@ pub async fn up(
                             util::create_file(&user_data, user_data_config)?;
                             util::create_file(&meta_data, "".to_string())?;
 
-                            if node_ipv4_address.is_some() {
+                            if let Some(ipv4_addr) = node_ipv4_address {
                                 let ztp_interface = template::CloudInitNetwork::ztp_interface(
-                                    // This should always be Some
-                                    node_ipv4_address.unwrap(),
+                                    ipv4_addr,
                                     mac_address,
                                     mgmt_net.v4.clone(),
                                 );
@@ -907,10 +905,9 @@ pub async fn up(
                             util::create_file(&user_data, user_data_config)?;
                             util::create_file(&meta_data, meta_data_config)?;
 
-                            if node_ipv4_address.is_some() {
+                            if let Some(ipv4_addr) = node_ipv4_address {
                                 let ztp_interface = template::CloudInitNetwork::ztp_interface(
-                                    // This should always be Some
-                                    node_ipv4_address.unwrap(),
+                                    ipv4_addr,
                                     mac_address,
                                     mgmt_net.v4.clone(),
                                 );
@@ -1449,10 +1446,9 @@ pub async fn up(
                             let mut files = vec![sudo_config_file, hostname_file, disable_update];
                             files.extend(manifest_text_files);
 
-                            if node_ipv4_address.is_some() {
+                            if let Some(ipv4_addr) = node_ipv4_address {
                                 files.push(template::IgnitionFile::ztp_interface(
-                                    // This should always be Some
-                                    node_ipv4_address.unwrap(),
+                                    ipv4_addr,
                                     mgmt_net.v4.clone(),
                                 )?);
                             }
@@ -1653,7 +1649,7 @@ pub async fn up(
         }
     }
 
-    create_ztp_files(&mgmt_net, &sherpa_user, &lab_id, &ztp_records)?;
+    create_ztp_files(&mgmt_net, &sherpa_user, lab_id, &ztp_records)?;
     create_boot_containers(&docker_conn, &mgmt_net, lab_id).await?;
 
     // Clone disks in parallel
@@ -1774,7 +1770,7 @@ pub async fn up(
 
             container_link_networks
                 .entry(node_a_data.name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None, // No IP - pure L2 connection
@@ -1788,7 +1784,7 @@ pub async fn up(
 
             container_link_networks
                 .entry(node_b_data.name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
@@ -1808,7 +1804,7 @@ pub async fn up(
     let mut connected_nodes = std::collections::HashSet::new();
     let mut node_ip_map = vec![];
 
-    let all_lab_nodes = vec![
+    let all_lab_nodes = [
         container_nodes.clone(),
         unikernel_nodes.clone(),
         vm_nodes.clone(),
@@ -1839,12 +1835,9 @@ pub async fn up(
                 container.image.as_ref().unwrap(),
                 container.version.as_ref().unwrap()
             );
-            let privileged = container.privileged.clone().unwrap_or_else(|| false);
-            let env_vars = container
-                .environment_variables
-                .clone()
-                .unwrap_or_else(|| vec![]);
-            let commands = container.commands.clone().unwrap_or_else(|| vec![]);
+            let privileged = container.privileged.unwrap_or(false);
+            let env_vars = container.environment_variables.clone().unwrap_or_default();
+            let commands = container.commands.clone().unwrap_or_default();
             let volumes = if let Some(volumes) = container.volumes.clone() {
                 volumes
                     .iter()

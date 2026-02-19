@@ -15,12 +15,12 @@ use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::{inspect, list_labs};
 use crate::templates::{
-    AdminDashboardTemplate, AdminNodeConfigEditTemplate, AdminPasswordErrorTemplate,
-    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate,
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
-    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
+    AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
+    Error403Template, Error404Template, ErrorTemplate, LabDetailTemplate, LabsGridTemplate,
+    LoginErrorTemplate, LoginPageTemplate, PasswordErrorTemplate, PasswordSuccessTemplate,
+    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
+    SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -29,7 +29,7 @@ use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCooki
 use shared::auth::{password, ssh};
 use shared::data::{
     BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InspectRequest, InspectResponse,
-    InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType, NodeKind, NodeModel,
+    InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
     OsVariant, ZtpMethod,
 };
 use shared::konst::{

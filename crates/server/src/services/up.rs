@@ -102,7 +102,7 @@ fn find_bridge_interface(
 
 fn process_manifest_bridges(
     manifest_bridges: &Option<Vec<topology::Bridge>>,
-    manifest_nodes: &Vec<topology::NodeExpanded>,
+    manifest_nodes: &[topology::NodeExpanded],
     lab_id: &str,
 ) -> Result<Vec<topology::BridgeDetailed>> {
     let manifest_bridges = manifest_bridges.clone().unwrap_or_default();
@@ -120,7 +120,7 @@ fn process_manifest_bridges(
                 let interface_idx = util::interface_to_idx(&node.model, &link.interface)?;
                 bridge_links.push(topology::BridgeLinkDetailed {
                     node_name: link.node.clone(),
-                    node_model: node.model.clone(),
+                    node_model: node.model,
                     interface_name: link.interface.clone(),
                     interface_index: interface_idx,
                 });
@@ -166,7 +166,7 @@ fn node_reserved_network_data(
     }
 }
 
-fn get_node_data(node_name: &str, data: &Vec<data::NodeSetupData>) -> Result<data::NodeSetupData> {
+fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<data::NodeSetupData> {
     Ok(data
         .iter()
         .find(|x| x.name == node_name)
@@ -181,7 +181,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
         .enumerate()
         .map(|(idx, node)| topology::NodeExpanded {
             name: node.name.clone(),
-            model: node.model.clone(),
+            model: node.model,
             index: idx as u16 + 1,
             version: node.version.clone(),
             memory: node.memory,
@@ -216,7 +216,7 @@ fn process_manifest_links(
     for (link_idx, link) in links.iter().enumerate() {
         let mut this_link = topology::LinkDetailed::default();
         for device in manifest_nodes.iter() {
-            let device_model = device.model.clone();
+            let device_model = device.model;
             if link.node_a == device.name {
                 let int_idx = util::interface_to_idx(&device_model, &link.int_a)?;
                 let peer_node = manifest_nodes
@@ -330,7 +330,7 @@ pub async fn up_lab(
 
     tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, user = %current_user, "Lab environment prepared");
 
-    let db_user = db::get_user(&db, &current_user)
+    let db_user = db::get_user(&db, current_user)
         .await
         .context("Failed to get database user")?;
 
@@ -535,7 +535,7 @@ pub async fn up_lab(
 
         lab_node_data.push(data::LabNodeData {
             name: node.name.clone(),
-            model: node_config.model.clone(),
+            model: node_config.model,
             kind: node_config.kind.clone(),
             index: node.index,
             record: lab_node,
@@ -2216,7 +2216,7 @@ pub async fn up_lab(
                     // Extract node name from disk path (e.g., "router1-abc123-hdd.qcow2" -> "router1-abc123")
                     let node_name = dst
                         .split('/')
-                        .last()
+                        .next_back()
                         .and_then(|f| f.strip_suffix("-hdd.qcow2"))
                         .unwrap_or("unknown");
 
@@ -2464,7 +2464,7 @@ pub async fn up_lab(
                 format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
             container_link_networks
                 .entry(node_a_data.name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
@@ -2476,7 +2476,7 @@ pub async fn up_lab(
                 format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
             container_link_networks
                 .entry(node_b_data.name.clone())
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
@@ -2510,7 +2510,7 @@ pub async fn up_lab(
     let mut connected_nodes = std::collections::HashSet::new();
     let mut node_info_list = vec![];
 
-    let all_lab_nodes = vec![
+    let all_lab_nodes = [
         container_nodes.clone(),
         unikernel_nodes.clone(),
         vm_nodes.clone(),
@@ -2565,11 +2565,8 @@ pub async fn up_lab(
 
             let container_image = format!("{}:{}", container_image_name, container_version);
             let privileged = container.privileged.unwrap_or(false);
-            let env_vars = container
-                .environment_variables
-                .clone()
-                .unwrap_or_else(|| vec![]);
-            let commands = container.commands.clone().unwrap_or_else(|| vec![]);
+            let env_vars = container.environment_variables.clone().unwrap_or_default();
+            let commands = container.commands.clone().unwrap_or_default();
             let volumes = if let Some(volumes) = container.volumes.clone() {
                 volumes
                     .iter()
@@ -2640,7 +2637,7 @@ pub async fn up_lab(
             node_info_list.push(data::NodeInfo {
                 name: container.name.clone(),
                 kind: "Container".to_string(),
-                model: container.model.clone(),
+                model: container.model,
                 status: NodeState::Running,
                 ip_address: mgmt_ipv4,
                 ssh_port: Some(SSH_PORT),
@@ -2676,7 +2673,7 @@ pub async fn up_lab(
                         node_info_list.push(data::NodeInfo {
                             name: vm.name.clone(),
                             kind: "VirtualMachine".to_string(),
-                            model: vm.model.clone(),
+                            model: vm.model,
                             status: NodeState::Running,
                             ip_address: Some(vm_data.ipv4_address.to_string()),
                             ssh_port: Some(SSH_PORT),

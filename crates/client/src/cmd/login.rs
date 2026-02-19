@@ -9,10 +9,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::token;
-use crate::ws_client::{
-    WebSocketClient,
-    messages::{RpcError, RpcRequest},
-};
+use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 
 /// Execute the login command
 ///

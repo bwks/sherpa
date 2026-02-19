@@ -104,11 +104,13 @@ impl CertificateManager {
     }
 
     /// Get the certificate file path
+    #[allow(dead_code)]
     pub fn cert_path(&self) -> &Path {
         &self.cert_path
     }
 
     /// Get the private key file path
+    #[allow(dead_code)]
     pub fn key_path(&self) -> &Path {
         &self.key_path
     }

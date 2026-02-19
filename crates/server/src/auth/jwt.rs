@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use rand::RngCore;
 use shared::auth::jwt::Claims;
-use shared::konst::{JWT_SECRET_PATH, JWT_TOKEN_EXPIRY_SECONDS};
+use shared::konst::JWT_SECRET_PATH;
 use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};

@@ -237,9 +237,9 @@ async fn destroy_containers(
             let lab_containers: Vec<_> = containers
                 .iter()
                 .filter(|c| {
-                    c.names.as_ref().map_or(false, |names| {
-                        names.iter().any(|name| name.contains(lab_id))
-                    })
+                    c.names
+                        .as_ref()
+                        .is_some_and(|names| names.iter().any(|name| name.contains(lab_id)))
                 })
                 .collect();
 
@@ -400,26 +400,26 @@ async fn destroy_docker_networks(
     match list_networks(docker).await {
         Ok(container_networks) => {
             for network in container_networks {
-                if let Some(network_name) = network.name {
-                    if network_name.contains(lab_id) {
-                        match delete_network(docker, &network_name).await {
-                            Ok(_) => {
-                                summary.docker_networks_destroyed.push(network_name.clone());
-                                tracing::info!("Destroyed Docker network: {}", network_name);
-                            }
-                            Err(e) => {
-                                summary.docker_networks_failed.push(network_name.clone());
-                                errors.push(DestroyError::new(
-                                    "docker_network",
-                                    &network_name,
-                                    format!("{:?}", e),
-                                ));
-                                tracing::error!(
-                                    "Failed to destroy Docker network {}: {:?}",
-                                    network_name,
-                                    e
-                                );
-                            }
+                if let Some(network_name) = network.name
+                    && network_name.contains(lab_id)
+                {
+                    match delete_network(docker, &network_name).await {
+                        Ok(_) => {
+                            summary.docker_networks_destroyed.push(network_name.clone());
+                            tracing::info!("Destroyed Docker network: {}", network_name);
+                        }
+                        Err(e) => {
+                            summary.docker_networks_failed.push(network_name.clone());
+                            errors.push(DestroyError::new(
+                                "docker_network",
+                                &network_name,
+                                format!("{:?}", e),
+                            ));
+                            tracing::error!(
+                                "Failed to destroy Docker network {}: {:?}",
+                                network_name,
+                                e
+                            );
                         }
                     }
                 }

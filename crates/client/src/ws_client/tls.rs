@@ -14,7 +14,7 @@ use crate::trust_store::{TrustStore, extract_cert_info};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
-    validate_certs: bool,
+    _validate_certs: bool,
     ca_cert_path: Option<String>,
     insecure: bool,
 }
@@ -23,14 +23,14 @@ impl TlsConfigBuilder {
     /// Create a new TLS config builder from server connection settings
     pub fn new(server_conn: &ServerConnection) -> Self {
         Self {
-            validate_certs: server_conn.validate_certs,
+            _validate_certs: server_conn.validate_certs,
             ca_cert_path: server_conn.ca_cert_path.clone(),
             insecure: server_conn.insecure,
         }
     }
 
     /// Build rustls ClientConfig
-    pub fn build(&self) -> Result<Arc<ClientConfig>> {
+    pub fn _build(&self) -> Result<Arc<ClientConfig>> {
         if self.insecure {
             tracing::warn!("INSECURE MODE: TLS certificate validation is DISABLED");
             return Ok(Arc::new(Self::build_insecure()));
@@ -46,7 +46,7 @@ impl TlsConfigBuilder {
             root_store
                 .add(ca_cert)
                 .context("Failed to add custom CA certificate to root store")?;
-        } else if self.validate_certs {
+        } else if self._validate_certs {
             // Use webpki roots (Mozilla's CA certificates)
             root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
             tracing::debug!("Using webpki system CA certificates for validation");
@@ -319,7 +319,7 @@ mod tests {
         };
 
         let builder = TlsConfigBuilder::new(&server_conn);
-        let result = builder.build();
+        let result = builder._build();
 
         assert!(result.is_ok());
     }
@@ -335,7 +335,7 @@ mod tests {
         };
 
         let builder = TlsConfigBuilder::new(&server_conn);
-        let result = builder.build();
+        let result = builder._build();
 
         assert!(result.is_ok());
     }

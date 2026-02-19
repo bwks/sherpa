@@ -109,7 +109,7 @@ pub async fn destroy_ws(
         .map(|device| NodeInfo {
             name: device.name.clone(),
             kind: device.kind.to_string(),
-            model: device.model.clone(),
+            model: device.model,
             status: device.state,
             ip_address: if device.mgmt_ipv4.is_empty() {
                 None

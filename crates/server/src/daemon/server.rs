@@ -48,7 +48,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             .init();
     } else {
         // Background mode: log to file without colors
-        let log_file = OpenOptions::new().create(true).append(true).open(&format!(
+        let log_file = OpenOptions::new().create(true).append(true).open(format!(
             "{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}/{SHERPAD_LOG_FILE}"
         ))?;
 

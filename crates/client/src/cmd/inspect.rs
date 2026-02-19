@@ -65,7 +65,7 @@ pub async fn inspect(
     for device in devices {
         let mut device_data = InpsectDevice {
             name: device.name.clone(),
-            model: device.model.clone(),
+            model: device.model,
             active: false,
             mgmt_ipv4: "".to_string(),
             disks: vec![],

@@ -30,7 +30,7 @@ impl Connection {
             .await
             .send(message)
             .await
-            .map_err(|e| axum::Error::new(e))
+            .map_err(axum::Error::new)
     }
 }
 

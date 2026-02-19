@@ -284,10 +284,10 @@ fn normalize_server_url(input: &str) -> String {
     use url::Url;
 
     // If it already looks like a valid URL, return as-is
-    if let Ok(url) = Url::parse(input) {
-        if url.scheme() == "ws" || url.scheme() == "wss" {
-            return input.to_string();
-        }
+    if let Ok(url) = Url::parse(input)
+        && (url.scheme() == "ws" || url.scheme() == "wss")
+    {
+        return input.to_string();
     }
 
     // Otherwise, try to parse as host:port

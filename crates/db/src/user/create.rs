@@ -86,7 +86,7 @@ pub async fn create_user(
         password_hash,
         is_admin,
         ssh_keys,
-        created_at: now.clone(),
+        created_at: now,
         updated_at: now,
     };
 
@@ -158,9 +158,7 @@ pub async fn upsert_user(
         .ok()
         .flatten();
 
-    let created_at = existing_user
-        .map(|u| u.created_at)
-        .unwrap_or_else(|| now.clone());
+    let created_at = existing_user.map(|u| u.created_at).unwrap_or_else(|| now);
 
     // Upsert using username as the record ID
     let upserted: Option<DbUser> = db

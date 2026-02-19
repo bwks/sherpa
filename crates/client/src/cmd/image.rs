@@ -86,9 +86,7 @@ pub async fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> 
                 term_msg_surround("Container images");
                 let docker_conn = docker_connection()?;
                 list_images(&docker_conn).await?;
-            } else if *nanovms {
-                println!("NOT IMPLEMENTED")
-            } else if *virtual_machines {
+            } else if *nanovms || *virtual_machines {
                 println!("NOT IMPLEMENTED")
             } else {
                 println!("{}", &config.images_dir);

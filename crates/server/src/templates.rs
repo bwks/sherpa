@@ -175,6 +175,7 @@ impl IntoResponse for SignupErrorTemplate {
 /// 404 Not Found error page template
 #[derive(Template)]
 #[template(path = "error-404.html.jinja")]
+#[allow(dead_code)]
 pub struct Error404Template {
     pub username: String,
     pub message: String,
@@ -196,6 +197,7 @@ impl IntoResponse for Error404Template {
 /// 403 Forbidden error page template
 #[derive(Template)]
 #[template(path = "error-403.html.jinja")]
+#[allow(dead_code)]
 pub struct Error403Template {
     pub username: String,
     pub message: String,
@@ -486,6 +488,7 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 /// Admin node configs list page template
 #[derive(Template)]
 #[template(path = "admin-node-configs.html.jinja")]
+#[allow(dead_code)]
 pub struct AdminNodeConfigsListTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -508,6 +511,7 @@ impl IntoResponse for AdminNodeConfigsListTemplate {
 /// Admin node config detail page template
 #[derive(Template)]
 #[template(path = "admin-node-config-detail.html.jinja")]
+#[allow(dead_code)]
 pub struct AdminNodeConfigDetailTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -530,6 +534,7 @@ impl IntoResponse for AdminNodeConfigDetailTemplate {
 /// Admin node config edit page template
 #[derive(Template)]
 #[template(path = "admin-node-config-edit.html.jinja")]
+#[allow(dead_code)]
 pub struct AdminNodeConfigEditTemplate {
     pub username: String,
     pub is_admin: bool,
@@ -560,6 +565,7 @@ impl IntoResponse for AdminNodeConfigEditTemplate {
 /// Admin node config versions list page template
 #[derive(Template)]
 #[template(path = "admin-node-config-versions.html.jinja")]
+#[allow(dead_code)]
 pub struct AdminNodeConfigVersionsTemplate {
     pub username: String,
     pub is_admin: bool,

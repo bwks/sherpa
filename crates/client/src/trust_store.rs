@@ -208,7 +208,7 @@ fn url_to_filename(server_url: &str) -> String {
         if let Some(port) = port {
             // Replace : with _ for Windows compatibility
             // Replace other unsafe chars with _
-            let safe_host = host.replace(':', "_").replace('/', "_");
+            let safe_host = host.replace([':', '/'], "_");
             return format!("{}_{}", safe_host, port);
         }
     }
@@ -225,11 +225,11 @@ fn url_to_filename(server_url: &str) -> String {
 /// Example: 10.100.58.10_3030 -> wss://10.100.58.10:3030/ws
 fn filename_to_url(filename: &str) -> String {
     // Try to parse as host_port format
-    if let Some((host, port_str)) = filename.rsplit_once('_') {
-        if port_str.parse::<u16>().is_ok() {
-            // Reconstruct as wss:// URL (assume secure by default for display)
-            return format!("wss://{}:{}/ws", host, port_str);
-        }
+    if let Some((host, port_str)) = filename.rsplit_once('_')
+        && port_str.parse::<u16>().is_ok()
+    {
+        // Reconstruct as wss:// URL (assume secure by default for display)
+        return format!("wss://{}:{}/ws", host, port_str);
     }
 
     // Fallback: return filename as-is if can't parse

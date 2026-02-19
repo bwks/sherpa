@@ -4,7 +4,7 @@ use axum::extract::ws::Message;
 use std::sync::atomic::Ordering;
 
 /// Broadcast a message to all connected clients
-pub async fn broadcast_to_all(registry: &ConnectionRegistry, message: &ServerMessage) -> usize {
+pub async fn _broadcast_to_all(registry: &ConnectionRegistry, message: &ServerMessage) -> usize {
     let json = match serde_json::to_string(message) {
         Ok(j) => j,
         Err(e) => {
@@ -30,7 +30,7 @@ pub async fn broadcast_to_all(registry: &ConnectionRegistry, message: &ServerMes
 }
 
 /// Broadcast a log message to subscribed clients only
-pub async fn broadcast_log(registry: &ConnectionRegistry, message: &ServerMessage) -> usize {
+pub async fn _broadcast_log(registry: &ConnectionRegistry, message: &ServerMessage) -> usize {
     let json = match serde_json::to_string(message) {
         Ok(j) => j,
         Err(e) => {
@@ -79,12 +79,12 @@ mod tests {
             progress: None,
         };
 
-        let count = broadcast_to_all(&registry, &message).await;
+        let count = _broadcast_to_all(&registry, &message).await;
         assert_eq!(count, 0);
     }
 
     #[tokio::test]
-    async fn test_broadcast_log_to_empty_registry() {
+    async fn test__broadcast_log_to_empty_registry() {
         let registry = crate::api::websocket::connection::create_registry();
 
         let message = ServerMessage::Log {
@@ -94,7 +94,7 @@ mod tests {
             context: None,
         };
 
-        let count = broadcast_log(&registry, &message).await;
+        let count = _broadcast_log(&registry, &message).await;
         assert_eq!(count, 0);
     }
 }

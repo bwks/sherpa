@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use shared::data::{Config, NodeState, UpResponse};
+use shared::data::{Config, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -98,11 +98,11 @@ pub async fn up_ws(
                     // Display the message with success emoji
                     println!("{} {}", Emoji::Success, status_msg.message);
                 }
-            } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text) {
-                if log_msg.r#type == "log" {
-                    // Display log messages (for debugging)
-                    println!("[LOG] {}", log_msg.message);
-                }
+            } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text)
+                && log_msg.r#type == "log"
+            {
+                // Display log messages (for debugging)
+                println!("[LOG] {}", log_msg.message);
             }
         })
         .await
