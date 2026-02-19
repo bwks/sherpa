@@ -110,7 +110,7 @@ struct DeviceTableRow {
 ///
 /// # Example
 /// ```
-/// use shared::data::{DeviceInfo, NodeKind, NodeModel};
+/// use shared::data::{DeviceInfo, NodeKind, NodeModel, NodeState};
 /// use shared::util::table::render_devices_table;
 ///
 /// let devices = vec![
@@ -118,7 +118,7 @@ struct DeviceTableRow {
 ///         name: "router01".to_string(),
 ///         model: NodeModel::CiscoCat8000v,
 ///         kind: NodeKind::VirtualMachine,
-///         active: true,
+///         state: NodeState::Running,
 ///         mgmt_ipv4: "172.31.0.11".to_string(),
 ///         disks: vec![],
 ///     },
@@ -339,7 +339,7 @@ mod tests {
             name: "router01".to_string(),
             model: NodeModel::CiscoCat8000v,
             kind: NodeKind::VirtualMachine,
-            active: true,
+            state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
@@ -351,7 +351,7 @@ mod tests {
         assert!(table.contains("172.31.0.11"));
         assert!(table.contains("cisco_cat8000v"));
         assert!(table.contains("virtual_machine"));
-        assert!(table.contains("Yes"));
+        assert!(table.contains("running"));
         assert!(table.contains("router01.qcow2"));
 
         // Check for modern style box-drawing characters
@@ -365,7 +365,7 @@ mod tests {
                 name: "router01".to_string(),
                 model: NodeModel::CiscoCat8000v,
                 kind: NodeKind::VirtualMachine,
-                active: true,
+                state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
@@ -376,7 +376,7 @@ mod tests {
                 name: "switch01".to_string(),
                 model: NodeModel::ArubaAoscx,
                 kind: NodeKind::VirtualMachine,
-                active: true,
+                state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.12".to_string(),
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
             },
@@ -402,7 +402,7 @@ mod tests {
             name: "container01".to_string(),
             model: NodeModel::AlpineLinux,
             kind: NodeKind::Container,
-            active: false,
+            state: NodeState::Stopped,
             mgmt_ipv4: "".to_string(),
             disks: vec![],
         }];
@@ -412,7 +412,7 @@ mod tests {
         // Check that missing data is represented with "-"
         assert!(table.contains("container01"));
         assert!(table.contains("alpine_linux"));
-        assert!(table.contains("No")); // active = false
+        assert!(table.contains("stopped")); // state = Stopped
         assert!(table.contains("-")); // empty mgmt_ipv4
     }
 

@@ -2668,9 +2668,7 @@ pub async fn up_lab(
                         connected_nodes.insert(vm.name.clone());
 
                         // Update node state in DB to Running
-                        if let Some(node_data) =
-                            lab_node_data.iter().find(|n| n.name == vm.name)
-                        {
+                        if let Some(node_data) = lab_node_data.iter().find(|n| n.name == vm.name) {
                             let record_id = db::get_node_id(&node_data.record)?;
                             db::update_node_state(&db, record_id, NodeState::Running).await?;
                         }
