@@ -2631,6 +2631,12 @@ pub async fn up_lab(
             progress.send_status(format!("Node {} - Started", container.name))?;
             connected_nodes.insert(container.name.clone());
 
+            // Update node state in DB to Running
+            if let Some(node_data) = lab_node_data.iter().find(|n| n.name == container.name) {
+                let record_id = db::get_node_id(&node_data.record)?;
+                db::update_node_state(&db, record_id, NodeState::Running).await?;
+            }
+
             node_info_list.push(data::NodeInfo {
                 name: container.name.clone(),
                 kind: "Container".to_string(),
@@ -2660,6 +2666,14 @@ pub async fn up_lab(
                         progress
                             .send_status(format!("Node {} - Ready (SSH accessible)", vm.name))?;
                         connected_nodes.insert(vm.name.clone());
+
+                        // Update node state in DB to Running
+                        if let Some(node_data) =
+                            lab_node_data.iter().find(|n| n.name == vm.name)
+                        {
+                            let record_id = db::get_node_id(&node_data.record)?;
+                            db::update_node_state(&db, record_id, NodeState::Running).await?;
+                        }
 
                         node_info_list.push(data::NodeInfo {
                             name: vm.name.clone(),

@@ -137,7 +137,7 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
             } else {
                 device.mgmt_ipv4.clone()
             };
-            let active = if device.active { "Yes" } else { "No" };
+            let active = device.state.to_string();
 
             // Format disks - join multiple disks with newline for table display
             let disks = if device.disks.is_empty() {

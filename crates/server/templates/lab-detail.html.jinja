@@ -111,13 +111,21 @@
                         {{ device.kind }}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap">
-                        {% if device.active %}
+                        {% if device.state.to_string() == "running" %}
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            Active
+                            Running
+                        </span>
+                        {% elif device.state.to_string() == "created" || device.state.to_string() == "starting" %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                            {{ device.state.to_string()|capitalize }}
+                        </span>
+                        {% elif device.state.to_string() == "failed" %}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            Failed
                         </span>
                         {% else %}
                         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                            Inactive
+                            {{ device.state.to_string()|capitalize }}
                         </span>
                         {% endif %}
                     </td>
@@ -128,7 +136,7 @@
                         {% if device.disks.is_empty() %}-{% else %}✓{% endif %}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
-                        {% if device.active %}
+                        {% if device.state.to_string() == "running" %}
                         <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-red-600 rounded opacity-50 cursor-not-allowed">
                             Stop
                         </button>

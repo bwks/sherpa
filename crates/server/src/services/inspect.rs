@@ -104,23 +104,17 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
             name: node_name.clone(),
             model: node_config.model.clone(),
             kind: node_config.kind.clone(),
-            active: false,
+            state: node.state.clone(),
             mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
             disks: Vec::new(),
         };
 
-        // Check if device is running
+        // Check if device exists in libvirt
         let domain_found = domains
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name);
 
-        if let Some(domain) = domain_found {
-            // Check if domain is active
-            device_info.active = domain.is_active().context(format!(
-                "Failed to check if domain '{}' is active",
-                device_name
-            ))?;
-
+        if let Some(_domain) = domain_found {
             // Get management IP from DHCP leases
             if let Some(lease) = leases.iter().find(|l| l.hostname == node_name) {
                 device_info.mgmt_ipv4 = lease.ipv4_address.clone();

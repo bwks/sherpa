@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::DbNode;
+use shared::data::{DbNode, NodeState};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -104,4 +104,36 @@ pub async fn update_node_mgmt_ipv4(
         ))?;
 
     updated.ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
+}
+
+/// Update a node's runtime state.
+///
+/// Fetches the existing node, sets the `state` field, and writes it back.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `node_id` - RecordId of the node to update
+/// * `state` - The new NodeState to set
+///
+/// # Returns
+/// The updated DbNode record
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+pub async fn update_node_state(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    state: NodeState,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.state = state;
+
+    let updated: Option<DbNode> = db
+        .update(node_id.clone())
+        .content(node.clone())
+        .await
+        .context(format!("Failed to update state for node: {}", node.name))?;
+
+    updated.ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
 }

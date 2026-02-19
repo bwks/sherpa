@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::data::{LabInfo, NodeKind, NodeModel};
+use crate::data::{LabInfo, NodeKind, NodeModel, NodeState};
 
 /// Request type for inspecting a lab
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -26,7 +26,7 @@ pub struct DeviceInfo {
     pub name: String,
     pub model: NodeModel,
     pub kind: NodeKind,
-    pub active: bool,
+    pub state: NodeState,
     pub mgmt_ipv4: String,
     pub disks: Vec<String>,
 }
