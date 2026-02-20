@@ -347,7 +347,9 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_trust_store_new() {
         let temp_home = TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_home.path());
+        unsafe {
+            std::env::set_var("HOME", temp_home.path());
+        }
 
         let trust_store = TrustStore::new().unwrap();
 
@@ -367,7 +369,9 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_save_and_get_cert() {
         let temp_home = TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_home.path());
+        unsafe {
+            std::env::set_var("HOME", temp_home.path());
+        }
 
         let trust_store = TrustStore::new().unwrap();
         let server_url = "wss://test.example.com:3030/ws";
@@ -388,7 +392,9 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_remove_cert() {
         let temp_home = TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_home.path());
+        unsafe {
+            std::env::set_var("HOME", temp_home.path());
+        }
 
         let trust_store = TrustStore::new().unwrap();
         let server_url = "wss://test.example.com:3030/ws";
@@ -412,7 +418,9 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_invalid_pem_format() {
         let temp_home = TempDir::new().unwrap();
-        std::env::set_var("HOME", temp_home.path());
+        unsafe {
+            std::env::set_var("HOME", temp_home.path());
+        }
 
         let trust_store = TrustStore::new().unwrap();
         let server_url = "wss://test.example.com:3030/ws";
