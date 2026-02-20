@@ -1,118 +1,116 @@
-use std::str::FromStr;
+use anyhow::{Context, Result, bail};
+use std::time::Duration;
 
-use anyhow::{Result, bail};
-use serde_derive::{Deserialize, Serialize};
-use virt::storage_pool::StoragePool;
+use shared::data::{Config, InspectResponse};
+use shared::error::RpcErrorCode;
+use shared::util::{
+    Emoji, get_username, render_devices_table, render_lab_info_table, term_msg_surround,
+    term_msg_underline,
+};
 
-use libvirt::Qemu;
-use shared::data::{Config, LabInfo, NodeModel};
-use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
-use shared::util::{get_dhcp_leases, load_file, term_msg_surround, term_msg_underline};
-use topology::Node;
+use crate::token::load_token;
+use crate::ws_client::{RpcRequest, WebSocketClient};
 
-#[derive(Debug, Serialize, Deserialize)]
-struct InpsectDevice {
-    name: String,
-    model: NodeModel,
-    active: bool,
-    mgmt_ipv4: String,
-    disks: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct InspectData {
-    lab_name: String,
-    lab_id: String,
-    devices: Vec<InpsectDevice>,
-}
-
+/// Inspect lab via WebSocket RPC to sherpad server
 pub async fn inspect(
-    qemu: &Qemu,
     lab_name: &str,
     lab_id: &str,
+    server_url: &str,
     config: &Config,
-    devices: &[Node],
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
 
-    term_msg_underline("Lab Info");
-
-    let lab_file = match load_file(&format!("{lab_dir}/{LAB_FILE_NAME}")) {
-        Ok(f) => f,
-        Err(_) => {
-            bail!("Unable to load lab file. Is the lab running?")
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{} Authentication required", Emoji::Error);
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
         }
     };
-    let lab_info = LabInfo::from_str(&lab_file)?;
-    println!("{}", lab_info);
 
-    let qemu_conn = qemu.connect()?;
-    let devices: Vec<Node> = devices.iter().map(|d| (*d).to_owned()).collect();
+    // Create WebSocket client
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
 
-    let domains = qemu_conn.list_all_domains(0)?;
-    let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
+    // Connect to server
+    println!("Connecting to server: {}", server_url);
+    let mut rpc_client = ws_client
+        .connect()
+        .await
+        .context("Failed to connect to sherpad server")?;
 
-    let mut inspect_data = InspectData {
-        lab_name: lab_name.to_string(),
-        lab_id: lab_id.to_string(),
-        devices: vec![],
-    };
-    let mut inspect_devices: Vec<InpsectDevice> = vec![];
+    // Get current username (for display purposes only - server uses token)
+    let _username = get_username()?;
 
-    let leases = get_dhcp_leases(config).await?;
-    let mut inactive_devices = vec![];
-    for device in devices {
-        let mut device_data = InpsectDevice {
-            name: device.name.clone(),
-            model: device.model,
-            active: false,
-            mgmt_ipv4: "".to_string(),
-            disks: vec![],
-        };
-        let device_name = format!("{}-{}", device.name, lab_id);
+    // Create RPC request with authentication token
+    let request = RpcRequest::new(
+        "inspect",
+        serde_json::json!({
+            "lab_id": lab_id,
+            "token": token,
+        }),
+    );
 
-        if let Some(domain) = domains
-            .iter()
-            .find(|d| d.get_name().unwrap_or_default() == device_name)
-        {
-            let vm_ip = if let Some(vm_ip) = leases.iter().find(|d| d.hostname == device.name) {
-                vm_ip.ipv4_address.clone()
-            } else {
-                "".to_owned()
-            };
-            term_msg_underline(&device.name);
-            println!("Domain: {}", device_name);
-            println!("Model: {}", device.model);
-            println!("Active: {:#?}", domain.is_active()?);
-            if !vm_ip.is_empty() {
-                println!("Mgmt IP: {vm_ip}");
-                device_data.mgmt_ipv4 = vm_ip;
-                device_data.active = true;
-            }
-            let mut device_disks = vec![];
-            for volume in pool.list_volumes()? {
-                if volume.contains(&device_name) {
-                    println!("Disk: {volume}");
-                    device_disks.push(volume)
-                }
-            }
-            device_data.disks = device_disks;
-            inspect_devices.push(device_data)
-        } else {
-            inactive_devices.push(device.name);
+    // Send request and wait for response
+    println!("Requesting lab inspection from server...");
+    let response = rpc_client.call(request).await.context("RPC call failed")?;
+
+    // Close connection
+    rpc_client.close().await.ok(); // Ignore close errors
+
+    // Handle response
+    if let Some(error) = response.error {
+        // Pretty-print error with context
+        eprintln!("\n{} Server Error:", Emoji::Error);
+        eprintln!("   Message: {}", error.message);
+        eprintln!("   Code: {}", error.code);
+        if let Some(context) = error.context {
+            eprintln!("   Context:\n{}", context);
+        }
+
+        // Check for authentication errors
+        if error.code == RpcErrorCode::AuthRequired {
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
+            eprintln!("   Please run: sherpa login");
+        }
+
+        bail!("Inspection failed");
+    }
+
+    let result = response.result.context("No result in response")?;
+
+    // Deserialize InspectResponse
+    let inspect_data: InspectResponse =
+        serde_json::from_value(result).context("Failed to parse inspect response")?;
+
+    // Display results (similar format to original inspect command)
+    let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
+    println!("{}", lab_info_table);
+
+    // Display active devices in table format
+    if !inspect_data.devices.is_empty() {
+        println!();
+        let table = render_devices_table(&inspect_data.devices);
+        println!("{}", table);
+    }
+
+    // Display inactive devices
+    if !inspect_data.inactive_devices.is_empty() {
+        term_msg_underline("Inactive Devices");
+        for device in &inspect_data.inactive_devices {
+            println!("{}", device);
         }
     }
 
-    inspect_data.devices = inspect_devices;
-
-    println!("{}", serde_json::to_string_pretty(&inspect_data)?);
-
-    if !inactive_devices.is_empty() {
-        term_msg_underline("inactive devices");
-        for device in &inactive_devices {
-            println!("{device}")
-        }
-    }
     Ok(())
 }

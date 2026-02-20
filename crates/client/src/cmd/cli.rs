@@ -7,13 +7,11 @@ use super::clean::clean;
 use super::console::console;
 use super::container::{ContainerCommands, parse_container_commands};
 use super::destroy::destroy;
-use super::destroy_ws::destroy_ws;
 use super::doctor::doctor;
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
-use super::inspect_ws::inspect_ws;
 use super::login::{login, logout, whoami};
 use super::resume::resume;
 use super::ssh::ssh;
@@ -85,14 +83,8 @@ enum Commands {
     Resume,
     /// Destroy environment
     Destroy,
-    /// Destroy environment  (experimental)
-    #[command(name = "destroyws")]
-    DestroyWs,
     /// Inspect environment
     Inspect,
-    /// Inspect environment  (experimental)
-    #[command(name = "inspectws")]
-    InspectWs,
 
     /// Validate configurations
     Validate {
@@ -272,12 +264,6 @@ impl Cli {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
-                destroy(&qemu, &lab_name, &lab_id).await?;
-            }
-            Commands::DestroyWs => {
-                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest.name)?;
-                let lab_name = manifest.name.clone();
                 let mut config = load_config(&sherpa.config_file_path)?;
 
                 // Apply --insecure flag if set
@@ -292,19 +278,12 @@ impl Cli {
                     .or_else(get_server_url)
                     .unwrap_or_else(|| build_websocket_url(&config));
 
-                destroy_ws(&lab_name, &lab_id, &server_url, &config).await?;
+                destroy(&lab_name, &lab_id, &server_url, &config).await?;
             }
             Commands::Inspect => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
-                let config = load_config(&sherpa.config_file_path)?;
-                inspect(&qemu, &lab_name, &lab_id, &config, &manifest.nodes).await?;
-            }
-            Commands::InspectWs => {
-                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest.name)?;
-                let lab_name = manifest.name.clone();
                 let mut config = load_config(&sherpa.config_file_path)?;
 
                 // Apply --insecure flag if set
@@ -319,7 +298,7 @@ impl Cli {
                     .or_else(get_server_url)
                     .unwrap_or_else(|| build_websocket_url(&config));
 
-                inspect_ws(&lab_name, &lab_id, &server_url, &config).await?;
+                inspect(&lab_name, &lab_id, &server_url, &config).await?;
             }
             Commands::Validate { manifest } => {
                 // Default to manifest.toml if no specific flag provided
