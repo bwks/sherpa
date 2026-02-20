@@ -3,7 +3,7 @@ use tabled::{
     settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
 };
 
-use crate::data::{BridgeInfo, DeviceInfo, LabInfo, LinkInfo, NodeInfo};
+use crate::data::{BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeInfo};
 
 /// Represents a row in the nodes table
 #[derive(Tabled)]
@@ -550,6 +550,16 @@ struct CertTableRow {
 
     #[tabled(rename = "Valid Until")]
     valid_until: String,
+}
+
+/// Renders a table of images with their model, kind, version, and default status
+pub fn render_images_table(images: &[ImageSummary]) -> String {
+    Table::new(images)
+        .with(Style::modern())
+        .with(Panel::header("Images"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
 }
 
 /// Certificate information for table display

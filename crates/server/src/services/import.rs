@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 
-use shared::data::{ImportRequest, ImportResponse, NodeConfig, NodeKind};
+use shared::data::{
+    ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse, NodeConfig,
+    NodeKind,
+};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_IMAGES_DIR};
 use shared::util::{copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive};
 
@@ -83,4 +86,41 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         image_path: version_disk,
         db_tracked,
     })
+}
+
+/// List images from the database with optional filtering by model and/or kind
+pub async fn list_images(
+    request: ListImagesRequest,
+    state: &AppState,
+) -> Result<ListImagesResponse> {
+    let configs = match (&request.model, &request.kind) {
+        (Some(model), Some(kind)) => db::get_node_config_versions(&state.db, model, kind)
+            .await
+            .context("Failed to query node configs by model and kind")?,
+        (None, Some(kind)) => db::list_node_configs_by_kind(&state.db, kind)
+            .await
+            .context("Failed to query node configs by kind")?,
+        (Some(model), None) => {
+            let config = NodeConfig::get_model(*model);
+            db::get_node_config_versions(&state.db, model, &config.kind)
+                .await
+                .context("Failed to query node configs by model")?
+        }
+        (None, None) => db::list_node_configs(&state.db)
+            .await
+            .context("Failed to query all node configs")?,
+    };
+
+    let images: Vec<ImageSummary> = configs
+        .into_iter()
+        .map(|c| ImageSummary {
+            model: c.model,
+            kind: c.kind,
+            version: c.version,
+            default: c.default,
+        })
+        .collect();
+
+    let total = images.len();
+    Ok(ListImagesResponse { images, total })
 }

@@ -16,8 +16,9 @@ use shared::konst::{
     RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
     RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_AUTH_ERROR,
     RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_IMAGE_IMPORT_FAILED,
-    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
+    RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
+    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
+    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
     RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
     RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED,
@@ -47,6 +48,7 @@ pub async fn handle_rpc_request(
         "destroy" => handle_destroy(id, params, state).await,
         "clean" => handle_clean(id, params, state).await,
         "image.import" => handle_image_import(id, params, state).await,
+        "image.list" => handle_image_list(id, params, state).await,
         "user.create" => handle_user_create(id, params, state).await,
         "user.list" => handle_user_list(id, params, state).await,
         "user.delete" => handle_user_delete(id, params, state).await,
@@ -519,6 +521,87 @@ async fn handle_image_import(
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_IMAGE_IMPORT_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "image.list" RPC call
+///
+/// Expected params: ListImagesRequest {"model": "string"?, "kind": "string"?, "token": "string"}
+async fn handle_image_list(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for image.list: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Parse params into ListImagesRequest
+    let request: data::ListImagesRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_IMAGE_LIST.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Call list images service
+    match import::list_images(request, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' listed images (total={})",
+                    auth_ctx.username,
+                    response.total
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_IMAGE_LIST_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }

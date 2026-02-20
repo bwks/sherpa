@@ -250,6 +250,7 @@ pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
 
 // Image operations
 pub const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";
+pub const RPC_MSG_IMAGE_LIST_FAILED: &str = "Image list operation failed";
 pub const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
     "Access denied: only administrators can import images";
 
@@ -269,3 +270,4 @@ pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
 pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
     "Invalid params: expected GetUserInfoRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
+pub const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";

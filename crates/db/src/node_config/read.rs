@@ -4,13 +4,14 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
-/// List all node_config records from the database
+/// List all node_config records from the database ordered by model
 pub async fn list_node_configs(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfig>> {
-    let configs: Vec<NodeConfig> = db
-        .select("node_config")
+    let mut response = db
+        .query("SELECT * FROM node_config ORDER BY model ASC")
         .await
         .context("Failed to query all node_configs from database")?;
 
+    let configs: Vec<NodeConfig> = response.take(0)?;
     Ok(configs)
 }
 
@@ -56,6 +57,24 @@ pub async fn get_default_node_config(
     Ok(config)
 }
 
+/// List all node_config records filtered by kind
+pub async fn list_node_configs_by_kind(
+    db: &Arc<Surreal<Client>>,
+    kind: &NodeKind,
+) -> Result<Vec<NodeConfig>> {
+    let mut response = db
+        .query("SELECT * FROM node_config WHERE kind = $kind ORDER BY model ASC")
+        .bind(("kind", kind.to_string()))
+        .await
+        .context(format!(
+            "Failed to query node_configs by kind from database: kind={}",
+            kind
+        ))?;
+
+    let configs: Vec<NodeConfig> = response.take(0)?;
+    Ok(configs)
+}
+
 /// Get all versions of a node_config for a specific model and kind
 pub async fn get_node_config_versions(
     db: &Arc<Surreal<Client>>,
@@ -63,7 +82,7 @@ pub async fn get_node_config_versions(
     kind: &NodeKind,
 ) -> Result<Vec<NodeConfig>> {
     let mut response = db
-        .query("SELECT * FROM node_config WHERE model = $model AND kind = $kind ORDER BY id DESC")
+        .query("SELECT * FROM node_config WHERE model = $model AND kind = $kind ORDER BY model ASC")
         .bind(("model", model.to_string()))
         .bind(("kind", kind.to_string()))
         .await
