@@ -1,5 +1,7 @@
 #! /usr/bin/bash
 
+set -euo pipefail
+
 CONTAINER_NAME="sherpa-db"
 SURREALDB_VERSION="v3.0.0"
 SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"

@@ -16,6 +16,9 @@
 //! - Username must match pattern: `[a-zA-Z0-9@._-]+`
 //! - Username must be unique across all users
 //!
+//! ## Computed Fields
+//! - `labs`: Reverse reference to all labs owned by this user (`<~(lab FIELD user)`)
+//!
 //! ## Relationships
 //! - One-to-many with `lab` table (user owns multiple labs)
 
@@ -57,6 +60,8 @@ DEFINE FIELD is_admin ON TABLE user TYPE bool DEFAULT false;
 DEFINE FIELD ssh_keys ON TABLE user TYPE array<string> DEFAULT [];
 DEFINE FIELD created_at ON TABLE user TYPE datetime;
 DEFINE FIELD updated_at ON TABLE user TYPE datetime;
+
+DEFINE FIELD labs ON TABLE user COMPUTED <~(lab FIELD user);
 
 DEFINE INDEX unique_username
   ON TABLE user FIELDS username UNIQUE;

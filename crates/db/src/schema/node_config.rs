@@ -22,6 +22,9 @@
 //! - Unique constraint on (model, kind, version) combination
 //! - Only one configuration per (model, kind) can have default=true (enforced by application logic)
 //!
+//! ## Computed Fields
+//! - `nodes`: Reverse reference to all nodes using this config (`<~(node FIELD config)`)
+//!
 //! ## Relationships
 //! - One-to-many with `node` table (one config can be used by many nodes)
 
@@ -142,6 +145,8 @@ DEFINE FIELD reserved_interface_count ON TABLE node_config TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 
 DEFINE FIELD default ON TABLE node_config TYPE bool;
+
+DEFINE FIELD nodes ON TABLE node_config COMPUTED <~(node FIELD config);
 
 DEFINE INDEX unique_node_config_model_kind_version
   ON TABLE node_config FIELDS model, kind, version UNIQUE;

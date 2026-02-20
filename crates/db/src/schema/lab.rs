@@ -15,6 +15,11 @@
 //! - `lab_id` must be globally unique
 //! - `name` must be unique per user (composite unique constraint)
 //!
+//! ## Computed Fields
+//! - `nodes`: Reverse reference to all nodes in this lab (`<~(node FIELD lab)`)
+//! - `links`: Reverse reference to all links in this lab (`<~(link FIELD lab)`)
+//! - `bridges`: Reverse reference to all bridges in this lab (`<~(bridge FIELD lab)`)
+//!
 //! ## Relationships
 //! - Many-to-one with `user` table (each lab has one owner)
 //! - One-to-many with `node` table (lab contains multiple nodes)
@@ -63,6 +68,10 @@ DEFINE FIELD lab_id ON TABLE lab TYPE string
     ASSERT string::len($value) >= 1;
 DEFINE FIELD name ON TABLE lab TYPE string;
 DEFINE FIELD user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
+
+DEFINE FIELD nodes ON TABLE lab COMPUTED <~(node FIELD lab);
+DEFINE FIELD links ON TABLE lab COMPUTED <~(link FIELD lab);
+DEFINE FIELD bridges ON TABLE lab COMPUTED <~(bridge FIELD lab);
 
 DEFINE INDEX unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
 

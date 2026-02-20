@@ -1,0 +1,103 @@
+#! /usr/bin/bash
+
+set -euo pipefail
+
+CONTAINER_NAME="sherpa-test-db"
+SURREALDB_VERSION="v3.0.0"
+SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"
+DB_PORT="${SHERPA_DEV_DB_PORT:-42069}"
+DB_USER="${SHERPA_DEV_DB_USER:-root}"
+DB_PASS="${SHERPA_DEV_DB_PASS:-root}"
+
+usage() {
+    echo "Usage: $(basename "$0") {start|stop|restart|status|logs|destroy}"
+    echo ""
+    echo "Run a SurrealDB container for local development and testing."
+    echo ""
+    echo "Commands:"
+    echo "  start    Start the SurrealDB container (in-memory)"
+    echo "  stop     Stop the running container"
+    echo "  restart  Stop and start the container"
+    echo "  status   Show container status"
+    echo "  logs     Tail container logs"
+    echo "  destroy  Stop and remove the container"
+    echo ""
+    echo "Environment variables:"
+    echo "  SHERPA_DEV_DB_PORT  Host port to bind (default: 42069)"
+    echo "  SHERPA_DEV_DB_USER  Database root user (default: root)"
+    echo "  SHERPA_DEV_DB_PASS  Database root password (default: root)"
+    echo ""
+    echo "Connection: ws://localhost:${DB_PORT}"
+}
+
+start_db() {
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "SurrealDB container '${CONTAINER_NAME}' is already running."
+        echo "Connection: ws://localhost:${DB_PORT}"
+        return 0
+    fi
+
+    # Remove stopped container if it exists
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        docker rm "${CONTAINER_NAME}" > /dev/null
+    fi
+
+    echo "Starting SurrealDB ${SURREALDB_VERSION} (in-memory)..."
+    docker run -d \
+        --name "${CONTAINER_NAME}" \
+        -p "${DB_PORT}:42069" \
+        "${SURREALDB_IMAGE}" \
+        start --log info --user "${DB_USER}" --pass "${DB_PASS}" memory > /dev/null
+
+    echo "SurrealDB is running."
+    echo "Connection: ws://localhost:${DB_PORT}"
+    echo "User: ${DB_USER}"
+}
+
+stop_db() {
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "Stopping SurrealDB container..."
+        docker stop "${CONTAINER_NAME}" > /dev/null
+        echo "Stopped."
+    else
+        echo "SurrealDB container is not running."
+    fi
+}
+
+destroy_db() {
+    stop_db
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        docker rm "${CONTAINER_NAME}" > /dev/null
+        echo "Container removed."
+    fi
+}
+
+status_db() {
+    if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "SurrealDB container '${CONTAINER_NAME}' is running."
+        docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Status}}\t{{.Ports}}"
+    elif docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        echo "SurrealDB container '${CONTAINER_NAME}' exists but is stopped."
+    else
+        echo "SurrealDB container '${CONTAINER_NAME}' does not exist."
+    fi
+}
+
+logs_db() {
+    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+        docker logs -f "${CONTAINER_NAME}"
+    else
+        echo "SurrealDB container '${CONTAINER_NAME}' does not exist."
+        exit 1
+    fi
+}
+
+case "${1:-}" in
+    start)   start_db ;;
+    stop)    stop_db ;;
+    restart) destroy_db; start_db ;;
+    status)  status_db ;;
+    logs)    logs_db ;;
+    destroy) destroy_db ;;
+    *)       usage; exit 1 ;;
+esac

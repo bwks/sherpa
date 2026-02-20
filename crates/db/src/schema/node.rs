@@ -18,6 +18,10 @@
 //! - Index must be between 0 and 65535 (inclusive)
 //! - Index must be an integer (no decimals)
 //!
+//! ## Computed Fields
+//! - `links`: Reverse reference to all links connected to this node (`array::union(<~(link FIELD node_a), <~(link FIELD node_b))`)
+//! - `bridges`: Reverse reference to all bridges this node connects to (`<~(bridge FIELD nodes)`)
+//!
 //! ## Relationships
 //! - Many-to-one with `node_config` table (multiple nodes can use same config)
 //! - Many-to-one with `lab` table (each node belongs to one lab)
@@ -84,6 +88,9 @@ DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
 DEFINE FIELD state ON TABLE node TYPE string
     ASSERT $value IN [{node_states}]
     DEFAULT "unknown";
+
+DEFINE FIELD links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
+DEFINE FIELD bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);
 
 DEFINE INDEX unique_node_name_per_lab
   ON TABLE node FIELDS lab, name UNIQUE;
