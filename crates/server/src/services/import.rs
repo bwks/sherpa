@@ -56,6 +56,7 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
     let mut db_config = config;
     db_config.version = request.version.clone();
     db_config.default = request.latest;
+    db_config.active = true;
     db_config.id = None;
 
     let db_tracked = match db::upsert_node_config(&state.db, db_config).await {
@@ -118,6 +119,7 @@ pub async fn list_images(
             kind: c.kind,
             version: c.version,
             default: c.default,
+            active: c.active,
         })
         .collect();
 

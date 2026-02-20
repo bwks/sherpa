@@ -23,6 +23,8 @@ pub struct ImageSummary {
     pub version: String,
     #[tabled(rename = "Default")]
     pub default: bool,
+    #[tabled(rename = "Active")]
+    pub active: bool,
 }
 
 /// Response from listing images

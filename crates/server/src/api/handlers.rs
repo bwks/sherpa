@@ -2098,6 +2098,7 @@ pub async fn admin_node_config_update_handler(
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
         default: form_default, // Use value from form checkbox
+        active: config.active, // Keep original (read-only)
     };
 
     // Update in database
