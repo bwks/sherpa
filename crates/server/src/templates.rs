@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use shared::data::{DbUser, DeviceInfo, LabInfo, LabSummary, NodeConfig};
+use shared::data::{BridgeInfo, DbUser, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig};
 
 use crate::api::handlers::{NodeConfigSummary, UserSummary};
 /// Main dashboard page template
@@ -249,6 +249,10 @@ pub struct LabDetailTemplate {
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
+    pub links: Vec<LinkInfo>,
+    pub link_count: usize,
+    pub bridges: Vec<BridgeInfo>,
+    pub bridge_count: usize,
 }
 
 impl IntoResponse for LabDetailTemplate {

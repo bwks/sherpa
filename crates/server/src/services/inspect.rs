@@ -1,5 +1,7 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DeviceInfo, InspectRequest, InspectResponse, LabInfo};
+use shared::data::{
+    BridgeInfo, DbNode, DeviceInfo, InspectRequest, InspectResponse, LabInfo, LinkInfo, RecordId,
+};
 use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
 use std::str::FromStr;
@@ -87,6 +89,43 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
         .await
         .context("Failed to get DHCP leases")?;
 
+    // Fetch links for this lab
+    let db_links = db::list_links_by_lab(&state.db, lab_record_id.clone())
+        .await
+        .context("Failed to list links for lab")?;
+
+    let links: Vec<LinkInfo> = db_links
+        .into_iter()
+        .map(|link| LinkInfo {
+            node_a_name: node_name_from_id(&db_nodes, &link.node_a),
+            int_a: link.int_a,
+            node_b_name: node_name_from_id(&db_nodes, &link.node_b),
+            int_b: link.int_b,
+            kind: link.kind.to_string(),
+        })
+        .collect();
+
+    // Fetch bridges for this lab
+    let db_bridges = db::list_bridges(&state.db, &lab_record_id)
+        .await
+        .context("Failed to list bridges for lab")?;
+
+    let bridges: Vec<BridgeInfo> = db_bridges
+        .into_iter()
+        .map(|bridge| {
+            let connected_nodes: Vec<String> = bridge
+                .nodes
+                .iter()
+                .map(|rid| node_name_from_id(&db_nodes, rid))
+                .collect();
+            BridgeInfo {
+                bridge_name: bridge.bridge_name,
+                network_name: bridge.network_name,
+                connected_nodes,
+            }
+        })
+        .collect();
+
     // Process each node
     let mut devices = Vec::new();
 
@@ -141,5 +180,16 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
         lab_info,
         devices,
         inactive_devices: Vec::new(), // Keep field for API compatibility
+        links,
+        bridges,
     })
+}
+
+/// Resolve a node RecordId to its name using the already-fetched node list.
+fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
+    nodes
+        .iter()
+        .find(|n| n.id.as_ref() == Some(rid))
+        .map(|n| n.name.clone())
+        .unwrap_or_else(|| format!("{:?}", rid))
 }
