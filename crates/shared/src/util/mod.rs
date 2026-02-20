@@ -40,8 +40,8 @@ pub use ssh::{
     pub_ssh_key_to_sha256_hash,
 };
 pub use table::{
-    CertificateTableInfo, render_certificates_table, render_devices_table, render_lab_info_table,
-    render_nodes_table,
+    CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,
+    render_lab_info_table, render_links_table, render_nodes_table,
 };
 pub use text::split_node_int;
 pub use user::{get_username, sherpa_user};

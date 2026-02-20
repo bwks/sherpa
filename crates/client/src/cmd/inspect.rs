@@ -4,8 +4,8 @@ use std::time::Duration;
 use shared::data::{Config, InspectResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{
-    Emoji, get_username, render_devices_table, render_lab_info_table, term_msg_surround,
-    term_msg_underline,
+    Emoji, get_username, render_bridges_table, render_devices_table, render_lab_info_table,
+    render_links_table, term_msg_surround, term_msg_underline,
 };
 
 use crate::token::load_token;
@@ -101,6 +101,20 @@ pub async fn inspect(
     if !inspect_data.devices.is_empty() {
         println!();
         let table = render_devices_table(&inspect_data.devices);
+        println!("{}", table);
+    }
+
+    // Display links
+    if !inspect_data.links.is_empty() {
+        println!();
+        let table = render_links_table(&inspect_data.links);
+        println!("{}", table);
+    }
+
+    // Display bridges
+    if !inspect_data.bridges.is_empty() {
+        println!();
+        let table = render_bridges_table(&inspect_data.bridges);
         println!("{}", table);
     }
 

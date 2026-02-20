@@ -3,7 +3,7 @@ use tabled::{
     settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
 };
 
-use crate::data::{DeviceInfo, LabInfo, NodeInfo};
+use crate::data::{BridgeInfo, DeviceInfo, LabInfo, LinkInfo, NodeInfo};
 
 /// Represents a row in the nodes table
 #[derive(Tabled)]
@@ -158,6 +158,78 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
     Table::new(rows)
         .with(Style::modern())
         .with(Panel::header("Active Nodes"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
+/// Represents a row in the links table
+#[derive(Tabled)]
+struct LinkTableRow {
+    #[tabled(rename = "Node A")]
+    node_a: String,
+
+    #[tabled(rename = "Interface A")]
+    int_a: String,
+
+    #[tabled(rename = "Node B")]
+    node_b: String,
+
+    #[tabled(rename = "Interface B")]
+    int_b: String,
+
+    #[tabled(rename = "Type")]
+    kind: String,
+}
+
+/// Renders a table of point-to-point links between nodes
+pub fn render_links_table(links: &[LinkInfo]) -> String {
+    let rows: Vec<LinkTableRow> = links
+        .iter()
+        .map(|link| LinkTableRow {
+            node_a: link.node_a_name.clone(),
+            int_a: link.int_a.clone(),
+            node_b: link.node_b_name.clone(),
+            int_b: link.int_b.clone(),
+            kind: link.kind.clone(),
+        })
+        .collect();
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header("Links"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
+/// Represents a row in the bridges table
+#[derive(Tabled)]
+struct BridgeTableRow {
+    #[tabled(rename = "Bridge")]
+    bridge_name: String,
+
+    #[tabled(rename = "Network")]
+    network_name: String,
+
+    #[tabled(rename = "Connected Nodes")]
+    connected_nodes: String,
+}
+
+/// Renders a table of shared bridges connecting multiple nodes
+pub fn render_bridges_table(bridges: &[BridgeInfo]) -> String {
+    let rows: Vec<BridgeTableRow> = bridges
+        .iter()
+        .map(|bridge| BridgeTableRow {
+            bridge_name: bridge.bridge_name.clone(),
+            network_name: bridge.network_name.clone(),
+            connected_nodes: bridge.connected_nodes.join(", "),
+        })
+        .collect();
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header("Bridges"))
         .with(Modify::new(Rows::first()).with(Alignment::center()))
         .with(BorderCorrection::span())
         .to_string()
