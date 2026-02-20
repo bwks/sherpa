@@ -241,7 +241,12 @@ pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed
 // Lab operations
 pub const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";
 pub const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
+pub const RPC_MSG_LAB_CLEAN_FAILED: &str = "Clean operation failed";
 pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
+
+// Admin-only operations
+pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
+    "Access denied: only administrators can run clean operations";
 
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";

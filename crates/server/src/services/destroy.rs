@@ -226,7 +226,7 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
 }
 
 /// Destroy all containers for a lab
-async fn destroy_containers(
+pub(crate) async fn destroy_containers(
     lab_id: &str,
     docker: &bollard::Docker,
     summary: &mut DestroySummary,
@@ -303,7 +303,7 @@ async fn destroy_containers(
 }
 
 /// Destroy all VMs and their disks for a lab
-fn destroy_vms_and_disks(
+pub(crate) fn destroy_vms_and_disks(
     lab_id: &str,
     qemu: &libvirt::Qemu,
     summary: &mut DestroySummary,
@@ -391,7 +391,7 @@ fn destroy_vms_and_disks(
 }
 
 /// Destroy all Docker networks for a lab
-async fn destroy_docker_networks(
+pub(crate) async fn destroy_docker_networks(
     lab_id: &str,
     docker: &bollard::Docker,
     summary: &mut DestroySummary,
@@ -437,7 +437,7 @@ async fn destroy_docker_networks(
 }
 
 /// Destroy all libvirt networks for a lab
-fn destroy_libvirt_networks(
+pub(crate) fn destroy_libvirt_networks(
     lab_id: &str,
     qemu: &libvirt::Qemu,
     summary: &mut DestroySummary,
@@ -494,7 +494,7 @@ fn destroy_libvirt_networks(
 }
 
 /// Delete network interfaces for a lab
-async fn destroy_interfaces(
+pub(crate) async fn destroy_interfaces(
     lab_id: &str,
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
@@ -540,7 +540,7 @@ async fn destroy_interfaces(
 }
 
 /// Clean up database records for a lab
-async fn cleanup_database(
+pub(crate) async fn cleanup_database(
     lab_id: &str,
     db: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::ws::Client>>,
 ) -> Result<()> {

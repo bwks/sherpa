@@ -8,21 +8,21 @@ use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
-use crate::services::{destroy, inspect, progress, up};
+use crate::services::{clean, destroy, inspect, progress, up};
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
     RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
-    RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE, RPC_MSG_AUTH_ERROR,
-    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
-    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
-    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_LAB_ID,
-    RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_TOKEN,
-    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED,
-    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
-    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
+    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED,
+    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CREATE_USER,
+    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
+    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
+    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED,
+    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
+    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE,
+    RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED,
+    RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -43,6 +43,7 @@ pub async fn handle_rpc_request(
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
         "destroy" => handle_destroy(id, params, state).await,
+        "clean" => handle_clean(id, params, state).await,
         "user.create" => handle_user_create(id, params, state).await,
         "user.list" => handle_user_list(id, params, state).await,
         "user.delete" => handle_user_delete(id, params, state).await,
@@ -322,6 +323,100 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_DESTROY_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "clean" RPC call (admin-only)
+///
+/// Expected params: {"lab_id": "string", "token": "string"}
+async fn handle_clean(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for clean: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Admin-only check
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted clean without admin privileges",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::AccessDenied,
+                message: RPC_MSG_ADMIN_ONLY_CLEAN.to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Parse params
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    // Call clean service
+    match clean::clean_lab(&lab_id, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "Admin '{}' cleaned lab '{}' successfully",
+                    auth_ctx.username,
+                    lab_id
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_LAB_CLEAN_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }

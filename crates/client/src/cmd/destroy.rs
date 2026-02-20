@@ -270,7 +270,7 @@ fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<
 }
 
 /// Display detailed destroy results with success/failure tracking
-fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
+pub fn display_destroy_results(response: &DestroyResponse) -> Result<()> {
     let summary = &response.summary;
 
     term_msg_surround("Destroy Results");

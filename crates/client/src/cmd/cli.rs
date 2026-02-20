@@ -100,17 +100,10 @@ enum Commands {
         boxes: bool,
     },
 
-    /// Clean up environment
+    /// Force clean all resources for a lab (admin-only)
     Clean {
-        /// Remove all devices, disks and networks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        all: bool,
-        /// Remove all disks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        disks: bool,
-        /// Remove all networks
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        networks: bool,
+        /// Lab ID to clean (if omitted, derived from manifest)
+        lab_id: Option<String>,
     },
 
     /// Connect to a device via serial console over Telnet
@@ -308,14 +301,27 @@ impl Cli {
             Commands::Doctor { boxes } => {
                 doctor(*boxes, &sherpa.images_dir)?;
             }
-            Commands::Clean {
-                all,
-                disks,
-                networks,
-            } => {
-                let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                let lab_id = get_id(&manifest.name)?;
-                clean(&qemu, *all, *disks, *networks, &lab_id)?;
+            Commands::Clean { lab_id } => {
+                let lab_id = match lab_id {
+                    Some(id) => id.clone(),
+                    None => {
+                        let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
+                        get_id(&manifest.name)?
+                    }
+                };
+                let mut config = load_config(&sherpa.config_file_path)?;
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .unwrap_or_else(|| build_websocket_url(&config));
+
+                clean(&lab_id, &server_url, &config).await?;
             }
             Commands::Console { name } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
