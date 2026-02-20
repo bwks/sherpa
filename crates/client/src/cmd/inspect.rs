@@ -106,7 +106,7 @@ pub async fn inspect(
 
     // Display inactive devices
     if !inspect_data.inactive_devices.is_empty() {
-        term_msg_underline("Inactive Devices");
+        term_msg_underline("Inactive Nodes");
         for device in &inspect_data.inactive_devices {
             println!("{}", device);
         }

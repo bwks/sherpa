@@ -157,7 +157,7 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
 
     Table::new(rows)
         .with(Style::modern())
-        .with(Panel::header("Active Devices"))
+        .with(Panel::header("Active Nodes"))
         .with(Modify::new(Rows::first()).with(Alignment::center()))
         .with(BorderCorrection::span())
         .to_string()
