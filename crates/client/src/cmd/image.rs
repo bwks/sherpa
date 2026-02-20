@@ -1,15 +1,17 @@
 use std::fs;
 use std::path::Path;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
 use container::{docker_connection, list_images};
-use shared::data::{NodeModel, Sherpa};
-use shared::util::{
-    copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
-    term_msg_surround,
-};
+use shared::data::{Config, ImportResponse, NodeModel, Sherpa};
+use shared::error::RpcErrorCode;
+use shared::util::{Emoji, term_msg_surround};
+
+use crate::token::load_token;
+use crate::ws_client::{RpcRequest, WebSocketClient};
 
 #[derive(Debug, Subcommand)]
 pub enum ImageCommands {
@@ -70,7 +72,12 @@ fn list_directory_contents(path: &Path, indent: u8) -> Result<()> {
 }
 
 /// Parse the commands for Image
-pub async fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result<()> {
+pub async fn parse_image_commands(
+    commands: &ImageCommands,
+    config: &Sherpa,
+    server_config: &Config,
+    server_url: &str,
+) -> Result<()> {
     match commands {
         ImageCommands::List {
             model,
@@ -98,50 +105,102 @@ pub async fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> 
             version,
             model,
             latest,
-        } => import(src, version, model, *latest, &config.images_dir)?,
+        } => import_rpc(src, version, model, *latest, server_config, server_url).await?,
     }
     Ok(())
 }
 
-fn import(
+async fn import_rpc(
     src: &str,
     version: &str,
     model: &NodeModel,
     latest: bool,
-    images_dir: &str,
+    config: &Config,
+    server_url: &str,
 ) -> Result<()> {
     term_msg_surround("Importing disk image");
 
-    if !file_exists(src) {
-        anyhow::bail!("File does not exist: {}", src);
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{} Authentication required", Emoji::Error);
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
+        }
+    };
+
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
+
+    let mut rpc_client = ws_client
+        .connect()
+        .await
+        .context("Failed to connect to sherpad server")?;
+
+    let import_request = RpcRequest::new(
+        "image.import",
+        serde_json::json!({
+            "model": model,
+            "version": version,
+            "src": src,
+            "latest": latest,
+            "token": token,
+        }),
+    );
+
+    let import_response = rpc_client
+        .call(import_request)
+        .await
+        .context("Image import RPC call failed")?;
+
+    rpc_client.close().await.ok();
+
+    // Handle errors
+    if let Some(error) = import_response.error {
+        eprintln!("\n{} Server Error:", Emoji::Error);
+        eprintln!("   Message: {}", error.message);
+        eprintln!("   Code: {}", error.code);
+        if let Some(context) = error.context {
+            eprintln!("   Context:\n{}", context);
+        }
+
+        if error.code == RpcErrorCode::AuthRequired {
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
+            eprintln!("   Please run: sherpa login");
+        }
+
+        bail!("Image import failed");
     }
 
-    let dst_path = format!("{}/{}", images_dir, model);
-    let dst_version_dir = format!("{dst_path}/{version}");
-    let dst_latest_dir = format!("{dst_path}/latest");
+    let result = import_response
+        .result
+        .context("No result in import response")?;
+    let response: ImportResponse =
+        serde_json::from_value(result).context("Failed to parse import response")?;
 
-    create_dir(&dst_version_dir)?;
-    create_dir(&dst_latest_dir)?;
-
-    let dst_version_disk = format!("{dst_version_dir}/virtioa.qcow2");
-
-    if !file_exists(&dst_version_disk) {
-        println!("Copying file from: {} to: {}", src, dst_version_disk);
-        copy_file(src, &dst_version_disk)?;
-        println!("Copied file from: {} to: {}", src, dst_version_disk);
+    // Display results
+    if response.success {
+        println!("\n{} Image imported successfully", Emoji::Success);
+        println!("   Model:    {}", response.model);
+        println!("   Kind:     {}", response.kind);
+        println!("   Version:  {}", response.version);
+        println!("   Path:     {}", response.image_path);
+        println!(
+            "   DB Track: {}",
+            if response.db_tracked { "yes" } else { "no" }
+        );
     } else {
-        println!("File already exists: {}", dst_version_disk);
+        eprintln!("\n{} Image import failed", Emoji::Error);
     }
-
-    if latest {
-        let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
-        println!("Symlinking file from: {} to: {}", src, dst_latest_disk);
-        create_symlink(&dst_version_disk, &dst_latest_disk)?;
-        println!("Symlinked file from: {} to: {}", src, dst_latest_disk);
-    }
-
-    println!("Setting base box files to read-only");
-    fix_permissions_recursive(images_dir)?;
 
     Ok(())
 }

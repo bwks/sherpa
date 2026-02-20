@@ -248,6 +248,11 @@ pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
 pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
     "Access denied: only administrators can run clean operations";
 
+// Image operations
+pub const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";
+pub const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
+    "Access denied: only administrators can import images";
+
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
 
@@ -263,3 +268,4 @@ pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
     "Invalid params: expected ChangePasswordRequest";
 pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
     "Invalid params: expected GetUserInfoRequest";
+pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";

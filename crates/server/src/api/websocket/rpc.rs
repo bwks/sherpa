@@ -8,21 +8,23 @@ use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
-use crate::services::{clean, destroy, inspect, progress, up};
+use crate::services::{clean, destroy, import, inspect, progress, up};
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
     RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
     RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
-    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED,
+    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_AUTH_ERROR,
+    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_IMAGE_IMPORT_FAILED,
     RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CREATE_USER,
     RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
-    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE,
-    RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED,
-    RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
+    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -44,6 +46,7 @@ pub async fn handle_rpc_request(
         "inspect" => handle_inspect(id, params, state).await,
         "destroy" => handle_destroy(id, params, state).await,
         "clean" => handle_clean(id, params, state).await,
+        "image.import" => handle_image_import(id, params, state).await,
         "user.create" => handle_user_create(id, params, state).await,
         "user.list" => handle_user_list(id, params, state).await,
         "user.delete" => handle_user_delete(id, params, state).await,
@@ -417,6 +420,105 @@ async fn handle_clean(id: String, params: serde_json::Value, state: &AppState) -
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_CLEAN_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "image.import" RPC call (admin-only)
+///
+/// Expected params: ImportRequest {"model": "string", "version": "string", "src": "string", "latest": bool, "token": "string"}
+async fn handle_image_import(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for image.import: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Admin-only check
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted image import without admin privileges",
+            auth_ctx.username
+        );
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::AccessDenied,
+                message: RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT.to_string(),
+                context: None,
+            }),
+        };
+    }
+
+    // Parse params into ImportRequest
+    let request: data::ImportRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_IMPORT.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Call import service
+    match import::import_image(request, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "Admin '{}' imported image successfully (model={}, version={})",
+                    auth_ctx.username,
+                    response.model,
+                    response.version
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_IMAGE_IMPORT_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }

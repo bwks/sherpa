@@ -344,7 +344,19 @@ impl Cli {
                 println!("NOT IMPLEMENTED");
             }
             Commands::Image { commands } => {
-                parse_image_commands(commands, &sherpa).await?;
+                let mut config = load_config(&sherpa.config_file_path)?;
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = cli
+                    .server_url
+                    .or_else(get_server_url)
+                    .unwrap_or_else(|| build_websocket_url(&config));
+
+                parse_image_commands(commands, &sherpa, &config, &server_url).await?;
             }
             Commands::Cert { commands } => match commands {
                 CertCommands::List => cert_list().await?,
