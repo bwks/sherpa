@@ -56,7 +56,6 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
     let mut db_config = config;
     db_config.version = request.version.clone();
     db_config.default = request.latest;
-    db_config.active = true;
     db_config.id = None;
 
     let db_tracked = match db::upsert_node_config(&state.db, db_config).await {
@@ -119,7 +118,6 @@ pub async fn list_images(
             kind: c.kind,
             version: c.version,
             default: c.default,
-            active: c.active,
         })
         .collect();
 
@@ -192,7 +190,7 @@ pub async fn scan_images(
         let only_inactive = existing_versions.len() <= 1
             && existing_versions
                 .first()
-                .is_none_or(|c| c.version == "inactive" && !c.active);
+                .is_none_or(|c| c.version == "inactive");
         let mut set_default = only_inactive;
 
         // Iterate version subdirectories
@@ -242,20 +240,18 @@ pub async fn scan_images(
                 continue;
             }
 
-            // Check if record already exists and is active
+            // Check if record already exists with this version
             let existing =
                 db::get_node_config_by_model_kind_version(&state.db, &model, &kind, &version)
                     .await
                     .context("Failed to check existing node_config")?;
 
-            if let Some(ref existing_config) = existing
-                && existing_config.active
-            {
+            if existing.is_some() {
                 scanned.push(ScannedImage {
                     model,
                     version,
                     kind: kind.clone(),
-                    status: "already_active".to_string(),
+                    status: "already_exists".to_string(),
                 });
                 continue;
             }
@@ -281,11 +277,9 @@ pub async fn scan_images(
                 continue;
             }
 
-            // Upsert with active: true
             let mut db_config = config.clone();
             db_config.version = version.clone();
             db_config.default = make_default;
-            db_config.active = true;
             db_config.id = None;
 
             let status = match db::upsert_node_config(&state.db, db_config).await {
@@ -366,7 +360,7 @@ pub async fn scan_images(
             let only_inactive = existing_versions.len() <= 1
                 && existing_versions
                     .first()
-                    .is_none_or(|c| c.version == "inactive" && !c.active);
+                    .is_none_or(|c| c.version == "inactive");
             let mut set_default = only_inactive;
 
             let prefix = format!("{}:", repo);
@@ -377,20 +371,18 @@ pub async fn scan_images(
                     None => continue,
                 };
 
-                // Check if record already exists and is active
+                // Check if record already exists with this version
                 let existing =
                     db::get_node_config_by_model_kind_version(&state.db, &model, &kind, &version)
                         .await
                         .context("Failed to check existing node_config")?;
 
-                if let Some(ref existing_config) = existing
-                    && existing_config.active
-                {
+                if existing.is_some() {
                     scanned.push(ScannedImage {
                         model,
                         version,
                         kind: kind.clone(),
-                        status: "already_active".to_string(),
+                        status: "already_exists".to_string(),
                     });
                     continue;
                 }
@@ -414,11 +406,9 @@ pub async fn scan_images(
                     continue;
                 }
 
-                // Upsert with active: true
                 let mut db_config = config.clone();
                 db_config.version = version.clone();
                 db_config.default = make_default;
-                db_config.active = true;
                 db_config.id = None;
 
                 let status = match db::upsert_node_config(&state.db, db_config).await {

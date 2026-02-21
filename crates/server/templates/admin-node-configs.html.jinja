@@ -62,14 +62,7 @@
                             <span class="kind-badge">{{ config.kind }}</span>
                         {% endif %}
                     </td>
-                    <td>
-                        {{ config.version }}
-                        {% if config.active %}
-                            <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">active</span>
-                        {% else %}
-                            <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500">inactive</span>
-                        {% endif %}
-                    </td>
+                    <td>{{ config.version }}</td>
                     <td style="text-align: center;">{{ config.cpu_count }}</td>
                     <td style="text-align: center;">{{ config.memory }}</td>
                     <td style="text-align: center;">{{ config.data_interface_count }}</td>

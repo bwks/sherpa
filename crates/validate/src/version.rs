@@ -241,7 +241,6 @@ mod tests {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: false,
-            active: false,
         }
     }
 

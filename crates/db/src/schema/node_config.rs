@@ -145,7 +145,6 @@ DEFINE FIELD reserved_interface_count ON TABLE node_config TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 
 DEFINE FIELD default ON TABLE node_config TYPE bool;
-DEFINE FIELD active ON TABLE node_config TYPE bool;
 
 DEFINE FIELD nodes ON TABLE node_config COMPUTED <~(node FIELD config);
 

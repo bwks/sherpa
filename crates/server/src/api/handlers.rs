@@ -1635,16 +1635,6 @@ pub struct NodeConfigPath {
     pub version: Option<String>,
 }
 
-/// Rank a node config for selection priority: active+default > active > default > neither
-fn rank_config(active: bool, default: bool) -> u8 {
-    match (active, default) {
-        (true, true) => 3,
-        (true, false) => 2,
-        (false, true) => 1,
-        (false, false) => 0,
-    }
-}
-
 /// Helper struct to summarize node config data for list view
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeConfigSummary {
@@ -1655,7 +1645,6 @@ pub struct NodeConfigSummary {
     pub memory: u16,
     pub data_interface_count: u8,
     pub default: bool,
-    pub active: bool,
 }
 
 /// Admin handler to list all node configurations
@@ -1672,7 +1661,7 @@ pub async fn admin_node_configs_list_handler(
     })?;
 
     // Group configs by model and pick the best representative:
-    // - Prefer active+default, then active, then default (inactive fallback)
+    // - Prefer default=true, otherwise pick the first entry
     let mut best_by_model: std::collections::HashMap<String, NodeConfigSummary> =
         std::collections::HashMap::new();
 
@@ -1686,17 +1675,11 @@ pub async fn admin_node_configs_list_handler(
             memory: config.memory,
             data_interface_count: config.data_interface_count,
             default: config.default,
-            active: config.active,
         };
 
         let dominated = match best_by_model.get(&model_key) {
             None => true,
-            Some(existing) => {
-                // Priority: active+default > active > default > neither
-                let new_rank = rank_config(summary.active, summary.default);
-                let old_rank = rank_config(existing.active, existing.default);
-                new_rank > old_rank
-            }
+            Some(existing) => summary.default && !existing.default,
         };
 
         if dominated {
@@ -2127,7 +2110,6 @@ pub async fn admin_node_config_update_handler(
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
         default: form_default, // Use value from form checkbox
-        active: config.active, // Keep original (read-only)
     };
 
     // Update in database

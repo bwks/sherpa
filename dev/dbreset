@@ -13,9 +13,11 @@ SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 MIN_PASSWORD_LENGTH=8
+SHERPA_UID="$(id -u sherpa)"
+SHERPA_GID="$(id -g sherpa)"
 
-docker kill sherpa-db;
-docker rm sherpa-db;
+docker kill sherpa-db >/dev/null 2>&1 || true;
+docker rm sherpa-db >/dev/null 2>&1 || true;
 sudo rm -rf /opt/sherpa/db/sherpa.db;
 sudo -u sherpa docker run -d \
         --name "${CONTAINER_NAME}" \
