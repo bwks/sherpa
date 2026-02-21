@@ -432,7 +432,7 @@ async fn handle_clean(id: String, params: serde_json::Value, state: &AppState) -
 
 /// Handle "image.import" RPC call (admin-only)
 ///
-/// Expected params: ImportRequest {"model": "string", "version": "string", "src": "string", "latest": bool, "token": "string"}
+/// Expected params: ImportRequest {"model": "string", "version": "string", "src": "string", "token": "string"}
 async fn handle_image_import(
     id: String,
     params: serde_json::Value,

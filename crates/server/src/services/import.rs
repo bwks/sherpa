@@ -5,7 +5,7 @@ use shared::data::{
     NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse, ScannedImage,
 };
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_IMAGES_DIR};
-use shared::util::{copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive};
+use shared::util::{copy_file, create_dir, file_exists, fix_permissions_recursive};
 
 use crate::daemon::state::AppState;
 
@@ -40,22 +40,13 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         tracing::info!("Image already exists at {}, skipping copy", version_disk);
     }
 
-    // Create latest symlink if requested
-    if request.latest {
-        let latest_dir = format!("{model_dir}/latest");
-        create_dir(&latest_dir).context("Failed to create latest directory")?;
-        let latest_disk = format!("{latest_dir}/virtioa.qcow2");
-        tracing::info!("Creating symlink from {} to {}", version_disk, latest_disk);
-        create_symlink(&version_disk, &latest_disk).context("Failed to create latest symlink")?;
-    }
-
     // Fix permissions on the images directory
     fix_permissions_recursive(&images_dir).context("Failed to set image permissions")?;
 
     // Upsert node_image record in the database
     let mut db_config = config;
     db_config.version = request.version.clone();
-    db_config.default = request.latest;
+    db_config.default = false;
     db_config.id = None;
 
     let db_tracked = match db::upsert_node_image(&state.db, db_config).await {

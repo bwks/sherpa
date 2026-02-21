@@ -43,8 +43,6 @@ pub struct ImportRequest {
     pub version: String,
     /// Source file path on the server filesystem
     pub src: String,
-    /// Whether to set this version as the latest (creates symlink)
-    pub latest: bool,
 }
 
 /// Response from an image import operation

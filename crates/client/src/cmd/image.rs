@@ -57,9 +57,6 @@ pub enum ImageCommands {
         /// Model of Device
         #[arg(short, long, value_enum)]
         model: NodeModel,
-        /// Import the disk image as the latest version
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        latest: bool,
     },
 }
 
@@ -111,8 +108,7 @@ pub async fn parse_image_commands(
             src,
             version,
             model,
-            latest,
-        } => import_rpc(src, version, model, *latest, server_config, server_url).await?,
+        } => import_rpc(src, version, model, server_config, server_url).await?,
     }
     Ok(())
 }
@@ -199,7 +195,6 @@ async fn import_rpc(
     src: &str,
     version: &str,
     model: &NodeModel,
-    latest: bool,
     config: &Config,
     server_url: &str,
 ) -> Result<()> {
@@ -234,7 +229,6 @@ async fn import_rpc(
             "model": model,
             "version": version,
             "src": src,
-            "latest": latest,
             "token": token,
         }),
     );

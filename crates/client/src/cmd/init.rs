@@ -41,7 +41,7 @@ pub async fn init(
 
     for container_image in &config.container_images {
         create_dir(&format!(
-            "{}/{}/latest",
+            "{}/{}",
             sherpa.containers_dir, container_image.name
         ))?;
     }
@@ -118,7 +118,7 @@ pub async fn init(
     for model in NodeModel::to_vec() {
         let node_image = NodeConfig::get_model(model);
         if created_models.insert(node_image.model) {
-            let model_dir = format!("{}/{}/latest", sherpa.images_dir, node_image.model);
+            let model_dir = format!("{}/{}", sherpa.images_dir, node_image.model);
             create_dir(&model_dir)?;
         }
     }
