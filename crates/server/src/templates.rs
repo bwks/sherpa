@@ -399,6 +399,35 @@ impl IntoResponse for AdminDashboardTemplate {
     }
 }
 
+/// Admin labs list page template
+#[derive(Template)]
+#[template(path = "admin-labs.html.jinja")]
+pub struct AdminLabsTemplate {
+    pub username: String,
+    pub labs: Vec<AdminLabSummary>,
+}
+
+/// Summary data for a lab displayed in the admin labs list
+pub struct AdminLabSummary {
+    pub lab_id: String,
+    pub name: String,
+    pub owner_username: String,
+    pub node_count: usize,
+}
+
+impl IntoResponse for AdminLabsTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 /// Admin user edit page template
 #[derive(Template)]
 #[template(path = "admin-user-edit.html.jinja")]

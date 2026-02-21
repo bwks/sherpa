@@ -1,0 +1,74 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Lab Management - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Admin
+        </a>
+        <a href="/admin/labs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Labs
+        </a>
+        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Images
+        </a>
+        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Profile
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-gray-900">Lab Management</h2>
+            <p class="mt-1 text-sm text-gray-600">View all labs across all users</p>
+        </div>
+    </div>
+
+    <!-- Labs Table -->
+    {% if !labs.is_empty() %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <table class="admin-table">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">Name</th>
+                    <th style="text-align: left;">Lab ID</th>
+                    <th style="text-align: left;">Owner</th>
+                    <th style="text-align: center;">Nodes</th>
+                    <th style="text-align: right;">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lab in labs %}
+                <tr>
+                    <td class="username-col">{{ lab.name }}</td>
+                    <td>{{ lab.lab_id }}</td>
+                    <td>{{ lab.owner_username }}</td>
+                    <td style="text-align: center;">{{ lab.node_count }}</td>
+                    <td style="text-align: right;">
+                        <a href="/labs/{{ lab.lab_id }}" class="inline-block px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
+                            View
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-12 text-center">
+        <p class="text-gray-500">No labs found in the system.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

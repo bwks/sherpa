@@ -1249,6 +1249,58 @@ pub async fn admin_dashboard_handler(
     .into_response())
 }
 
+/// Admin labs list - shows all labs across all users
+///
+/// GET /admin/labs
+pub async fn admin_labs_list_handler(
+    State(state): State<AppState>,
+    admin: AdminUser,
+) -> Result<Response, ApiError> {
+    tracing::info!("Admin '{}' accessing admin labs list", admin.username);
+
+    let labs = db::list_labs(&state.db).await.map_err(|e| {
+        tracing::error!("Failed to list labs: {:?}", e);
+        ApiError::internal("Failed to load labs")
+    })?;
+
+    let mut lab_summaries: Vec<crate::templates::AdminLabSummary> = Vec::new();
+
+    for lab in labs {
+        let owner_username = match db::get_user_by_id(&state.db, lab.user.clone()).await {
+            Ok(Some(user)) => user.username,
+            _ => "unknown".to_string(),
+        };
+
+        let node_count = if let Some(ref lab_id) = lab.id {
+            db::count_nodes_by_lab(&state.db, lab_id.clone())
+                .await
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        lab_summaries.push(crate::templates::AdminLabSummary {
+            lab_id: lab.lab_id,
+            name: lab.name,
+            owner_username,
+            node_count,
+        });
+    }
+
+    lab_summaries.sort_by(|a, b| a.name.cmp(&b.name));
+
+    tracing::debug!(
+        "Loaded {} labs for admin labs list",
+        lab_summaries.len()
+    );
+
+    Ok(crate::templates::AdminLabsTemplate {
+        username: admin.username,
+        labs: lab_summaries,
+    }
+    .into_response())
+}
+
 /// Admin user edit page - shows user details and allows editing
 pub async fn admin_user_edit_handler(
     State(state): State<AppState>,
