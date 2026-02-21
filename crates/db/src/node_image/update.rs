@@ -29,6 +29,22 @@ pub async fn update_node_image(
     // Extract and validate the ID
     let id = get_image_id(&config)?;
 
+    // If setting default=true, unset default on other versions of same (model, kind)
+    if config.default {
+        db.query(
+            "UPDATE node_image SET default = false
+             WHERE model = $model AND kind = $kind AND id != $id",
+        )
+        .bind(("model", config.model.to_string()))
+        .bind(("kind", config.kind.to_string()))
+        .bind(("id", id.clone()))
+        .await
+        .context(format!(
+            "Error unsetting default flag on other versions:\n model: {}\n kind: {}\n",
+            config.model, config.kind
+        ))?;
+    }
+
     // Execute UPDATE query - replaces all fields
     let updated: Option<NodeConfig> = db
         .update(id.clone())
