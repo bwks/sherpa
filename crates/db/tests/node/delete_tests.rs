@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    count_nodes, count_nodes_by_lab, create_lab, create_link, create_node, create_node_config,
+    count_nodes, count_nodes_by_lab, create_lab, create_link, create_node, create_node_image,
     create_user, delete_node, delete_node_by_id, delete_node_cascade, delete_node_safe,
     delete_nodes_by_lab, get_node,
 };
@@ -15,7 +15,7 @@ async fn test_delete_node_success() -> Result<()> {
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node = create_node(&db, "node1", 1, config.id.unwrap(), lab.id.clone().unwrap()).await?;
 
@@ -39,7 +39,7 @@ async fn test_delete_node_by_id_success() -> Result<()> {
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0002", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node = create_node(
         &db,
@@ -90,7 +90,7 @@ async fn test_delete_node_decrements_count() -> Result<()> {
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0003", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create nodes
     let node1 = create_node(
@@ -130,7 +130,7 @@ async fn test_delete_nodes_by_lab_success() -> Result<()> {
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0004", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create multiple nodes in lab
     create_node(
@@ -179,7 +179,7 @@ async fn test_delete_nodes_by_lab_only_affects_one_lab() -> Result<()> {
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0005", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0006", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create nodes in both labs
     create_node(
@@ -227,7 +227,7 @@ async fn test_delete_node_safe_with_no_links_succeeds() -> Result<()> {
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0007", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node = create_node(
         &db,
@@ -258,7 +258,7 @@ async fn test_delete_node_safe_with_links_fails() -> Result<()> {
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0008", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create two nodes
     let node1 = create_node(
@@ -320,7 +320,7 @@ async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0009", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create two nodes
     let node1 = create_node(
@@ -380,7 +380,7 @@ async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
 
     let user = create_user(&db, "ian".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0010", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create three nodes
     let node1 = create_node(

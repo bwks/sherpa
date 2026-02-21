@@ -52,16 +52,16 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
     // Fix permissions on the images directory
     fix_permissions_recursive(&images_dir).context("Failed to set image permissions")?;
 
-    // Upsert node_config record in the database
+    // Upsert node_image record in the database
     let mut db_config = config;
     db_config.version = request.version.clone();
     db_config.default = request.latest;
     db_config.id = None;
 
-    let db_tracked = match db::upsert_node_config(&state.db, db_config).await {
+    let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
         Ok(_) => {
             tracing::info!(
-                "Upserted node_config for model={} version={}",
+                "Upserted node_image for model={} version={}",
                 request.model,
                 request.version
             );
@@ -69,7 +69,7 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         }
         Err(e) => {
             tracing::error!(
-                "Failed to upsert node_config for model={} version={}: {:?}",
+                "Failed to upsert node_image for model={} version={}: {:?}",
                 request.model,
                 request.version,
                 e
@@ -94,21 +94,21 @@ pub async fn list_images(
     state: &AppState,
 ) -> Result<ListImagesResponse> {
     let configs = match (&request.model, &request.kind) {
-        (Some(model), Some(kind)) => db::get_node_config_versions(&state.db, model, kind)
+        (Some(model), Some(kind)) => db::get_node_image_versions(&state.db, model, kind)
             .await
-            .context("Failed to query node configs by model and kind")?,
-        (None, Some(kind)) => db::list_node_configs_by_kind(&state.db, kind)
+            .context("Failed to query node images by model and kind")?,
+        (None, Some(kind)) => db::list_node_images_by_kind(&state.db, kind)
             .await
-            .context("Failed to query node configs by kind")?,
+            .context("Failed to query node images by kind")?,
         (Some(model), None) => {
             let config = NodeConfig::get_model(*model);
-            db::get_node_config_versions(&state.db, model, &config.kind)
+            db::get_node_image_versions(&state.db, model, &config.kind)
                 .await
-                .context("Failed to query node configs by model")?
+                .context("Failed to query node images by model")?
         }
-        (None, None) => db::list_node_configs(&state.db)
+        (None, None) => db::list_node_images(&state.db)
             .await
-            .context("Failed to query all node configs")?,
+            .context("Failed to query all node images")?,
     };
 
     let images: Vec<ImageSummary> = configs
@@ -182,16 +182,12 @@ pub async fn scan_images(
             continue;
         }
 
-        // Check if the only existing record is the seeded "inactive" placeholder.
-        // If so, the first imported version should become the default.
-        let existing_versions = db::get_node_config_versions(&state.db, &model, &kind)
+        // Check if any existing records exist for this model.
+        // If none exist, the first imported version should become the default.
+        let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
             .await
-            .context("Failed to query existing node_config versions")?;
-        let only_inactive = existing_versions.len() <= 1
-            && existing_versions
-                .first()
-                .is_none_or(|c| c.version == "inactive");
-        let mut set_default = only_inactive;
+            .context("Failed to query existing node_image versions")?;
+        let mut set_default = existing_versions.is_empty();
 
         // Iterate version subdirectories
         let model_dir = format!("{}/{}", images_dir, dir_name);
@@ -242,9 +238,9 @@ pub async fn scan_images(
 
             // Check if record already exists with this version
             let existing =
-                db::get_node_config_by_model_kind_version(&state.db, &model, &kind, &version)
+                db::get_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
                     .await
-                    .context("Failed to check existing node_config")?;
+                    .context("Failed to check existing node_image")?;
 
             if existing.is_some() {
                 scanned.push(ScannedImage {
@@ -256,7 +252,7 @@ pub async fn scan_images(
                 continue;
             }
 
-            // First import for a model with only the inactive placeholder gets default
+            // First import for a model with no existing records gets default
             let make_default = set_default;
 
             if request.dry_run {
@@ -282,10 +278,10 @@ pub async fn scan_images(
             db_config.default = make_default;
             db_config.id = None;
 
-            let status = match db::upsert_node_config(&state.db, db_config).await {
+            let status = match db::upsert_node_image(&state.db, db_config).await {
                 Ok(_) => {
                     tracing::info!(
-                        "Scanned and imported node_config for model={} version={} default={}",
+                        "Scanned and imported node_image for model={} version={} default={}",
                         model,
                         version,
                         make_default
@@ -299,7 +295,7 @@ pub async fn scan_images(
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Failed to upsert node_config for model={} version={}: {:?}",
+                        "Failed to upsert node_image for model={} version={}: {:?}",
                         model,
                         version,
                         e
@@ -353,15 +349,11 @@ pub async fn scan_images(
                 }
             };
 
-            // Check if the only existing record is the seeded "inactive" placeholder
-            let existing_versions = db::get_node_config_versions(&state.db, &model, &kind)
+            // Check if any existing records exist for this model
+            let existing_versions = db::get_node_image_versions(&state.db, &model, &kind)
                 .await
-                .context("Failed to query existing node_config versions")?;
-            let only_inactive = existing_versions.len() <= 1
-                && existing_versions
-                    .first()
-                    .is_none_or(|c| c.version == "inactive");
-            let mut set_default = only_inactive;
+                .context("Failed to query existing node_image versions")?;
+            let mut set_default = existing_versions.is_empty();
 
             let prefix = format!("{}:", repo);
             for tag in &docker_tags {
@@ -373,9 +365,9 @@ pub async fn scan_images(
 
                 // Check if record already exists with this version
                 let existing =
-                    db::get_node_config_by_model_kind_version(&state.db, &model, &kind, &version)
+                    db::get_node_image_by_model_kind_version(&state.db, &model, &kind, &version)
                         .await
-                        .context("Failed to check existing node_config")?;
+                        .context("Failed to check existing node_image")?;
 
                 if existing.is_some() {
                     scanned.push(ScannedImage {
@@ -411,10 +403,10 @@ pub async fn scan_images(
                 db_config.default = make_default;
                 db_config.id = None;
 
-                let status = match db::upsert_node_config(&state.db, db_config).await {
+                let status = match db::upsert_node_image(&state.db, db_config).await {
                     Ok(_) => {
                         tracing::info!(
-                            "Scanned and imported container node_config for model={} version={} default={}",
+                            "Scanned and imported container node_image for model={} version={} default={}",
                             model,
                             version,
                             make_default
@@ -428,7 +420,7 @@ pub async fn scan_images(
                     }
                     Err(e) => {
                         tracing::error!(
-                            "Failed to upsert node_config for model={} version={}: {:?}",
+                            "Failed to upsert node_image for model={} version={}: {:?}",
                             model,
                             version,
                             e

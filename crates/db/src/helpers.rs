@@ -17,8 +17,8 @@ pub fn get_lab_id(lab: &DbLab) -> Result<RecordId> {
         .ok_or_else(|| anyhow!("Lab has no ID:\n {:#?}", lab))
 }
 
-/// Get a config's id from a config record.
-pub fn get_config_id(config: &NodeConfig) -> Result<RecordId> {
+/// Get an image's id from a node image record.
+pub fn get_image_id(config: &NodeConfig) -> Result<RecordId> {
     config
         .id
         .as_ref()

@@ -83,15 +83,15 @@ pub fn process_manifest_links(
     Ok(links_detailed)
 }
 
-/// Get node configuration from a list of node configs
-pub fn get_node_config(
+/// Get node image from a list of node images
+pub fn get_node_image(
     node_model: &data::NodeModel,
     data: &[data::NodeConfig],
 ) -> Result<data::NodeConfig> {
     Ok(data
         .iter()
         .find(|x| &x.model == node_model && x.default)
-        .ok_or_else(|| anyhow!("Default node config not found for model: {}", node_model))?
+        .ok_or_else(|| anyhow!("Default node image not found for model: {}", node_model))?
         .clone())
 }
 

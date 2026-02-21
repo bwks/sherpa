@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use super::manifest_processing::{
-    get_node_config, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
+    get_node_image, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
 };
 use shared::data::{NodeConfig, NodeModel};
 use shared::util;
@@ -18,7 +18,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     // Get all node configs (without database)
     let all_models = NodeModel::to_vec();
-    let node_configs: Vec<NodeConfig> = all_models.into_iter().map(NodeConfig::get_model).collect();
+    let node_images: Vec<NodeConfig> = all_models.into_iter().map(NodeConfig::get_model).collect();
 
     util::term_msg_underline("Validating Manifest");
 
@@ -36,20 +36,20 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Per-node validators
     println!("→ Checking interface configurations...");
     for node in &nodes_expanded {
-        let node_config = get_node_config(&node.model, &node_configs)?;
+        let node_image = get_node_image(&node.model, &node_images)?;
 
         // Management interface check
-        if !node_config.dedicated_management_interface {
+        if !node_image.dedicated_management_interface {
             validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
         }
 
         // Interface bounds check
         validate::check_interface_bounds(
             &node.name,
-            &node_config.model,
-            node_config.data_interface_count,
-            node_config.reserved_interface_count,
-            node_config.dedicated_management_interface,
+            &node_image.model,
+            node_image.data_interface_count,
+            node_image.reserved_interface_count,
+            node_image.dedicated_management_interface,
             &links_detailed,
             &bridges_detailed,
         )?;

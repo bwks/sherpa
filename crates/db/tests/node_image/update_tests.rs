@@ -1,18 +1,18 @@
-/// UPDATE operation tests for node_config
+/// UPDATE operation tests for node_image
 use anyhow::Result;
-use db::{create_node_config, get_node_config_by_id, update_node_config};
+use db::{create_node_image, get_node_image_by_id, update_node_image};
 use shared::data::{NodeModel, RecordId};
 
 use crate::{create_test_config, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
-async fn test_update_node_config_success() -> Result<()> {
-    let db = setup_db("test_update_node_config_success").await?;
+async fn test_update_node_image_success() -> Result<()> {
+    let db = setup_db("test_update_node_image_success").await?;
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
-    let created = create_node_config(&db, test_config).await?;
+    let created = create_node_image(&db, test_config).await?;
     let original_id = created.id.clone();
 
     // Modify multiple fields
@@ -22,7 +22,7 @@ async fn test_update_node_config_success() -> Result<()> {
     updated_config.data_interface_count = 24;
 
     // Update the config
-    let result = update_node_config(&db, updated_config).await?;
+    let result = update_node_image(&db, updated_config).await?;
 
     // Verify changes were applied
     assert_eq!(result.memory, 4096, "Memory should be updated");
@@ -40,15 +40,15 @@ async fn test_update_node_config_success() -> Result<()> {
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
-async fn test_update_node_config_without_id_fails() -> Result<()> {
-    let db = setup_db("test_update_node_config_without_id_fails").await?;
+async fn test_update_node_image_without_id_fails() -> Result<()> {
+    let db = setup_db("test_update_node_image_without_id_fails").await?;
 
     // Create a config without an ID
     let mut test_config = create_test_config(NodeModel::CiscoAsav);
     test_config.id = None; // Explicitly remove ID
 
     // Attempt to update should fail
-    let result = update_node_config(&db, test_config).await;
+    let result = update_node_image(&db, test_config).await;
 
     assert!(result.is_err(), "Update without ID should fail");
     let err = result.unwrap_err();
@@ -69,10 +69,10 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
 
     // Create a config with a fake/nonexistent ID
     let mut test_config = create_test_config(NodeModel::JuniperVrouter);
-    test_config.id = Some(RecordId::new("node_config", "nonexistent_id_12345"));
+    test_config.id = Some(RecordId::new("node_image", "nonexistent_id_12345"));
 
     // Attempt to update should fail
-    let result = update_node_config(&db, test_config).await;
+    let result = update_node_image(&db, test_config).await;
 
     assert!(result.is_err(), "Update with nonexistent ID should fail");
     let err = result.unwrap_err();
@@ -93,7 +93,7 @@ async fn test_update_preserves_id() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
-    let created = create_node_config(&db, test_config).await?;
+    let created = create_node_image(&db, test_config).await?;
     let original_id = created.id.clone().expect("Created config should have ID");
 
     // Update multiple times
@@ -102,7 +102,7 @@ async fn test_update_preserves_id() -> Result<()> {
         updated_config.memory = 1024 * i;
         updated_config.id = original_id.clone().into();
 
-        let result = update_node_config(&db, updated_config).await?;
+        let result = update_node_image(&db, updated_config).await?;
 
         assert_eq!(
             result.id,
@@ -118,7 +118,7 @@ async fn test_update_preserves_id() -> Result<()> {
     }
 
     // Verify via get_by_id that ID is still correct
-    let retrieved = get_node_config_by_id(&db, original_id.clone())
+    let retrieved = get_node_image_by_id(&db, original_id.clone())
         .await?
         .expect("Config should still exist");
 

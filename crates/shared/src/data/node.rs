@@ -601,7 +601,7 @@ impl Default for NodeConfig {
         Self {
             id: None,
             model: NodeModel::default(),
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::default(),
             kind: NodeKind::default(),
@@ -701,7 +701,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::AristaVeos,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Eos,
             kind: NodeKind::VirtualMachine,
@@ -735,7 +735,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::AristaCeos,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: Some(CONTAINER_ARISTA_CEOS_REPO.to_string()),
             os_variant: OsVariant::Eos,
             kind: NodeKind::Container,
@@ -769,7 +769,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::ArubaAoscx,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Aos,
             kind: NodeKind::VirtualMachine,
@@ -803,7 +803,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoAsav,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Asa,
             kind: NodeKind::VirtualMachine,
@@ -837,7 +837,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoCsr1000v,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
@@ -871,7 +871,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoCat8000v,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
@@ -905,7 +905,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoCat9000v,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxe,
             kind: NodeKind::VirtualMachine,
@@ -939,7 +939,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoIosxrv9000,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Iosxr,
             kind: NodeKind::VirtualMachine,
@@ -973,7 +973,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoNexus9300v,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Nxos,
             kind: NodeKind::VirtualMachine,
@@ -1007,7 +1007,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoIosv,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Ios,
             kind: NodeKind::VirtualMachine,
@@ -1041,7 +1041,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoIosvl2,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Ios,
             kind: NodeKind::VirtualMachine,
@@ -1075,7 +1075,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoIse,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Ise,
             kind: NodeKind::VirtualMachine,
@@ -1109,7 +1109,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CiscoFtdv,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Fxos,
             kind: NodeKind::VirtualMachine,
@@ -1143,7 +1143,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::JuniperVrouter,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
@@ -1177,7 +1177,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::JuniperVswitch,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
@@ -1211,7 +1211,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::JuniperVevolved,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
@@ -1245,7 +1245,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::JuniperVsrxv3,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Junos,
             kind: NodeKind::VirtualMachine,
@@ -1279,7 +1279,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::AlmaLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1313,7 +1313,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::RockyLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1347,7 +1347,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::AlpineLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1381,7 +1381,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CumulusLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             kind: NodeKind::VirtualMachine,
             bios: BiosTypes::SeaBios,
@@ -1415,7 +1415,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::NokiaSrlinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Srlinux,
             kind: NodeKind::Container,
@@ -1449,7 +1449,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::CentosLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1483,7 +1483,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::FedoraLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1517,7 +1517,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::RedhatLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1551,7 +1551,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::SuseLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1585,7 +1585,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::OpensuseLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1619,7 +1619,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::UbuntuLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1653,7 +1653,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::SonicLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1687,7 +1687,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::FlatcarLinux,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
             kind: NodeKind::VirtualMachine,
@@ -1721,7 +1721,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::FreeBsd,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Bsd,
             kind: NodeKind::VirtualMachine,
@@ -1755,7 +1755,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::OpenBsd,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Bsd,
             kind: NodeKind::VirtualMachine,
@@ -1789,7 +1789,7 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::WindowsServer,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Server2012,
             kind: NodeKind::VirtualMachine,
@@ -1824,7 +1824,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::SurrealDb,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1849,7 +1849,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::MysqlDb,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1874,7 +1874,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::PostgresqlDb,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1899,7 +1899,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::GenericContainer,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1924,7 +1924,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::GenericUnikernel,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::Unikernel,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
@@ -1949,7 +1949,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::GenericVm,
             repo: None,
-            version: "inactive".to_owned(),
+            version: "0.0.0".to_owned(),
             kind: NodeKind::VirtualMachine,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),

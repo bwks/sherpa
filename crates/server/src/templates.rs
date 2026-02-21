@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use shared::data::{BridgeInfo, DbUser, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig};
 
-use crate::api::handlers::{NodeConfigSummary, UserSummary};
+use crate::api::handlers::{NodeImageSummary, UserSummary};
 /// Main dashboard page template
 #[derive(Template)]
 #[template(path = "dashboard.html.jinja")]
@@ -486,20 +486,20 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 }
 
 // ============================================================================
-// Admin Node Config Templates
+// Admin Node Image Templates
 // ============================================================================
 
-/// Admin node configs list page template
+/// Admin node images list page template
 #[derive(Template)]
-#[template(path = "admin-node-configs.html.jinja")]
+#[template(path = "admin-node-images.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeConfigsListTemplate {
+pub struct AdminNodeImagesListTemplate {
     pub username: String,
     pub is_admin: bool,
-    pub configs: Vec<NodeConfigSummary>,
+    pub configs: Vec<NodeImageSummary>,
 }
 
-impl IntoResponse for AdminNodeConfigsListTemplate {
+impl IntoResponse for AdminNodeImagesListTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -512,17 +512,17 @@ impl IntoResponse for AdminNodeConfigsListTemplate {
     }
 }
 
-/// Admin node config detail page template
+/// Admin node image detail page template
 #[derive(Template)]
-#[template(path = "admin-node-config-detail.html.jinja")]
+#[template(path = "admin-node-image-detail.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeConfigDetailTemplate {
+pub struct AdminNodeImageDetailTemplate {
     pub username: String,
     pub is_admin: bool,
     pub config: NodeConfig,
 }
 
-impl IntoResponse for AdminNodeConfigDetailTemplate {
+impl IntoResponse for AdminNodeImageDetailTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -535,11 +535,11 @@ impl IntoResponse for AdminNodeConfigDetailTemplate {
     }
 }
 
-/// Admin node config edit page template
+/// Admin node image edit page template
 #[derive(Template)]
-#[template(path = "admin-node-config-edit.html.jinja")]
+#[template(path = "admin-node-image-edit.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeConfigEditTemplate {
+pub struct AdminNodeImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
     pub config: NodeConfig,
@@ -553,7 +553,7 @@ pub struct AdminNodeConfigEditTemplate {
     pub interface_types: Vec<String>,
 }
 
-impl IntoResponse for AdminNodeConfigEditTemplate {
+impl IntoResponse for AdminNodeImageEditTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -566,11 +566,11 @@ impl IntoResponse for AdminNodeConfigEditTemplate {
     }
 }
 
-/// Admin node config versions list page template
+/// Admin node image versions list page template
 #[derive(Template)]
-#[template(path = "admin-node-config-versions.html.jinja")]
+#[template(path = "admin-node-image-versions.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeConfigVersionsTemplate {
+pub struct AdminNodeImageVersionsTemplate {
     pub username: String,
     pub is_admin: bool,
     pub model: String,
@@ -578,7 +578,7 @@ pub struct AdminNodeConfigVersionsTemplate {
     pub versions: Vec<NodeConfig>,
 }
 
-impl IntoResponse for AdminNodeConfigVersionsTemplate {
+impl IntoResponse for AdminNodeImageVersionsTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),

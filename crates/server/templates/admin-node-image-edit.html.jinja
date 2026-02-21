@@ -8,8 +8,8 @@
         <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             Admin
         </a>
-        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Node Configs
+        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Images
         </a>
         <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
             Profile
@@ -30,7 +30,7 @@
             <h2 class="text-3xl font-bold text-gray-900">Edit {{ config.model }}</h2>
             <p class="mt-1 text-sm text-gray-600">Update device template configuration</p>
         </div>
-        <a href="/admin/node-configs/{{ config.model }}/{{ config.version }}" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+        <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
             ← Cancel
         </a>
     </div>
@@ -39,7 +39,7 @@
     <div id="form-result"></div>
 
     <!-- Edit Form -->
-    <form id="edit-form" hx-post="/admin/node-configs/{{ config.model }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
+    <form id="edit-form" hx-post="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
         
         <!-- Basic Information Card -->
         <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
@@ -329,7 +329,7 @@
 
         <!-- Form Actions -->
         <div class="flex items-center justify-end space-x-4 bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <a href="/admin/node-configs/{{ config.model }}/{{ config.version }}" class="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="px-6 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
                 Cancel
             </a>
             <button type="submit" class="px-6 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors">

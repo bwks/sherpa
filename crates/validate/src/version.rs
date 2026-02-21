@@ -8,13 +8,13 @@ use topology::Node;
 /// Validate and resolve node versions, checking that images exist
 ///
 /// This function performs three key validations:
-/// 1. Resolves version from node_config if not set in manifest
+/// 1. Resolves version from node_image if not set in manifest
 /// 2. Validates version exists in database for the model
 /// 3. Verifies image/disk exists based on node kind
 ///
 /// # Arguments
 /// * `nodes` - List of nodes from manifest
-/// * `node_configs` - Pre-fetched list of all node configs from DB
+/// * `node_images` - Pre-fetched list of all node configs from DB
 /// * `images_dir` - Base directory for VM images
 /// * `docker_images` - List of local Docker images (format: "repo:tag")
 ///
@@ -23,12 +23,12 @@ use topology::Node;
 ///
 /// # Errors
 /// Returns error if:
-/// - Version not found in node_config for model
+/// - Version not found in node_image for model
 /// - Container image not found in local Docker
 /// - VM disk file not found on filesystem
 pub fn validate_and_resolve_node_versions(
     nodes: &[Node],
-    node_configs: &[NodeConfig],
+    node_images: &[NodeConfig],
     images_dir: &str,
     docker_images: &[String],
 ) -> Result<Vec<Node>> {
@@ -36,13 +36,13 @@ pub fn validate_and_resolve_node_versions(
 
     // Build lookup map for faster access
     let config_map: HashMap<NodeModel, &NodeConfig> =
-        node_configs.iter().map(|c| (c.model, c)).collect();
+        node_images.iter().map(|c| (c.model, c)).collect();
 
     for node in nodes {
         let mut updated_node = node.clone();
 
-        // Step 1: Get node_config for this model
-        let node_config = config_map.get(&node.model).ok_or_else(|| {
+        // Step 1: Get node_image for this model
+        let node_image = config_map.get(&node.model).ok_or_else(|| {
             anyhow!(
                 "Node config not found for model: {} (node: {})",
                 node.model,
@@ -50,33 +50,33 @@ pub fn validate_and_resolve_node_versions(
             )
         })?;
 
-        // Step 2: Resolve version (use node_config version if not set in manifest)
+        // Step 2: Resolve version (use node_image version if not set in manifest)
         let resolved_version = match &node.version {
             Some(v) => v.clone(),
             None => {
                 tracing::debug!(
                     node = %node.name,
                     model = ?node.model,
-                    version = %node_config.version,
-                    "Using version from node_config (not set in manifest)"
+                    version = %node_image.version,
+                    "Using version from node_image (not set in manifest)"
                 );
-                node_config.version.clone()
+                node_image.version.clone()
             }
         };
 
         // Step 3: Validate resolved version exists in database for this model
-        validate_version_in_db(&node.model, &resolved_version, node_configs).context(format!(
+        validate_version_in_db(&node.model, &resolved_version, node_images).context(format!(
             "Version validation failed for node: {} (model: {})",
             node.name, node.model
         ))?;
 
         // Step 4: Check image/disk existence based on node kind
-        match node_config.kind {
+        match node_image.kind {
             NodeKind::Container => {
                 validate_container_image(
                     &node.name,
                     &node.model,
-                    node_config.repo.as_deref(),
+                    node_image.repo.as_deref(),
                     &resolved_version,
                     docker_images,
                 )?;
@@ -98,13 +98,13 @@ pub fn validate_and_resolve_node_versions(
     Ok(validated_nodes)
 }
 
-/// Validate that a version exists in node_config for the given model
+/// Validate that a version exists in node_image for the given model
 fn validate_version_in_db(
     model: &NodeModel,
     version: &str,
-    node_configs: &[NodeConfig],
+    node_images: &[NodeConfig],
 ) -> Result<()> {
-    let matching_config = node_configs
+    let matching_config = node_images
         .iter()
         .find(|c| c.model == *model && c.version == version);
 
@@ -112,7 +112,7 @@ fn validate_version_in_db(
         Some(_) => Ok(()),
         None => {
             // Build helpful error with available versions
-            let available_versions: Vec<&str> = node_configs
+            let available_versions: Vec<&str> = node_images
                 .iter()
                 .filter(|c| c.model == *model)
                 .map(|c| c.version.as_str())
@@ -145,7 +145,7 @@ fn validate_container_image(
         Some(r) => format!("{}:{}", r, version),
         None => {
             bail!(
-                "Container node '{}' (model: {}) has no repo configured in node_config",
+                "Container node '{}' (model: {}) has no repo configured in node_image",
                 node_name,
                 model
             );
@@ -209,7 +209,7 @@ mod tests {
         MgmtInterfaces, OsVariant, ZtpMethod,
     };
 
-    fn create_test_node_config(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
+    fn create_test_node_image(model: NodeModel, version: &str, kind: NodeKind) -> NodeConfig {
         NodeConfig {
             id: None,
             model,
@@ -248,8 +248,8 @@ mod tests {
     fn test_validate_version_in_db_found() {
         let model = NodeModel::AristaVeos;
         let configs = vec![
-            create_test_node_config(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_config(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
+            create_test_node_image(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
+            create_test_node_image(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
         ];
 
         let result = validate_version_in_db(&model, "4.28.0F", &configs);
@@ -260,8 +260,8 @@ mod tests {
     fn test_validate_version_in_db_not_found() {
         let model = NodeModel::AristaVeos;
         let configs = vec![
-            create_test_node_config(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_config(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
+            create_test_node_image(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
+            create_test_node_image(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
         ];
 
         let result = validate_version_in_db(&model, "4.30.0F", &configs);

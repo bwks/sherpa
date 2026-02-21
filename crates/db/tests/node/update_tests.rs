@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{create_lab, create_node, create_node_config, create_user, get_node, update_node};
+use db::{create_lab, create_node, create_node_image, create_user, get_node, update_node};
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
@@ -11,8 +11,8 @@ async fn test_update_node_success() -> Result<()> {
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config1 = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    let config2 = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config1 = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config2 = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node
     let mut node = create_node(
@@ -28,13 +28,13 @@ async fn test_update_node_success() -> Result<()> {
     node.name = "updated-node".to_string();
     node.index = 10;
     let config2_id = config2.id.clone().unwrap();
-    node.config = config2_id.clone();
+    node.image = config2_id.clone();
 
     let updated = update_node(&db, node).await?;
 
     assert_eq!(updated.name, "updated-node");
     assert_eq!(updated.index, 10);
-    assert_eq!(updated.config, config2_id);
+    assert_eq!(updated.image, config2_id);
 
     teardown_db(&db).await?;
     Ok(())
@@ -47,7 +47,7 @@ async fn test_update_node_without_id_fails() -> Result<()> {
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0002", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node without ID
     let mut node =
@@ -78,7 +78,7 @@ async fn test_update_node_change_lab_fails() -> Result<()> {
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0003", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0004", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node in lab1
     let mut node = create_node(
@@ -117,7 +117,7 @@ async fn test_update_node_duplicate_name_fails() -> Result<()> {
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0005", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create two nodes
     create_node(
@@ -158,7 +158,7 @@ async fn test_update_node_duplicate_index_fails() -> Result<()> {
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0006", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create two nodes
     create_node(
@@ -199,7 +199,7 @@ async fn test_update_node_preserves_id() -> Result<()> {
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0007", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
     let mut node =
@@ -224,8 +224,8 @@ async fn test_update_node_can_change_config() -> Result<()> {
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0008", &user).await?;
-    let config1 = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    let config2 = create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
+    let config1 = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config2 = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node with config1
     let mut node = create_node(
@@ -239,14 +239,14 @@ async fn test_update_node_can_change_config() -> Result<()> {
 
     // Update to config2
     let config2_id = config2.id.clone().unwrap();
-    node.config = config2_id.clone();
+    node.image = config2_id.clone();
     let updated = update_node(&db, node).await?;
 
-    assert_eq!(updated.config, config2_id);
+    assert_eq!(updated.image, config2_id);
 
     // Verify by retrieving
     let retrieved = get_node(&db, updated.id.unwrap()).await?;
-    assert_eq!(retrieved.config, config2_id);
+    assert_eq!(retrieved.image, config2_id);
 
     teardown_db(&db).await?;
     Ok(())
@@ -259,7 +259,7 @@ async fn test_update_node_nonexistent_fails() -> Result<()> {
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Lab", "lab-0009", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
     let mut node =

@@ -9,7 +9,7 @@ use surrealdb_types::RecordId;
 
 /// Create a new node in the database.
 ///
-/// Creates a node with the specified name, index, config reference, and lab reference.
+/// Creates a node with the specified name, index, image reference, and lab reference.
 /// The node name must be unique within the lab, and the index must also be unique within the lab.
 ///
 /// # Parameters
@@ -17,7 +17,7 @@ use surrealdb_types::RecordId;
 /// * `db` - Database connection
 /// * `name` - Node name (must be unique within the lab)
 /// * `index` - Node index (must be unique within the lab, 0-65535)
-/// * `config_id` - RecordId of the node_config template to use
+/// * `image_id` - RecordId of the node_image to use
 /// * `lab_id` - RecordId of the lab this node belongs to
 ///
 /// # Returns
@@ -34,10 +34,10 @@ use surrealdb_types::RecordId;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let config_id: RecordId = ("node_config", "config1").into();
+/// let image_id: RecordId = ("node_image", "image1").into();
 /// let lab_id: RecordId = ("lab", "lab1").into();
 ///
-/// let node = create_node(&db, "router-1", 1, config_id, lab_id).await?;
+/// let node = create_node(&db, "router-1", 1, image_id, lab_id).await?;
 /// println!("Created node: {}", node.name);
 /// # Ok(())
 /// # }
@@ -48,14 +48,14 @@ use surrealdb_types::RecordId;
 /// Returns an error if:
 /// - A node with the same name already exists in the lab
 /// - A node with the same index already exists in the lab
-/// - The config_id doesn't reference a valid node_config
+/// - The image_id doesn't reference a valid node_image
 /// - The lab_id doesn't reference a valid lab
 /// - Database operation fails
 pub async fn create_node(
     db: &Arc<Surreal<Client>>,
     name: &str,
     index: u16,
-    config_id: RecordId,
+    image_id: RecordId,
     lab_id: RecordId,
 ) -> Result<DbNode> {
     let node: Option<DbNode> = db
@@ -63,7 +63,7 @@ pub async fn create_node(
         .content(DbNode {
             id: None,
             name: name.to_string(),
-            config: config_id.clone(),
+            image: image_id.clone(),
             index,
             lab: lab_id.clone(),
             mgmt_ipv4: None,
@@ -77,10 +77,10 @@ pub async fn create_node(
 
     node.ok_or_else(|| {
         anyhow!(
-            "Node was not created: name='{}', index={}, config_id={:?}, lab_id={:?}",
+            "Node was not created: name='{}', index={}, image_id={:?}, lab_id={:?}",
             name,
             index,
-            config_id,
+            image_id,
             lab_id
         )
     })

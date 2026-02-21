@@ -26,7 +26,7 @@ pub struct DbLab {
 pub struct DbNode {
     pub id: Option<RecordId>,
     pub name: String,
-    pub config: RecordId,
+    pub image: RecordId,
     pub index: u16,
     pub lab: RecordId,
     pub mgmt_ipv4: Option<String>,

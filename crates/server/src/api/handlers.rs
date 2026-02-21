@@ -1628,16 +1628,16 @@ fn format_date_simple(dt: Datetime) -> String {
     }
 }
 
-/// Helper struct for extracting node config path parameters with optional version
+/// Helper struct for extracting node image path parameters with optional version
 #[derive(Debug, Deserialize)]
-pub struct NodeConfigPath {
+pub struct NodeImagePath {
     pub model: String,
     pub version: Option<String>,
 }
 
-/// Helper struct to summarize node config data for list view
+/// Helper struct to summarize node image data for list view
 #[derive(Debug, Clone, Serialize)]
-pub struct NodeConfigSummary {
+pub struct NodeImageSummary {
     pub model: String,
     pub kind: String,
     pub version: String,
@@ -1647,27 +1647,27 @@ pub struct NodeConfigSummary {
     pub default: bool,
 }
 
-/// Admin handler to list all node configurations
-pub async fn admin_node_configs_list_handler(
+/// Admin handler to list all node imageurations
+pub async fn admin_node_images_list_handler(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!("Admin requesting node configs list");
+    tracing::debug!("Admin requesting node images list");
 
-    // Fetch all node configs from database
-    let configs = db::list_node_configs(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list node configs: {:?}", e);
-        ApiError::internal("Failed to load node configurations")
+    // Fetch all node images from database
+    let configs = db::list_node_images(&state.db).await.map_err(|e| {
+        tracing::error!("Failed to list node images: {:?}", e);
+        ApiError::internal("Failed to load node imageurations")
     })?;
 
     // Group configs by model and pick the best representative:
     // - Prefer default=true, otherwise pick the first entry
-    let mut best_by_model: std::collections::HashMap<String, NodeConfigSummary> =
+    let mut best_by_model: std::collections::HashMap<String, NodeImageSummary> =
         std::collections::HashMap::new();
 
     for config in configs {
         let model_key = config.model.to_string();
-        let summary = NodeConfigSummary {
+        let summary = NodeImageSummary {
             model: model_key.clone(),
             kind: config.kind.to_string(),
             version: config.version,
@@ -1687,10 +1687,10 @@ pub async fn admin_node_configs_list_handler(
         }
     }
 
-    let mut summaries: Vec<NodeConfigSummary> = best_by_model.into_values().collect();
+    let mut summaries: Vec<NodeImageSummary> = best_by_model.into_values().collect();
     summaries.sort_by(|a, b| a.model.cmp(&b.model));
 
-    let template = crate::templates::AdminNodeConfigsListTemplate {
+    let template = crate::templates::AdminNodeImagesListTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         configs: summaries,
@@ -1699,14 +1699,14 @@ pub async fn admin_node_configs_list_handler(
     Ok(template)
 }
 
-/// Admin handler to view a single node configuration detail
-pub async fn admin_node_config_detail_handler(
+/// Admin handler to view a single node imageuration detail
+pub async fn admin_node_image_detail_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeConfigPath>,
+    Path(params): Path<NodeImagePath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
-        "Admin requesting node config detail: {} (version: {:?})",
+        "Admin requesting node image detail: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -1714,7 +1714,7 @@ pub async fn admin_node_config_detail_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -1723,17 +1723,17 @@ pub async fn admin_node_config_detail_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node config for {}/{}: {:?}",
+                    "Failed to get node image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1743,7 +1743,7 @@ pub async fn admin_node_config_detail_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1751,29 +1751,29 @@ pub async fn admin_node_config_detail_handler(
                 )
             })?
     } else {
-        db::get_default_node_config(&state.db, &node_model, &node_kind)
+        db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get default node config for {}: {:?}",
+                    "Failed to get default node image for {}: {:?}",
                     params.model,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node config not found for {}", params.model);
+                tracing::warn!("Default node image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
     };
 
-    let template = crate::templates::AdminNodeConfigDetailTemplate {
+    let template = crate::templates::AdminNodeImageDetailTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         config,
@@ -1782,14 +1782,14 @@ pub async fn admin_node_config_detail_handler(
     Ok(template)
 }
 
-/// Admin handler to render the edit page for a node configuration
-pub async fn admin_node_config_edit_page_handler(
+/// Admin handler to render the edit page for a node imageuration
+pub async fn admin_node_image_edit_page_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeConfigPath>,
+    Path(params): Path<NodeImagePath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
-        "Admin requesting node config edit page: {} (version: {:?})",
+        "Admin requesting node image edit page: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -1797,7 +1797,7 @@ pub async fn admin_node_config_edit_page_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -1806,17 +1806,17 @@ pub async fn admin_node_config_edit_page_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node config for {}/{}: {:?}",
+                    "Failed to get node image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1826,7 +1826,7 @@ pub async fn admin_node_config_edit_page_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1834,30 +1834,30 @@ pub async fn admin_node_config_edit_page_handler(
                 )
             })?
     } else {
-        db::get_default_node_config(&state.db, &node_model, &node_kind)
+        db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get default node config for {}: {:?}",
+                    "Failed to get default node image for {}: {:?}",
                     params.model,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node config not found for {}", params.model);
+                tracing::warn!("Default node image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
     };
 
     // Generate enum options for dropdowns
-    let template = crate::templates::AdminNodeConfigEditTemplate {
+    let template = crate::templates::AdminNodeImageEditTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         config,
@@ -1874,9 +1874,9 @@ pub async fn admin_node_config_edit_page_handler(
     Ok(template)
 }
 
-/// Form data for updating a node configuration
+/// Form data for updating a node imageuration
 #[derive(Deserialize)]
-pub struct NodeConfigForm {
+pub struct NodeImageForm {
     // Model, kind, and management_interface come from URL path/existing config, not form
     pub version: String,
     pub repo: Option<String>,
@@ -1906,15 +1906,15 @@ pub struct NodeConfigForm {
     pub default: Option<String>, // checkbox
 }
 
-/// Admin handler to process node configuration update
-pub async fn admin_node_config_update_handler(
+/// Admin handler to process node imageuration update
+pub async fn admin_node_image_update_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeConfigPath>,
+    Path(params): Path<NodeImagePath>,
     _admin: AdminUser,
-    Form(form): Form<NodeConfigForm>,
+    Form(form): Form<NodeImageForm>,
 ) -> Result<Response, ApiError> {
     tracing::info!(
-        "Admin updating node config: {} (version: {:?})",
+        "Admin updating node image: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -1922,7 +1922,7 @@ pub async fn admin_node_config_update_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Config", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -1931,17 +1931,17 @@ pub async fn admin_node_config_update_handler(
     // Fetch the specific config from database
     // If version is specified, fetch that specific version; otherwise fetch default
     let config = if let Some(version) = &params.version {
-        db::get_node_config_by_model_kind_version(&state.db, &node_model, &node_kind, version)
+        db::get_node_image_by_model_kind_version(&state.db, &node_model, &node_kind, version)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node config for {}/{}: {:?}",
+                    "Failed to get node image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1951,7 +1951,7 @@ pub async fn admin_node_config_update_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1959,23 +1959,23 @@ pub async fn admin_node_config_update_handler(
                 )
             })?
     } else {
-        db::get_default_node_config(&state.db, &node_model, &node_kind)
+        db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get default node config for {}: {:?}",
+                    "Failed to get default node image for {}: {:?}",
                     params.model,
                     e
                 );
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node config not found for {}", params.model);
+                tracing::warn!("Default node image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Config",
+                    "Node Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
@@ -2038,7 +2038,7 @@ pub async fn admin_node_config_update_handler(
     // Validate: prevent unsetting the last default for this (model, kind)
     if config.default && !form_default {
         // User is trying to unset default - check if this is the only default
-        let versions = db::get_node_config_versions(&state.db, &node_model, &node_kind)
+        let versions = db::get_node_image_versions(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
                 tracing::error!("Failed to get versions for {}: {:?}", params.model, e);
@@ -2066,7 +2066,7 @@ pub async fn admin_node_config_update_handler(
     let ztp_password = form.ztp_password.filter(|s| !s.trim().is_empty());
 
     // Validate form data
-    if let Err(e) = validate::validate_node_config_update(
+    if let Err(e) = validate::validate_node_image_update(
         form.cpu_count,
         form.memory,
         form.data_interface_count,
@@ -2113,15 +2113,15 @@ pub async fn admin_node_config_update_handler(
     };
 
     // Update in database
-    db::update_node_config(&state.db, updated_config)
+    db::update_node_image(&state.db, updated_config)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update node config: {:?}", e);
+            tracing::error!("Failed to update node image: {:?}", e);
             ApiError::internal(format!("Failed to update configuration: {}", e))
         })?;
 
     tracing::info!(
-        "Successfully updated node config: {} (version: {:?})",
+        "Successfully updated node image: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -2129,9 +2129,9 @@ pub async fn admin_node_config_update_handler(
     // Redirect to detail page using HX-Redirect header
     // Include version in URL if it was specified
     let redirect_url = if let Some(version) = &params.version {
-        format!("/admin/node-configs/{}/{}", params.model, version)
+        format!("/admin/node-images/{}/{}", params.model, version)
     } else {
-        format!("/admin/node-configs/{}", params.model)
+        format!("/admin/node-images/{}", params.model)
     };
 
     let mut response = Html("").into_response();
@@ -2143,8 +2143,8 @@ pub async fn admin_node_config_update_handler(
     Ok(response)
 }
 
-/// Handler for listing all versions of a node config (GET /admin/node-configs/{model}/versions)
-pub async fn admin_node_config_versions_handler(
+/// Handler for listing all versions of a node image (GET /admin/node-images/{model}/versions)
+pub async fn admin_node_image_versions_handler(
     State(state): State<AppState>,
     AdminUser { username }: AdminUser,
     Path(model): Path<String>,
@@ -2159,17 +2159,17 @@ pub async fn admin_node_config_versions_handler(
     let kind_enum = model_enum.kind();
 
     // Fetch all versions for this model/kind
-    let versions = db::get_node_config_versions(&state.db, &model_enum, &kind_enum)
+    let versions = db::get_node_image_versions(&state.db, &model_enum, &kind_enum)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch node config versions: {:?}", e);
+            tracing::error!("Failed to fetch node image versions: {:?}", e);
             ApiError::internal(format!("Failed to fetch versions: {}", e))
         })?;
 
     tracing::debug!("Found {} versions for {}", versions.len(), model);
 
     // Create template and render
-    let template = crate::templates::AdminNodeConfigVersionsTemplate {
+    let template = crate::templates::AdminNodeImageVersionsTemplate {
         username,
         is_admin: true,
         model,

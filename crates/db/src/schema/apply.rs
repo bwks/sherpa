@@ -14,7 +14,7 @@ use super::bridge::generate_bridge_schema;
 use super::lab::generate_lab_schema;
 use super::link::generate_link_schema;
 use super::node::generate_node_schema;
-use super::node_config::generate_node_config_schema;
+use super::node_image::generate_node_image_schema;
 use super::user::generate_user_schema;
 
 /// Apply a single schema section to the database.
@@ -67,9 +67,9 @@ async fn apply_schema_section(
 ///
 /// Tables are created in dependency order to satisfy foreign key relationships:
 /// 1. **user** (no dependencies)
-/// 2. **node_config** (no dependencies)
+/// 2. **node_image** (no dependencies)
 /// 3. **lab** (depends on: user)
-/// 4. **node** (depends on: node_config, lab)
+/// 4. **node** (depends on: node_image, lab)
 /// 5. **link** (depends on: node, lab)
 ///
 /// # Parameters
@@ -104,7 +104,7 @@ async fn apply_schema_section(
 pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Generate schemas dynamically from individual schema modules
     let user_schema = generate_user_schema();
-    let node_config_schema = generate_node_config_schema();
+    let node_image_schema = generate_node_image_schema();
     let lab_schema = generate_lab_schema();
     let node_schema = generate_node_schema();
     let link_schema = generate_link_schema();
@@ -112,7 +112,7 @@ pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
 
     // Apply schemas in dependency order
     apply_schema_section(db, "user", &user_schema).await?;
-    apply_schema_section(db, "node_config", &node_config_schema).await?;
+    apply_schema_section(db, "node_image", &node_image_schema).await?;
     apply_schema_section(db, "lab", &lab_schema).await?;
     apply_schema_section(db, "node", &node_schema).await?;
     apply_schema_section(db, "link", &link_schema).await?;

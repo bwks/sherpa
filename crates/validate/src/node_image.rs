@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
-/// Validate node config form data before database update
-pub fn validate_node_config_update(
+/// Validate node image form data before database update
+pub fn validate_node_image_update(
     cpu_count: u8,
     memory: u16,
     data_interface_count: u8,

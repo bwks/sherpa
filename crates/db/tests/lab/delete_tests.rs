@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    count_labs, create_lab, create_node_config, create_user, delete_lab, delete_lab_by_id,
+    count_labs, create_lab, create_node_image, create_user, delete_lab, delete_lab_by_id,
     delete_lab_cascade, delete_lab_safe, get_lab,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
@@ -89,8 +89,8 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
     let lab = create_lab(&db, "Test Lab", "lab-0005", &user).await?;
 
     // Create node configs first
-    create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    create_node_config(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
 
     // Create some nodes
     create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
@@ -119,7 +119,7 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
     let lab = create_lab(&db, "Test Lab", "lab-0006", &user).await?;
 
     // Create node config first
-    create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create a node
     create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
@@ -171,9 +171,9 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
     let lab = create_lab(&db, "Full Lab", "lab-0008", &user).await?;
 
     // Create node configs first
-    create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    create_node_config(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
-    create_node_config(&db, NodeConfig::get_model(NodeModel::CiscoNexus9300v)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoNexus9300v)).await?;
 
     // Create multiple nodes
     create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;
@@ -203,8 +203,8 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     let lab = create_lab(&db, "Auto Cascade Lab", "lab-0009", &user).await?;
 
     // Create node configs first
-    create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
-    create_node_config(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::WindowsServer)).await?;
 
     // Create nodes
     create_test_node_with_model(&db, "node1", 1, NodeModel::UbuntuLinux, &lab).await?;

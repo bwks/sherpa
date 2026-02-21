@@ -1,8 +1,8 @@
-/// READ operation tests for node_config
+/// READ operation tests for node_image
 use anyhow::Result;
 use db::{
-    count_node_configs, create_node_config, get_node_config_by_id,
-    get_node_config_by_model_kind_version, list_node_configs,
+    count_node_images, create_node_image, get_node_image_by_id,
+    get_node_image_by_model_kind_version, list_node_images,
 };
 use shared::data::NodeModel;
 
@@ -10,12 +10,12 @@ use crate::{create_test_config, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
-async fn test_get_node_config_by_id() -> Result<()> {
-    let db = setup_db("test_get_node_config_by_id").await?;
+async fn test_get_node_image_by_id() -> Result<()> {
+    let db = setup_db("test_get_node_image_by_id").await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaCeos);
-    let created = create_node_config(&db, test_config).await?;
+    let created = create_node_image(&db, test_config).await?;
 
     let created_id = created
         .id
@@ -23,7 +23,7 @@ async fn test_get_node_config_by_id() -> Result<()> {
         .expect("Created config should have an ID");
 
     // Get by ID
-    let retrieved = get_node_config_by_id(&db, created_id).await?;
+    let retrieved = get_node_image_by_id(&db, created_id).await?;
 
     assert!(retrieved.is_some(), "Should find config by ID");
     let retrieved = retrieved.unwrap();
@@ -40,10 +40,10 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
 
     // Create a test config
     let test_config = create_test_config(NodeModel::CiscoAsav);
-    let _created = create_node_config(&db, test_config.clone()).await?;
+    let _created = create_node_image(&db, test_config.clone()).await?;
 
     // Get by model and kind
-    let retrieved: Option<_> = get_node_config_by_model_kind_version(
+    let retrieved: Option<_> = get_node_image_by_model_kind_version(
         &db,
         &NodeModel::CiscoAsav,
         &test_config.kind,
@@ -61,16 +61,16 @@ async fn test_get_node_config_by_model_kind() -> Result<()> {
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
-async fn test_count_node_configs() -> Result<()> {
-    let db = setup_db("test_count_node_configs").await?;
+async fn test_count_node_images() -> Result<()> {
+    let db = setup_db("test_count_node_images").await?;
 
-    let initial_count = count_node_configs(&db).await?;
+    let initial_count = count_node_images(&db).await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::JuniperVrouter);
-    let _created = create_node_config(&db, test_config).await?;
+    let _created = create_node_image(&db, test_config).await?;
 
-    let new_count = count_node_configs(&db).await?;
+    let new_count = count_node_images(&db).await?;
     assert_eq!(
         new_count,
         initial_count + 1,
@@ -87,7 +87,7 @@ async fn test_get_nonexistent_config() -> Result<()> {
     let db = setup_db("test_get_nonexistent_config").await?;
 
     // Try to get a config that doesn't exist
-    let result: Option<_> = get_node_config_by_model_kind_version(
+    let result: Option<_> = get_node_image_by_model_kind_version(
         &db,
         &NodeModel::WindowsServer,
         &shared::data::NodeKind::VirtualMachine,
@@ -112,10 +112,10 @@ async fn test_list_configs_returns_all_fields() -> Result<()> {
 
     // Create a config
     let test_config = create_test_config(NodeModel::UbuntuLinux);
-    let _created = create_node_config(&db, test_config).await?;
+    let _created = create_node_image(&db, test_config).await?;
 
     // List and verify all fields are populated
-    let configs = list_node_configs(&db).await?;
+    let configs = list_node_images(&db).await?;
     let ubuntu_config = configs
         .iter()
         .find(|c| c.model == NodeModel::UbuntuLinux)

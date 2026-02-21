@@ -65,18 +65,6 @@ impl AppState {
             .context("Failed to apply database schema")?;
         tracing::debug!("Database schema applied");
 
-        // Seed node configurations
-        match db::seed_node_configs(&db).await {
-            Ok(count) => {
-                if count > 0 {
-                    tracing::info!(count = count, "Seeded node configurations");
-                }
-            }
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to seed node configurations");
-            }
-        }
-
         // Seed admin user if SHERPA_ADMIN_PASSWORD is set
         if let Ok(admin_password) = std::env::var("SHERPA_ADMIN_PASSWORD") {
             match db::seed_admin_user(&db, &admin_password).await {

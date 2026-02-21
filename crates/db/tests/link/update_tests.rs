@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    create_lab, create_link, create_node, create_node_config, create_user, get_link_by_id,
+    create_lab, create_link, create_node, create_node_image, create_user, get_link_by_id,
     update_link,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
@@ -14,7 +14,7 @@ async fn test_update_link_success() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -81,7 +81,7 @@ async fn test_update_link_without_id_fails() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -138,7 +138,7 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(&db, "Lab 1", "lab-0001", &user).await?;
     let lab2 = create_lab(&db, "Lab 2", "lab-0002", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -197,7 +197,7 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -265,7 +265,7 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -333,7 +333,7 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -413,7 +413,7 @@ async fn test_update_link_preserves_id() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -469,7 +469,7 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,
@@ -529,7 +529,7 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
-    let config = create_node_config(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+    let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let node1 = create_node(
         &db,

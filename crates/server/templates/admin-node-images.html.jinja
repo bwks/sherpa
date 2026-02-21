@@ -1,6 +1,6 @@
 {% extends "base.html.jinja" %}
 
-{% block title %}Node Configurations - Sherpa Labs{% endblock %}
+{% block title %}Node Images - Sherpa Labs{% endblock %}
 
 {% block header_actions %}
     <div class="flex items-center space-x-4">
@@ -8,8 +8,8 @@
         <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             Admin
         </a>
-        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Node Configs
+        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Images
         </a>
         <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
             Profile
@@ -27,7 +27,7 @@
     <!-- Page Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-3xl font-bold text-gray-900">Node Configurations</h2>
+            <h2 class="text-3xl font-bold text-gray-900">Node Images</h2>
             <p class="mt-1 text-sm text-gray-600">Default device templates and their specifications</p>
         </div>
     </div>
@@ -68,10 +68,10 @@
                     <td style="text-align: center;">{{ config.data_interface_count }}</td>
                     <td style="text-align: right;">
                         <div class="flex items-center justify-end space-x-2">
-                            <a href="/admin/node-configs/{{ config.model }}/edit" class="inline-block px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
+                            <a href="/admin/node-images/{{ config.model }}/edit" class="inline-block px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
                                 Edit
                             </a>
-                            <a href="/admin/node-configs/{{ config.model }}" class="inline-block px-3 py-1 text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 rounded transition-colors">
+                            <a href="/admin/node-images/{{ config.model }}" class="inline-block px-3 py-1 text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 rounded transition-colors">
                                 View
                             </a>
                         </div>

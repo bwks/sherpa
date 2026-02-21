@@ -4,7 +4,7 @@ mod helpers;
 pub mod lab;
 pub mod link;
 pub mod node;
-pub mod node_config;
+pub mod node_image;
 pub mod schema;
 pub mod seed;
 pub mod user;
@@ -13,7 +13,7 @@ pub use connect::connect;
 pub use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
 // Helper functions for extracting IDs safely
-pub use helpers::{get_config_id, get_lab_id, get_node_id, get_user_id};
+pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
 
 // Lab CRUD operations
 pub use lab::{
@@ -23,11 +23,11 @@ pub use lab::{
     upsert_lab, validate_lab_id,
 };
 
-// Node config CRUD operations
-pub use node_config::{
-    count_node_configs, create_node_config, delete_node_config, get_default_node_config,
-    get_node_config_by_id, get_node_config_by_model_kind_version, get_node_config_versions,
-    list_node_configs, list_node_configs_by_kind, update_node_config, upsert_node_config,
+// Node image CRUD operations
+pub use node_image::{
+    count_node_images, create_node_image, delete_node_image, get_default_node_image,
+    get_node_image_by_id, get_node_image_by_model_kind_version, get_node_image_versions,
+    list_node_images, list_node_images_by_kind, update_node_image, upsert_node_image,
 };
 
 // Node CRUD operations
@@ -47,8 +47,6 @@ pub use link::{
 
 pub use schema::apply_schema;
 pub use seed::admin_user::seed_admin_user;
-pub use seed::node_config::delete_node_configs;
-pub use seed::node_config::seed_node_configs;
 
 // User CRUD operations
 pub use user::{

@@ -2,13 +2,13 @@
 //!
 //! The node table stores individual network devices (nodes) within a lab.
 //! Each node represents a virtual machine, container, or unikernel that
-//! participates in the network topology. Nodes are configured based on
-//! templates from the node_config table and belong to a specific lab.
+//! participates in the network topology. Nodes reference an imported image
+//! from the node_image table and belong to a specific lab.
 //!
 //! ## Fields
 //! - `name`: Node name (unique within lab)
 //! - `index`: Node index for ordering (unique within lab, 0-65535)
-//! - `config`: Foreign key reference to node_config template
+//! - `image`: Foreign key reference to node_image record
 //! - `lab`: Foreign key reference to owning lab
 //! - `mgmt_ipv4`: Management IPv4 address (optional, set during lab setup)
 //!
@@ -23,13 +23,13 @@
 //! - `bridges`: Reverse reference to all bridges this node connects to (`<~(bridge FIELD nodes)`)
 //!
 //! ## Relationships
-//! - Many-to-one with `node_config` table (multiple nodes can use same config)
+//! - Many-to-one with `node_image` table (multiple nodes can use same image)
 //! - Many-to-one with `lab` table (each node belongs to one lab)
 //! - One-to-many with `link` table (node can have multiple links to other nodes)
 //!
 //! ## Referential Integrity
-//! - `config` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
-//!   node_config that is still referenced by nodes.
+//! - `image` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
+//!   node_image that is still referenced by nodes.
 //! - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
 //!   all its nodes are automatically deleted by the database.
 
@@ -40,7 +40,7 @@ use super::helpers::vec_to_str;
 /// Generate the node table schema.
 ///
 /// Creates the node table with unique constraints to ensure nodes within a lab
-/// have unique names and indexes. Each node references a configuration template
+/// have unique names and indexes. Each node references an imported image
 /// and belongs to a specific lab.
 ///
 /// # Returns
@@ -53,7 +53,7 @@ use super::helpers::vec_to_str;
 /// - **Fields**:
 ///   - `name`: string (node name)
 ///   - `index`: number (0-65535, integer only)
-///   - `config`: record reference to node_config table
+///   - `image`: record reference to node_image table
 ///   - `lab`: record reference to lab table
 ///   - `mgmt_ipv4`: optional string (management IPv4 address)
 /// - **Indexes**:
@@ -62,8 +62,8 @@ use super::helpers::vec_to_str;
 ///
 /// # Referential Integrity
 ///
-/// - `config` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
-///   node_config that is still referenced by nodes.
+/// - `image` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
+///   node_image that is still referenced by nodes.
 /// - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
 ///   all its nodes are automatically removed by the database.
 ///
@@ -82,7 +82,7 @@ DEFINE TABLE node SCHEMAFULL;
 DEFINE FIELD name ON TABLE node TYPE string;
 DEFINE FIELD index ON TABLE node TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
-DEFINE FIELD config ON TABLE node TYPE record<node_config> REFERENCE ON DELETE REJECT;
+DEFINE FIELD image ON TABLE node TYPE record<node_image> REFERENCE ON DELETE REJECT;
 DEFINE FIELD lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
 DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
 DEFINE FIELD state ON TABLE node TYPE string

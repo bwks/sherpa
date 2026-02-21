@@ -8,7 +8,7 @@
 //!
 //! - `helpers`: Utility functions for schema generation (enum serialization)
 //! - `user`: User account table schema
-//! - `node_config`: Node configuration template table schema
+//! - `node_image`: Node image table schema
 //! - `lab`: Network lab table schema
 //! - `node`: Network node table schema
 //! - `link`: Network link (connection) table schema
@@ -37,7 +37,7 @@ mod helpers;
 mod lab;
 mod link;
 mod node;
-mod node_config;
+mod node_image;
 mod user;
 
 // Public API - only schema application function is exposed outside the crate

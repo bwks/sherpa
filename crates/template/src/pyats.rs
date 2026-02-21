@@ -39,7 +39,7 @@ pub struct PyatsInventory {
 impl PyatsInventory {
     pub fn from_manifest(
         manifest: &Manifest,
-        node_configs: &HashMap<NodeModel, NodeConfig>,
+        node_images: &HashMap<NodeModel, NodeConfig>,
         device_ips: &[ZtpRecord],
         ztp_username: Option<String>,
         ztp_password: Option<String>,
@@ -54,7 +54,7 @@ impl PyatsInventory {
                     anyhow::anyhow!("Device name not found in DeviceConnection: {}", device.name)
                 })?;
 
-            let model = node_configs
+            let model = node_images
                 .get(&device.model)
                 .ok_or_else(|| anyhow::anyhow!("Device model not found: {}", device.model))?;
 

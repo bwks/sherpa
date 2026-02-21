@@ -36,7 +36,7 @@ pub async fn teardown_db(db: &Surreal<Client>) -> Result<()> {
     // so we'll use a query to remove all records from tables we created
 
     // Delete all test data from our tables
-    let _: Vec<NodeConfig> = db.delete("node_config").await?;
+    let _: Vec<NodeConfig> = db.delete("node_image").await?;
 
     // Note: We could also delete from other tables if they exist in the test:
     // let _: Vec<DbNode> = db.delete("node").await?;
@@ -63,14 +63,14 @@ pub async fn create_test_node_with_model(
     model: NodeModel,
     lab: &DbLab,
 ) -> Result<DbNode> {
-    use db::{create_node, get_node_config_by_model_kind_version};
+    use db::{create_node, get_node_image_by_model_kind_version};
 
     // Get the model kind from the NodeModel
     let config_template = NodeConfig::get_model(model.clone());
     let kind = config_template.kind;
     let version = config_template.version;
 
-    let config = get_node_config_by_model_kind_version(db, &model, &kind, &version)
+    let config = get_node_image_by_model_kind_version(db, &model, &kind, &version)
         .await?
         .expect("Config should exist for this model");
     let config_id = config.id.clone().expect("Config should have an id");

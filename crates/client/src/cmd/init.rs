@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
-use db::{apply_schema, connect, list_node_configs, seed_node_configs, upsert_user};
+use db::{apply_schema, connect, upsert_user};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
-use shared::data::Sherpa;
+use shared::data::{NodeConfig, NodeModel, Sherpa};
 use shared::konst::{
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_MANIFEST_FILE,
@@ -110,23 +110,15 @@ pub async fn init(
 
     term_msg_underline("Applying Database Schema");
     apply_schema(&db).await?;
+    println!("Database schema applied");
 
-    term_msg_underline("Seeding Node Configs");
-    let created_count = seed_node_configs(&db).await?;
-    println!(
-        "Database initialization complete ({} configs seeded)",
-        created_count
-    );
-
-    // Now fetch node configs from database and create image directories
+    // Create image directories from in-memory model definitions
     term_msg_underline("Creating Node Image Directories");
-    let node_configs = list_node_configs(&db).await?;
-
-    // Create unique set of models to avoid duplicate directories
     let mut created_models = std::collections::HashSet::new();
-    for node_config in &node_configs {
-        if created_models.insert(node_config.model) {
-            let model_dir = format!("{}/{}/latest", sherpa.images_dir, node_config.model);
+    for model in NodeModel::to_vec() {
+        let node_image = NodeConfig::get_model(model);
+        if created_models.insert(node_image.model) {
+            let model_dir = format!("{}/{}/latest", sherpa.images_dir, node_image.model);
             create_dir(&model_dir)?;
         }
     }

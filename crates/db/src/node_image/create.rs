@@ -4,25 +4,25 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
-use crate::node_config::get_node_config_by_model_kind_version;
+use crate::node_image::get_node_image_by_model_kind_version;
 
-/// Create a node_config record in the database with auto-generated ID
-pub async fn create_node_config(
+/// Create a node_image record in the database with auto-generated ID
+pub async fn create_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,
 ) -> Result<NodeConfig> {
     let created_config: Option<NodeConfig> = db
-        .create("node_config")
+        .create("node_image")
         .content(config.clone())
         .await
         .context(format!(
-            "Error creating node_config (model, kind, version must be unique):\n model: {}\n kind: {}\n version: {}\n",
+            "Error creating node_image (model, kind, version must be unique):\n model: {}\n kind: {}\n version: {}\n",
             config.model, config.kind, config.version
         ))?;
 
     created_config.ok_or_else(|| {
         anyhow!(
-            "Node config was not created:\n model: {}\n kind: {}\n version: {}\n",
+            "Node image was not created:\n model: {}\n kind: {}\n version: {}\n",
             config.model,
             config.kind,
             config.version
@@ -30,19 +30,19 @@ pub async fn create_node_config(
     })
 }
 
-/// Upsert a node_config record (create if not exists, update if exists)
+/// Upsert a node_image record (create if not exists, update if exists)
 /// This uses a query-based approach to handle the unique constraint gracefully.
 /// If config.default is true, it will automatically unset default on other versions
 /// of the same (model, kind) combination.
 /// SurrealDB will auto-generate IDs for new records.
-pub async fn upsert_node_config(
+pub async fn upsert_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,
 ) -> Result<NodeConfig> {
     // If setting default=true, first unset default on other versions of same (model, kind)
     if config.default {
         db.query(
-            "UPDATE node_config SET default = false 
+            "UPDATE node_image SET default = false
              WHERE model = $model AND kind = $kind AND version != $version",
         )
         .bind(("model", config.model.to_string()))
@@ -57,10 +57,10 @@ pub async fn upsert_node_config(
 
     // Try to find existing config by (model, kind, version) using the unique constraint
     let existing =
-        get_node_config_by_model_kind_version(db, &config.model, &config.kind, &config.version)
+        get_node_image_by_model_kind_version(db, &config.model, &config.kind, &config.version)
             .await
             .context(format!(
-                "Error querying existing node_config:\n model: {}\n kind: {}\n version: {}\n",
+                "Error querying existing node_image:\n model: {}\n kind: {}\n version: {}\n",
                 config.model, config.kind, config.version
             ))?;
 
@@ -74,13 +74,13 @@ pub async fn upsert_node_config(
             .content(updated_config)
             .await
             .context(format!(
-                "Error updating existing node_config:\n model: {}\n kind: {}\n version: {}\n",
+                "Error updating existing node_image:\n model: {}\n kind: {}\n version: {}\n",
                 config.model, config.kind, config.version
             ))?;
 
         updated.ok_or_else(|| {
             anyhow!(
-                "Node config was not updated:\n model: {}\n kind: {}\n version: {}\n",
+                "Node image was not updated:\n model: {}\n kind: {}\n version: {}\n",
                 config.model,
                 config.kind,
                 config.version
@@ -88,6 +88,6 @@ pub async fn upsert_node_config(
         })
     } else {
         // Create new record with auto-generated ID
-        create_node_config(db, config).await
+        create_node_image(db, config).await
     }
 }

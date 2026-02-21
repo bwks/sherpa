@@ -133,16 +133,16 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
         let node_name = node.name.clone();
         let device_name = format!("{}-{}", node_name, lab_id);
 
-        // Get node config to determine model and kind
-        let node_config = db::get_node_config_by_id(&state.db, node.config.clone())
+        // Get node image to determine model and kind
+        let node_image = db::get_node_image_by_id(&state.db, node.image.clone())
             .await
-            .context(format!("Failed to get config for node '{}'", node_name))?
-            .context(format!("Node config not found for node '{}'", node_name))?;
+            .context(format!("Failed to get image for node '{}'", node_name))?
+            .context(format!("Node image not found for node '{}'", node_name))?;
 
         let mut device_info = DeviceInfo {
             name: node_name.clone(),
-            model: node_config.model,
-            kind: node_config.kind,
+            model: node_image.model,
+            kind: node_image.kind,
             state: node.state,
             mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
             disks: Vec::new(),

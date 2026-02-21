@@ -8,8 +8,8 @@
         <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             Admin
         </a>
-        <a href="/admin/node-configs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Node Configs
+        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Node Images
         </a>
         <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
             Profile
@@ -43,7 +43,7 @@
             </p>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/admin/node-configs" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+            <a href="/admin/node-images" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
                 ← Back to List
             </a>
         </div>
@@ -107,11 +107,11 @@
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         <div class="flex items-center justify-end space-x-3">
-                            <a href="/admin/node-configs/{{ config.model }}/{{ config.version }}" 
+                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" 
                                class="text-blue-600 hover:text-blue-900 transition-colors">
                                 View
                             </a>
-                            <a href="/admin/node-configs/{{ config.model }}/{{ config.version }}/edit" 
+                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" 
                                class="text-blue-600 hover:text-blue-900 transition-colors">
                                 Edit
                             </a>

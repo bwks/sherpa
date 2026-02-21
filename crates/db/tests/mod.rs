@@ -1,5 +1,5 @@
 mod helper;
-/// Integration tests for node_config CRUD operations
+/// Integration tests for node_image CRUD operations
 ///
 /// These tests require a running SurrealDB instance.
 /// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
@@ -7,11 +7,11 @@ mod helper;
 /// Each test uses a unique namespace for isolation, preventing test data pollution.
 ///
 /// To run these tests:
-/// - All node_config tests: cargo test --package db --test node_config
+/// - All node_image tests: cargo test --package db --test node_image
 /// - Only CREATE tests: cargo test --package db create_tests
 /// - Only READ tests: cargo test --package db read_tests
-/// - Specific test: cargo test --package db test_get_node_config_by_id
-mod node_config;
+/// - Specific test: cargo test --package db test_get_node_image_by_id
+mod node_image;
 
 /// Integration tests for lab CRUD operations
 ///
