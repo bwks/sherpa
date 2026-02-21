@@ -251,8 +251,11 @@ pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
 // Image operations
 pub const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";
 pub const RPC_MSG_IMAGE_LIST_FAILED: &str = "Image list operation failed";
+pub const RPC_MSG_IMAGE_SCAN_FAILED: &str = "Image scan operation failed";
 pub const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
     "Access denied: only administrators can import images";
+pub const RPC_MSG_ADMIN_ONLY_IMAGE_SCAN: &str =
+    "Access denied: only administrators can scan images";
 
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";

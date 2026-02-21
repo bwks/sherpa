@@ -3,7 +3,9 @@ use tabled::{
     settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
 };
 
-use crate::data::{BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeInfo};
+use crate::data::{
+    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeInfo, ScannedImage,
+};
 
 /// Represents a row in the nodes table
 #[derive(Tabled)]
@@ -557,6 +559,16 @@ pub fn render_images_table(images: &[ImageSummary]) -> String {
     Table::new(images)
         .with(Style::modern())
         .with(Panel::header("Images"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
+/// Renders a table of scanned images with their model, version, kind, and status
+pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
+    Table::new(images)
+        .with(Style::modern())
+        .with(Panel::header("Scanned Images"))
         .with(Modify::new(Rows::first()).with(Alignment::center()))
         .with(BorderCorrection::span())
         .to_string()

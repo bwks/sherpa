@@ -42,6 +42,7 @@ pub use ssh::{
 pub use table::{
     CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,
     render_images_table, render_lab_info_table, render_links_table, render_nodes_table,
+    render_scanned_images_table,
 };
 pub use text::split_node_int;
 pub use user::{get_username, sherpa_user};

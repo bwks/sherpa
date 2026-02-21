@@ -65,3 +65,35 @@ pub struct ImportResponse {
     /// Whether the image was tracked in the database
     pub db_tracked: bool,
 }
+
+/// Request type for scanning on-disk images
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanImagesRequest {
+    /// Optional kind filter (currently only VirtualMachine is supported)
+    pub kind: Option<NodeKind>,
+    /// If true, only report what would be imported without making changes
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// A single scanned image result
+#[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
+pub struct ScannedImage {
+    #[tabled(rename = "Model")]
+    pub model: NodeModel,
+    #[tabled(rename = "Version")]
+    pub version: String,
+    #[tabled(rename = "Kind")]
+    pub kind: NodeKind,
+    #[tabled(rename = "Status")]
+    pub status: String,
+}
+
+/// Response from scanning on-disk images
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScanImagesResponse {
+    /// List of scanned image results
+    pub scanned: Vec<ScannedImage>,
+    /// Total number of images imported (new or updated)
+    pub total_imported: usize,
+}
