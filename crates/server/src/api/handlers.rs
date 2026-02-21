@@ -1635,6 +1635,16 @@ pub struct NodeConfigPath {
     pub version: Option<String>,
 }
 
+/// Rank a node config for selection priority: active+default > active > default > neither
+fn rank_config(active: bool, default: bool) -> u8 {
+    match (active, default) {
+        (true, true) => 3,
+        (true, false) => 2,
+        (false, true) => 1,
+        (false, false) => 0,
+    }
+}
+
 /// Helper struct to summarize node config data for list view
 #[derive(Debug, Clone, Serialize)]
 pub struct NodeConfigSummary {
@@ -1645,6 +1655,7 @@ pub struct NodeConfigSummary {
     pub memory: u16,
     pub data_interface_count: u8,
     pub default: bool,
+    pub active: bool,
 }
 
 /// Admin handler to list all node configurations
@@ -1660,22 +1671,40 @@ pub async fn admin_node_configs_list_handler(
         ApiError::internal("Failed to load node configurations")
     })?;
 
-    // Convert to summary structs and sort alphabetically by model
-    // Filter to show only default configurations
-    let mut summaries: Vec<NodeConfigSummary> = configs
-        .into_iter()
-        .filter(|config| config.default)
-        .map(|config| NodeConfigSummary {
-            model: config.model.to_string(),
+    // Group configs by model and pick the best representative:
+    // - Prefer active+default, then active, then default (inactive fallback)
+    let mut best_by_model: std::collections::HashMap<String, NodeConfigSummary> =
+        std::collections::HashMap::new();
+
+    for config in configs {
+        let model_key = config.model.to_string();
+        let summary = NodeConfigSummary {
+            model: model_key.clone(),
             kind: config.kind.to_string(),
             version: config.version,
             cpu_count: config.cpu_count,
             memory: config.memory,
             data_interface_count: config.data_interface_count,
             default: config.default,
-        })
-        .collect();
+            active: config.active,
+        };
 
+        let dominated = match best_by_model.get(&model_key) {
+            None => true,
+            Some(existing) => {
+                // Priority: active+default > active > default > neither
+                let new_rank = rank_config(summary.active, summary.default);
+                let old_rank = rank_config(existing.active, existing.default);
+                new_rank > old_rank
+            }
+        };
+
+        if dominated {
+            best_by_model.insert(model_key, summary);
+        }
+    }
+
+    let mut summaries: Vec<NodeConfigSummary> = best_by_model.into_values().collect();
     summaries.sort_by(|a, b| a.model.cmp(&b.model));
 
     let template = crate::templates::AdminNodeConfigsListTemplate {

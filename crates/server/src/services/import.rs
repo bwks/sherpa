@@ -171,9 +171,9 @@ pub async fn scan_images(
         let config = NodeConfig::get_model(model);
         let kind = config.kind.clone();
 
-        // Skip non-VM kinds (for now)
-        if kind != NodeKind::VirtualMachine {
-            tracing::debug!("Skipping non-VM model: {} (kind={})", model, kind);
+        // Skip container kinds in filesystem scan (containers live in Docker, not on disk)
+        if kind == NodeKind::Container {
+            tracing::debug!("Skipping container model in disk scan: {}", model);
             continue;
         }
 
@@ -323,6 +323,139 @@ pub async fn scan_images(
                 kind: kind.clone(),
                 status,
             });
+        }
+    }
+
+    // --- Container image scanning ---
+    // Query Docker for local images and match against known container models
+    let skip_containers = matches!(request.kind, Some(ref k) if *k != NodeKind::Container);
+    if !skip_containers {
+        let docker_tags = container::get_local_images(&state.docker)
+            .await
+            .context("Failed to list local Docker images")?;
+
+        for model in NodeModel::to_vec() {
+            let config = NodeConfig::get_model(model);
+            let kind = config.kind.clone();
+
+            // Only process container models
+            if kind != NodeKind::Container {
+                continue;
+            }
+
+            // If a kind filter was provided, check it (redundant guard for safety)
+            if let Some(ref filter_kind) = request.kind
+                && *filter_kind != kind
+            {
+                continue;
+            }
+
+            // Skip models with no repo (no way to match Docker images)
+            let repo = match &config.repo {
+                Some(r) => r.clone(),
+                None => {
+                    tracing::debug!("Skipping container model {} (no repo configured)", model);
+                    continue;
+                }
+            };
+
+            // Check if the only existing record is the seeded "inactive" placeholder
+            let existing_versions = db::get_node_config_versions(&state.db, &model, &kind)
+                .await
+                .context("Failed to query existing node_config versions")?;
+            let only_inactive = existing_versions.len() <= 1
+                && existing_versions
+                    .first()
+                    .is_none_or(|c| c.version == "inactive" && !c.active);
+            let mut set_default = only_inactive;
+
+            let prefix = format!("{}:", repo);
+            for tag in &docker_tags {
+                // Match tags like "localrepo/arista_ceos:4.32.0F"
+                let version = match tag.strip_prefix(&prefix) {
+                    Some(v) => v.to_string(),
+                    None => continue,
+                };
+
+                // Check if record already exists and is active
+                let existing =
+                    db::get_node_config_by_model_kind_version(&state.db, &model, &kind, &version)
+                        .await
+                        .context("Failed to check existing node_config")?;
+
+                if let Some(ref existing_config) = existing
+                    && existing_config.active
+                {
+                    scanned.push(ScannedImage {
+                        model,
+                        version,
+                        kind: kind.clone(),
+                        status: "already_active".to_string(),
+                    });
+                    continue;
+                }
+
+                let make_default = set_default;
+
+                if request.dry_run {
+                    let status = if make_default {
+                        "would_import (default)"
+                    } else {
+                        "would_import"
+                    };
+                    scanned.push(ScannedImage {
+                        model,
+                        version,
+                        kind: kind.clone(),
+                        status: status.to_string(),
+                    });
+                    total_imported += 1;
+                    set_default = false;
+                    continue;
+                }
+
+                // Upsert with active: true
+                let mut db_config = config.clone();
+                db_config.version = version.clone();
+                db_config.default = make_default;
+                db_config.active = true;
+                db_config.id = None;
+
+                let status = match db::upsert_node_config(&state.db, db_config).await {
+                    Ok(_) => {
+                        tracing::info!(
+                            "Scanned and imported container node_config for model={} version={} default={}",
+                            model,
+                            version,
+                            make_default
+                        );
+                        total_imported += 1;
+                        if make_default {
+                            "imported (default)".to_string()
+                        } else {
+                            "imported".to_string()
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to upsert node_config for model={} version={}: {:?}",
+                            model,
+                            version,
+                            e
+                        );
+                        format!("error: {}", e)
+                    }
+                };
+
+                set_default = false;
+
+                scanned.push(ScannedImage {
+                    model,
+                    version,
+                    kind: kind.clone(),
+                    status,
+                });
+            }
         }
     }
 
