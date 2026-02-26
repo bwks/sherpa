@@ -14,9 +14,9 @@ use super::handlers::{
     admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
     dashboard_handler, delete_ssh_key_handler, get_certificate_handler, get_lab, get_labs_html,
     get_labs_json, health_check, lab_destroy_button_handler, lab_destroy_confirm_handler,
-    lab_destroy_post_handler, lab_destroy_stream_handler, lab_detail_handler, lab_up, login,
-    login_form_handler, login_page_handler, logout_handler, profile_handler, signup_form_handler,
-    signup_page_handler, update_password_handler,
+    lab_destroy_post_handler, lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler,
+    lab_up, login, login_form_handler, login_page_handler, logout_handler, profile_handler,
+    signup_form_handler, signup_page_handler, update_password_handler,
 };
 
 /// Build the Axum router with all API routes
@@ -53,6 +53,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/", get(dashboard_handler))
         .route("/labs", get(get_labs_html))
         .route("/labs/{lab_id}", get(lab_detail_handler))
+        .route("/labs/{lab_id}/nodes", get(lab_nodes_handler))
         .route(
             "/labs/{lab_id}/destroy/confirm",
             get(lab_destroy_confirm_handler),
