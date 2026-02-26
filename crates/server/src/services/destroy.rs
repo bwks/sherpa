@@ -7,7 +7,9 @@ use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 use container::{delete_network, kill_container, list_containers, list_networks};
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
-use shared::data::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo};
+use shared::data::{
+    DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo, StatusKind,
+};
 use shared::konst::{
     BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
@@ -16,6 +18,7 @@ use shared::util::{dir_exists, file_exists, load_file};
 use std::str::FromStr;
 
 use crate::daemon::state::AppState;
+use crate::services::progress::ProgressSender;
 
 /// Destroy a lab and all its resources
 ///
@@ -35,7 +38,11 @@ use crate::daemon::state::AppState;
 /// environment where the client can be trusted to send correct username. In production,
 /// this should be replaced with proper authentication (JWT, session, etc.) where the
 /// username is extracted from a verified token rather than client-provided param.
-pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<DestroyResponse> {
+pub async fn destroy_lab(
+    request: DestroyRequest,
+    state: &AppState,
+    progress: ProgressSender,
+) -> Result<DestroyResponse> {
     let lab_id = &request.lab_id;
     let username = &request.username;
 
@@ -95,8 +102,17 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // 1. Destroy containers
     let containers_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying containers");
+    let _ = progress.send_status("Destroying containers...".to_string(), StatusKind::Progress);
     destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
     let containers_duration = containers_timer.elapsed().as_secs();
+    if summary.containers_destroyed.is_empty() && summary.containers_failed.is_empty() {
+        let _ = progress.send_status("No containers to destroy".to_string(), StatusKind::Info);
+    } else {
+        for name in &summary.containers_destroyed {
+            let _ =
+                progress.send_status(format!("Destroyed container: {}", name), StatusKind::Done);
+        }
+    }
     tracing::info!(
         lab_id = %lab_id,
         destroyed = summary.containers_destroyed.len(),
@@ -108,7 +124,21 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // 2. Destroy VMs and disks
     let vms_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying VMs and disks");
+    let _ = progress.send_status(
+        "Destroying VMs and disks...".to_string(),
+        StatusKind::Progress,
+    );
     destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    if summary.vms_destroyed.is_empty() && summary.vms_failed.is_empty() {
+        let _ = progress.send_status("No VMs to destroy".to_string(), StatusKind::Info);
+    } else {
+        for name in &summary.vms_destroyed {
+            let _ = progress.send_status(format!("Destroyed VM: {}", name), StatusKind::Done);
+        }
+        for name in &summary.disks_deleted {
+            let _ = progress.send_status(format!("Deleted disk: {}", name), StatusKind::Done);
+        }
+    }
     let vms_duration = vms_timer.elapsed().as_secs();
     tracing::info!(
         lab_id = %lab_id,
@@ -123,7 +153,24 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // 3. Destroy Docker networks
     let docker_net_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying Docker networks");
+    let _ = progress.send_status(
+        "Destroying Docker networks...".to_string(),
+        StatusKind::Progress,
+    );
     destroy_docker_networks(lab_id, &state.docker, &mut summary, &mut errors).await;
+    if summary.docker_networks_destroyed.is_empty() && summary.docker_networks_failed.is_empty() {
+        let _ = progress.send_status(
+            "No Docker networks to destroy".to_string(),
+            StatusKind::Info,
+        );
+    } else {
+        for name in &summary.docker_networks_destroyed {
+            let _ = progress.send_status(
+                format!("Destroyed Docker network: {}", name),
+                StatusKind::Done,
+            );
+        }
+    }
     let docker_net_duration = docker_net_timer.elapsed().as_secs();
     tracing::info!(
         lab_id = %lab_id,
@@ -136,7 +183,24 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // 4. Destroy libvirt networks
     let libvirt_net_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying libvirt networks");
+    let _ = progress.send_status(
+        "Destroying libvirt networks...".to_string(),
+        StatusKind::Progress,
+    );
     destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    if summary.libvirt_networks_destroyed.is_empty() && summary.libvirt_networks_failed.is_empty() {
+        let _ = progress.send_status(
+            "No libvirt networks to destroy".to_string(),
+            StatusKind::Info,
+        );
+    } else {
+        for name in &summary.libvirt_networks_destroyed {
+            let _ = progress.send_status(
+                format!("Destroyed libvirt network: {}", name),
+                StatusKind::Done,
+            );
+        }
+    }
     let libvirt_net_duration = libvirt_net_timer.elapsed().as_secs();
     tracing::info!(
         lab_id = %lab_id,
@@ -149,7 +213,21 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     // 5. Delete network interfaces
     let interfaces_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Deleting network interfaces");
+    let _ = progress.send_status(
+        "Deleting network interfaces...".to_string(),
+        StatusKind::Progress,
+    );
     destroy_interfaces(lab_id, &mut summary, &mut errors).await;
+    if summary.interfaces_deleted.is_empty() && summary.interfaces_failed.is_empty() {
+        let _ = progress.send_status(
+            "No network interfaces to delete".to_string(),
+            StatusKind::Info,
+        );
+    } else {
+        for name in &summary.interfaces_deleted {
+            let _ = progress.send_status(format!("Deleted interface: {}", name), StatusKind::Done);
+        }
+    }
     let interfaces_duration = interfaces_timer.elapsed().as_secs();
     tracing::info!(
         lab_id = %lab_id,
@@ -161,9 +239,14 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
 
     // 6. Clean up database
     tracing::info!(lab_id = %lab_id, "Cleaning up database records");
+    let _ = progress.send_status(
+        "Cleaning up database records...".to_string(),
+        StatusKind::Progress,
+    );
     match cleanup_database(lab_id, &state.db).await {
         Ok(_) => {
             summary.database_records_deleted = true;
+            let _ = progress.send_status("Database records cleaned".to_string(), StatusKind::Done);
             tracing::info!(lab_id = %lab_id, "Database cleanup successful");
         }
         Err(e) => {
@@ -175,10 +258,15 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
 
     // 7. Delete lab directory
     tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
+    let _ = progress.send_status(
+        "Deleting lab directory...".to_string(),
+        StatusKind::Progress,
+    );
     if dir_exists(&lab_dir) {
         match fs::remove_dir_all(&lab_dir) {
             Ok(_) => {
                 summary.lab_directory_deleted = true;
+                let _ = progress.send_status("Lab directory deleted".to_string(), StatusKind::Done);
                 tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
             }
             Err(e) => {
@@ -194,6 +282,7 @@ pub async fn destroy_lab(request: DestroyRequest, state: &AppState) -> Result<De
     } else {
         // Directory doesn't exist - consider it success (idempotent)
         summary.lab_directory_deleted = true;
+        let _ = progress.send_status("Lab directory deleted".to_string(), StatusKind::Done);
         tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
     }
 

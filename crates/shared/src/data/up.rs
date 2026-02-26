@@ -76,6 +76,16 @@ pub enum StatusKind {
     Waiting,
 }
 
+/// Client-side helper for deserializing streaming status messages from the server
+#[derive(Debug, Clone, Deserialize)]
+pub struct StatusMessage {
+    pub r#type: String,
+    pub message: String,
+    #[serde(default)]
+    pub kind: StatusKind,
+    pub phase: Option<String>,
+}
+
 /// Phase enum for tracking progress
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpPhase {

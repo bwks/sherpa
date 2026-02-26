@@ -3,7 +3,7 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use shared::data::{Config, DestroyResponse, InspectResponse, NodeInfo};
+use shared::data::{Config, DestroyResponse, InspectResponse, NodeInfo, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -144,7 +144,19 @@ pub async fn destroy(
     );
 
     let destroy_response = rpc_client
-        .call(destroy_request)
+        .call_streaming(destroy_request, |msg_text| {
+            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
+                && status_msg.r#type == "status"
+            {
+                let emoji = match status_msg.kind {
+                    StatusKind::Progress => Emoji::Progress,
+                    StatusKind::Done => Emoji::Success,
+                    StatusKind::Info => Emoji::Info,
+                    StatusKind::Waiting => Emoji::Hourglass,
+                };
+                println!("{} {}", emoji, status_msg.message);
+            }
+        })
         .await
         .context("Destroy RPC call failed")?;
 

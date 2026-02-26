@@ -45,7 +45,7 @@ pub async fn handle_rpc_request(
         "auth.login" => handle_auth_login(id, params, state).await,
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
-        "destroy" => handle_destroy(id, params, state).await,
+        // Note: "destroy" is handled separately via handle_streaming_rpc_request
         "clean" => handle_clean(id, params, state).await,
         "image.import" => handle_image_import(id, params, state).await,
         "image.list" => handle_image_list(id, params, state).await,
@@ -82,6 +82,7 @@ pub async fn handle_streaming_rpc_request(
 ) {
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
+        "destroy" => handle_destroy_streaming(id, params, state, connection).await,
         _ => {
             // Unknown streaming method
             let response = ServerMessage::RpcResponse {
@@ -221,21 +222,41 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
 /// Handle "destroy" RPC call
 ///
 /// Expected params: {"lab_id": "string", "token": "string"}
-async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+async fn handle_destroy_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    // Helper function to send error and return
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::warn!("Authentication failed for destroy: {}", e);
-            return ServerMessage::RpcResponse {
+            send_error(
                 id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
+                RpcErrorCode::AuthRequired,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
         }
     };
 
@@ -243,15 +264,14 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
-            return ServerMessage::RpcResponse {
+            send_error(
                 id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::InvalidParams,
-                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
-                    context: None,
-                }),
-            };
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                None,
+            )
+            .await;
+            return;
         }
     };
 
@@ -265,30 +285,41 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                     lab_id,
                     owner_username
                 );
-                return ServerMessage::RpcResponse {
+                send_error(
                     id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
+                    RpcErrorCode::AccessDenied,
+                    RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                    None,
+                )
+                .await;
+                return;
             }
         }
         Err(e) => {
-            // Lab not found
-            return ServerMessage::RpcResponse {
+            send_error(
                 id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
+                RpcErrorCode::NotFound,
+                format!("Lab not found: {}", lab_id),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
         }
     }
+
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
 
     // User is authenticated and authorized - use their username from the token
     let request = data::DestroyRequest {
@@ -296,32 +327,34 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
         username: auth_ctx.username.clone(),
     };
 
-    // Call service
-    match destroy::destroy_lab(request, state).await {
-        Ok(response) => {
-            // Convert response to JSON
-            match serde_json::to_value(&response) {
-                Ok(result) => {
-                    tracing::info!("User '{}' destroyed lab successfully", auth_ctx.username);
-                    ServerMessage::RpcResponse {
-                        id,
-                        result: Some(result),
-                        error: None,
-                    }
-                }
-                Err(e) => ServerMessage::RpcResponse {
+    // Call service with progress sender
+    let result = destroy::destroy_lab(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
+        Ok(destroy_response) => match serde_json::to_value(&destroy_response) {
+            Ok(result) => {
+                tracing::info!("User '{}' destroyed lab successfully", auth_ctx.username);
+                ServerMessage::RpcResponse {
                     id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InternalError,
-                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                        context: Some(format!("{:?}", e)),
-                    }),
-                },
+                    result: Some(result),
+                    error: None,
+                }
             }
-        }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
         Err(e) => {
-            // Convert service error to RpcError
             let error_chain = format!("{:?}", e);
             ServerMessage::RpcResponse {
                 id,
@@ -333,6 +366,11 @@ async fn handle_destroy(id: String, params: serde_json::Value, state: &AppState)
                 }),
             }
         }
+    };
+
+    // Send final response
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
     }
 }
 

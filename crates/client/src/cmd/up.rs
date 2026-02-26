@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use shared::data::{Config, StatusKind, UpResponse};
+use shared::data::{Config, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -220,16 +220,6 @@ pub async fn up(
     display_up_results(&up_data)?;
 
     Ok(())
-}
-
-/// Helper struct for deserializing status messages
-#[derive(Deserialize)]
-struct StatusMessage {
-    r#type: String,
-    message: String,
-    #[serde(default)]
-    kind: StatusKind,
-    phase: Option<String>,
 }
 
 /// Helper struct for deserializing log messages

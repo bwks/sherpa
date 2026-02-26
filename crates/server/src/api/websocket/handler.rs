@@ -154,7 +154,7 @@ async fn handle_client_message(
             let state_clone = state.clone();
 
             // Check if this is a streaming RPC method
-            if method == "up" {
+            if method == "up" || method == "destroy" {
                 // Handle streaming RPC (sends multiple messages during execution)
                 tokio::spawn(async move {
                     crate::api::websocket::rpc::handle_streaming_rpc_request(
