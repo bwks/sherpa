@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use shared::data::{Config, UpResponse};
+use shared::data::{Config, StatusKind, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -95,8 +95,14 @@ pub async fn up(
                         println!(); // Blank line before phase header
                         term_msg_underline(phase);
                     }
-                    // Display the message with success emoji
-                    println!("{} {}", Emoji::Success, status_msg.message);
+                    // Display the message with kind-appropriate emoji
+                    let emoji = match status_msg.kind {
+                        StatusKind::Progress => Emoji::Progress,
+                        StatusKind::Done => Emoji::Success,
+                        StatusKind::Info => Emoji::Info,
+                        StatusKind::Waiting => Emoji::Hourglass,
+                    };
+                    println!("{} {}", emoji, status_msg.message);
                 }
             } else if let Ok(log_msg) = serde_json::from_str::<LogMessage>(msg_text)
                 && log_msg.r#type == "log"
@@ -221,6 +227,8 @@ pub async fn up(
 struct StatusMessage {
     r#type: String,
     message: String,
+    #[serde(default)]
+    kind: StatusKind,
     phase: Option<String>,
 }
 

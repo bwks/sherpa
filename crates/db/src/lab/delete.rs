@@ -67,7 +67,7 @@ pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let id: RecordId = ("lab", "abc123").into();
+/// let id= RecordId::new("lab", "abc123");
 /// delete_lab_by_id(&db, id).await?;
 /// # Ok(())
 /// # }

@@ -4,7 +4,7 @@ use jiff::Timestamp;
 use tokio::sync::mpsc;
 
 use crate::api::websocket::messages::{ServerMessage, StatusProgress};
-use shared::data::UpPhase;
+use shared::data::{StatusKind, UpPhase};
 
 /// Progress sender for streaming updates during long operations
 #[derive(Clone)]
@@ -23,6 +23,7 @@ impl ProgressSender {
         let server_msg = ServerMessage::Status {
             message: message.clone(),
             timestamp: Timestamp::now(),
+            kind: StatusKind::Progress,
             phase: Some(phase.as_str().to_string()),
             progress: Some(StatusProgress {
                 current_phase: phase.as_str().to_string(),
@@ -37,10 +38,11 @@ impl ProgressSender {
     }
 
     /// Send a simple status message (without phase info)
-    pub fn send_status(&self, message: String) -> Result<()> {
+    pub fn send_status(&self, message: String, kind: StatusKind) -> Result<()> {
         let server_msg = ServerMessage::Status {
             message,
             timestamp: Timestamp::now(),
+            kind,
             phase: None,
             progress: None,
         };

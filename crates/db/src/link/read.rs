@@ -20,11 +20,11 @@ use surrealdb::engine::remote::ws::Client;
 /// # Example
 /// ```no_run
 /// # use db::{connect, get_link};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let id: RecordId = ("link", "abc123").into();
+/// let id= RecordId::new("link", "abc123");
 /// let link = get_link(&db, id).await?;
 /// # Ok(())
 /// # }
@@ -73,12 +73,12 @@ pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # Example
 /// ```no_run
 /// # use db::{connect, get_link_by_peers};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let node_a_id: RecordId = ("node", "node1").into();
-/// let node_b_id: RecordId = ("node", "node2").into();
+/// let node_a_id= RecordId::new("node", "node1");
+/// let node_b_id= RecordId::new("node", "node2");
 /// let link = get_link_by_peers(&db, node_a_id, node_b_id, "eth0", "eth0").await?;
 /// # Ok(())
 /// # }
@@ -162,11 +162,11 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, list_links_by_lab};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let lab_id: RecordId = ("lab", "lab1").into();
+/// let lab_id= RecordId::new("lab", "lab1");
 /// let links = list_links_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} links", links.len());
 /// # Ok(())
@@ -200,11 +200,11 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Example
 /// ```no_run
 /// # use db::{connect, list_links_by_node};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let node_id: RecordId = ("node", "node1").into();
+/// let node_id= RecordId::new("node", "node1");
 /// let links = list_links_by_node(&db, node_id).await?;
 /// println!("Node has {} links", links.len());
 /// # Ok(())
@@ -271,11 +271,11 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Example
 /// ```no_run
 /// # use db::{connect, count_links_by_lab};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let lab_id: RecordId = ("lab", "lab1").into();
+/// let lab_id= RecordId::new("lab", "lab1");
 /// let count = count_links_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} links", count);
 /// # Ok(())
@@ -309,11 +309,11 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 /// # Example
 /// ```no_run
 /// # use db::{connect, count_links_by_node};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let node_id: RecordId = ("node", "node1").into();
+/// let node_id= RecordId::new("node", "node1");
 /// let count = count_links_by_node(&db, node_id).await?;
 /// println!("Node has {} links", count);
 /// # Ok(())

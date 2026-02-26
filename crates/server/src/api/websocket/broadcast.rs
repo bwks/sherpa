@@ -75,6 +75,7 @@ mod tests {
         let message = ServerMessage::Status {
             message: "Test".to_string(),
             timestamp: Timestamp::now(),
+            kind: shared::data::StatusKind::Info,
             phase: None,
             progress: None,
         };

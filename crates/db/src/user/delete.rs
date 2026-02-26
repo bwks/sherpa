@@ -31,7 +31,7 @@ use crate::helpers::get_user_id;
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
 /// // Create a user
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.expect("User should have ID");
 ///
 /// // Delete it (will cascade delete all labs owned by this user)
@@ -76,7 +76,7 @@ pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
-/// create_user(&db, "alice".to_string(), vec![]).await?;
+/// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 ///
 /// // Delete by username
 /// delete_user_by_username(&db, "alice").await?;
@@ -125,7 +125,7 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.clone().expect("User should have ID");
 ///
 /// // Create a lab for this user

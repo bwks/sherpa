@@ -21,10 +21,10 @@ use surrealdb::engine::remote::ws::Client;
 /// ```no_run
 /// # use db::{connect, get_node};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use surrealdb::RecordId;
+/// # use shared::data::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let id: RecordId = ("node", "abc123").into();
+/// let id= RecordId::new("node", "abc123");
 /// let node = get_node(&db, id).await?;
 /// # Ok(())
 /// # }
@@ -74,7 +74,7 @@ pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
 /// let lab_id = lab.id.unwrap();
 /// let node = get_node_by_name_and_lab(&db, "node1", lab_id).await?;
@@ -146,7 +146,7 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
 /// let lab_id = lab.id.unwrap();
 /// let nodes = list_nodes_by_lab(&db, lab_id).await?;
@@ -215,7 +215,7 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
 /// let lab_id = lab.id.unwrap();
 /// let count = count_nodes_by_lab(&db, lab_id).await?;

@@ -1,5 +1,6 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
+use shared::data::StatusKind;
 use shared::error::RpcErrorCode;
 use std::collections::HashMap;
 
@@ -33,6 +34,7 @@ pub enum ServerMessage {
     Status {
         message: String,
         timestamp: Timestamp,
+        kind: StatusKind,
         #[serde(skip_serializing_if = "Option::is_none")]
         phase: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -175,6 +177,41 @@ mod tests {
         assert!(json.contains("\"id\":\"test-001\""));
         assert!(json.contains("\"result\""));
         assert!(!json.contains("\"error\""));
+    }
+
+    #[test]
+    fn test_status_message_serialization_with_kind() {
+        let msg = ServerMessage::Status {
+            message: "Creating VM".to_string(),
+            timestamp: Timestamp::now(),
+            kind: StatusKind::Progress,
+            phase: None,
+            progress: None,
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"type\":\"status\""));
+        assert!(json.contains("\"kind\":\"progress\""));
+        assert!(json.contains("\"message\":\"Creating VM\""));
+    }
+
+    #[test]
+    fn test_status_message_done_kind() {
+        let msg = ServerMessage::Status {
+            message: "All nodes are ready!".to_string(),
+            timestamp: Timestamp::now(),
+            kind: StatusKind::Done,
+            phase: Some("Node Readiness Check".to_string()),
+            progress: Some(StatusProgress {
+                current_phase: "Node Readiness Check".to_string(),
+                phase_number: 13,
+                total_phases: 13,
+            }),
+        };
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"kind\":\"done\""));
+        assert!(json.contains("\"phase\":\"Node Readiness Check\""));
     }
 
     #[test]

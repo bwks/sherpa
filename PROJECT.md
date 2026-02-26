@@ -46,7 +46,7 @@
 - [] Public bridge implementation.
 
 ## SSH
-- [] SSH jump host configuration.
+- [x] SSH jump host configuration.
 - [] SSH tunneling for service forwarding.
 
 ## Install
@@ -57,13 +57,13 @@
 - [] Unikernel node.
 
 ## Node Config Database Table
-- [] Add the ability to track multiple node versions in the database.
-- [] When importing a node image, the node_config should also be imported into the database.
+- [x] Add the ability to track multiple node versions in the database.
+- [x] When importing a node image, the node_config should also be imported into the database.
 
 ## Testing
 - [] There a many tests to add.
 
 ## SurrealDB
-- [] Migrate to v3.0 now that it is stabalized.
+- [x] Migrate to v3.0 now that it is stabalized.
 
 # Completed

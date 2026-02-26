@@ -25,7 +25,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// create_user(&db, "alice".to_string(), vec![]).await?;
+/// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 ///
 /// let user = get_user(&db, "alice").await?;
 /// assert_eq!(user.username, "alice");
@@ -61,7 +61,7 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let created = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let created = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = created.id.expect("User should have ID");
 ///
 /// let user = get_user_by_id(&db, user_id).await?;
@@ -95,8 +95,8 @@ pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<O
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// create_user(&db, "alice".to_string(), vec![]).await?;
-/// create_user(&db, "bob".to_string(), vec![]).await?;
+/// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
+/// create_user(&db, "bob".to_string(), "Pass123!", false, vec![]).await?;
 ///
 /// let users = list_users(&db).await?;
 /// assert!(users.len() >= 2);
@@ -131,7 +131,7 @@ pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
 /// let initial_count = count_users(&db).await?;
-/// create_user(&db, "alice".to_string(), vec![]).await?;
+/// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let new_count = count_users(&db).await?;
 ///
 /// assert_eq!(new_count, initial_count + 1);

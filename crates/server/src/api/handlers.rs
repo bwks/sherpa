@@ -1289,10 +1289,7 @@ pub async fn admin_labs_list_handler(
 
     lab_summaries.sort_by(|a, b| a.name.cmp(&b.name));
 
-    tracing::debug!(
-        "Loaded {} labs for admin labs list",
-        lab_summaries.len()
-    );
+    tracing::debug!("Loaded {} labs for admin labs list", lab_summaries.len());
 
     Ok(crate::templates::AdminLabsTemplate {
         username: admin.username,

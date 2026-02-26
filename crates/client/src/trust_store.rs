@@ -337,11 +337,9 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
         // Different URLs should produce different filenames
         assert_ne!(filename1, filename3);
 
-        // Filename should be valid hex
-        assert!(filename1.chars().all(|c| c.is_ascii_hexdigit()));
-
-        // Filename should be 64 characters (SHA-256 hex)
-        assert_eq!(filename1.len(), 64);
+        // Filename should be in host_port format
+        assert_eq!(filename1, "192.168.1.100_3030");
+        assert_eq!(filename3, "10.0.0.5_3030");
     }
 
     #[test]

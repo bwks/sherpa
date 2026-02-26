@@ -35,7 +35,7 @@ use crate::helpers::get_user_id;
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 ///
 /// // Create a user
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 ///
 /// // Update the user
 /// let mut updated_user = user.clone();

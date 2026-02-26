@@ -108,6 +108,7 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Subscribed to logs".to_string(),
                 timestamp: jiff::Timestamp::now(),
+                kind: shared::data::StatusKind::Info,
                 phase: None,
                 progress: None,
             };
@@ -126,6 +127,7 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Unsubscribed from logs".to_string(),
                 timestamp: jiff::Timestamp::now(),
+                kind: shared::data::StatusKind::Info,
                 phase: None,
                 progress: None,
             };

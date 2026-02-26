@@ -169,7 +169,7 @@ mod tests {
         assert!(result.is_err());
 
         let result = _parse_server_address("http://example.com");
-        assert!(result.is_ok()); // HTTP is technically valid for parsing
+        assert!(result.is_err()); // HTTP scheme is not handled, only ws/wss
     }
 
     #[tokio::test]

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use db::apply_schema;
 use shared::data::{DbLab, DbNode, NodeConfig, NodeModel};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -18,7 +19,7 @@ fn generate_test_namespace(test_name: &str) -> String {
 
 /// Helper to setup test database connection with a unique namespace
 /// This ensures test isolation by using a dedicated namespace per test run
-pub async fn setup_db(namespace: &str) -> Result<Surreal<Client>> {
+pub async fn setup_db(namespace: &str) -> Result<Arc<Surreal<Client>>> {
     let namespace = generate_test_namespace(namespace);
     let db = db::connect("localhost", 8000, &namespace, "test_cases").await?;
 
@@ -30,7 +31,7 @@ pub async fn setup_db(namespace: &str) -> Result<Surreal<Client>> {
 
 /// Helper to teardown/cleanup test database
 /// Removes the entire namespace used for the test, cleaning up all test data
-pub async fn teardown_db(db: &Surreal<Client>) -> Result<()> {
+pub async fn teardown_db(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Get the current namespace being used
     // Note: SurrealDB doesn't provide direct API to get current namespace,
     // so we'll use a query to remove all records from tables we created
@@ -57,7 +58,7 @@ pub fn create_test_config(model: NodeModel) -> NodeConfig {
 /// This is a convenience wrapper for tests that handles the config lookup automatically.
 /// Equivalent to the old create_lab_node() but for test use only.
 pub async fn create_test_node_with_model(
-    db: &Surreal<Client>,
+    db: &Arc<Surreal<Client>>,
     name: &str,
     index: u16,
     model: NodeModel,

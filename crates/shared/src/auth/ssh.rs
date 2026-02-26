@@ -17,7 +17,7 @@ use anyhow::{Result, bail};
 /// ```
 /// use shared::auth::ssh::validate_ssh_key;
 ///
-/// let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJb... user@host";
+/// let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh user@host";
 /// assert!(validate_ssh_key(key).is_ok());
 /// ```
 pub fn validate_ssh_key(key: &str) -> Result<()> {

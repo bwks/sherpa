@@ -30,12 +30,12 @@ use surrealdb_types::RecordId;
 /// ```ignore
 /// use db::{create_node, connect};
 /// use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// use surrealdb::RecordId;
+/// use shared::data::RecordId;
 ///
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let image_id: RecordId = ("node_image", "image1").into();
-/// let lab_id: RecordId = ("lab", "lab1").into();
+/// let image_id= RecordId::new("node_image", "image1");
+/// let lab_id= RecordId::new("lab", "lab1");
 ///
 /// let node = create_node(&db, "router-1", 1, image_id, lab_id).await?;
 /// println!("Created node: {}", node.name);

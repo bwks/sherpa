@@ -59,7 +59,7 @@ pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let id: RecordId = ("lab", "abc123").into();
+/// let id= RecordId::new("lab", "abc123");
 /// let lab = get_lab_by_id(&db, id).await?;
 /// # Ok(())
 /// # }
@@ -93,7 +93,7 @@ pub async fn get_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<Db
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.unwrap();
 /// let lab = get_lab_by_name_and_user(&db, "My Lab", user_id).await?;
 /// # Ok(())
@@ -164,7 +164,7 @@ pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.unwrap();
 /// let labs = list_labs_by_user(&db, user_id).await?;
 /// println!("User owns {} labs", labs.len());
@@ -232,7 +232,7 @@ pub async fn count_labs(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
-/// let user = create_user(&db, "alice".to_string(), vec![]).await?;
+/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.unwrap();
 /// let count = count_labs_by_user(&db, user_id).await?;
 /// println!("User owns {} labs", count);

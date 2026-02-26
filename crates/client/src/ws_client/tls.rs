@@ -310,6 +310,10 @@ mod tests {
 
     #[test]
     fn test_build_insecure_config() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+
         let server_conn = ServerConnection {
             url: None,
             timeout_secs: 3,
@@ -326,6 +330,10 @@ mod tests {
 
     #[test]
     fn test_build_with_system_certs() {
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .ok();
+
         let server_conn = ServerConnection {
             url: None,
             timeout_secs: 3,

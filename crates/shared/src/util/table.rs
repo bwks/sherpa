@@ -33,9 +33,8 @@ struct NodeTableRow {
 ///
 /// # Example
 /// ```
-/// use shared::data::up::{NodeInfo, NodeStatus};
-/// use shared::data::node::NodeModel;
-/// use shared::util::table::render_nodes_table;
+/// use shared::data::{NodeInfo, NodeState, NodeModel};
+/// use shared::util::render_nodes_table;
 ///
 /// let nodes = vec![
 ///     NodeInfo {
@@ -113,7 +112,7 @@ struct DeviceTableRow {
 /// # Example
 /// ```
 /// use shared::data::{DeviceInfo, NodeKind, NodeModel, NodeState};
-/// use shared::util::table::render_devices_table;
+/// use shared::util::render_devices_table;
 ///
 /// let devices = vec![
 ///     DeviceInfo {
@@ -258,7 +257,7 @@ struct LabInfoTableRow {
 /// # Example
 /// ```
 /// use shared::data::LabInfo;
-/// use shared::util::table::render_lab_info_table;
+/// use shared::util::render_lab_info_table;
 /// use std::net::Ipv4Addr;
 /// use ipnet::Ipv4Net;
 ///
@@ -591,7 +590,7 @@ pub struct CertificateTableInfo {
 ///
 /// # Example
 /// ```
-/// use shared::util::table::{render_certificates_table, CertificateTableInfo};
+/// use shared::util::{render_certificates_table, CertificateTableInfo};
 ///
 /// let certs = vec![
 ///     CertificateTableInfo {

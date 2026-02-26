@@ -61,6 +61,21 @@ pub struct UpError {
     pub is_critical: bool,
 }
 
+/// Classifies each status message for appropriate emoji rendering on the client
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum StatusKind {
+    /// Action started or underway (🔄)
+    Progress,
+    /// Action completed (✅)
+    Done,
+    /// Neutral/informational message (ℹ️)
+    #[default]
+    Info,
+    /// Polling/waiting for a condition (⏳)
+    Waiting,
+}
+
 /// Phase enum for tracking progress
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpPhase {
@@ -118,5 +133,62 @@ impl UpPhase {
 
     pub fn total_phases() -> u8 {
         13
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_status_kind_serde_round_trip() {
+        let kinds = [
+            StatusKind::Progress,
+            StatusKind::Done,
+            StatusKind::Info,
+            StatusKind::Waiting,
+        ];
+        for kind in &kinds {
+            let json = serde_json::to_string(kind).unwrap();
+            let deserialized: StatusKind = serde_json::from_str(&json).unwrap();
+            assert_eq!(*kind, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_status_kind_default_is_info() {
+        assert_eq!(StatusKind::default(), StatusKind::Info);
+    }
+
+    #[test]
+    fn test_status_kind_rename_all() {
+        assert_eq!(
+            serde_json::to_string(&StatusKind::Progress).unwrap(),
+            "\"progress\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StatusKind::Done).unwrap(),
+            "\"done\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StatusKind::Info).unwrap(),
+            "\"info\""
+        );
+        assert_eq!(
+            serde_json::to_string(&StatusKind::Waiting).unwrap(),
+            "\"waiting\""
+        );
+    }
+
+    #[test]
+    fn test_status_kind_deserialize_default() {
+        // Simulate a struct that uses #[serde(default)] for StatusKind
+        #[derive(Deserialize)]
+        struct TestMsg {
+            #[serde(default)]
+            kind: StatusKind,
+        }
+        let msg: TestMsg = serde_json::from_str(r#"{}"#).unwrap();
+        assert_eq!(msg.kind, StatusKind::Info);
     }
 }
