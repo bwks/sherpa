@@ -1,0 +1,31 @@
+<div class="destroy-confirm-panel">
+    <div class="flex items-start space-x-3 mb-4">
+        <span class="text-2xl">&#9888;&#65039;</span>
+        <div>
+            <h3 class="text-lg font-semibold text-red-700">Destroy Lab "{{ lab_name }}"?</h3>
+            <p class="text-sm text-gray-600 mt-1">
+                This will permanently destroy <strong>{{ device_count }}</strong> device(s) and all associated resources
+                (networks, disks, interfaces, database records, and lab files).
+            </p>
+            <p class="text-sm text-red-600 font-medium mt-2">This action cannot be undone.</p>
+        </div>
+    </div>
+    <div class="flex space-x-3">
+        <button
+            hx-post="/labs/{{ lab_id }}/destroy"
+            hx-target="#destroy-action"
+            hx-swap="innerHTML"
+            class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+        >
+            Confirm Destroy
+        </button>
+        <button
+            hx-get="/labs/{{ lab_id }}/destroy/button"
+            hx-target="#destroy-action"
+            hx-swap="innerHTML"
+            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+            Cancel
+        </button>
+    </div>
+</div>

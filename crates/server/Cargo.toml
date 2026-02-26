@@ -56,6 +56,7 @@ petname = "2.0.2"
 # Async
 futures = "0.3.31"
 futures-util = "0.3.31"
+async-stream = "0.3"
 
 # WebSocket support
 axum-extra = { version = "0.9", features = ["typed-header"] }

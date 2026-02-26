@@ -11,13 +11,16 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use surrealdb_types::Datetime;
 
+use crate::api::sse::destroy_progress_stream;
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
-use crate::services::{inspect, list_labs};
+use crate::services::progress::ProgressSender;
+use crate::services::{destroy, inspect, list_labs};
 use crate::templates::{
     AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
     AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
-    Error403Template, Error404Template, ErrorTemplate, LabDetailTemplate, LabsGridTemplate,
+    Error403Template, Error404Template, ErrorTemplate, LabDestroyButtonFragment,
+    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
     LoginErrorTemplate, LoginPageTemplate, PasswordErrorTemplate, PasswordSuccessTemplate,
     ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
     SshKeysListTemplate,
@@ -28,9 +31,9 @@ use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCooki
 
 use shared::auth::{password, ssh};
 use shared::data::{
-    BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InspectRequest, InspectResponse,
-    InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
-    OsVariant, ZtpMethod,
+    BiosTypes, CpuArchitecture, CpuModels, DestroyRequest, DiskBuses, InspectRequest,
+    InspectResponse, InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType,
+    NodeModel, OsVariant, ZtpMethod,
 };
 use shared::konst::{
     JWT_TOKEN_EXPIRY_SECONDS, SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE,
@@ -2236,9 +2239,128 @@ pub async fn lab_up(Json(payload): Json<LabId>) -> String {
     format!("Creating Lab {}", payload.id)
 }
 
-/// Handler for destroying a lab (stub)
-pub async fn lab_destroy(Json(payload): Json<LabId>) -> String {
-    format!("Destroying Lab {}", payload.id)
+/// Handler to return the destroy confirmation panel
+///
+/// GET /labs/{lab_id}/destroy/confirm
+pub async fn lab_destroy_confirm_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let request = InspectRequest {
+        lab_id: lab_id.clone(),
+        username: auth.username.clone(),
+    };
+
+    match inspect::inspect_lab(request, &state).await {
+        Ok(response) => LabDestroyConfirmFragment {
+            lab_id,
+            lab_name: response.lab_info.name,
+            device_count: response.devices.len(),
+        }
+        .into_response(),
+        Err(e) => {
+            tracing::error!("Failed to inspect lab for destroy confirm: {:?}", e);
+            ErrorTemplate {
+                message: format!("Failed to load lab details: {}", e),
+            }
+            .into_response()
+        }
+    }
+}
+
+/// Handler to return the original destroy button (used by Cancel)
+///
+/// GET /labs/{lab_id}/destroy/button
+pub async fn lab_destroy_button_handler(
+    Path(lab_id): Path<String>,
+    _auth: AuthenticatedUserFromCookie,
+) -> impl IntoResponse {
+    LabDestroyButtonFragment { lab_id }
+}
+
+/// Handler to initiate destroy and return the SSE progress container
+///
+/// POST /labs/{lab_id}/destroy
+pub async fn lab_destroy_post_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Validate ownership before returning the SSE container
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner) => {
+            if owner != auth.username {
+                return ErrorTemplate {
+                    message: "Permission denied: you do not own this lab".to_string(),
+                }
+                .into_response();
+            }
+        }
+        Err(e) => {
+            return ErrorTemplate {
+                message: format!("Lab not found: {}", e),
+            }
+            .into_response();
+        }
+    }
+
+    LabDestroyProgressFragment { lab_id }.into_response()
+}
+
+/// Handler to stream destroy progress via SSE
+///
+/// GET /labs/{lab_id}/destroy/stream
+pub async fn lab_destroy_stream_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Validate ownership
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner) => {
+            if owner != auth.username {
+                return axum::response::sse::Sse::new(destroy_progress_stream(
+                    tokio::sync::mpsc::unbounded_channel().1,
+                    {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let _ = tx.send(Err(anyhow::anyhow!("Permission denied")));
+                        rx
+                    },
+                ))
+                .into_response();
+            }
+        }
+        Err(e) => {
+            return axum::response::sse::Sse::new(destroy_progress_stream(
+                tokio::sync::mpsc::unbounded_channel().1,
+                {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let _ = tx.send(Err(anyhow::anyhow!("Lab not found: {}", e)));
+                    rx
+                },
+            ))
+            .into_response();
+        }
+    }
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+
+    let request = DestroyRequest {
+        lab_id,
+        username: auth.username,
+    };
+
+    let progress = ProgressSender::new(progress_tx);
+
+    // Spawn the destroy operation
+    tokio::spawn(async move {
+        let result = destroy::destroy_lab(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
 }
 
 // Request/Response types

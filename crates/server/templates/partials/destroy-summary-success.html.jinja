@@ -1,0 +1,12 @@
+<div class="destroy-summary">
+    <div class="flex items-center space-x-2 mb-3">
+        <span class="text-2xl">&#x2705;</span>
+        <h3 class="text-lg font-semibold text-green-700">Lab "{{ lab_name }}" destroyed successfully</h3>
+    </div>
+    <div class="text-sm text-gray-600 mb-4">
+        <p>Containers: {{ containers }} &middot; VMs: {{ vms }} &middot; Disks: {{ disks }} &middot; Networks: {{ networks }} &middot; Interfaces: {{ interfaces }}</p>
+    </div>
+    <a href="/" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-block">
+        Back to Dashboard
+    </a>
+</div>

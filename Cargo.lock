@@ -4912,6 +4912,7 @@ dependencies = [
  "anyhow",
  "askama",
  "async-compression",
+ "async-stream",
  "axum 0.8.8",
  "axum-extra",
  "axum-server",

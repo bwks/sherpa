@@ -1,7 +1,9 @@
 use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use shared::data::{BridgeInfo, DbUser, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig};
+use shared::data::{
+    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig,
+};
 
 use crate::api::handlers::{NodeImageSummary, UserSummary};
 /// Main dashboard page template
@@ -618,4 +620,109 @@ impl IntoResponse for AdminNodeImageVersionsTemplate {
                 .into_response(),
         }
     }
+}
+
+// ============================================================================
+// Lab Destroy Fragment Templates
+// ============================================================================
+
+/// Destroy button fragment — the red "Destroy Lab" button
+#[derive(Template)]
+#[template(path = "partials/destroy-button.html.jinja")]
+pub struct LabDestroyButtonFragment {
+    pub lab_id: String,
+}
+
+impl IntoResponse for LabDestroyButtonFragment {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Destroy confirmation fragment — warning panel with confirm/cancel buttons
+#[derive(Template)]
+#[template(path = "partials/destroy-confirm.html.jinja")]
+pub struct LabDestroyConfirmFragment {
+    pub lab_id: String,
+    pub lab_name: String,
+    pub device_count: usize,
+}
+
+impl IntoResponse for LabDestroyConfirmFragment {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Destroy progress fragment — SSE-connected container that streams progress
+#[derive(Template)]
+#[template(path = "partials/destroy-progress.html.jinja")]
+pub struct LabDestroyProgressFragment {
+    pub lab_id: String,
+}
+
+impl IntoResponse for LabDestroyProgressFragment {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// SSE Destroy Stream Fragment Templates
+// ============================================================================
+
+/// Single progress line fragment for SSE streaming
+#[derive(Template)]
+#[template(path = "partials/destroy-progress-line.html.jinja")]
+pub struct DestroyProgressLineFragment {
+    pub emoji: String,
+    pub message: String,
+}
+
+/// Destroy success summary fragment
+#[derive(Template)]
+#[template(path = "partials/destroy-summary-success.html.jinja")]
+pub struct DestroySummarySuccessFragment {
+    pub lab_name: String,
+    pub containers: usize,
+    pub vms: usize,
+    pub disks: usize,
+    pub networks: usize,
+    pub interfaces: usize,
+}
+
+/// Destroy summary with errors fragment
+#[derive(Template)]
+#[template(path = "partials/destroy-summary-errors.html.jinja")]
+pub struct DestroySummaryErrorsFragment {
+    pub lab_name: String,
+    pub errors: Vec<DestroyError>,
+}
+
+/// Destroy failure fragment
+#[derive(Template)]
+#[template(path = "partials/destroy-summary-failed.html.jinja")]
+pub struct DestroySummaryFailedFragment {
+    pub message: String,
 }
