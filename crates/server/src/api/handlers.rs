@@ -21,9 +21,9 @@ use crate::templates::{
     AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
     Error403Template, Error404Template, ErrorTemplate, LabDestroyButtonFragment,
     LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LoginErrorTemplate, LoginPageTemplate, PasswordErrorTemplate, PasswordSuccessTemplate,
-    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
-    SshKeysListTemplate,
+    LoginErrorTemplate, LoginPageTemplate, NodesTableFragment, PasswordErrorTemplate,
+    PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate, SignupPageTemplate,
+    SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -2237,6 +2237,35 @@ pub async fn admin_node_image_versions_handler(
 /// Handler for creating a lab (stub)
 pub async fn lab_up(Json(payload): Json<LabId>) -> String {
     format!("Creating Lab {}", payload.id)
+}
+
+/// Handler to return the nodes table fragment for HTMX polling
+///
+/// GET /labs/{lab_id}/nodes
+pub async fn lab_nodes_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    let request = InspectRequest {
+        lab_id: lab_id.clone(),
+        username: auth.username.clone(),
+    };
+
+    match inspect::inspect_lab(request, &state).await {
+        Ok(response) => {
+            let device_count = response.devices.len();
+            NodesTableFragment {
+                devices: response.devices,
+                device_count,
+            }
+            .into_response()
+        }
+        Err(e) => ErrorTemplate {
+            message: format!("Failed to load nodes: {}", e),
+        }
+        .into_response(),
+    }
 }
 
 /// Handler to return the destroy confirmation panel

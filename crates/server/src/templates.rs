@@ -623,6 +623,31 @@ impl IntoResponse for AdminNodeImageVersionsTemplate {
 }
 
 // ============================================================================
+// Lab Nodes Polling Fragment
+// ============================================================================
+
+/// Nodes table partial for HTMX polling
+#[derive(Template)]
+#[template(path = "partials/nodes-table.html.jinja")]
+pub struct NodesTableFragment {
+    pub devices: Vec<DeviceInfo>,
+    pub device_count: usize,
+}
+
+impl IntoResponse for NodesTableFragment {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
 // Lab Destroy Fragment Templates
 // ============================================================================
 
