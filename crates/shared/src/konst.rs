@@ -109,6 +109,7 @@ pub const CUMULUS_ZTP_DIR: &str = "cumulus";
 pub const CUMULUS_ZTP_CONFIG: &str = "cumulus-config.txt";
 pub const CUMULUS_ZTP: &str = "cumulus-ztp";
 pub const ARISTA_ZTP_DIR: &str = "arista";
+pub const ARISTA_ABOOT_DIR: &str = "aboot_iso";
 pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
 pub const ARISTA_VEOS_ZTP: &str = "startup-config";
 pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/flash/startup-config";
