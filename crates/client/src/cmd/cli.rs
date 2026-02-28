@@ -9,6 +9,7 @@ use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
+use super::new::new;
 use super::login::{login, logout, whoami};
 use super::resume::resume;
 use super::ssh::ssh;
@@ -68,6 +69,12 @@ enum Commands {
     /// Show current authentication status
     Whoami,
 
+    /// Create a new example manifest.toml in the current directory
+    New {
+        /// Overwrite manifest file if one exists
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        force: bool,
+    },
     /// Initialise a Sherpa client environment
     Init {
         /// Overwrite config file if one exists
@@ -176,6 +183,9 @@ impl Cli {
                     .unwrap_or_else(|| build_client_websocket_url(&config));
 
                 whoami(&server_url, cli.insecure, &config).await?;
+            }
+            Commands::New { force } => {
+                new(*force)?;
             }
             Commands::Init { force } => {
                 init(&sherpa, *force)?;

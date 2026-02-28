@@ -9,6 +9,7 @@ mod down;
 mod image;
 mod init;
 mod inspect;
+mod new;
 mod login;
 mod manifest_processing;
 mod resume;
