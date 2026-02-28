@@ -9,6 +9,11 @@ use std::process::Command;
 
 use anyhow::{Context, Result};
 
+/// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
+pub fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+
 // Load a file
 pub fn load_file(file_path: &str) -> Result<String> {
     let file_contents = fs::read_to_string(file_path)

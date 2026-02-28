@@ -28,7 +28,7 @@ pub use encode::{base64_encode, base64_encode_file};
 pub use env::get_server_url;
 pub use file_system::{
     check_file_size, copy_file, create_dir, create_file, delete_dirs, dir_exists, expand_path,
-    file_exists, get_cwd, load_file,
+    file_exists, get_cwd, load_file, path_to_string,
 };
 #[cfg(unix)]
 pub use file_system::{

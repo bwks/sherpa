@@ -1,5 +1,3 @@
-use std::path::Path;
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
@@ -29,10 +27,7 @@ use super::virtual_machine::VirtualMachineCommands;
 use libvirt::Qemu;
 use shared::data::ClientConfig;
 use shared::data::Sherpa;
-use shared::konst::{
-    SHERPA_BINS_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
-    SHERPA_IMAGES_DIR, SHERPA_MANIFEST_FILE, SHERPA_SSH_DIR,
-};
+use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::{build_client_websocket_url, get_id, get_server_url, load_client_config};
 use topology::Manifest;
 
@@ -187,24 +182,7 @@ enum CertCommands {
 impl Cli {
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
-        let base_dir = sherpa_client_base_dir();
-        let base = Path::new(&base_dir);
-        let config_dir = base.join(SHERPA_CONFIG_DIR);
-        let sherpa = Sherpa {
-            config_file_path: config_dir
-                .join(SHERPA_CONFIG_FILE)
-                .to_string_lossy()
-                .to_string(),
-            ssh_dir: base.join(SHERPA_SSH_DIR).to_string_lossy().to_string(),
-            images_dir: base.join(SHERPA_IMAGES_DIR).to_string_lossy().to_string(),
-            containers_dir: base
-                .join(SHERPA_CONTAINERS_DIR)
-                .to_string_lossy()
-                .to_string(),
-            bins_dir: base.join(SHERPA_BINS_DIR).to_string_lossy().to_string(),
-            config_dir: config_dir.to_string_lossy().to_string(),
-            base_dir,
-        };
+        let sherpa = Sherpa::from_base_dir(sherpa_client_base_dir());
         match &cli.commands {
             Commands::Login => {
                 let config = load_client_config_or_default(&sherpa.config_file_path);

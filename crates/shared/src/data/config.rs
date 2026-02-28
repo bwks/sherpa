@@ -1,12 +1,15 @@
+use std::net::Ipv4Addr;
+use std::path::Path;
+
 use ipnet::Ipv4Net;
 use serde_derive::{Deserialize, Serialize};
-use std::net::Ipv4Addr;
 
 use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
 use crate::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
+use crate::util::path_to_string;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ZtpServer {
@@ -189,4 +192,22 @@ pub struct Sherpa {
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
+}
+
+impl Sherpa {
+    /// Build a `Sherpa` with all paths derived from a base directory.
+    /// Uses platform-native path separators.
+    pub fn from_base_dir(base_dir: String) -> Self {
+        let base = Path::new(&base_dir);
+        let config_dir = base.join(crate::konst::SHERPA_CONFIG_DIR);
+        Self {
+            config_file_path: path_to_string(&config_dir.join(crate::konst::SHERPA_CONFIG_FILE)),
+            ssh_dir: path_to_string(&base.join(crate::konst::SHERPA_SSH_DIR)),
+            images_dir: path_to_string(&base.join(crate::konst::SHERPA_IMAGES_DIR)),
+            containers_dir: path_to_string(&base.join(crate::konst::SHERPA_CONTAINERS_DIR)),
+            bins_dir: path_to_string(&base.join(crate::konst::SHERPA_BINS_DIR)),
+            config_dir: path_to_string(&config_dir),
+            base_dir,
+        }
+    }
 }
