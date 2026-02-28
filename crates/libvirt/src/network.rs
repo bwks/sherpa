@@ -5,7 +5,7 @@ use anyhow::Result;
 use virt::connect::Connect;
 use virt::network::Network;
 
-use konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
+use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
 
 pub struct BridgeNetwork {
     pub network_name: String,
@@ -29,7 +29,7 @@ impl BridgeNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Bridge network created and started");
 
         Ok(())
     }
@@ -62,7 +62,39 @@ impl IsolatedNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Isolated network created and started");
+
+        Ok(())
+    }
+}
+
+pub struct ReservedNetwork {
+    pub network_name: String,
+    pub bridge_name: String,
+}
+
+impl ReservedNetwork {
+    /// Create an reserved bridge for control traffic in a VM.
+    pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        let network_name = &self.network_name;
+        let bridge_name = &self.bridge_name;
+        let network_xml = format!(
+            r#"
+      <network>
+        <name>{network_name}</name>
+        <mtu size="{MTU_JUMBO_NET}"/>
+        <bridge name='{bridge_name}' stp='on' delay='0'/>
+        <forward mode='none'/>
+        <port isolated='no'/>
+      </network>
+      "#
+        );
+
+        let network = Network::define_xml(qemu_conn, &network_xml)?;
+        network.create()?;
+        network.set_autostart(true)?;
+
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Reserved network created and started");
 
         Ok(())
     }
@@ -104,7 +136,7 @@ impl NatNetwork {
         network.create()?;
         network.set_autostart(true)?;
 
-        println!("Network created and started: {}", &self.network_name);
+        tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, ipv4_address = %self.ipv4_address, "NAT network created and started");
 
         Ok(())
     }

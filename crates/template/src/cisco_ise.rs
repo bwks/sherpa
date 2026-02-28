@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use data::{Dns, NetworkV4, User};
+use shared::data::{Dns, NetworkV4, User};
 
 #[derive(Template)]
 #[template(path = "cisco/cisco_ise.jinja", ext = "txt")]

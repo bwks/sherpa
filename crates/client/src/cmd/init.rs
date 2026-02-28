@@ -1,108 +1,64 @@
-use anyhow::Result;
-use data::Sherpa;
-use konst::{
-    SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_MANIFEST_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-};
-use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
-use ssh_key::Algorithm;
-use topology::Manifest;
-use util::{
-    create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    term_msg_highlight, term_msg_surround, term_msg_underline,
-};
+use std::io::{self, Write};
+use std::net::Ipv4Addr;
 
-pub async fn init(
-    sherpa: &Sherpa,
-    qemu: &Qemu,
-    config_file: &str,
-    manifest_file: &str,
-    force: bool,
-) -> Result<()> {
-    term_msg_surround("Sherpa Initializing");
-    let qemu_conn = qemu.connect()?;
+use anyhow::{Context, Result};
 
-    let sherpa = sherpa.clone();
+use shared::data::{ClientConfig, Sherpa};
+use shared::util::{create_client_config, create_dir, file_exists, term_msg_surround};
 
-    term_msg_highlight("Creating Files");
+pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
+    term_msg_surround("Sherpa Client Init");
 
-    create_dir(&sherpa.base_dir)?;
-    create_dir(&sherpa.config_dir)?;
-    create_dir(&sherpa.ssh_dir)?;
-    create_dir(&sherpa.containers_dir.to_string())?;
-    create_dir(&sherpa.bins_dir.to_string())?;
-    create_dir(&sherpa.images_dir)?;
-    create_dir(&format!("{}/{}", sherpa.images_dir, SHERPA_BLANK_DISK_DIR))?;
-    // box directories
-    let config = default_config();
-    for device_model in &config.device_models {
-        create_dir(&format!(
-            "{}/{}/latest",
-            sherpa.images_dir, device_model.name
-        ))?;
-    }
-
-    for container_image in &config.container_images {
-        create_dir(&format!(
-            "{}/{}/latest",
-            sherpa.containers_dir, container_image.name
-        ))?;
-    }
-    // config
-    // };
-
-    // Initialize default files
     if file_exists(&sherpa.config_file_path) && !force {
-        println!("Config file already exists: {}", sherpa.config_file_path);
-    } else {
-        let mut config = default_config();
-        config.name = config_file.to_owned();
-        create_config(&config, &sherpa.config_file_path)?;
+        println!(
+            "Config file already exists: {}\nUse --force to overwrite.",
+            sherpa.config_file_path
+        );
+        return Ok(());
     }
 
-    if file_exists(manifest_file) && !force {
-        println!("Manifest file already exists: {manifest_file}");
-    } else {
-        let manifest = Manifest::example()?;
-        manifest.write_file(SHERPA_MANIFEST_FILE)?;
-    }
+    // Prompt for server IP
+    let server_ip = prompt_with_default("Server IP address", "127.0.0.1")?;
+    let server_ipv4: Ipv4Addr = server_ip
+        .parse()
+        .context("Invalid IPv4 address. Expected format: x.x.x.x")?;
 
-    // SSH Keys
-    let ssh_pub_key_file = format!("{}/{}", &sherpa.ssh_dir, SHERPA_SSH_PUBLIC_KEY_FILE);
+    // Prompt for server port
+    let port_str = prompt_with_default("Server port", "3030")?;
+    let server_port: u16 = port_str
+        .parse()
+        .context("Invalid port number. Expected a number between 1 and 65535")?;
 
-    if file_exists(&ssh_pub_key_file) && !force {
-        println!("SSH keys already exists: {ssh_pub_key_file}");
-    } else {
-        term_msg_underline("Creating SSH Keypair");
-        generate_ssh_keypair(
-            &sherpa.ssh_dir,
-            SHERPA_SSH_PRIVATE_KEY_FILE,
-            Algorithm::Rsa { hash: None }, // An RSA256 key will be generated.
-        )?;
-    }
+    // Create config directory if needed
+    create_dir(&sherpa.config_dir)?;
 
-    term_msg_highlight("Creating Networks");
-    // Initialize the sherpa boot network
-    if qemu_conn
-        .list_networks()?
-        .iter()
-        .any(|net| net == SHERPA_BRIDGE_NETWORK_NAME)
-    {
-        println!("Network already exists: {SHERPA_BRIDGE_NETWORK_NAME}");
-    } else {
-        println!("Creating network: {SHERPA_BRIDGE_NETWORK_NAME}");
-        let bridge_network = BridgeNetwork {
-            network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
-            bridge_name: SHERPA_BRIDGE_NETWORK_BRIDGE.to_owned(),
-        };
-        bridge_network.create(&qemu_conn)?;
-    }
-
-    let storage_pool = SherpaStoragePool {
-        name: SHERPA_STORAGE_POOL.to_owned(),
-        path: SHERPA_STORAGE_POOL_PATH.to_owned(),
+    // Build and write client config
+    let config = ClientConfig {
+        server_ipv4,
+        server_port,
+        ..ClientConfig::default()
     };
-    storage_pool.create(&qemu_conn)?;
+
+    create_client_config(&config, &sherpa.config_file_path)?;
+
+    println!("Config written to: {}", sherpa.config_file_path);
+
     Ok(())
+}
+
+fn prompt_with_default(prompt: &str, default: &str) -> Result<String> {
+    print!("{} [{}]: ", prompt, default);
+    io::stdout().flush().context("Failed to flush stdout")?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read input")?;
+
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        Ok(default.to_string())
+    } else {
+        Ok(trimmed.to_string())
+    }
 }

@@ -21,6 +21,8 @@ ip scp server enable
 !
 {% if let Some(license_boot_command) = license_boot_command %}{{ license_boot_command }}{% endif %}
 !
+lldp run
+!
 archive
  log config
   logging enable

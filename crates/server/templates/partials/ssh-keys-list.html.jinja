@@ -1,0 +1,23 @@
+<div id="ssh-keys-list">
+    {% if ssh_keys.is_empty() %}
+    <p class="empty-message">No SSH keys added yet.</p>
+    {% else %}
+    <div class="ssh-keys-container">
+        {% for ssh_key in ssh_keys %}
+        <div class="ssh-key-card">
+            <div class="ssh-key-content">
+                <code class="ssh-key-text">{{ ssh_key }}</code>
+            </div>
+            <button 
+                class="btn btn-danger btn-sm"
+                hx-delete="/profile/ssh-keys/{{ loop.index0 }}"
+                hx-target="#ssh-keys-list"
+                hx-swap="outerHTML"
+                hx-confirm="Are you sure you want to delete this SSH key?">
+                Delete
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

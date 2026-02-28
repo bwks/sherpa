@@ -1,0 +1,36 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}Access Denied - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    <div class="flex items-center space-x-4">
+        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
+        <a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+            Dashboard
+        </a>
+        <form action="/logout" method="post" class="inline">
+            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
+                Logout
+            </button>
+        </form>
+    </div>
+{% endblock %}
+
+{% block content %}
+<div class="auth-page" style="background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);">
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="text-center">
+                <div class="text-6xl mb-4">🚫</div>
+                <h1 class="text-3xl font-bold text-gray-900 mb-4">Access Denied</h1>
+                <p class="text-gray-600 mb-6">
+                    You don't have permission to access this page. Admin privileges are required.
+                </p>
+                <a href="/" class="inline-block px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">
+                    Return to Dashboard
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,296 @@
+use std::env;
+use std::fs::{self, File};
+use std::io::{self, BufReader, BufWriter, Write};
+#[cfg(unix)]
+use std::os::unix::fs::{PermissionsExt, symlink};
+use std::path::Path;
+#[cfg(unix)]
+use std::process::Command;
+
+use anyhow::{Context, Result};
+
+/// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
+pub fn path_to_string(path: &Path) -> String {
+    path.to_string_lossy().to_string()
+}
+
+// Load a file
+pub fn load_file(file_path: &str) -> Result<String> {
+    let file_contents = fs::read_to_string(file_path)
+        .with_context(|| format!("Error loading file: {file_path}"))?;
+    Ok(file_contents)
+}
+
+/// Get the current working directory path
+pub fn get_cwd() -> Result<String> {
+    let path = env::current_dir()?;
+    Ok(path.display().to_string())
+}
+
+/// Create a directory, expanding ~ if it's passed
+pub fn create_dir(dir_path: &str) -> Result<()> {
+    fs::create_dir_all(dir_path)
+        .with_context(|| format!("Error creating directory: {dir_path}"))?;
+    tracing::debug!(path = %dir_path, "Directory created");
+    Ok(())
+}
+
+/// Create a file, expanding ~ if it's passed
+pub fn create_file(file_path: &str, contents: String) -> Result<()> {
+    let size = contents.len();
+    fs::write(file_path, contents).with_context(|| format!("Error creating file: {file_path}"))?;
+    tracing::debug!(path = %file_path, size = size, "File created");
+    Ok(())
+}
+
+/// Check for file existence, expanding ~ if it's passed
+pub fn file_exists(file_path: &str) -> bool {
+    let path = Path::new(file_path);
+    path.exists() && path.is_file()
+}
+
+/// Check for directory existence, expanding ~ if it's passed
+pub fn dir_exists(dir_path: &str) -> bool {
+    let path = Path::new(dir_path);
+    path.exists() && path.is_dir()
+}
+
+/// Expand a path if it's passed with ~
+pub fn expand_path(path: &str) -> String {
+    let expanded_path = shellexpand::tilde(path);
+    let full_path = Path::new(expanded_path.as_ref());
+    full_path.display().to_string()
+}
+
+/// Check if a file is between a certain size.
+/// Currently only supports file sizes up to 5GB
+pub fn check_file_size(path: &str) -> Result<u8> {
+    let expanded_path = shellexpand::tilde(path);
+    let metadata = fs::metadata(Path::new(expanded_path.as_ref()))?;
+    let size_in_bytes = metadata.len();
+    let size_in_gb = size_in_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+
+    let result = match size_in_gb {
+        0.1..1.0 => 1,
+        1.0..2.0 => 2,
+        2.0..3.0 => 3,
+        3.0..4.0 => 4,
+        4.0..5.0 => 5,
+        _ => 0,
+    };
+
+    Ok(result as u8)
+}
+
+/// Delete a file, expanding ~ if it's passed
+#[allow(dead_code)]
+pub fn delete_file(file_path: &str) -> Result<()> {
+    let path = expand_path(file_path);
+    if file_exists(&path) {
+        std::fs::remove_file(&path)?;
+        tracing::debug!(path = %path, "File deleted");
+    }
+    Ok(())
+}
+
+/// Recursively delete a directory
+pub fn delete_dirs(dir_path: &str) -> Result<()> {
+    if dir_exists(dir_path) {
+        fs::remove_dir_all(dir_path)?;
+        tracing::debug!(path = %dir_path, "Directory deleted");
+    }
+    Ok(())
+}
+
+/// Copy a file from a source to a destination.
+/// This will overwrite the destination file if it exists.
+pub fn copy_file(src: &str, dst: &str) -> Result<()> {
+    let source = File::open(src).with_context(|| format!("Error loading src file: {src}"))?;
+    let destination =
+        File::create(dst).with_context(|| format!("Error creating dst file: {dst}"))?;
+
+    let mut reader = BufReader::new(source);
+    let mut writer = BufWriter::new(destination);
+
+    io::copy(&mut reader, &mut writer)
+        .with_context(|| format!("Error copying file: {src} -> {dst}"))?;
+
+    writer
+        .flush()
+        .with_context(|| "Error flushing writer contents")?; // Ensures all buffered contents are written to the file
+
+    Ok(())
+}
+
+/// Create a symbolic link from source to target path
+/// Will expand ~ in paths if present
+#[cfg(unix)]
+pub fn create_symlink(src: &str, target: &str) -> Result<()> {
+    let expanded_src = expand_path(src);
+    let expanded_target = expand_path(target);
+
+    // Remove target if it exists
+    if file_exists(&expanded_target) {
+        std::fs::remove_file(&expanded_target)?;
+    }
+
+    symlink(&expanded_src, &expanded_target)?;
+    Ok(())
+}
+
+/// Set permissions for all files in a folder subtree.
+/// Sets files to read-write and removes executable bit for users/groups.
+#[cfg(unix)]
+pub fn fix_permissions_recursive(path: &str) -> Result<()> {
+    let path = expand_path(path);
+
+    let metadata = fs::metadata(&path)?;
+    let mut perms = metadata.permissions();
+
+    if metadata.is_dir() {
+        // Set directory permissions
+        perms.set_mode(0o775);
+        fs::set_permissions(&path, perms)?;
+
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
+            fix_permissions_recursive(
+                entry
+                    .path()
+                    .to_str()
+                    .ok_or_else(|| anyhow::anyhow!("Error updating read-only permissions"))?,
+            )?;
+        }
+    } else {
+        // Set file permissions
+        perms.set_mode(0o660);
+        fs::set_permissions(path, perms)?;
+    }
+
+    Ok(())
+}
+
+/// Create a ZTP ISO file.
+/// This wraps the `genisoimage` command to create a ztp ISO file
+/// from a directory of source files.
+///
+/// `genisoimage` must be installed on the system.
+///
+/// DOGWATER: Implement this functionality in pure Rust.
+#[cfg(unix)]
+pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
+    // Create ISO using genisoimage
+    Command::new("genisoimage")
+        .args([
+            "-output",
+            iso_dst,
+            "-volid",
+            "cidata",
+            "-joliet",
+            "-rock",
+            "--input-charset",
+            "utf-8",
+            &src_dir,
+        ])
+        .status()?;
+    tracing::debug!(path = %iso_dst, source_dir = %src_dir, "ISO created successfully");
+
+    Ok(())
+}
+
+/// Copy a file to a virtual DOS disk image using the `mcopy` command.
+///
+/// `mcopy` must be installed on the system.
+#[cfg(unix)]
+pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
+    Command::new("mcopy")
+        .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
+        .status()?;
+    tracing::debug!(source = %src_file, image = %dst_image, directory = %dst_dir, "File copied to DOS image");
+
+    Ok(())
+}
+
+/// Copy a file to a virtual EXT4 disk image using the `e2cp` command.
+///
+/// `e2cp` must be installed on the system.
+#[cfg(unix)]
+pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) -> Result<()> {
+    let dst = format!("{}:{}", &dst_image, &dst_dir);
+    let mut cmd = src_files.clone();
+    cmd.push(&dst);
+    Command::new("e2cp").args(cmd).status()?;
+    tracing::debug!(image = %dst_image, directory = %dst_dir, file_count = src_files.len(), "Files copied to EXT4 image");
+
+    Ok(())
+}
+
+/// Create a config archive using the `tar` command.
+///
+/// `tar` must be installed on the system.
+#[cfg(unix)]
+pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
+    Command::new("tar")
+        .args(["cvzf", dst_path, src_path])
+        .status()?;
+    tracing::debug!(source = %src_path, archive = %dst_path, "Archive created");
+    Ok(())
+}
+
+/// Convert an ISO file to a Qcow2 disk image.
+#[cfg(unix)]
+pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
+    Command::new("qemu-img")
+        .args(["convert", "-O", "qcow2", src_iso, dst_disk])
+        .status()?;
+    Ok(())
+}
+
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use std::fs::{self};
+//     use tempfile::TempDir;
+
+//     #[test]
+//     fn test_create_symlink() -> Result<()> {
+//         let temp_dir = TempDir::new()?;
+//         let source_path = temp_dir.path().join("source.txt");
+//         let target_path = temp_dir.path().join("target.txt");
+
+//         // Create source file
+//         fs::write(&source_path, "test content")?;
+
+//         // Create symlink
+//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+
+//         // Verify symlink exists and points to source
+//         assert!(target_path.exists());
+//         assert!(target_path.is_symlink());
+//         assert_eq!(
+//             fs::read_to_string(&target_path)?,
+//             fs::read_to_string(&source_path)?
+//         );
+
+//         Ok(())
+//     }
+
+//     #[test]
+//     fn test_create_symlink_existing_target() -> Result<()> {
+//         let temp_dir = TempDir::new()?;
+//         let source_path = temp_dir.path().join("source.txt");
+//         let target_path = temp_dir.path().join("target.txt");
+
+//         // Create source and initial target
+//         fs::write(&source_path, "source content")?;
+//         fs::write(&target_path, "target content")?;
+
+//         // Create symlink (should overwrite target)
+//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+
+//         assert!(target_path.is_symlink());
+//         assert_eq!(fs::read_to_string(&target_path)?, "source content");
+
+//         Ok(())
+//     }
+// }

@@ -1,8 +1,8 @@
 use askama::Template;
 
-use data::{ZtpMethod, ZtpRecord};
-use konst::{
-    DEVICE_CONFIGS_DIR, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR,
+use shared::data::{ZtpMethod, ZtpRecord};
+use shared::konst::{
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_DOMAIN_NAME, TFTP_DIR, ZTP_DIR,
 };
 
 #[derive(Template)]

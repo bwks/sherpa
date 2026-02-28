@@ -1,0 +1,5 @@
+<div class="destroy-progress-container" hx-ext="sse" sse-connect="/labs/{{ lab_id }}/destroy/stream">
+    <h3 class="text-lg font-semibold text-gray-900 mb-3">Destroying Lab...</h3>
+    <div id="destroy-progress-lines" sse-swap="progress" hx-swap="beforeend"></div>
+    <div sse-swap="complete" hx-swap="innerHTML"></div>
+</div>

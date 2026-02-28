@@ -124,7 +124,7 @@
       <alias name='ua-net-{{ name }}-mgmt-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_MANAGEMENT_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ management_network }}'/>
       <model type='{{ interface_type }}'/>
     </interface>
 
@@ -133,7 +133,7 @@
       <alias name='ua-net-{{ name }}-reserved-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ reserved_network }}'/>
       <model type='{{ interface_type }}'/>
       <link state='up'/>
     </interface>
@@ -143,9 +143,17 @@
       <alias name='ua-net-{{ name }}-disabled-{{ interface.name }}'/>
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
-      <source network='{{ konst::SHERPA_ISOLATED_NETWORK_NAME }}-{{ lab_id }}'/>
+      <source network='{{ isolated_network }}'/>
       <model type='{{ interface_type }}'/>
       <link state='down'/>
+    </interface>
+
+    {%     when ConnectionTypes::PrivateBridge %}
+    <interface type='bridge'>
+      <alias name='ua-net-{{ name }}-shared-bridge-{{ interface.name }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <source bridge='{{ interface.name }}'/>
+      <model type='{{ interface_type }}'/>
     </interface>
 
     {%     when ConnectionTypes::Peer %}

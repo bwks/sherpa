@@ -1,149 +1,137 @@
-use std::fs;
-use std::path::Path;
+use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
-use container::{docker_connection, list_images};
-use data::{NodeModel, Sherpa};
-use util::{
-    copy_file, create_dir, create_symlink, file_exists, fix_permissions_recursive,
-    term_msg_surround,
-};
+use shared::data::{ClientConfig, ListImagesResponse, NodeKind, NodeModel};
+use shared::error::RpcErrorCode;
+use shared::util::{Emoji, render_images_table};
+
+use crate::token::load_token;
+use crate::ws_client::{RpcRequest, WebSocketClient};
 
 #[derive(Debug, Subcommand)]
 pub enum ImageCommands {
-    /// List all boxes
+    /// List all images
     List {
-        /// Optional: List all boxes for a model
+        /// Optional: List all images for a model
         #[arg(value_enum)]
         model: Option<NodeModel>,
         /// List container images
         #[arg(long, action = clap::ArgAction::SetTrue)]
-        containers: bool,
-        /// List nanovm images
+        container: bool,
+        /// List unikernel images
         #[arg(long, action = clap::ArgAction::SetTrue)]
-        nanovms: bool,
+        unikernel: bool,
         /// List virtual machine images
         #[arg(long, action = clap::ArgAction::SetTrue)]
-        virtual_machines: bool,
+        virtual_machine: bool,
     },
-
-    /// Import a disk image
-    Import {
-        /// Source path of the disk image
-        #[arg(short, long)]
-        src: String,
-        /// Version of the device model
-        #[arg(short, long)]
-        version: String,
-        /// Model of Device
-        #[arg(short, long, value_enum)]
-        model: NodeModel,
-        /// Import the disk image as the latest version
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        latest: bool,
-    },
-}
-
-/// Recursively list a directories contents.
-fn list_directory_contents(path: &Path, indent: u8) -> Result<()> {
-    let mut entries: Vec<_> = fs::read_dir(path)?.filter_map(|e| e.ok()).collect();
-
-    entries.sort_by_key(|e| e.file_name());
-
-    for entry in entries {
-        let path = entry.path();
-        if let Some(name) = path.file_name() {
-            println!(
-                "{:indent$}{}",
-                "",
-                name.to_string_lossy(),
-                indent = indent as usize
-            );
-            if path.is_dir() {
-                list_directory_contents(&path, indent + 2)?;
-            }
-        }
-    }
-    Ok(())
 }
 
 /// Parse the commands for Image
-pub async fn parse_image_commands(commands: &ImageCommands, config: &Sherpa) -> Result<()> {
+pub async fn parse_image_commands(
+    commands: &ImageCommands,
+    server_config: &ClientConfig,
+    server_url: &str,
+) -> Result<()> {
     match commands {
         ImageCommands::List {
             model,
-            containers,
-            nanovms,
-            virtual_machines,
+            container,
+            unikernel,
+            virtual_machine,
         } => {
-            if let Some(m) = model {
-                let model_dir = format!("{}/{}", &config.images_dir, m);
-                println!("{}", &model_dir);
-                list_directory_contents(model_dir.as_ref(), 0)?;
-            } else if *containers {
-                term_msg_surround("Container images");
-                let docker_conn = docker_connection()?;
-                list_images(&docker_conn).await?;
-            } else if *nanovms {
-                println!("NOT IMPLEMENTED")
-            } else if *virtual_machines {
-                println!("NOT IMPLEMENTED")
+            let kind = if *container {
+                Some(NodeKind::Container)
+            } else if *unikernel {
+                Some(NodeKind::Unikernel)
+            } else if *virtual_machine {
+                Some(NodeKind::VirtualMachine)
             } else {
-                println!("{}", &config.images_dir);
-                list_directory_contents(config.images_dir.as_ref(), 0)?;
-            }
+                None
+            };
+
+            list_images_rpc(*model, kind, server_config, server_url).await?;
         }
-        ImageCommands::Import {
-            src,
-            version,
-            model,
-            latest,
-        } => import(src, version, model, *latest, &config.images_dir)?,
     }
     Ok(())
 }
 
-fn import(
-    src: &str,
-    version: &str,
-    model: &NodeModel,
-    latest: bool,
-    images_dir: &str,
+async fn list_images_rpc(
+    model: Option<NodeModel>,
+    kind: Option<NodeKind>,
+    config: &ClientConfig,
+    server_url: &str,
 ) -> Result<()> {
-    term_msg_surround("Importing disk image");
+    // Load authentication token
+    let token = match load_token() {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("\n{} Authentication required", Emoji::Error);
+            eprintln!("   Please run: sherpa login");
+            eprintln!("   Error: {}", e);
+            bail!("Authentication token not found");
+        }
+    };
 
-    if !file_exists(src) {
-        anyhow::bail!("File does not exist: {}", src);
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
+
+    let mut rpc_client = ws_client
+        .connect()
+        .await
+        .context("Failed to connect to sherpad server")?;
+
+    let list_request = RpcRequest::new(
+        "image.list",
+        serde_json::json!({
+            "model": model,
+            "kind": kind,
+            "token": token,
+        }),
+    );
+
+    let list_response = rpc_client
+        .call(list_request)
+        .await
+        .context("Image list RPC call failed")?;
+
+    rpc_client.close().await.ok();
+
+    // Handle errors
+    if let Some(error) = list_response.error {
+        eprintln!("\n{} Server Error:", Emoji::Error);
+        eprintln!("   Message: {}", error.message);
+        eprintln!("   Code: {}", error.code);
+        if let Some(context) = error.context {
+            eprintln!("   Context:\n{}", context);
+        }
+
+        if error.code == RpcErrorCode::AuthRequired {
+            eprintln!(
+                "\n{} Your authentication token has expired or is invalid",
+                Emoji::Error
+            );
+            eprintln!("   Please run: sherpa login");
+        }
+
+        bail!("Image list failed");
     }
 
-    let dst_path = format!("{}/{}", images_dir, model);
-    let dst_version_dir = format!("{dst_path}/{version}");
-    let dst_latest_dir = format!("{dst_path}/latest");
+    let result = list_response.result.context("No result in list response")?;
+    let response: ListImagesResponse =
+        serde_json::from_value(result).context("Failed to parse list images response")?;
 
-    create_dir(&dst_version_dir)?;
-    create_dir(&dst_latest_dir)?;
-
-    let dst_version_disk = format!("{dst_version_dir}/virtioa.qcow2");
-
-    if !file_exists(&dst_version_disk) {
-        println!("Copying file from: {} to: {}", src, dst_version_disk);
-        copy_file(src, &dst_version_disk)?;
-        println!("Copied file from: {} to: {}", src, dst_version_disk);
+    if response.images.is_empty() {
+        println!("\n{} No images found", Emoji::Warning);
     } else {
-        println!("File already exists: {}", dst_version_disk);
+        println!("\n{}", render_images_table(&response.images));
     }
-
-    if latest {
-        let dst_latest_disk = format!("{dst_latest_dir}/virtioa.qcow2");
-        println!("Symlinking file from: {} to: {}", src, dst_latest_disk);
-        create_symlink(&dst_version_disk, &dst_latest_disk)?;
-        println!("Symlinked file from: {} to: {}", src, dst_latest_disk);
-    }
-
-    println!("Setting base box files to read-only");
-    fix_permissions_recursive(images_dir)?;
 
     Ok(())
 }

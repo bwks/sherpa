@@ -1,0 +1,35 @@
+<div class="lab-card bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md">
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-4">
+        <div class="flex-1">
+            <h3 class="text-lg font-semibold text-gray-900">{{ lab.name }}</h3>
+            <p class="text-sm text-gray-500 font-mono">{{ lab.id }}</p>
+        </div>
+        <span class="badge badge-gray">{{ lab.status }}</span>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-1 gap-3 mb-4">
+        <div class="flex items-center space-x-2">
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"></path>
+            </svg>
+            <span class="text-sm text-gray-600">
+                <span class="font-medium text-gray-900">{{ lab.node_count }}</span> nodes
+            </span>
+        </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="flex space-x-2 pt-4 border-t border-gray-100">
+        <a href="/labs/{{ lab.id }}" class="flex-1 px-3 py-2 text-sm font-medium text-blue-600 bg-blue-50 rounded-md hover:bg-blue-100 transition-colors text-center">
+            View
+        </a>
+        <button class="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors">
+            Start
+        </button>
+        <button class="px-3 py-2 text-sm font-medium text-gray-600 bg-gray-50 rounded-md hover:bg-gray-100 transition-colors">
+            Stop
+        </button>
+    </div>
+</div>

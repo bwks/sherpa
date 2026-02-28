@@ -1,0 +1,41 @@
+[Unit]
+Description=Sherpa Daemon - VM, Container, and Unikernel Management Server
+Documentation=https://github.com/bwks/sherpa
+After=network-online.target docker.service libvirtd.service
+Wants=network-online.target
+Requires=docker.service libvirtd.service
+
+[Service]
+Type=forking
+User=sherpa
+Group=sherpa
+WorkingDirectory=/opt/sherpa
+
+# Start daemon in background mode (logs to /opt/sherpa/logs/sherpad.log)
+ExecStart=/opt/sherpa/bin/sherpad start
+
+# Graceful stop using daemon's built-in stop command
+ExecStop=/opt/sherpa/bin/sherpad stop
+
+# PID file location (managed by daemon)
+PIDFile=/opt/sherpa/run/sherpad.pid
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+# Environment configuration (optional file)
+EnvironmentFile=-/opt/sherpa/config/sherpad.env
+
+# Security hardening (basic level)
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Resource limits
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target

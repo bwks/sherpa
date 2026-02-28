@@ -11,7 +11,7 @@ system {
         }
     }
     root-authentication {
-        plain-text-password-value "{{ konst::SHERPA_PASSWORD }}";
+        plain-text-password-value "{{ shared::konst::SHERPA_PASSWORD }}";
         {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
     }
     host-name {{ hostname }};

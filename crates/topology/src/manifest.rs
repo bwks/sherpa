@@ -4,19 +4,24 @@ use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
+use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
-use data::{NodeModel, ZtpServer};
-use util::load_file as load_file_util;
+use shared::data::{ConfigurationManagement, NodeModel, ZtpServer};
+use shared::util::load_file as load_file_util;
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
     pub name: String,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
+    pub bridges: Option<Vec<Bridge>>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ztp_server: Option<ZtpServer>,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_management: Option<ConfigurationManagement>,
 }
 
 impl Manifest {
@@ -26,7 +31,7 @@ impl Manifest {
 
         let dev01 = Node {
             name: "dev01".to_owned(),
-            model: NodeModel::FedoraLinux,
+            model: NodeModel::UbuntuLinux,
             ..Default::default()
         };
         let dev02 = Node {

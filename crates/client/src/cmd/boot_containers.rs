@@ -2,14 +2,14 @@ use anyhow::Result;
 use askama::Template;
 
 use container::{Docker, run_container};
-use data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
-use konst::{
-    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DEVICE_CONFIGS_DIR, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
+use shared::data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
+use shared::konst::{
+    CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
     SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
 };
+use shared::util::{create_dir, create_file, get_ipv4_addr, term_msg_underline};
 use template::{DnsmasqTemplate, SonicLinuxUserTemplate};
-use util::{create_dir, create_file, get_ipv4_addr, term_msg_underline};
 
 pub fn create_ztp_files(
     mgmt_net: &SherpaNetwork,
@@ -23,7 +23,7 @@ pub fn create_ztp_files(
 
     // Create directories
     let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
-    let ztp_configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+    let ztp_configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     create_dir(&ztp_dir)?;
     create_dir(&ztp_configs_dir)?;
@@ -72,7 +72,7 @@ pub async fn create_boot_containers(
     // Volume mount dirs
     let dnsmasq_dir = format!("{ztp_dir}/{DNSMASQ_DIR}");
     let tftp_dir = format!("{ztp_dir}/{TFTP_DIR}");
-    let configs_dir = format!("{ztp_dir}/{DEVICE_CONFIGS_DIR}");
+    let configs_dir = format!("{ztp_dir}/{NODE_CONFIGS_DIR}");
 
     // Ensure directories exist
     create_dir(&dnsmasq_dir)?;
@@ -84,7 +84,7 @@ pub async fn create_boot_containers(
     let boot_server_ipv4 = mgmt_net.v4.boot_server.to_string();
 
     // Webdir service
-    let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{DEVICE_CONFIGS_DIR}");
+    let webdir_config_volume = format!("{configs_dir}:/opt/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
 
     // Dnsmasq service
     let dnsmasq_env_vars = vec![dnsmasq_env_dns1, dnsmasq_env_dns2];
@@ -99,10 +99,10 @@ pub async fn create_boot_containers(
     ];
     let dnsmasq_capabilities = vec!["NET_ADMIN"];
 
-    let network_attachments = vec![ContainerNetworkAttachment {
+    let management_network = ContainerNetworkAttachment {
         name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
         ipv4_address: Some(boot_server_ipv4),
-    }];
+    };
 
     run_container(
         docker_conn,
@@ -111,7 +111,8 @@ pub async fn create_boot_containers(
         dnsmasq_env_vars,
         dnsmasq_volumes,
         dnsmasq_capabilities,
-        network_attachments,
+        management_network,
+        vec![],
         vec![],
         false,
     )

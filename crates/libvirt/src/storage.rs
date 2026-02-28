@@ -24,7 +24,7 @@ impl SherpaStoragePool {
         // Check if the pool already exists
         match StoragePool::lookup_by_name(qemu_conn, &name) {
             Ok(_pool) => {
-                println!("Storage pool '{name}' already exists");
+                tracing::debug!(pool_name = %name, "Storage pool already exists");
                 Ok(())
             }
             Err(_) => {
@@ -42,7 +42,7 @@ impl SherpaStoragePool {
                 pool.set_autostart(true)
                     .context("Failed to set pool autostart")?;
 
-                println!("Storage pool '{name}' created and started");
+                tracing::info!(pool_name = %name, path = %path, "Storage pool created and started");
                 Ok(())
             }
         }

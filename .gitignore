@@ -8,4 +8,15 @@ files/
 *.bu
 dev.sh
 *.sql
+!lab.sql
 .idea/
+.opencode/
+AGENTS.md
+srl-config.json
+
+# Dev
+test_*.toml
+sherpa_ssh_*
+CLAUDE.md
+.claude/
+.ruff_cache

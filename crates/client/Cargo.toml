@@ -1,31 +1,29 @@
 [package]
 name = "sherpa"
-version = "0.1.0"
+version = "0.3.1"
 edition = "2024"
 
 [dependencies]
-konst = { path = "../konst" }
-data = { path = "../data" }
-container = { path = "../container" }
-util = { path = "../util" }
+shared = { path = "../shared" }
 topology = { path = "../topology" }
 template = { path = "../template" }
-libvirt = { path = "../libvirt" }
 validate = { path = "../validate" }
-network = { path = "../network" }
-db = { path = "../db" }
+
+# Linux-only dependencies (gated behind "local" feature)
+container = { path = "../container", optional = true }
+libvirt = { path = "../libvirt", optional = true }
+db = { path = "../db", optional = true }
 
 # Errors
 anyhow = "1.0.100"
 
 # CLI
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.16", features = ["derive", "env"] }
 
 # Serialization/Deserialization
 serde = "1.0.208"
 serde_derive = "1.0.208"
 serde_json = "1.0.128"
-serde_yaml = "0.9.34"
 toml = "0.8.19"
 toml_edit = "0.22.22"
 
@@ -48,9 +46,46 @@ futures-util = "0.3.31"
 
 # http client
 reqwest = "0.11.27"
+url = "2.5"
 
-# Libvirt
-virt = { version = "0.4.1", features = ["qemu"] }
+# WebSocket client with TLS support
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 
-# Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+# UUID for RPC request IDs
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Logging
+tracing = "0.1"
+
+# Password input
+rpassword = "7.3"
+
+# Time/date handling
+jiff = { version = "0.2.20", features = ["serde"] }
+
+# Libvirt (Linux-only, gated behind "local" feature)
+virt = { version = "0.4.1", features = ["qemu"], optional = true }
+
+# TLS support
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pki-types = "1.10"
+webpki-roots = "0.26"
+rustls-native-certs = "0.8"
+rustls-pemfile = "2.2"
+
+# Cryptography
+sha2 = "0.10"
+hex = "0.4"
+
+# Certificate parsing
+x509-parser = "0.16"
+
+# Home directory detection
+dirs = "6.0"
+
+[features]
+default = []
+local = ["dep:libvirt", "dep:db", "dep:container", "dep:virt"]
+
+[dev-dependencies]
+tempfile = "3.25.0"

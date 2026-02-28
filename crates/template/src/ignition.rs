@@ -4,11 +4,11 @@ use anyhow::Result;
 use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
-use konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
+use shared::konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME};
 
-use util::base64_encode;
+use shared::util::base64_encode;
 
-use data::NetworkV4;
+use shared::data::NetworkV4;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -21,12 +21,12 @@ pub struct IgnitionConfig {
 
 impl IgnitionConfig {
     pub fn new(
-        users: Vec<User>,
-        files: Vec<File>,
-        links: Vec<Link>,
-        systemd_units: Vec<Unit>,
-        networkd_units: Vec<Unit>,
-        filesystems: Vec<FileSystem>,
+        users: Vec<IgnitionUser>,
+        files: Vec<IgnitionFile>,
+        links: Vec<IgnitionLink>,
+        systemd_units: Vec<IgnitionUnit>,
+        networkd_units: Vec<IgnitionUnit>,
+        filesystems: Vec<IgnitionFileSystem>,
     ) -> IgnitionConfig {
         let directories = vec![Directory::default()];
         IgnitionConfig {
@@ -92,11 +92,11 @@ pub struct Timeouts {}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Passwd {
-    users: Vec<User>,
+    users: Vec<IgnitionUser>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct User {
+pub struct IgnitionUser {
     pub name: String,
     #[serde(rename = "passwordHash")]
     pub password_hash: String,
@@ -107,20 +107,20 @@ pub struct User {
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Storage {
-    pub files: Vec<File>,
-    pub links: Vec<Link>,
+    pub files: Vec<IgnitionFile>,
+    pub links: Vec<IgnitionLink>,
     pub directories: Vec<Directory>,
-    pub filesystems: Vec<FileSystem>,
+    pub filesystems: Vec<IgnitionFileSystem>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FileSystem {
+pub struct IgnitionFileSystem {
     pub device: String,
     pub format: String,
     pub wipe_filesystem: bool,
     pub label: String,
 }
-impl Default for FileSystem {
+impl Default for IgnitionFileSystem {
     fn default() -> Self {
         Self {
             device: "/dev/disk/by-label/data-disk".to_owned(),
@@ -149,30 +149,32 @@ impl Default for Directory {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct FileParams {
+pub struct IgnitionFileParams {
     pub name: String,
 }
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct File {
+pub struct IgnitionFile {
     pub path: String,
     #[serde(serialize_with = "serialize_mode_as_decimal")]
     pub mode: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
-    pub contents: Contents,
+    pub contents: IgnitionFileContents,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub user: Option<FileParams>,
+    pub user: Option<IgnitionFileParams>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub group: Option<FileParams>,
+    pub group: Option<IgnitionFileParams>,
 }
 
-impl File {
+impl IgnitionFile {
     pub fn disable_resolved() -> Self {
         Self {
             path: "/etc/systemd/resolved.conf.d/no-stub.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new("data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg=="),
+            contents: IgnitionFileContents::new(
+                "data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg==",
+            ),
             ..Default::default()
         }
     }
@@ -182,7 +184,7 @@ impl File {
             path: "/etc/flatcar/update.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new("data:,REBOOT_STRATEGY%3Doff%0A"),
+            contents: IgnitionFileContents::new("data:,REBOOT_STRATEGY%3Doff%0A"),
             ..Default::default()
         }
     }
@@ -193,7 +195,7 @@ impl File {
             ),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new(&format!(
+            contents: IgnitionFileContents::new(&format!(
                 "https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
             )),
             ..Default::default()
@@ -204,7 +206,7 @@ impl File {
             path: "/etc/sysupdate.docker-compose.d/docker-compose.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new(
+            contents: IgnitionFileContents::new(
                 "https://extensions.flatcar.org/extensions/docker-compose.conf",
             ),
             ..Default::default()
@@ -215,7 +217,9 @@ impl File {
             path: "/etc/sysupdate.d/noop.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new("https://extensions.flatcar.org/extensions/noop.conf"),
+            contents: IgnitionFileContents::new(
+                "https://extensions.flatcar.org/extensions/noop.conf",
+            ),
             ..Default::default()
         }
     }
@@ -241,11 +245,11 @@ Domains={domain}
             path: "/etc/systemd/network/00-eth0.network".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new(&format!("data:;base64,{encoded_contents}")),
-            user: Some(FileParams {
+            contents: IgnitionFileContents::new(&format!("data:;base64,{encoded_contents}")),
+            user: Some(IgnitionFileParams {
                 name: "root".to_owned(),
             }),
-            group: Some(FileParams {
+            group: Some(IgnitionFileParams {
                 name: "root".to_owned(),
             }),
         })
@@ -255,20 +259,20 @@ Domains={domain}
             path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: Contents::new(&format!("data:text/plain;base64,{config}")),
+            contents: IgnitionFileContents::new(&format!("data:text/plain;base64,{config}")),
             ..Default::default()
         }
     }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Link {
+pub struct IgnitionLink {
     pub path: String,
     pub target: String,
     pub hard: bool,
     pub overwrite: bool,
 }
-impl Link {
+impl IgnitionLink {
     pub fn docker_compose_raw() -> Self {
         Self {
             path: "/etc/extensions/docker-compose.raw".to_owned(),
@@ -282,15 +286,15 @@ impl Link {
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
-pub struct Contents {
+pub struct IgnitionFileContents {
     pub source: String,
     pub compression: Option<String>,
     pub verification: Verification,
 }
 
-impl Contents {
-    pub fn new(source: &str) -> Contents {
-        Contents {
+impl IgnitionFileContents {
+    pub fn new(source: &str) -> IgnitionFileContents {
+        IgnitionFileContents {
             source: source.to_owned(),
             compression: None,
             verification: Verification::default(),
@@ -308,7 +312,7 @@ pub struct Dropin {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Unit {
+pub struct IgnitionUnit {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
@@ -320,7 +324,7 @@ pub struct Unit {
     pub dropins: Option<Vec<Dropin>>,
 }
 
-impl Unit {
+impl IgnitionUnit {
     pub fn systemd_resolved() -> Self {
         Self {
             name: "systemd-resolved.service".to_owned(),
@@ -485,12 +489,12 @@ WantedBy=multi-user.target
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Systemd {
-    units: Vec<Unit>,
+    units: Vec<IgnitionUnit>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Networkd {
-    units: Vec<Unit>,
+    units: Vec<IgnitionUnit>,
 }
 
 /// Convert a unix octal permission mode (base 8) to it'd decimal equivalent (base 10).

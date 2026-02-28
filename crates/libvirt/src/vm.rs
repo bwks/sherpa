@@ -10,7 +10,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
 
-use konst::SHERPA_STORAGE_POOL;
+use shared::konst::SHERPA_STORAGE_POOL;
 
 /// Clone a disk image.
 pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {

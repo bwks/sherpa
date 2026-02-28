@@ -1,25 +1,29 @@
 [package]
-name = "sherpa-server"
-version = "0.1.0"
+name = "sherpad"
+version = "0.3.1"
 edition = "2024"
 
 [dependencies]
-axum = { version = "0.8.7" }
+axum = { version = "0.8.8", features = ["ws"] }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+time = "0.3"
 
-konst = { path = "../konst" }
-data = { path = "../data" }
+shared = { path = "../shared", features = ["netinfo"] }
 container = { path = "../container" }
-util = { path = "../util" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
+network = { path = "../network" }
 validate = { path = "../validate" }
+db = { path = "../db" }
 
 # Errors
 anyhow = "1.0.100"
+
+# Process/Signal management
+nix = { version = "0.29", features = ["signal", "process"] }
 
 # CLI
 clap = { version = "4.5.16", features = ["derive"] }
@@ -28,15 +32,20 @@ clap = { version = "4.5.16", features = ["derive"] }
 serde = "1.0.208"
 serde_derive = "1.0.208"
 serde_json = "1.0.128"
-serde_yaml = "0.9.34"
 toml = "0.8.19"
 toml_edit = "0.22.22"
+
+# Enum utilities
+strum = "0.27"
 
 # De/Compression
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
 
 # Random number generator
 rand = "0.8.5"
+
+# Authentication
+jsonwebtoken = "9"
 
 # Templates
 askama = "0.14.0"
@@ -47,6 +56,22 @@ petname = "2.0.2"
 # Async
 futures = "0.3.31"
 futures-util = "0.3.31"
+async-stream = "0.3"
+
+# WebSocket support
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tokio-tungstenite = "0.24"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+
+# UUID for connection IDs
+uuid = { version = "1.11", features = ["v4", "serde"] }
+
+# Concurrent collections
+dashmap = "6.1"
+
+# Timestamps for messages
+jiff = { version = "0.2.20", features = ["serde"] }
 
 # http client
 reqwest = "0.11.27"
@@ -54,5 +79,22 @@ reqwest = "0.11.27"
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }
 
+# Docker
+bollard = "0.19.3"
+
+# Database
+surrealdb = "3.0.0"
+surrealdb-types = "3.0.0"
+
 # Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+
+# TLS support
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pemfile = "2.2"
+rcgen = "0.13"
+
+[dev-dependencies]
+tokio-test = "0.4"
+tempfile = "3.25.0"

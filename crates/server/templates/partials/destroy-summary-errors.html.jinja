@@ -1,0 +1,14 @@
+<div class="destroy-summary">
+    <div class="flex items-center space-x-2 mb-3">
+        <span class="text-2xl">&#x26A0;&#xFE0F;</span>
+        <h3 class="text-lg font-semibold text-yellow-700">Lab "{{ lab_name }}" destroyed with errors</h3>
+    </div>
+    <ul class="mb-4 space-y-1">
+        {% for error in errors %}
+        <li class="text-sm text-red-600">&#x274C; [{{ error.resource_type }}] {{ error.resource_name }}: {{ error.error_message }}</li>
+        {% endfor %}
+    </ul>
+    <a href="/" class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors inline-block">
+        Back to Dashboard
+    </a>
+</div>

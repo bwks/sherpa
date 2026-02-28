@@ -7,7 +7,7 @@ domain name-server {{ server.ipv4_address }}
 username admin
  group root-lr
  group cisco-support
- secret 0 {{ konst::SHERPA_PASSWORD }}
+ secret 0 {{ shared::konst::SHERPA_PASSWORD }}
 !
 username {{ user.username }}
 {%- if user.sudo %}

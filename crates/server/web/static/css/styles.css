@@ -1,0 +1,482 @@
+/* Custom styles for Sherpa Labs Dashboard */
+
+/* CSS Variables */
+:root {
+    --sherpa-primary: #0284c7;
+    --sherpa-primary-dark: #0369a1;
+    --sherpa-secondary: #64748b;
+}
+
+/* Loading Spinner Animation */
+.spinner {
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(2, 132, 199, 0.1);
+    border-top-color: var(--sherpa-primary);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Card hover effects */
+.lab-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.lab-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Status badges */
+.badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.25rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-gray {
+    background-color: #f1f5f9;
+    color: #475569;
+}
+
+.badge-green {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.badge-red {
+    background-color: #fee2e2;
+    color: #991b1b;
+}
+
+.badge-yellow {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+/* Authentication Pages */
+.auth-page {
+    background: linear-gradient(135deg, #fff 0%, #97cbe8 100%);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.auth-container {
+    width: 100%;
+    max-width: 420px;
+}
+
+.auth-logo {
+    margin-bottom: 2rem;
+}
+
+.auth-card {
+    background: white;
+    border-radius: 1rem;
+    padding: 2rem;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+/* Form styles specific to auth pages */
+.auth-card input[type="text"],
+.auth-card input[type="password"] {
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.auth-card input[type="text"]:focus,
+.auth-card input[type="password"]:focus {
+    outline: none;
+    border-color: var(--sherpa-primary);
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+}
+
+.auth-card button[type="submit"] {
+    transition: background-color 0.15s, transform 0.1s;
+}
+
+.auth-card button[type="submit"]:active {
+    transform: scale(0.98);
+}
+
+/* Error Container */
+.error-container {
+    text-align: center;
+    padding: 4rem 2rem;
+}
+
+/* Metadata Grid (Lab Detail) */
+.metadata-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+/* Breadcrumb Navigation */
+.breadcrumb {
+    display: flex;
+    align-items: center;
+}
+
+/* Profile Page Styles */
+.profile-container {
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+.profile-card {
+    background: white;
+    border-radius: 0.5rem;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.profile-card h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 1.5rem;
+}
+
+.profile-card .form-group {
+    margin-bottom: 1.25rem;
+}
+
+.profile-card .form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #374151;
+    margin-bottom: 0.5rem;
+}
+
+.profile-card .form-group input,
+.profile-card .form-group textarea {
+    width: 100%;
+    padding: 0.625rem 0.875rem;
+    border: 1px solid #d1d5db;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.profile-card .form-group input:focus,
+.profile-card .form-group textarea:focus {
+    outline: none;
+    border-color: var(--sherpa-primary);
+    box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.1);
+}
+
+.profile-card .form-hint {
+    display: block;
+    font-size: 0.75rem;
+    color: #6b7280;
+    margin-top: 0.375rem;
+}
+
+.profile-card .btn {
+    padding: 0.625rem 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    border-radius: 0.375rem;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s, transform 0.1s;
+}
+
+.profile-card .btn:active {
+    transform: scale(0.98);
+}
+
+.profile-card .btn-primary {
+    background-color: var(--sherpa-primary);
+    color: white;
+}
+
+.profile-card .btn-primary:hover {
+    background-color: var(--sherpa-primary-dark);
+}
+
+.profile-card .btn-secondary {
+    background-color: #64748b;
+    color: white;
+}
+
+.profile-card .btn-secondary:hover {
+    background-color: #475569;
+}
+
+.profile-card .btn-danger {
+    background-color: #dc2626;
+    color: white;
+    padding: 0.375rem 0.875rem;
+    font-size: 0.75rem;
+}
+
+.profile-card .btn-danger:hover {
+    background-color: #b91c1c;
+}
+
+.profile-card .btn-sm {
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+}
+
+/* Notification Styles */
+.notification {
+    padding: 1rem;
+    border-radius: 0.375rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+}
+
+.notification-success {
+    background-color: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+
+.notification-error {
+    background-color: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+
+/* SSH Keys Container */
+.ssh-keys-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.ssh-key-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1rem;
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+}
+
+.ssh-key-content {
+    flex: 1;
+    overflow: hidden;
+}
+
+.ssh-key-text {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 0.75rem;
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    background-color: #ffffff;
+    padding: 0.5rem;
+    border-radius: 0.25rem;
+    border: 1px solid #e5e7eb;
+}
+
+.empty-message {
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.875rem;
+    padding: 2rem;
+    background-color: #f9fafb;
+    border-radius: 0.375rem;
+    margin-top: 1rem;
+}
+
+/* Admin Dashboard Styles */
+.admin-table {
+    width: 100%;
+    background: white;
+    border-collapse: collapse;
+}
+
+.admin-table thead {
+    background-color: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.admin-table th {
+    padding: 0.75rem 1rem;
+    text-align: left;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.admin-table tbody tr {
+    border-bottom: 1px solid #e5e7eb;
+    transition: background-color 0.15s;
+}
+
+.admin-table tbody tr:last-child {
+    border-bottom: none;
+}
+
+.admin-table tbody tr:hover {
+    background-color: #f9fafb;
+}
+
+.admin-table td {
+    padding: 1rem;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+.admin-table .username-col {
+    font-family: 'Courier New', monospace;
+    font-weight: 500;
+}
+
+.admin-table .admin-badge {
+    text-align: center;
+}
+
+.admin-table .admin-check {
+    color: #059669;
+    font-size: 1.25rem;
+}
+
+.admin-table .user-dash {
+    color: #9ca3af;
+    font-size: 1.25rem;
+}
+
+.admin-disabled-card {
+    position: relative;
+}
+
+.admin-disabled-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 1rem;
+    background: #fef3c7;
+    border: 1px solid #fcd34d;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    color: #92400e;
+    z-index: 10;
+}
+
+.admin-disabled-card form {
+    opacity: 0.5;
+    pointer-events: none;
+}
+
+/* Node Config Kind Badges */
+.kind-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 9999px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.kind-vm {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+.kind-container {
+    background-color: #d1fae5;
+    color: #065f46;
+}
+
+.kind-unikernel {
+    background-color: #e9d5ff;
+    color: #6b21a8;
+}
+
+/* Node Config Detail Grid */
+.config-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.config-detail-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.config-detail-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.config-detail-value {
+    font-size: 0.875rem;
+    color: #374151;
+    font-weight: 500;
+}
+
+.config-monospace {
+    font-family: 'Courier New', monospace;
+}
+
+/* Lab Destroy Styles */
+.destroy-confirm-panel {
+    background-color: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+}
+
+.destroy-progress-container {
+    background-color: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.destroy-progress-line {
+    padding: 0.375rem 0;
+    border-bottom: 1px solid #f3f4f6;
+    font-size: 0.875rem;
+    color: #374151;
+}
+
+.destroy-progress-line:last-child {
+    border-bottom: none;
+}
+
+.destroy-summary {
+    margin-top: 1rem;
+    padding: 1rem;
+    background-color: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+}

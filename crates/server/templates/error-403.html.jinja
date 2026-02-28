@@ -1,0 +1,13 @@
+{% extends "base.html.jinja" %}
+
+{% block title %}403 Forbidden - Sherpa Labs{% endblock %}
+
+{% block content %}
+<div class="error-container">
+    <h1 class="text-9xl font-bold text-red-600">403</h1>
+    <p class="text-xl text-gray-600 mt-4 mb-8">{{ message }}</p>
+    <a href="/" class="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
+        Back to Dashboard
+    </a>
+</div>
+{% endblock %}

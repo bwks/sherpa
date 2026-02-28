@@ -1,0 +1,80 @@
+use anyhow::{Context, Result};
+
+use super::manifest_processing::{
+    get_node_image, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
+};
+use shared::data::{NodeConfig, NodeModel};
+use shared::util;
+use topology::Manifest;
+
+pub fn validate_manifest(manifest_path: &str) -> Result<()> {
+    // Load manifest
+    util::term_msg_underline(&format!("Loading Manifest: {}", manifest_path));
+    let manifest = Manifest::load_file(manifest_path)
+        .context(format!("Failed to load manifest from '{}'", manifest_path))?;
+
+    println!("✓ Manifest loaded successfully");
+    println!();
+
+    // Get all node configs (without database)
+    let all_models = NodeModel::to_vec();
+    let node_images: Vec<NodeConfig> = all_models.into_iter().map(NodeConfig::get_model).collect();
+
+    util::term_msg_underline("Validating Manifest");
+
+    // Device Validators
+    println!("→ Checking for duplicate device names...");
+    validate::check_duplicate_device(&manifest.nodes)?;
+    println!("  ✓ No duplicate devices");
+
+    // Process manifest data (same as up.rs)
+    let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;
+    let bridges_detailed =
+        process_manifest_bridges(&manifest.bridges, &nodes_expanded, "validate")?;
+
+    // Per-node validators
+    println!("→ Checking interface configurations...");
+    for node in &nodes_expanded {
+        let node_image = get_node_image(&node.model, &node_images)?;
+
+        // Management interface check
+        if !node_image.dedicated_management_interface {
+            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
+        }
+
+        // Interface bounds check
+        validate::check_interface_bounds(
+            &node.name,
+            &node_image.model,
+            node_image.data_interface_count,
+            node_image.reserved_interface_count,
+            node_image.dedicated_management_interface,
+            &links_detailed,
+            &bridges_detailed,
+        )?;
+    }
+    println!("  ✓ All interface configurations valid");
+
+    // Connection validators
+    if !links_detailed.is_empty() || !bridges_detailed.is_empty() {
+        println!("→ Checking link configurations...");
+        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
+        println!("  ✓ No duplicate interface usage");
+
+        validate::check_link_device(&manifest.nodes, &links_detailed)?;
+        println!("  ✓ All linked devices exist");
+    }
+
+    // Bridge validators
+    if !bridges_detailed.is_empty() {
+        println!("→ Checking bridge configurations...");
+        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)?;
+        println!("  ✓ All bridge devices exist");
+    }
+
+    println!();
+    println!("{}", util::emoji_success("Manifest validation passed!"));
+
+    Ok(())
+}

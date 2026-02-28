@@ -29,18 +29,20 @@ tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 
 {# Host level DNS/DHCP settings #}
 {%- for record in ztp_records %}
-# {{ record.device_name }}
-host-record={{ record.device_name }},{{ record.ipv4_address }}
-host-record={{ record.device_name }}.{{ SHERPA_DOMAIN_NAME }},{{ record.ipv4_address }}
-dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.device_name }},,set:{{ record.device_name }}-tag
-{%-   match record.ztp_method %}
-{%-     when ZtpMethod::Tftp %}
-dhcp-option=tag:{{ record.device_name }}-tag,67,{{ record.config_file }}
-{%-     when ZtpMethod::Http %}
-dhcp-option=tag:{{ record.device_name }}-tag,67,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
-dhcp-option=tag:{{ record.device_name }}-tag,239,"http://{{ tftp_server_ipv4 }}:8080/{{ DEVICE_CONFIGS_DIR }}/{{ record.config_file }}"
-{%-     else %}
+# {{ record.node_name }}
+host-record={{ record.node_name }},{{ record.ipv4_address }}
+host-record={{ record.node_name }}.{{ SHERPA_DOMAIN_NAME }},{{ record.ipv4_address }}
+{%-   if !record.mac_address.is_empty() %}
+dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.node_name }},,set:{{ record.node_name }}-tag
+{%-     match record.ztp_method %}
+{%-       when ZtpMethod::Tftp %}
+dhcp-option=tag:{{ record.node_name }}-tag,67,{{ record.config_file }}
+{%-       when ZtpMethod::Http %}
+dhcp-option=tag:{{ record.node_name }}-tag,67,"http://{{ tftp_server_ipv4 }}:8080/{{ NODE_CONFIGS_DIR }}/{{ record.config_file }}"
+dhcp-option=tag:{{ record.node_name }}-tag,239,"http://{{ tftp_server_ipv4 }}:8080/{{ NODE_CONFIGS_DIR }}/{{ record.config_file }}"
+{%-       else %}
 # Add as needed
-{%-   endmatch  %}
+{%-     endmatch  %}
+{%-   endif %}
 {%- endfor %}
 {# END #}

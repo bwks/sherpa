@@ -1,57 +1,39 @@
-mod inspect;
+mod api;
+mod auth;
+mod cli;
+mod daemon;
+mod services;
+mod templates;
+mod tls;
 
-use axum::{
-    Json, Router,
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    routing::{get, post},
+use anyhow::Result;
+use clap::Parser;
+use cli::{Cli, Commands};
+use daemon::manager::{
+    logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
 };
-use serde::{Deserialize, Serialize};
 
 #[tokio::main]
-async fn main() {
-    // initialize tracing
-    tracing_subscriber::fmt::init();
+async fn main() -> Result<()> {
+    // Initialize rustls crypto provider (required for rustls 0.23+)
+    // This must be done before any rustls operations
+    let _ = rustls::crypto::ring::default_provider().install_default();
 
-    // build our application with a route
-    let app = Router::new()
-        .route("/up", post(lab_up))
-        .route("/destroy", post(lab_destroy))
-        .route("/inspect/{id}", get(lab_inspect));
+    // Check if we're being spawned as a background child
+    let args: Vec<String> = std::env::args().collect();
+    if args.len() > 1 && args[1] == "--background-child" {
+        return run_background_child().await;
+    }
 
-    // run our app with hyper
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:3000")
-        .await
-        .unwrap();
-    tracing::debug!("listening on {}", listener.local_addr().unwrap());
-    axum::serve(listener, app).await.unwrap();
-}
+    // Parse CLI arguments
+    let cli = Cli::parse();
 
-async fn lab_up(Json(payload): Json<LabId>) -> String {
-    format!("Creating Lab {}", payload.id)
-}
-async fn lab_destroy(Json(payload): Json<LabId>) -> String {
-    format!("Destroying Lab {}", payload.id)
-}
-async fn lab_inspect(id: Path<String>) -> String {
-    format!("Inspecting Lab {}", id.0)
-}
-
-// the input to our `create_user` handler
-#[derive(Deserialize)]
-struct CreateUser {
-    username: String,
-}
-
-#[derive(Deserialize)]
-struct LabId {
-    id: String,
-}
-
-// the output to our `create_user` handler
-#[derive(Serialize)]
-struct User {
-    id: u64,
-    username: String,
+    // Route to appropriate command handler
+    match cli.command {
+        Commands::Start { foreground } => start_daemon(foreground).await,
+        Commands::Stop { force } => stop_daemon(force),
+        Commands::Restart { foreground } => restart_daemon(foreground).await,
+        Commands::Status => status_daemon(),
+        Commands::Logs { follow } => logs_daemon(follow),
+    }
 }
