@@ -263,6 +263,13 @@ pub const RPC_MSG_ADMIN_ONLY_IMAGE_SCAN: &str =
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
 
+// Container pull operations
+pub const RPC_MSG_CONTAINER_PULL_FAILED: &str = "Container image pull operation failed";
+pub const RPC_MSG_ADMIN_ONLY_CONTAINER_PULL: &str =
+    "Access denied: only administrators can pull container images";
+pub const RPC_MSG_INVALID_PARAMS_CONTAINER_PULL: &str =
+    "Invalid params: expected ContainerPullRequest";
+
 // Invalid params messages
 pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
 pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";

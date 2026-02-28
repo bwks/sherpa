@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use super::image::{ImageCommands, image_commands};
 use super::init::init;
 use super::user::{UserCommands, user_commands};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
@@ -47,6 +48,11 @@ enum Commands {
         #[command(subcommand)]
         commands: UserCommands,
     },
+    /// Image management commands
+    Image {
+        #[command(subcommand)]
+        commands: ImageCommands,
+    },
 }
 
 impl Cli {
@@ -90,6 +96,9 @@ impl Cli {
             }
             Commands::User { commands } => {
                 user_commands(commands, &server_url, &cli.output).await?;
+            }
+            Commands::Image { commands } => {
+                image_commands(commands, &server_url, &cli.output).await?;
             }
         }
 

@@ -4,8 +4,6 @@ use clap::{Parser, Subcommand};
 use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
 use super::clean::clean;
 use super::console::console;
-#[cfg(feature = "local")]
-use super::container::{ContainerCommands, parse_container_commands};
 use super::destroy::destroy;
 #[cfg(feature = "local")]
 use super::doctor::doctor;
@@ -123,12 +121,6 @@ enum Commands {
     /// SSH to a device.
     Ssh { name: String },
 
-    /// Container management commands
-    #[cfg(feature = "local")]
-    Container {
-        #[command(subcommand)]
-        commands: ContainerCommands,
-    },
     /// Virtual machine management commands
     Vm {
         #[command(subcommand)]
@@ -311,10 +303,6 @@ impl Cli {
             Commands::Ssh { name } => {
                 ssh(name).await?;
             }
-            #[cfg(feature = "local")]
-            Commands::Container { commands } => {
-                parse_container_commands(commands, &sherpa).await?;
-            }
             Commands::Vm { commands } => {
                 // parse_vm_commands(commands, &sherpa).await?;
                 let _cmds = commands;
@@ -334,7 +322,7 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                parse_image_commands(commands, &sherpa, &config, &server_url).await?;
+                parse_image_commands(commands, &config, &server_url).await?;
             }
             Commands::Cert { commands } => match commands {
                 CertCommands::List => cert_list().await?,

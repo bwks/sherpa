@@ -93,3 +93,25 @@ pub struct ScanImagesResponse {
     /// Total number of images imported (new or updated)
     pub total_imported: usize,
 }
+
+/// Request type for pulling a container image from an OCI registry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerPullRequest {
+    /// Container image repository (e.g., ghcr.io/nokia/srlinux)
+    pub repo: String,
+    /// Container image tag (e.g., 1.2.3)
+    pub tag: String,
+}
+
+/// Response from a container image pull operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContainerPullResponse {
+    /// Whether the pull succeeded
+    pub success: bool,
+    /// Container image repository
+    pub repo: String,
+    /// Container image tag
+    pub tag: String,
+    /// Human-readable status message
+    pub message: String,
+}

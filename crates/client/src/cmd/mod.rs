@@ -4,8 +4,6 @@ mod cert;
 mod clean;
 mod cli;
 mod console;
-#[cfg(feature = "local")]
-mod container;
 mod destroy;
 #[cfg(feature = "local")]
 mod doctor;

@@ -4,7 +4,6 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 
-// use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 #[cfg(unix)]

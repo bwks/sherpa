@@ -73,8 +73,8 @@ pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use import::{
-    ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse,
-    ScanImagesRequest, ScanImagesResponse, ScannedImage,
+    ContainerPullRequest, ContainerPullResponse, ImageSummary, ImportRequest, ImportResponse,
+    ListImagesRequest, ListImagesResponse, ScanImagesRequest, ScanImagesResponse, ScannedImage,
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
