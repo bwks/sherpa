@@ -18,8 +18,8 @@ mod text;
 mod user;
 
 pub use config::{
-    build_client_websocket_url, build_websocket_url, create_config, default_config,
-    load_client_config, load_config,
+    build_client_websocket_url, build_websocket_url, create_client_config, create_config,
+    default_config, load_client_config, load_config,
 };
 pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;

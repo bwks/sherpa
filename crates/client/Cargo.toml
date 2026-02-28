@@ -66,9 +66,6 @@ jiff = { version = "0.2.20", features = ["serde"] }
 # Libvirt (Linux-only, gated behind "local" feature)
 virt = { version = "0.4.1", features = ["qemu"], optional = true }
 
-# Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
-
 # TLS support
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pki-types = "1.10"

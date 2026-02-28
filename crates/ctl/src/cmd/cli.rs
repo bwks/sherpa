@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use super::init::init;
 use super::user::{UserCommands, user_commands};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
 use shared::util::{get_server_url, load_config};
@@ -35,6 +36,12 @@ pub enum OutputFormat {
 
 #[derive(Debug, Subcommand)]
 enum Commands {
+    /// Initialise the Sherpa server environment
+    Init {
+        /// Overwrite existing config and keys
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        force: bool,
+    },
     /// User management commands
     User {
         #[command(subcommand)]
@@ -78,6 +85,9 @@ impl Cli {
             });
 
         match &cli.commands {
+            Commands::Init { force } => {
+                init(*force).await?;
+            }
             Commands::User { commands } => {
                 user_commands(commands, &server_url, &cli.output).await?;
             }

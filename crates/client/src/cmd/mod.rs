@@ -12,7 +12,6 @@ mod doctor;
 #[cfg(feature = "local")]
 mod down;
 mod image;
-#[cfg(feature = "local")]
 mod init;
 mod inspect;
 mod login;

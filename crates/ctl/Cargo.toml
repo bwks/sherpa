@@ -5,6 +5,8 @@ edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
+db = { path = "../db" }
+libvirt = { path = "../libvirt" }
 
 # Errors
 anyhow = "1.0.100"
@@ -34,6 +36,12 @@ jiff = { version = "0.2.20", features = ["serde"] }
 
 # Base64 decoding (for JWT)
 base64 = "0.22"
+
+# Generate SSH keys
+ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+
+# TOML serialization
+toml = "0.8.19"
 
 # Logging
 tracing = "0.1"

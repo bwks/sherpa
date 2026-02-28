@@ -13,7 +13,6 @@ use super::doctor::doctor;
 #[cfg(feature = "local")]
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
-#[cfg(feature = "local")]
 use super::init::init;
 use super::inspect::inspect;
 use super::login::{login, logout, whoami};
@@ -82,17 +81,8 @@ enum Commands {
     /// Show current authentication status
     Whoami,
 
-    /// Initialise a Sherpa environment
-    #[cfg(feature = "local")]
+    /// Initialise a Sherpa client environment
     Init {
-        /// Name of the config file
-        #[arg(default_value = SHERPA_CONFIG_FILE)]
-        config_file: String,
-
-        /// Name of the manifest file
-        #[arg(default_value = SHERPA_MANIFEST_FILE)]
-        manifest_file: String,
-
         /// Overwrite config file if one exists
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
@@ -231,14 +221,8 @@ impl Cli {
 
                 whoami(&server_url, cli.insecure, &config).await?;
             }
-            #[cfg(feature = "local")]
-            Commands::Init {
-                config_file,
-                manifest_file,
-                force,
-            } => {
-                let qemu = Qemu::default();
-                init(&sherpa, &qemu, config_file, manifest_file, *force).await?;
+            Commands::Init { force } => {
+                init(&sherpa, *force)?;
             }
 
             Commands::Up { manifest } => {

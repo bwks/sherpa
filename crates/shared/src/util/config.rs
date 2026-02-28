@@ -58,6 +58,12 @@ pub fn build_client_websocket_url(config: &ClientConfig) -> String {
     format!("{}://{}:{}/ws", scheme, host, port)
 }
 
+pub fn create_client_config(config: &ClientConfig, path: &str) -> Result<()> {
+    let toml_string = toml::to_string_pretty(&config)?;
+    create_file(path, toml_string)?;
+    Ok(())
+}
+
 pub fn load_client_config(file_path: &str) -> Result<ClientConfig> {
     let expanded_path = shellexpand::tilde(file_path);
     let config_path = Path::new(expanded_path.as_ref());
