@@ -1,5 +1,6 @@
-use anyhow::Result;
+use std::path::Path;
 
+use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
@@ -187,15 +188,22 @@ impl Cli {
     pub async fn run() -> Result<()> {
         let cli = Cli::parse();
         let base_dir = sherpa_client_base_dir();
-        let config_dir = format!("{base_dir}/{SHERPA_CONFIG_DIR}");
+        let base = Path::new(&base_dir);
+        let config_dir = base.join(SHERPA_CONFIG_DIR);
         let sherpa = Sherpa {
-            base_dir: base_dir.clone(),
-            config_file_path: format!("{config_dir}/{SHERPA_CONFIG_FILE}"),
-            ssh_dir: format!("{base_dir}/{SHERPA_SSH_DIR}"),
-            images_dir: format!("{base_dir}/{SHERPA_IMAGES_DIR}"),
-            containers_dir: format!("{base_dir}/{SHERPA_CONTAINERS_DIR}"),
-            bins_dir: format!("{base_dir}/{SHERPA_BINS_DIR}"),
-            config_dir,
+            config_file_path: config_dir
+                .join(SHERPA_CONFIG_FILE)
+                .to_string_lossy()
+                .to_string(),
+            ssh_dir: base.join(SHERPA_SSH_DIR).to_string_lossy().to_string(),
+            images_dir: base.join(SHERPA_IMAGES_DIR).to_string_lossy().to_string(),
+            containers_dir: base
+                .join(SHERPA_CONTAINERS_DIR)
+                .to_string_lossy()
+                .to_string(),
+            bins_dir: base.join(SHERPA_BINS_DIR).to_string_lossy().to_string(),
+            config_dir: config_dir.to_string_lossy().to_string(),
+            base_dir,
         };
         match &cli.commands {
             Commands::Login => {
