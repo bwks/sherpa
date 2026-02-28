@@ -3,7 +3,9 @@ use std::fs;
 use std::io::{self, Write};
 use std::time::Duration;
 
-use shared::data::{Config, DestroyResponse, InspectResponse, NodeInfo, StatusKind, StatusMessage};
+use shared::data::{
+    ClientConfig, DestroyResponse, InspectResponse, NodeInfo, StatusKind, StatusMessage,
+};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -24,7 +26,7 @@ pub async fn destroy(
     lab_name: &str,
     lab_id: &str,
     server_url: &str,
-    config: &Config,
+    config: &ClientConfig,
 ) -> Result<()> {
     term_msg_surround(&format!("Destroy environment - {lab_name}-{lab_id}"));
 

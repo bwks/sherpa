@@ -7,6 +7,7 @@ use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
 use super::file_system::{create_file, expand_path};
@@ -114,10 +115,13 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     create_file(private_key_path, private_key_pem.to_string())?;
 
     // Update permissions of private key file to be read-only.
-    let metadata = fs::metadata(private_key_path)?;
-    let mut perms = metadata.permissions();
-    perms.set_mode(0o640);
-    fs::set_permissions(private_key_path, perms)?;
+    #[cfg(unix)]
+    {
+        let metadata = fs::metadata(private_key_path)?;
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o640);
+        fs::set_permissions(private_key_path, perms)?;
+    }
 
     Ok(())
 }
@@ -143,12 +147,13 @@ pub fn find_user_ssh_keys() -> Vec<String> {
     let mut keys = Vec::new();
 
     // Get home directory
-    let home = match std::env::var("HOME") {
-        Ok(h) if !h.is_empty() => h,
-        _ => return keys, // No HOME set, return empty
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return keys, // No home directory found, return empty
     };
 
-    let ssh_dir = format!("{}/.ssh", home);
+    let ssh_dir = home.join(".ssh");
+    let ssh_dir = ssh_dir.to_string_lossy();
 
     // Look for common SSH key files
     for key_type in &["id_rsa.pub", "id_ed25519.pub", "id_ecdsa.pub"] {

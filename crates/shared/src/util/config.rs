@@ -8,8 +8,8 @@ use ipnet::Ipv4Net;
 
 use super::file_system::{create_file, expand_path};
 use crate::data::{
-    Config, ConfigurationManagement, ContainerImage, ServerConnection, TlsConfig, VmProviders,
-    ZtpServer,
+    ClientConfig, Config, ConfigurationManagement, ContainerImage, ServerConnection, TlsConfig,
+    VmProviders, ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
@@ -42,6 +42,28 @@ pub fn load_config(file_path: &str) -> Result<Config> {
 
     let contents = fs::read_to_string(config_path)?;
     let config: Config = toml::from_str(&contents)?;
+    Ok(config)
+}
+
+/// Build WebSocket URL from client config
+pub fn build_client_websocket_url(config: &ClientConfig) -> String {
+    if let Some(ref url) = config.server_connection.url {
+        return url.clone();
+    }
+
+    let scheme = if config.tls.enabled { "wss" } else { "ws" };
+    let host = config.server_ipv4;
+    let port = config.server_port;
+
+    format!("{}://{}:{}/ws", scheme, host, port)
+}
+
+pub fn load_client_config(file_path: &str) -> Result<ClientConfig> {
+    let expanded_path = shellexpand::tilde(file_path);
+    let config_path = Path::new(expanded_path.as_ref());
+
+    let contents = fs::read_to_string(config_path)?;
+    let config: ClientConfig = toml::from_str(&contents)?;
     Ok(config)
 }
 

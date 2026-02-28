@@ -1,8 +1,10 @@
 use std::env;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Write};
+#[cfg(unix)]
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::Path;
+#[cfg(unix)]
 use std::process::Command;
 
 use anyhow::{Context, Result};
@@ -117,6 +119,7 @@ pub fn copy_file(src: &str, dst: &str) -> Result<()> {
 
 /// Create a symbolic link from source to target path
 /// Will expand ~ in paths if present
+#[cfg(unix)]
 pub fn create_symlink(src: &str, target: &str) -> Result<()> {
     let expanded_src = expand_path(src);
     let expanded_target = expand_path(target);
@@ -132,6 +135,7 @@ pub fn create_symlink(src: &str, target: &str) -> Result<()> {
 
 /// Set permissions for all files in a folder subtree.
 /// Sets files to read-write and removes executable bit for users/groups.
+#[cfg(unix)]
 pub fn fix_permissions_recursive(path: &str) -> Result<()> {
     let path = expand_path(path);
 
@@ -168,6 +172,7 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 /// `genisoimage` must be installed on the system.
 ///
 /// DOGWATER: Implement this functionality in pure Rust.
+#[cfg(unix)]
 pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
     // Create ISO using genisoimage
     Command::new("genisoimage")
@@ -191,6 +196,7 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
 /// Copy a file to a virtual DOS disk image using the `mcopy` command.
 ///
 /// `mcopy` must be installed on the system.
+#[cfg(unix)]
 pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
     Command::new("mcopy")
         .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
@@ -203,6 +209,7 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
 /// Copy a file to a virtual EXT4 disk image using the `e2cp` command.
 ///
 /// `e2cp` must be installed on the system.
+#[cfg(unix)]
 pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) -> Result<()> {
     let dst = format!("{}:{}", &dst_image, &dst_dir);
     let mut cmd = src_files.clone();
@@ -216,6 +223,7 @@ pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) 
 /// Create a config archive using the `tar` command.
 ///
 /// `tar` must be installed on the system.
+#[cfg(unix)]
 pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
     Command::new("tar")
         .args(["cvzf", dst_path, src_path])
@@ -225,6 +233,7 @@ pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
 }
 
 /// Convert an ISO file to a Qcow2 disk image.
+#[cfg(unix)]
 pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
     Command::new("qemu-img")
         .args(["convert", "-O", "qcow2", src_iso, dst_disk])

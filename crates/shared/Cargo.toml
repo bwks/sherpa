@@ -35,7 +35,10 @@ jiff = { version = "0.2.20", features = ["serde"] }
 
 # IP Addressing
 ipnet = { version = "2.11.0", features = ["serde"] }
-getifaddrs = "0.6.0"
+getifaddrs = { version = "0.6.0", optional = true }
+
+# Home directory detection
+dirs = "6.0"
 
 reqwest = "0.11.27"
 
@@ -58,3 +61,6 @@ surrealdb-types = "3.0.0"
 # Enum helpers
 strum = "0.27"
 strum_macros = "0.27"
+
+[features]
+netinfo = ["dep:getifaddrs"]

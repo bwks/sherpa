@@ -4,7 +4,8 @@ use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
 use shared::data::{
-    Config, ImportResponse, ListImagesResponse, NodeKind, NodeModel, ScanImagesResponse, Sherpa,
+    ClientConfig, ImportResponse, ListImagesResponse, NodeKind, NodeModel, ScanImagesResponse,
+    Sherpa,
 };
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, render_images_table, render_scanned_images_table, term_msg_surround};
@@ -64,7 +65,7 @@ pub enum ImageCommands {
 pub async fn parse_image_commands(
     commands: &ImageCommands,
     _config: &Sherpa,
-    server_config: &Config,
+    server_config: &ClientConfig,
     server_url: &str,
 ) -> Result<()> {
     match commands {
@@ -116,7 +117,7 @@ pub async fn parse_image_commands(
 async fn list_images_rpc(
     model: Option<NodeModel>,
     kind: Option<NodeKind>,
-    config: &Config,
+    config: &ClientConfig,
     server_url: &str,
 ) -> Result<()> {
     // Load authentication token
@@ -195,7 +196,7 @@ async fn import_rpc(
     src: &str,
     version: &str,
     model: &NodeModel,
-    config: &Config,
+    config: &ClientConfig,
     server_url: &str,
 ) -> Result<()> {
     term_msg_surround("Importing disk image");
@@ -287,7 +288,7 @@ async fn import_rpc(
 async fn scan_images_rpc(
     kind: Option<NodeKind>,
     dry_run: bool,
-    config: &Config,
+    config: &ClientConfig,
     server_url: &str,
 ) -> Result<()> {
     if dry_run {

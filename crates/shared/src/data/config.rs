@@ -111,24 +111,73 @@ impl Default for TlsConfig {
     }
 }
 
+/// Client-only configuration for connecting to a Sherpa server.
+/// All fields have sensible defaults so a minimal TOML works.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ClientConfig {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default = "default_server_ipv4")]
+    pub server_ipv4: Ipv4Addr,
+    #[serde(default = "default_server_port")]
+    pub server_port: u16,
+    #[serde(default)]
+    pub server_connection: ServerConnection,
+    #[serde(default)]
+    pub tls: TlsConfig,
+}
+
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            server_ipv4: default_server_ipv4(),
+            server_port: default_server_port(),
+            server_connection: ServerConnection::default(),
+            tls: TlsConfig::default(),
+        }
+    }
+}
+
+/// Full server configuration. All server-specific fields are required.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub name: String,
+    #[serde(default = "default_server_ipv4")]
     pub server_ipv4: Ipv4Addr,
+    #[serde(default = "default_server_port")]
     pub server_port: u16,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
+    #[serde(default = "default_management_prefix")]
     pub management_prefix_ipv4: Ipv4Net,
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,
+    #[serde(default)]
     pub ztp_server: ZtpServer,
+    #[serde(default)]
     pub configuration_management: ConfigurationManagement,
+    #[serde(default)]
     pub container_images: Vec<ContainerImage>,
     #[serde(default)]
     pub server_connection: ServerConnection,
     #[serde(default)]
     pub tls: TlsConfig,
+}
+
+fn default_server_ipv4() -> Ipv4Addr {
+    Ipv4Addr::new(127, 0, 0, 1)
+}
+
+fn default_server_port() -> u16 {
+    3030
+}
+
+fn default_management_prefix() -> Ipv4Net {
+    use std::str::FromStr;
+    Ipv4Net::from_str(crate::konst::SHERPA_MANAGEMENT_NETWORK_IPV4)
+        .expect("Failed to parse default management network prefix")
 }
 
 #[derive(Clone, Debug)]

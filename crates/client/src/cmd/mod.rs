@@ -1,17 +1,23 @@
+#[cfg(feature = "local")]
 mod boot_containers;
 mod cert;
 mod clean;
 mod cli;
 mod console;
+#[cfg(feature = "local")]
 mod container;
 mod destroy;
+#[cfg(feature = "local")]
 mod doctor;
+#[cfg(feature = "local")]
 mod down;
 mod image;
+#[cfg(feature = "local")]
 mod init;
 mod inspect;
 mod login;
 mod manifest_processing;
+#[cfg(feature = "local")]
 mod resume;
 mod ssh;
 mod unikernel;

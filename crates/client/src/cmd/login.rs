@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use shared::data::{LoginRequest, LoginResponse};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
-use shared::util::{emoji_error, emoji_success, load_config};
+use shared::util::{emoji_error, emoji_success, load_client_config};
 use std::io::{self, Write};
 use std::time::Duration;
 use uuid::Uuid;
@@ -40,7 +40,7 @@ pub async fn login(server_url: &str, insecure: bool) -> Result<()> {
 
     // Load config to get server connection settings (for TLS)
     let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let mut config = load_config(&config_path).context("Failed to load configuration")?;
+    let mut config = load_client_config(&config_path).context("Failed to load configuration")?;
 
     // Apply insecure flag if set
     if insecure {
@@ -131,7 +131,7 @@ pub async fn whoami(server_url: &str, insecure: bool) -> Result<()> {
 
     // Load config to get server connection settings (for TLS)
     let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let mut config = load_config(&config_path).context("Failed to load configuration")?;
+    let mut config = load_client_config(&config_path).context("Failed to load configuration")?;
 
     // Apply insecure flag if set
     if insecure {

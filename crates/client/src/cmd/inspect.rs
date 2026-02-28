@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
 
-use shared::data::{Config, InspectResponse};
+use shared::data::{ClientConfig, InspectResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{
     Emoji, get_username, render_bridges_table, render_devices_table, render_lab_info_table,
@@ -16,7 +16,7 @@ pub async fn inspect(
     lab_name: &str,
     lab_id: &str,
     server_url: &str,
-    config: &Config,
+    config: &ClientConfig,
 ) -> Result<()> {
     term_msg_surround(&format!("Sherpa Environment - {lab_name}-{lab_id}"));
 

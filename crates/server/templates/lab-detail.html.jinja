@@ -63,7 +63,7 @@
 
 <!-- Nodes Section -->
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-    <div id="nodes-table" hx-get="/labs/{{ lab_info.id }}/nodes" hx-trigger="every 5s" hx-swap="innerHTML">
+    <div id="nodes-table" hx-get="/labs/{{ lab_info.id }}/nodes" hx-trigger="every 60s" hx-swap="innerHTML">
         {% include "partials/nodes-table.html.jinja" %}
     </div>
 </div>

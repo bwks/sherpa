@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 
-use shared::data::{Config, DestroyResponse};
+use shared::data::{ClientConfig, DestroyResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
@@ -17,7 +17,7 @@ use crate::ws_client::{RpcRequest, WebSocketClient};
 /// - Skips ownership validation (admin-only)
 /// - Tolerates missing resources
 /// - Cleans everything matching the lab_id
-pub async fn clean(lab_id: &str, server_url: &str, config: &Config) -> anyhow::Result<()> {
+pub async fn clean(lab_id: &str, server_url: &str, config: &ClientConfig) -> anyhow::Result<()> {
     term_msg_surround(&format!("Clean environment - {lab_id}"));
 
     // Load authentication token

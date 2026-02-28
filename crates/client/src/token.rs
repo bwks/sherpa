@@ -11,8 +11,8 @@ use std::path::PathBuf;
 ///
 /// Returns `~/.sherpa/token`
 fn get_token_path() -> Result<PathBuf> {
-    let home = std::env::var("HOME").context("HOME environment variable not set")?;
-    let sherpa_dir = PathBuf::from(home).join(".sherpa");
+    let home = dirs::home_dir().context("Could not determine home directory")?;
+    let sherpa_dir = home.join(".sherpa");
     Ok(sherpa_dir.join("token"))
 }
 

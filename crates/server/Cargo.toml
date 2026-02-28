@@ -10,7 +10,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 time = "0.3"
 
-shared = { path = "../shared" }
+shared = { path = "../shared", features = ["netinfo"] }
 container = { path = "../container" }
 topology = { path = "../topology" }
 template = { path = "../template" }

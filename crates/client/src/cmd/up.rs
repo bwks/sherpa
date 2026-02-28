@@ -6,7 +6,7 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use shared::data::{Config, StatusKind, StatusMessage, UpResponse};
+use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -30,7 +30,7 @@ pub async fn up(
     lab_id: &str,
     manifest_path: &str,
     server_url: &str,
-    config: &Config,
+    config: &ClientConfig,
 ) -> Result<()> {
     term_msg_surround(&format!("Start Lab - {lab_name}-{lab_id}"));
 

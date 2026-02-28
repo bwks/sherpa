@@ -1,9 +1,14 @@
 use std::net::Ipv4Addr;
 use std::str::FromStr;
 
-use anyhow::{Context, Result, anyhow};
+#[cfg(feature = "netinfo")]
+use anyhow::anyhow;
+use anyhow::{Context, Result};
+#[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
-use ipnet::{Ipv4Net, ipv4_mask_to_prefix};
+use ipnet::Ipv4Net;
+#[cfg(feature = "netinfo")]
+use ipnet::ipv4_mask_to_prefix;
 
 /// Get the nth IPv4 addr from a network block given an index
 pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
@@ -27,6 +32,7 @@ pub fn get_ipv4_network(ipv4_net: &str) -> Result<Ipv4Net> {
 }
 
 /// Get a free subnet from the supernet block that is not currently in use.
+#[cfg(feature = "netinfo")]
 pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
     // get existing ip assigned to interfaces
     let interface_networks = get_interface_networks()?;
@@ -49,6 +55,7 @@ pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
 }
 
 /// Get a list of IP addresses currently assigned to intefaces
+#[cfg(feature = "netinfo")]
 pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
     let interfaces = getifaddrs().unwrap().collect::<Interfaces>();
 
