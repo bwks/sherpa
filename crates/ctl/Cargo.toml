@@ -38,7 +38,7 @@ jiff = { version = "0.2.20", features = ["serde"] }
 base64 = "0.22"
 
 # Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 
 # TOML serialization
 toml = "0.8.19"

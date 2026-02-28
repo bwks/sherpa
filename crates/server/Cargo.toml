@@ -87,7 +87,7 @@ surrealdb = "3.0.0"
 surrealdb-types = "3.0.0"
 
 # Generate SSH keys
-ssh-key = { version = "0.6.6", features = ["rsa", "ed25519"] }
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 
 # TLS support
 axum-server = { version = "0.7", features = ["tls-rustls"] }
