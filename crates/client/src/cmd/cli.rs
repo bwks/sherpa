@@ -9,13 +9,11 @@ use super::container::{ContainerCommands, parse_container_commands};
 use super::destroy::destroy;
 #[cfg(feature = "local")]
 use super::doctor::doctor;
-#[cfg(feature = "local")]
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
 use super::login::{login, logout, whoami};
-#[cfg(feature = "local")]
 use super::resume::resume;
 use super::ssh::ssh;
 use super::unikernel::UnikernelCommands;
@@ -23,8 +21,6 @@ use super::up::up;
 use super::validate::validate_manifest;
 use super::virtual_machine::VirtualMachineCommands;
 
-#[cfg(feature = "local")]
-use libvirt::Qemu;
 use shared::data::ClientConfig;
 use shared::data::Sherpa;
 use shared::konst::SHERPA_MANIFEST_FILE;
@@ -91,10 +87,8 @@ enum Commands {
     },
 
     /// Stop environment
-    #[cfg(feature = "local")]
     Down,
     /// Resume environment
-    #[cfg(feature = "local")]
     Resume,
     /// Destroy environment
     Destroy,
@@ -227,19 +221,33 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 up(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
-            #[cfg(feature = "local")]
             Commands::Down => {
-                let qemu = Qemu::default();
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
-                down(&qemu, &lab_id)?;
+                let lab_name = manifest.name.clone();
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                down(&lab_name, &lab_id, &server_url, &config).await?;
             }
-            #[cfg(feature = "local")]
             Commands::Resume => {
-                let qemu = Qemu::default();
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
-                resume(&qemu, &lab_id)?;
+                let lab_name = manifest.name.clone();
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                resume(&lab_name, &lab_id, &server_url, &config).await?;
             }
             Commands::Destroy => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

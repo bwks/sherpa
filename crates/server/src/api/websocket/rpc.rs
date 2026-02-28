@@ -8,7 +8,7 @@ use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
-use crate::services::{clean, destroy, import, inspect, progress, up};
+use crate::services::{clean, destroy, down, import, inspect, progress, resume, up};
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
@@ -21,11 +21,11 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
     RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
-    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_UP_FAILED,
-    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
-    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
+    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE,
+    RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED,
+    RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -45,6 +45,8 @@ pub async fn handle_rpc_request(
         "auth.login" => handle_auth_login(id, params, state).await,
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
+        "down" => handle_down(id, params, state).await,
+        "resume" => handle_resume(id, params, state).await,
         // Note: "destroy" is handled separately via handle_streaming_rpc_request
         "clean" => handle_clean(id, params, state).await,
         "image.import" => handle_image_import(id, params, state).await,
@@ -212,6 +214,224 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_INSPECT_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "down" RPC call — suspend all VMs for a lab
+///
+/// Expected params: {"lab_id": "string", "token": "string"}
+async fn handle_down(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for down: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Parse params
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    // Check authorization: user must own the lab or be an admin
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to down lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    lab_id,
+                    owner_username
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::AccessDenied,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        }
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::NotFound,
+                    message: format!("Lab not found: {}", lab_id),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    }
+
+    // Call service
+    match down::suspend_lab_vms(&lab_id, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' suspended lab '{}' VMs",
+                    auth_ctx.username,
+                    lab_id
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_LAB_DOWN_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "resume" RPC call — resume all paused VMs for a lab
+///
+/// Expected params: {"lab_id": "string", "token": "string"}
+async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for resume: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // Parse params
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    // Check authorization: user must own the lab or be an admin
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to resume lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    lab_id,
+                    owner_username
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::AccessDenied,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        }
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::NotFound,
+                    message: format!("Lab not found: {}", lab_id),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    }
+
+    // Call service
+    match resume::resume_lab_vms(&lab_id, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!("User '{}' resumed lab '{}' VMs", auth_ctx.username, lab_id);
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_LAB_RESUME_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }

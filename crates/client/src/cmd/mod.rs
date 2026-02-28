@@ -9,14 +9,12 @@ mod container;
 mod destroy;
 #[cfg(feature = "local")]
 mod doctor;
-#[cfg(feature = "local")]
 mod down;
 mod image;
 mod init;
 mod inspect;
 mod login;
 mod manifest_processing;
-#[cfg(feature = "local")]
 mod resume;
 mod ssh;
 mod unikernel;

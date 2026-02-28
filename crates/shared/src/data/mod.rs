@@ -57,6 +57,7 @@ mod ssh;
 mod up;
 mod user;
 mod user_management;
+mod vm_action;
 mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
@@ -104,6 +105,7 @@ pub use user_management::{
     DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
     ListUsersRequest, ListUsersResponse, UserInfo,
 };
+pub use vm_action::{LabVmActionResponse, VmActionResult};
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience
