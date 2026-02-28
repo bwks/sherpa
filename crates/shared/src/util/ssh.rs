@@ -4,7 +4,7 @@ use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
 
-use std::fs;
+// use std::fs;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 #[cfg(unix)]
@@ -117,10 +117,10 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
     // Update permissions of private key file to be read-only.
     #[cfg(unix)]
     {
-        let metadata = fs::metadata(private_key_path)?;
+        let metadata = std::fs::metadata(private_key_path)?;
         let mut perms = metadata.permissions();
         perms.set_mode(0o640);
-        fs::set_permissions(private_key_path, perms)?;
+        std::fs::set_permissions(private_key_path, perms)?;
     }
 
     Ok(())
