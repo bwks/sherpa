@@ -27,13 +27,18 @@ jobs:
       - name: Run tests
         run: cargo test --workspace
 
-  tag:
-    name: Tag release
+  check-version:
+    name: Check version tag
     needs: test
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.check_tag.outputs.should_release }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Extract version
         id: version
@@ -44,14 +49,16 @@ jobs:
       - name: Check if tag exists
         id: check_tag
         run: |
-          if git ls-remote --tags origin "${{ steps.version.outputs.version }}" | grep -q .; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          if git tag -l "${{ steps.version.outputs.version }}" | grep -q .; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create and push tag
-        if: steps.check_tag.outputs.exists == 'false'
-        run: |
-          git tag "${{ steps.version.outputs.version }}"
-          git push origin "${{ steps.version.outputs.version }}"
+  release:
+    name: Release
+    needs: check-version
+    if: needs.check-version.outputs.should_release == 'true'
+    uses: ./.github/workflows/release.yml
+    with:
+      version: ${{ needs.check-version.outputs.version }}
