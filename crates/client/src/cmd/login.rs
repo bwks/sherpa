@@ -1,9 +1,8 @@
 //! Login command - authenticate user and save JWT token.
 
 use anyhow::{Context, Result};
-use shared::data::{LoginRequest, LoginResponse};
-use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
-use shared::util::{emoji_error, emoji_success, load_client_config};
+use shared::data::{ClientConfig, LoginRequest, LoginResponse};
+use shared::util::{emoji_error, emoji_success};
 use std::io::{self, Write};
 use std::time::Duration;
 use uuid::Uuid;
@@ -15,7 +14,7 @@ use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 ///
 /// Prompts for username and password, authenticates with server,
 /// and saves the JWT token to ~/.sherpa/token
-pub async fn login(server_url: &str, insecure: bool) -> Result<()> {
+pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> Result<()> {
     // Prompt for username
     print!("Username: ");
     io::stdout().flush()?;
@@ -38,13 +37,9 @@ pub async fn login(server_url: &str, insecure: bool) -> Result<()> {
 
     println!("Authenticating...");
 
-    // Load config to get server connection settings (for TLS)
-    let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let mut config = load_client_config(&config_path).context("Failed to load configuration")?;
-
-    // Apply insecure flag if set
+    let mut server_connection = config.server_connection.clone();
     if insecure {
-        config.server_connection.insecure = true;
+        server_connection.insecure = true;
         eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
     }
 
@@ -52,7 +47,7 @@ pub async fn login(server_url: &str, insecure: bool) -> Result<()> {
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         Duration::from_secs(10),
-        config.server_connection,
+        server_connection,
     );
     let mut rpc_client = ws_client
         .connect()
@@ -125,17 +120,13 @@ pub fn logout() -> Result<()> {
 /// Execute the whoami command
 ///
 /// Validates the current token and displays user information
-pub async fn whoami(server_url: &str, insecure: bool) -> Result<()> {
+pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> Result<()> {
     // Load token
     let token_str = token::load_token().context("Not logged in")?;
 
-    // Load config to get server connection settings (for TLS)
-    let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let mut config = load_client_config(&config_path).context("Failed to load configuration")?;
-
-    // Apply insecure flag if set
+    let mut server_connection = config.server_connection.clone();
     if insecure {
-        config.server_connection.insecure = true;
+        server_connection.insecure = true;
         eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
     }
 
@@ -143,7 +134,7 @@ pub async fn whoami(server_url: &str, insecure: bool) -> Result<()> {
     let ws_client = WebSocketClient::new(
         server_url.to_string(),
         Duration::from_secs(10),
-        config.server_connection,
+        server_connection,
     );
     let mut rpc_client = ws_client
         .connect()

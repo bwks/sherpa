@@ -209,29 +209,27 @@ impl Cli {
         };
         match &cli.commands {
             Commands::Login => {
-                let config = load_client_config(&sherpa.config_file_path).ok();
+                let config = load_client_config_or_default(&sherpa.config_file_path);
 
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| config.as_ref().map(build_client_websocket_url))
-                    .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
+                    .unwrap_or_else(|| build_client_websocket_url(&config));
 
-                login(&server_url, cli.insecure).await?;
+                login(&server_url, cli.insecure, &config).await?;
             }
             Commands::Logout => {
                 logout()?;
             }
             Commands::Whoami => {
-                let config = load_client_config(&sherpa.config_file_path).ok();
+                let config = load_client_config_or_default(&sherpa.config_file_path);
 
                 let server_url = cli
                     .server_url
                     .or_else(get_server_url)
-                    .or_else(|| config.as_ref().map(build_client_websocket_url))
-                    .unwrap_or_else(|| "ws://localhost:3030/ws".to_string());
+                    .unwrap_or_else(|| build_client_websocket_url(&config));
 
-                whoami(&server_url, cli.insecure).await?;
+                whoami(&server_url, cli.insecure, &config).await?;
             }
             #[cfg(feature = "local")]
             Commands::Init {
