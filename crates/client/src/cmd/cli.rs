@@ -5,8 +5,6 @@ use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
 use super::clean::clean;
 use super::console::console;
 use super::destroy::destroy;
-#[cfg(feature = "local")]
-use super::doctor::doctor;
 use super::down::down;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
@@ -99,14 +97,6 @@ enum Commands {
         /// Path to manifest file to validate (defaults to manifest.toml)
         #[arg(long)]
         manifest: Option<String>,
-    },
-
-    /// Fix up environment
-    #[cfg(feature = "local")]
-    Doctor {
-        /// Set base box permissions to read-only
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        boxes: bool,
     },
 
     /// Force clean all resources for a lab (admin-only)
@@ -273,10 +263,6 @@ impl Cli {
                 // Default to manifest.toml if no specific flag provided
                 let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
                 validate_manifest(manifest_path)?;
-            }
-            #[cfg(feature = "local")]
-            Commands::Doctor { boxes } => {
-                doctor(*boxes, &sherpa.images_dir)?;
             }
             Commands::Clean { lab_id } => {
                 let lab_id = match lab_id {

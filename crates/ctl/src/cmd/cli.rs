@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use super::doctor::doctor;
 use super::image::{ImageCommands, image_commands};
 use super::init::init;
 use super::user::{UserCommands, user_commands};
@@ -53,6 +54,12 @@ enum Commands {
         #[command(subcommand)]
         commands: ImageCommands,
     },
+    /// Fix up server environment
+    Doctor {
+        /// Set base box permissions to read-only
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        boxes: bool,
+    },
 }
 
 impl Cli {
@@ -99,6 +106,9 @@ impl Cli {
             }
             Commands::Image { commands } => {
                 image_commands(commands, &server_url, &cli.output).await?;
+            }
+            Commands::Doctor { boxes } => {
+                doctor(*boxes)?;
             }
         }
 

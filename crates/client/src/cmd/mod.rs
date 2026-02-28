@@ -5,8 +5,6 @@ mod clean;
 mod cli;
 mod console;
 mod destroy;
-#[cfg(feature = "local")]
-mod doctor;
 mod down;
 mod image;
 mod init;
