@@ -31,7 +31,7 @@ impl Manifest {
 
         let dev01 = Node {
             name: "dev01".to_owned(),
-            model: NodeModel::FedoraLinux,
+            model: NodeModel::UbuntuLinux,
             ..Default::default()
         };
         let dev02 = Node {
