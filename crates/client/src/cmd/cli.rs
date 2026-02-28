@@ -12,7 +12,6 @@ use super::inspect::inspect;
 use super::login::{login, logout, whoami};
 use super::resume::resume;
 use super::ssh::ssh;
-use super::unikernel::UnikernelCommands;
 use super::up::up;
 use super::validate::validate_manifest;
 use super::virtual_machine::VirtualMachineCommands;
@@ -115,11 +114,6 @@ enum Commands {
     Vm {
         #[command(subcommand)]
         commands: VirtualMachineCommands,
-    },
-    /// Unikernel management commands
-    Unikernel {
-        #[command(subcommand)]
-        commands: UnikernelCommands,
     },
     /// Image management commands
     Image {
@@ -291,11 +285,6 @@ impl Cli {
             }
             Commands::Vm { commands } => {
                 // parse_vm_commands(commands, &sherpa).await?;
-                let _cmds = commands;
-                println!("NOT IMPLEMENTED");
-            }
-            Commands::Unikernel { commands } => {
-                // parse_unikernel_commands(commands, &sherpa).await?;
                 let _cmds = commands;
                 println!("NOT IMPLEMENTED");
             }

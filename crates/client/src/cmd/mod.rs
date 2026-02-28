@@ -13,7 +13,6 @@ mod login;
 mod manifest_processing;
 mod resume;
 mod ssh;
-mod unikernel;
 mod up;
 mod validate;
 mod virtual_machine;
