@@ -1141,7 +1141,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -4799,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4851,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "askama",
@@ -4890,7 +4890,7 @@ dependencies = [
 
 [[package]]
 name = "sherpactl"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4915,7 +4915,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "askama",
