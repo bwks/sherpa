@@ -187,6 +187,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             version: node.version.clone(),
             memory: node.memory,
             cpu_count: node.cpu_count,
+            boot_disk_size: node.boot_disk_size,
             ipv4_address: node.ipv4_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
@@ -1184,6 +1185,7 @@ pub async fn up_lab(
         clone_disks.push(data::CloneDisk {
             src: src_boot_disk.clone(),
             dst: dst_boot_disk.clone(),
+            disk_size: node.boot_disk_size,
         });
 
         // Handle CDROM ISO (e.g., aboot.iso for Arista vEOS)
@@ -1966,6 +1968,7 @@ pub async fn up_lab(
             clone_disks.push(data::CloneDisk {
                 src: src_iso,
                 dst: dst_iso.clone(),
+                disk_size: None,
             });
             disks.push(data::NodeDisk {
                 disk_device: data::DiskDevices::Cdrom,
@@ -1993,6 +1996,7 @@ pub async fn up_lab(
             clone_disks.push(data::CloneDisk {
                 src: src_disk,
                 dst: dst_disk.clone(),
+                disk_size: None,
             });
             disks.push(data::NodeDisk {
                 disk_device: data::DiskDevices::File,
@@ -2009,6 +2013,7 @@ pub async fn up_lab(
             clone_disks.push(data::CloneDisk {
                 src: src_disk,
                 dst: dst_disk.clone(),
+                disk_size: None,
             });
             disks.push(data::NodeDisk {
                 disk_device: data::DiskDevices::File,
@@ -2027,6 +2032,7 @@ pub async fn up_lab(
             clone_disks.push(data::CloneDisk {
                 src: src_ignition,
                 dst: dst_ignition.clone(),
+                disk_size: None,
             });
             // Note: Ignition config is passed as QEMU command line argument, not as disk
         }
@@ -2282,6 +2288,7 @@ pub async fn up_lab(
                 let progress_clone = progress.clone();
                 let src = disk.src.clone();
                 let dst = disk.dst.clone();
+                let disk_size = disk.disk_size;
                 let lab_id_task = lab_id_clone.clone();
 
                 tokio::task::spawn(async move {
@@ -2319,6 +2326,17 @@ pub async fn up_lab(
                                 src_for_blocking, dst_for_blocking
                             )
                         })?;
+
+                        if let Some(size_gb) = disk_size {
+                            libvirt::resize_disk(&conn_for_blocking, &dst_for_blocking, size_gb)
+                                .with_context(|| {
+                                    format!(
+                                        "Failed to resize disk '{}' to {}G",
+                                        dst_for_blocking, size_gb
+                                    )
+                                })?;
+                        }
+
                         Ok(())
                     })
                     .await
