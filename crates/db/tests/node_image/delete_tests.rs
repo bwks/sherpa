@@ -118,7 +118,15 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         .as_secs();
     // Use last 8 digits of timestamp to ensure uniqueness
     let lab_id = format!("{:08}", timestamp_secs % 100000000);
-    let lab = create_lab(&db, "test-lab-constraint", &lab_id, &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "test-lab-constraint",
+        &lab_id,
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Create a node config
     let test_config = create_test_config(NodeModel::WindowsServer);

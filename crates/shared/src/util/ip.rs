@@ -117,6 +117,30 @@ pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ip
     ))
 }
 
+/// Allocate the next free management `/24` subnet from the supernet prefix.
+///
+/// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
+pub fn allocate_management_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
+    let subnets: Vec<Ipv4Net> = prefix
+        .subnets(24)
+        .context("Failed to subnet management prefix into /24s")?
+        .collect();
+
+    for subnet in subnets {
+        // Skip the x.x.0.0/24 subnet (network zero)
+        if subnet.network().octets()[2] == 0 {
+            continue;
+        }
+        if !used.contains(&subnet) {
+            return Ok(subnet);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No free management /24 subnet found in prefix: {}",
+        prefix
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,6 +148,10 @@ mod tests {
 
     fn test_subnet(third_octet: u8) -> Ipv4Net {
         Ipv4Net::new(Ipv4Addr::new(127, 127, third_octet, 0), 24).unwrap()
+    }
+
+    fn mgmt_subnet(third_octet: u8) -> Ipv4Net {
+        Ipv4Net::new(Ipv4Addr::new(172, 31, third_octet, 0), 24).unwrap()
     }
 
     #[test]
@@ -195,5 +223,29 @@ mod tests {
         let used = vec![test_subnet(1), test_subnet(2), test_subnet(3)];
         let result = allocate_loopback_subnet(&prefix, &used).unwrap();
         assert_eq!(result, test_subnet(4));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_empty() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let result = allocate_management_subnet(&prefix, &[]).unwrap();
+        // Should skip 172.31.0.0/24 and return 172.31.1.0/24
+        assert_eq!(result, mgmt_subnet(1));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_skips_used() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let used = vec![mgmt_subnet(1)];
+        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, mgmt_subnet(2));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_skips_multiple_used() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let used = vec![mgmt_subnet(1), mgmt_subnet(2), mgmt_subnet(3)];
+        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, mgmt_subnet(4));
     }
 }

@@ -12,6 +12,6 @@ pub use delete::{
 };
 pub use read::{
     count_labs, count_labs_by_user, get_lab, get_lab_by_id, get_lab_by_name_and_user,
-    get_used_loopback_networks, list_labs, list_labs_by_user,
+    get_used_loopback_networks, get_used_management_networks, list_labs, list_labs_by_user,
 };
 pub use update::update_lab;

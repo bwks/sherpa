@@ -130,7 +130,15 @@ async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
-    create_lab(&db, "test-lab", "lab-0001", &user, "127.127.1.0/24").await?;
+    create_lab(
+        &db,
+        "test-lab",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Should fail because user owns a lab
     let result = delete_user_safe(&db, user_id).await;
@@ -165,9 +173,33 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
-    create_lab(&db, "lab-1", "lab-0001", &user, "127.127.1.0/24").await?;
-    create_lab(&db, "lab-2", "lab-0002", &user, "127.127.2.0/24").await?;
-    create_lab(&db, "lab-3", "lab-0003", &user, "127.127.3.0/24").await?;
+    create_lab(
+        &db,
+        "lab-1",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
+    create_lab(
+        &db,
+        "lab-2",
+        "lab-0002",
+        &user,
+        "127.127.2.0/24",
+        "172.31.2.0/24",
+    )
+    .await?;
+    create_lab(
+        &db,
+        "lab-3",
+        "lab-0003",
+        &user,
+        "127.127.3.0/24",
+        "172.31.3.0/24",
+    )
+    .await?;
 
     // Should fail with count of 3 labs
     let result = delete_user_safe(&db, user_id).await;
@@ -195,7 +227,15 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.clone().expect("User should have ID");
 
-    let lab = create_lab(&db, "test-lab", "lab-0001", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "test-lab",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Without cascade delete in schema, we must manually delete labs first
     delete_lab(&db, &lab.lab_id).await?;

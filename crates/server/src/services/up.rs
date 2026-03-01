@@ -475,6 +475,21 @@ pub async fn up_lab(
         "Allocated loopback subnet for lab"
     );
 
+    // Allocate a unique management /24 subnet for this lab
+    let management_prefix = config.management_prefix_ipv4;
+    let used_management_networks = db::get_used_management_networks(&db)
+        .await
+        .context("Failed to query existing management networks")?;
+    let management_subnet =
+        util::allocate_management_subnet(&management_prefix, &used_management_networks)
+            .context("Failed to allocate management subnet for lab")?;
+
+    tracing::info!(
+        lab_id = %lab_id,
+        management_subnet = %management_subnet,
+        "Allocated management subnet for lab"
+    );
+
     // Create lab record in database
     let lab_record = db::create_lab(
         &db,
@@ -482,6 +497,7 @@ pub async fn up_lab(
         lab_id,
         &db_user,
         &loopback_subnet.to_string(),
+        &management_subnet.to_string(),
     )
     .await
     .context("Failed to create lab record in database")?;
@@ -654,7 +670,7 @@ pub async fn up_lab(
         "Allocating lab network and creating management network".to_string(),
     )?;
 
-    let lab_net = util::get_free_subnet(&config.management_prefix_ipv4.to_string())?;
+    let lab_net = management_subnet;
     let gateway_ip = util::get_ipv4_addr(&lab_net, 1)?;
     let lab_router_ip = util::get_ipv4_addr(&lab_net, 2)?;
 

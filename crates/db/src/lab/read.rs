@@ -276,3 +276,27 @@ pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec
     }
     Ok(networks)
 }
+
+/// Get all management networks currently allocated to labs.
+///
+/// Returns a vector of `Ipv4Net` representing the management subnets
+/// in use by existing labs. Used when allocating a new management subnet
+/// to avoid collisions.
+pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
+    let labs: Vec<DbLab> = db
+        .select("lab")
+        .await
+        .context("Failed to query labs for management networks")?;
+
+    let mut networks = Vec::new();
+    for lab in labs {
+        let net = Ipv4Net::from_str(&lab.management_network).with_context(|| {
+            format!(
+                "Failed to parse management_network '{}' for lab '{}'",
+                lab.management_network, lab.lab_id
+            )
+        })?;
+        networks.push(net);
+    }
+    Ok(networks)
+}

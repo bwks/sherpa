@@ -69,6 +69,7 @@ DEFINE FIELD lab_id ON TABLE lab TYPE string
 DEFINE FIELD name ON TABLE lab TYPE string;
 DEFINE FIELD user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
 DEFINE FIELD loopback_network ON TABLE lab TYPE string;
+DEFINE FIELD management_network ON TABLE lab TYPE string;
 
 DEFINE FIELD nodes ON TABLE lab COMPUTED <~(node FIELD lab);
 DEFINE FIELD links ON TABLE lab COMPUTED <~(link FIELD lab);

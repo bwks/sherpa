@@ -290,7 +290,7 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
             value: lab_info.user.clone(),
         },
         LabInfoTableRow {
-            property: "IPv4 Network".to_string(),
+            property: "Management Network".to_string(),
             value: lab_info.ipv4_network.to_string(),
         },
         LabInfoTableRow {
@@ -534,7 +534,7 @@ mod tests {
         assert!(table.contains("ID"));
         assert!(table.contains("Name"));
         assert!(table.contains("User"));
-        assert!(table.contains("IPv4 Network"));
+        assert!(table.contains("Management Network"));
         assert!(table.contains("IPv4 Gateway"));
         assert!(table.contains("IPv4 Router"));
 

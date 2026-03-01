@@ -14,7 +14,15 @@ async fn test_create_node_success() -> Result<()> {
 
     // Setup dependencies
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0001", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
@@ -43,7 +51,15 @@ async fn test_create_node_with_lab() -> Result<()> {
     let db = setup_db("test_create_node_lab").await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Bob's Lab", "lab-0002", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Bob's Lab",
+        "lab-0002",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     let node = create_node(
@@ -69,7 +85,15 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
     let db = setup_db("test_create_node_dup_name").await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab One", "lab-0003", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab One",
+        "lab-0003",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create first node
@@ -114,7 +138,15 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
     let db = setup_db("test_create_node_dup_index").await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab Two", "lab-0004", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab Two",
+        "lab-0004",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create first node
@@ -159,8 +191,24 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
     let db = setup_db("test_create_node_diff_labs").await?;
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab1 = create_lab(&db, "Lab 1", "lab-0005", &user, "127.127.1.0/24").await?;
-    let lab2 = create_lab(&db, "Lab 2", "lab-0006", &user, "127.127.2.0/24").await?;
+    let lab1 = create_lab(
+        &db,
+        "Lab 1",
+        "lab-0005",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
+    let lab2 = create_lab(
+        &db,
+        "Lab 2",
+        "lab-0006",
+        &user,
+        "127.127.2.0/24",
+        "172.31.2.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node in lab1
@@ -197,7 +245,15 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
     let db = setup_db("test_create_node_index").await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab Test", "lab-0007", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab Test",
+        "lab-0007",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Test minimum index (0)
@@ -232,7 +288,15 @@ async fn test_create_node_increments_count() -> Result<()> {
     let db = setup_db("test_create_node_count").await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab Count", "lab-0008", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab Count",
+        "lab-0008",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     let initial_count = count_nodes(&db).await?;
@@ -272,7 +336,15 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
     let db = setup_db("test_create_node_retrieve").await?;
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab Retrieve", "lab-0009", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab Retrieve",
+        "lab-0009",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node
@@ -302,7 +374,15 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
     let db = setup_db("test_create_node_retrieve_id").await?;
 
     let user = create_user(&db, "ian".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab Retrieve ID", "lab-0010", &user, "127.127.1.0/24").await?;
+    let lab = create_lab(
+        &db,
+        "Lab Retrieve ID",
+        "lab-0010",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
