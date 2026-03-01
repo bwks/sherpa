@@ -29,10 +29,11 @@ use shared::konst::{
     SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_DB_NAME,
     SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_DIR,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_LOOPBACK_PREFIX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_DIR, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME,
+    SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 // use topology::{self, BridgeDetailed};
@@ -459,10 +460,31 @@ pub async fn up_lab(
 
     tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Creating database records");
 
-    // Create lab record in database
-    let lab_record = db::create_lab(&db, &manifest.name, lab_id, &db_user)
+    // Allocate a unique loopback /24 subnet for this lab
+    let loopback_prefix = util::get_ipv4_network(SHERPA_LOOPBACK_PREFIX)
+        .context("Failed to parse loopback prefix")?;
+    let used_loopback_networks = db::get_used_loopback_networks(&db)
         .await
-        .context("Failed to create lab record in database")?;
+        .context("Failed to query existing loopback networks")?;
+    let loopback_subnet = util::allocate_loopback_subnet(&loopback_prefix, &used_loopback_networks)
+        .context("Failed to allocate loopback subnet for lab")?;
+
+    tracing::info!(
+        lab_id = %lab_id,
+        loopback_subnet = %loopback_subnet,
+        "Allocated loopback subnet for lab"
+    );
+
+    // Create lab record in database
+    let lab_record = db::create_lab(
+        &db,
+        &manifest.name,
+        lab_id,
+        &db_user,
+        &loopback_subnet.to_string(),
+    )
+    .await
+    .context("Failed to create lab record in database")?;
     let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
 
     tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Created lab database record");
@@ -651,6 +673,7 @@ pub async fn up_lab(
         ipv4_network: lab_net,
         ipv4_gateway: gateway_ip,
         ipv4_router: lab_router_ip,
+        loopback_network: loopback_subnet,
     };
 
     util::create_dir(&lab_dir)?;
@@ -2040,10 +2063,10 @@ pub async fn up_lab(
                     let interface_connection = data::InterfaceConnection {
                         local_id: peer.this_node_index,
                         local_port: util::id_to_port(local_id),
-                        local_loopback: util::get_ip(local_id).to_string(),
+                        local_loopback: util::get_ip(&loopback_subnet, local_id).to_string(),
                         source_id: peer.peer_node_index,
                         source_port: util::id_to_port(source_id),
-                        source_loopback: util::get_ip(source_id).to_string(),
+                        source_loopback: util::get_ip(&loopback_subnet, source_id).to_string(),
                     };
                     interfaces.push(data::Interface {
                         name: bridge_name,
@@ -2112,7 +2135,7 @@ pub async fn up_lab(
             disks,
             interfaces,
             interface_type: node_image.interface_type.clone(),
-            loopback_ipv4: util::get_ip(node_idx as u8).to_string(),
+            loopback_ipv4: util::get_ip(&loopback_subnet, node_idx as u8).to_string(),
             telnet_port: TELNET_PORT,
             qemu_commands,
             lab_id: lab_id.to_string(),

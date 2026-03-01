@@ -141,7 +141,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test__parse_server_address() {
+    fn test_parse_server_address() {
         // WSS with explicit port
         let addr = _parse_server_address("wss://192.168.1.100:3030/ws").unwrap();
         assert_eq!(addr, "192.168.1.100:3030");

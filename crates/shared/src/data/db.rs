@@ -20,6 +20,7 @@ pub struct DbLab {
     pub lab_id: String,
     pub name: String,
     pub user: RecordId,
+    pub loopback_network: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]

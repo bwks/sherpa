@@ -20,3 +20,4 @@ sherpa_ssh_*
 CLAUDE.md
 .claude/
 .ruff_cache
+lab-info.toml

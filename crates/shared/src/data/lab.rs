@@ -65,6 +65,7 @@ pub struct LabInfo {
     pub ipv4_network: Ipv4Net,
     pub ipv4_gateway: Ipv4Addr,
     pub ipv4_router: Ipv4Addr,
+    pub loopback_network: Ipv4Net,
 }
 impl fmt::Display for LabInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

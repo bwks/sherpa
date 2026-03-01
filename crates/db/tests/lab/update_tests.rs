@@ -10,7 +10,7 @@ async fn test_update_lab_success() -> Result<()> {
     let db = setup_db("test_update_lab").await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    let mut lab = create_lab(&db, "Original Name", "lab-0001", &user).await?;
+    let mut lab = create_lab(&db, "Original Name", "lab-0001", &user, "127.127.1.0/24").await?;
 
     // Update the lab name
     lab.name = "Updated Name".to_string();
@@ -36,6 +36,7 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         lab_id: "lab-0002".to_string(),
         name: "Test Lab".to_string(),
         user: user_id,
+        loopback_network: "127.127.1.0/24".to_string(),
     };
 
     let result = update_lab(&db, lab).await;
@@ -60,6 +61,7 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         lab_id: "lab-0003".to_string(),
         name: "Test Lab".to_string(),
         user: user.id.unwrap(),
+        loopback_network: "127.127.1.0/24".to_string(),
     };
 
     let result = update_lab(&db, lab).await;
@@ -76,7 +78,7 @@ async fn test_update_preserves_id() -> Result<()> {
     let db = setup_db("test_update_preserves_id").await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let mut lab = create_lab(&db, "Original", "lab-0004", &user).await?;
+    let mut lab = create_lab(&db, "Original", "lab-0004", &user, "127.127.1.0/24").await?;
     let original_id = lab.id.clone();
 
     lab.name = "Updated".to_string();
@@ -94,7 +96,7 @@ async fn test_update_lab_id() -> Result<()> {
     let db = setup_db("test_update_lab_id").await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
-    let mut lab = create_lab(&db, "Test Lab", "lab-0005", &user).await?;
+    let mut lab = create_lab(&db, "Test Lab", "lab-0005", &user, "127.127.1.0/24").await?;
 
     // Update lab_id (business key)
     lab.lab_id = "lab-0099".to_string();
@@ -118,7 +120,7 @@ async fn test_update_cannot_change_owner() -> Result<()> {
     let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
 
-    let mut lab = create_lab(&db, "Frank's Lab", "lab-0006", &user1).await?;
+    let mut lab = create_lab(&db, "Frank's Lab", "lab-0006", &user1, "127.127.1.0/24").await?;
 
     // Try to change owner
     lab.user = user2.id.unwrap();
@@ -144,8 +146,8 @@ async fn test_update_lab_name_constraint() -> Result<()> {
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create two labs
-    let mut lab1 = create_lab(&db, "Lab 1", "lab-0007", &user).await?;
-    create_lab(&db, "Lab 2", "lab-0008", &user).await?;
+    let mut lab1 = create_lab(&db, "Lab 1", "lab-0007", &user, "127.127.1.0/24").await?;
+    create_lab(&db, "Lab 2", "lab-0008", &user, "127.127.2.0/24").await?;
 
     // Try to update lab1 to have the same name as lab2
     lab1.name = "Lab 2".to_string();
@@ -166,7 +168,7 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
     let db = setup_db("test_update_invalid_lab_id").await?;
 
     let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
-    let mut lab = create_lab(&db, "Test Lab", "lab-0009", &user).await?;
+    let mut lab = create_lab(&db, "Test Lab", "lab-0009", &user, "127.127.1.0/24").await?;
 
     // Try to update to invalid lab_id
     lab.lab_id = "short".to_string();

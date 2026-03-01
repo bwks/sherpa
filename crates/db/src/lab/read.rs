@@ -1,6 +1,9 @@
-use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, RecordId};
+use std::str::FromStr;
 use std::sync::Arc;
+
+use anyhow::{Context, Result, anyhow};
+use ipnet::Ipv4Net;
+use shared::data::{DbLab, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 
@@ -248,4 +251,28 @@ pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) ->
 
     let count: Option<usize> = response.take("count")?;
     Ok(count.unwrap_or(0))
+}
+
+/// Get all loopback networks currently allocated to labs.
+///
+/// Returns a vector of `Ipv4Net` representing the loopback subnets
+/// in use by existing labs. Used when allocating a new loopback subnet
+/// to avoid collisions.
+pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
+    let labs: Vec<DbLab> = db
+        .select("lab")
+        .await
+        .context("Failed to query labs for loopback networks")?;
+
+    let mut networks = Vec::new();
+    for lab in labs {
+        let net = Ipv4Net::from_str(&lab.loopback_network).with_context(|| {
+            format!(
+                "Failed to parse loopback_network '{}' for lab '{}'",
+                lab.loopback_network, lab.lab_id
+            )
+        })?;
+        networks.push(net);
+    }
+    Ok(networks)
 }

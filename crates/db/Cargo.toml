@@ -16,6 +16,9 @@ shared = { path = "../shared" }
 # Errors
 anyhow = "1.0.100"
 
+# Networking
+ipnet = "2.11.0"
+
 # Logging
 tracing = "0.1"
 

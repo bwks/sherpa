@@ -9,7 +9,7 @@ use tokio_tungstenite::{
 };
 
 use super::messages::{RpcRequest, RpcResponse};
-use super::tls::TlsConfigBuilder;
+use shared::tls::TlsConfigBuilder;
 
 type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 

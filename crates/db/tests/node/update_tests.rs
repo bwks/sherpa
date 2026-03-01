@@ -10,7 +10,7 @@ async fn test_update_node_success() -> Result<()> {
     let db = setup_db("test_update_node").await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
+    let lab = create_lab(&db, "Test Lab", "lab-0001", &user, "127.127.1.0/24").await?;
     let config1 = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
     let config2 = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -46,7 +46,7 @@ async fn test_update_node_without_id_fails() -> Result<()> {
     let db = setup_db("test_update_node_no_id").await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0002", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0002", &user, "127.127.1.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node without ID
@@ -76,8 +76,8 @@ async fn test_update_node_change_lab_fails() -> Result<()> {
     let db = setup_db("test_update_node_change_lab").await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab1 = create_lab(&db, "Lab 1", "lab-0003", &user).await?;
-    let lab2 = create_lab(&db, "Lab 2", "lab-0004", &user).await?;
+    let lab1 = create_lab(&db, "Lab 1", "lab-0003", &user, "127.127.1.0/24").await?;
+    let lab2 = create_lab(&db, "Lab 2", "lab-0004", &user, "127.127.2.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create node in lab1
@@ -116,7 +116,7 @@ async fn test_update_node_duplicate_name_fails() -> Result<()> {
     let db = setup_db("test_update_node_dup_name").await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0005", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0005", &user, "127.127.1.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create two nodes
@@ -157,7 +157,7 @@ async fn test_update_node_duplicate_index_fails() -> Result<()> {
     let db = setup_db("test_update_node_dup_index").await?;
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0006", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0006", &user, "127.127.1.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
     // Create two nodes
@@ -198,7 +198,7 @@ async fn test_update_node_preserves_id() -> Result<()> {
     let db = setup_db("test_update_node_id").await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0007", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0007", &user, "127.127.1.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node
@@ -223,7 +223,7 @@ async fn test_update_node_can_change_config() -> Result<()> {
     let db = setup_db("test_update_node_config").await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0008", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0008", &user, "127.127.1.0/24").await?;
     let config1 = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
     let config2 = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
 
@@ -258,7 +258,7 @@ async fn test_update_node_nonexistent_fails() -> Result<()> {
     let db = setup_db("test_update_node_nonexistent").await?;
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Lab", "lab-0009", &user).await?;
+    let lab = create_lab(&db, "Lab", "lab-0009", &user, "127.127.1.0/24").await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
 
     // Create node

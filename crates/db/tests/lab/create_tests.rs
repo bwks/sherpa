@@ -13,7 +13,7 @@ async fn test_create_lab_success() -> Result<()> {
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create lab
-    let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
+    let lab = create_lab(&db, "Test Lab", "lab-0001", &user, "127.127.1.0/24").await?;
 
     assert_eq!(lab.name, "Test Lab");
     assert_eq!(lab.lab_id, "lab-0001");
@@ -30,7 +30,7 @@ async fn test_create_lab_with_user() -> Result<()> {
     let db = setup_db("test_create_lab_user").await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Bob's Lab", "lab-0002", &user).await?;
+    let lab = create_lab(&db, "Bob's Lab", "lab-0002", &user, "127.127.1.0/24").await?;
 
     // Verify lab is associated with user
     assert_eq!(lab.user, user.id.unwrap());
@@ -47,10 +47,10 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create first lab
-    create_lab(&db, "Lab One", "lab-0003", &user).await?;
+    create_lab(&db, "Lab One", "lab-0003", &user, "127.127.1.0/24").await?;
 
     // Try to create lab with same lab_id
-    let result = create_lab(&db, "Lab Two", "lab-0003", &user).await;
+    let result = create_lab(&db, "Lab Two", "lab-0003", &user, "127.127.2.0/24").await;
 
     assert!(result.is_err(), "Should fail on duplicate lab_id");
     let error_msg = result.unwrap_err().to_string();
@@ -73,10 +73,10 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create first lab
-    create_lab(&db, "My Lab", "lab-0004", &user).await?;
+    create_lab(&db, "My Lab", "lab-0004", &user, "127.127.1.0/24").await?;
 
     // Try to create lab with same name for same user
-    let result = create_lab(&db, "My Lab", "lab-0005", &user).await;
+    let result = create_lab(&db, "My Lab", "lab-0005", &user, "127.127.2.0/24").await;
 
     assert!(
         result.is_err(),
@@ -103,8 +103,8 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
     let user2 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Both users can have labs with the same name
-    let lab1 = create_lab(&db, "Shared Name", "lab-0006", &user1).await?;
-    let lab2 = create_lab(&db, "Shared Name", "lab-0007", &user2).await?;
+    let lab1 = create_lab(&db, "Shared Name", "lab-0006", &user1, "127.127.1.0/24").await?;
+    let lab2 = create_lab(&db, "Shared Name", "lab-0007", &user2, "127.127.2.0/24").await?;
 
     assert_eq!(lab1.name, "Shared Name");
     assert_eq!(lab2.name, "Shared Name");
@@ -122,7 +122,7 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Try to create lab with lab_id too short
-    let result = create_lab(&db, "Invalid Lab", "lab-01", &user).await;
+    let result = create_lab(&db, "Invalid Lab", "lab-01", &user, "127.127.1.0/24").await;
 
     assert!(result.is_err(), "Should fail on invalid lab_id length");
     let error_msg = result.unwrap_err().to_string();
@@ -144,7 +144,7 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Try to create lab with lab_id too long
-    let result = create_lab(&db, "Invalid Lab", "lab-00001", &user).await;
+    let result = create_lab(&db, "Invalid Lab", "lab-00001", &user, "127.127.1.0/24").await;
 
     assert!(result.is_err(), "Should fail on invalid lab_id length");
     let error_msg = result.unwrap_err().to_string();
@@ -166,7 +166,7 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
     let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Try to create lab with invalid characters
-    let result = create_lab(&db, "Invalid Lab", "lab_0008", &user).await;
+    let result = create_lab(&db, "Invalid Lab", "lab_0008", &user, "127.127.1.0/24").await;
 
     assert!(result.is_err(), "Should fail on invalid characters");
     let error_msg = result.unwrap_err().to_string();
@@ -210,6 +210,7 @@ async fn test_upsert_lab_creates_new() -> Result<()> {
         lab_id: "lab-0009".to_string(),
         name: "Upsert Test".to_string(),
         user: user_id.clone(),
+        loopback_network: "127.127.1.0/24".to_string(),
     };
 
     let result = upsert_lab(&db, lab).await?;
@@ -230,7 +231,7 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
     let user = create_user(&db, "karl".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create initial lab
-    let lab = create_lab(&db, "Original Name", "lab-0010", &user).await?;
+    let lab = create_lab(&db, "Original Name", "lab-0010", &user, "127.127.1.0/24").await?;
     let lab_id = lab.id.clone().unwrap();
 
     // Upsert with ID should update
@@ -239,6 +240,7 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         lab_id: "lab-0010".to_string(),
         name: "Updated Name".to_string(),
         user: user.id.unwrap(),
+        loopback_network: "127.127.1.0/24".to_string(),
     };
 
     let result = upsert_lab(&db, updated_lab).await?;
@@ -262,7 +264,7 @@ async fn test_create_lab_increases_count() -> Result<()> {
     let count_before = count_labs(&db).await?;
 
     let user = create_user(&db, "laura".to_string(), "TestPass123!", false, vec![]).await?;
-    create_lab(&db, "Count Test", "lab-0011", &user).await?;
+    create_lab(&db, "Count Test", "lab-0011", &user, "127.127.1.0/24").await?;
 
     let count_after = count_labs(&db).await?;
 

@@ -6,7 +6,7 @@ use super::image::{ImageCommands, image_commands};
 use super::init::init;
 use super::user::{UserCommands, user_commands};
 use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
-use shared::util::{get_server_url, load_config};
+use shared::util::{build_websocket_url, get_server_url, load_config};
 
 #[derive(Debug, Parser)]
 #[command(name = "sherpactl")]
@@ -17,6 +17,10 @@ pub struct Cli {
     /// Remote server URL for WebSocket RPC (e.g., ws://localhost:3030/ws)
     #[arg(long, global = true, env = "SHERPA_SERVER_URL")]
     server_url: Option<String>,
+
+    /// Skip TLS certificate validation (INSECURE)
+    #[arg(long, global = true)]
+    insecure: bool,
 
     /// Enable verbose logging
     #[arg(short, long, global = true)]
@@ -93,19 +97,30 @@ impl Cli {
             .unwrap_or_else(|| {
                 config
                     .as_ref()
-                    .map(|c| format!("ws://{}:{}/ws", c.server_ipv4, c.server_port))
+                    .map(build_websocket_url)
                     .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
             });
+
+        // Build ServerConnection from config, with CLI overrides
+        let mut server_connection = config
+            .as_ref()
+            .map(|c| c.server_connection.clone())
+            .unwrap_or_default();
+
+        // Override insecure if CLI flag is set
+        if cli.insecure {
+            server_connection.insecure = true;
+        }
 
         match &cli.commands {
             Commands::Init { force } => {
                 init(*force).await?;
             }
             Commands::User { commands } => {
-                user_commands(commands, &server_url, &cli.output).await?;
+                user_commands(commands, &server_url, &server_connection, &cli.output).await?;
             }
             Commands::Image { commands } => {
-                image_commands(commands, &server_url, &cli.output).await?;
+                image_commands(commands, &server_url, &server_connection, &cli.output).await?;
             }
             Commands::Doctor { boxes } => {
                 doctor(*boxes)?;

@@ -22,8 +22,11 @@ serde_json = "1.0.128"
 tokio = { version = "1.40.0", features = ["full"] }
 futures-util = "0.3.31"
 
-# WebSocket client
-tokio-tungstenite = "0.24"
+# WebSocket client with TLS support
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+
+# TLS support
+rustls = { version = "0.23", features = ["ring"] }
 
 # UUID for RPC
 uuid = { version = "1.11", features = ["v4", "serde"] }
