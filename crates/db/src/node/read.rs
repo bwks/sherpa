@@ -75,7 +75,7 @@ pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
+/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
 /// let lab_id = lab.id.unwrap();
 /// let node = get_node_by_name_and_lab(&db, "node1", lab_id).await?;
 /// # Ok(())
@@ -147,7 +147,7 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
+/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
 /// let lab_id = lab.id.unwrap();
 /// let nodes = list_nodes_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} nodes", nodes.len());
@@ -216,7 +216,7 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-001", &user).await?;
+/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
 /// let lab_id = lab.id.unwrap();
 /// let count = count_nodes_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} nodes", count);

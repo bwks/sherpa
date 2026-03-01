@@ -129,7 +129,7 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 /// let user_id = user.id.clone().expect("User should have ID");
 ///
 /// // Create a lab for this user
-/// create_lab(&db, "test-lab", "lab-001", &user).await?;
+/// create_lab(&db, "test-lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
 ///
 /// // This will fail because user owns a lab
 /// let result = delete_user_safe(&db, user_id).await;
