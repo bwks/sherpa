@@ -1,13 +1,12 @@
 use anyhow::{Context, Result};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use shared::data::ServerConnection;
 use shared::error::RpcErrorCode;
+use shared::tls::TlsConfigBuilder;
 use std::time::Duration;
+use tokio_tungstenite::Connector;
 use uuid::Uuid;
-
-// Import the ws_client types (we'll reference them from client crate)
-// This is a bit hacky but avoids duplicating code
-// In a real project, this would be in a shared crate
 
 /// JSON-RPC request message
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -38,13 +37,15 @@ pub struct RpcError {
 pub struct RpcClient {
     server_url: String,
     timeout: Duration,
+    server_connection: ServerConnection,
 }
 
 impl RpcClient {
-    pub fn new(server_url: String) -> Self {
+    pub fn new(server_url: String, server_connection: ServerConnection) -> Self {
         Self {
             server_url,
             timeout: Duration::from_secs(30),
+            server_connection,
         }
     }
 
@@ -54,13 +55,38 @@ impl RpcClient {
         P: Serialize,
         R: DeserializeOwned,
     {
-        // Connect to WebSocket
-        let (mut ws_stream, _) = tokio_tungstenite::connect_async(&self.server_url)
+        let is_secure = self.server_url.starts_with("wss://");
+
+        // Connect to WebSocket with appropriate TLS handling
+        let (mut ws_stream, _) = if is_secure {
+            // Build TLS configuration with trust-on-first-use flow
+            let tls_builder = TlsConfigBuilder::new(&self.server_connection);
+            let tls_config = tls_builder
+                .build_with_trust_flow(&self.server_url)
+                .await
+                .context("Failed to build TLS configuration")?;
+
+            let connector = Connector::Rustls(tls_config);
+
+            tokio_tungstenite::connect_async_tls_with_config(
+                &self.server_url,
+                None,
+                false,
+                Some(connector),
+            )
             .await
             .context(format!(
                 "Failed to connect to server at {}",
                 self.server_url
-            ))?;
+            ))?
+        } else {
+            tokio_tungstenite::connect_async(&self.server_url)
+                .await
+                .context(format!(
+                    "Failed to connect to server at {}",
+                    self.server_url
+                ))?
+        };
 
         // Add token to params if provided
         let mut params_value =
@@ -134,7 +160,16 @@ impl RpcClient {
 
         // Check for RPC error
         if let Some(error) = response.error {
-            anyhow::bail!("RPC error: {} (code: {})", error.message, error.code);
+            if let Some(ctx) = &error.context {
+                anyhow::bail!(
+                    "RPC error: {} (code: {})\n  Context: {}",
+                    error.message,
+                    error.code,
+                    ctx
+                );
+            } else {
+                anyhow::bail!("RPC error: {} (code: {})", error.message, error.code);
+            }
         }
 
         // Parse result

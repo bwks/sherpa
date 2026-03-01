@@ -268,6 +268,7 @@ struct LabInfoTableRow {
 ///     ipv4_network: "172.31.0.0/24".parse().unwrap(),
 ///     ipv4_gateway: "172.31.0.1".parse().unwrap(),
 ///     ipv4_router: "172.31.0.2".parse().unwrap(),
+///     loopback_network: "127.127.1.0/24".parse().unwrap(),
 /// };
 ///
 /// let table = render_lab_info_table(&lab_info);
@@ -289,7 +290,7 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
             value: lab_info.user.clone(),
         },
         LabInfoTableRow {
-            property: "IPv4 Network".to_string(),
+            property: "Management Network".to_string(),
             value: lab_info.ipv4_network.to_string(),
         },
         LabInfoTableRow {
@@ -299,6 +300,10 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
         LabInfoTableRow {
             property: "IPv4 Router".to_string(),
             value: lab_info.ipv4_router.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Loopback Network".to_string(),
+            value: lab_info.loopback_network.to_string(),
         },
     ];
 
@@ -512,6 +517,7 @@ mod tests {
             ipv4_network: "172.31.0.0/24".parse().unwrap(),
             ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
             ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
+            loopback_network: "127.127.1.0/24".parse().unwrap(),
         };
 
         let table = render_lab_info_table(&lab_info);
@@ -528,7 +534,7 @@ mod tests {
         assert!(table.contains("ID"));
         assert!(table.contains("Name"));
         assert!(table.contains("User"));
-        assert!(table.contains("IPv4 Network"));
+        assert!(table.contains("Management Network"));
         assert!(table.contains("IPv4 Gateway"));
         assert!(table.contains("IPv4 Router"));
 

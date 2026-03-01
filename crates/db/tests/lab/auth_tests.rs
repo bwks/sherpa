@@ -13,7 +13,15 @@ async fn test_get_lab_owner_username() -> Result<()> {
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
 
     // Create a lab owned by this user
-    let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Get the owner username
     let username = get_lab_owner_username(&db, &lab.lab_id).await?;

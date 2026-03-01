@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use crate::cmd::cli::OutputFormat;
 use crate::common::rpc::RpcClient;
 use crate::token;
-use shared::data;
+use shared::data::{self, ServerConnection};
 use shared::util::emoji_success;
 
 #[derive(Debug, Subcommand)]
@@ -53,6 +53,7 @@ pub enum UserCommands {
 pub async fn user_commands(
     command: &UserCommands,
     server_url: &str,
+    server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     match command {
@@ -66,19 +67,39 @@ pub async fn user_commands(
                 *admin,
                 ssh_keys.clone(),
                 server_url,
+                server_connection,
                 output_format,
             )
             .await
         }
-        UserCommands::List => list_users(server_url, output_format).await,
+        UserCommands::List => list_users(server_url, server_connection, output_format).await,
         UserCommands::Delete { username, force } => {
-            delete_user(username, *force, server_url, output_format).await
+            delete_user(
+                username,
+                *force,
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
         }
         UserCommands::Passwd { username } => {
-            change_password(username.as_deref(), server_url, output_format).await
+            change_password(
+                username.as_deref(),
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
         }
         UserCommands::Info { username } => {
-            get_user_info(username.as_deref(), server_url, output_format).await
+            get_user_info(
+                username.as_deref(),
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
         }
     }
 }
@@ -88,6 +109,7 @@ async fn create_user(
     is_admin: bool,
     ssh_keys: Vec<String>,
     server_url: &str,
+    server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     // Get token
@@ -120,7 +142,7 @@ async fn create_user(
         token: token.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string());
+    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
     let response: data::CreateUserResponse = rpc_client
         .call("user.create", request, Some(token))
         .await
@@ -140,7 +162,11 @@ async fn create_user(
     Ok(())
 }
 
-async fn list_users(server_url: &str, output_format: &OutputFormat) -> Result<()> {
+async fn list_users(
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
     // Get token
     let token = token::load_token().context("Not authenticated. Please login first.")?;
 
@@ -148,7 +174,7 @@ async fn list_users(server_url: &str, output_format: &OutputFormat) -> Result<()
         token: token.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string());
+    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
     let response: data::ListUsersResponse = rpc_client
         .call("user.list", request, Some(token))
         .await
@@ -192,6 +218,7 @@ async fn delete_user(
     username: &str,
     force: bool,
     server_url: &str,
+    server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     // Get token
@@ -221,7 +248,7 @@ async fn delete_user(
         token: token.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string());
+    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
     let response: data::DeleteUserResponse = rpc_client
         .call("user.delete", request, Some(token))
         .await
@@ -248,6 +275,7 @@ async fn delete_user(
 async fn change_password(
     username: Option<&str>,
     server_url: &str,
+    server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     // Get token
@@ -297,7 +325,7 @@ async fn change_password(
         token: token.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string());
+    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
     let response: data::ChangePasswordResponse = rpc_client
         .call("user.passwd", request, Some(token))
         .await
@@ -324,6 +352,7 @@ async fn change_password(
 async fn get_user_info(
     username: Option<&str>,
     server_url: &str,
+    server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     // Get token
@@ -356,7 +385,7 @@ async fn get_user_info(
         token: token.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string());
+    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
     let response: data::GetUserInfoResponse = rpc_client
         .call("user.info", request, Some(token))
         .await

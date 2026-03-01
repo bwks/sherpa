@@ -36,9 +36,11 @@ pub use file_system::{
     fix_permissions_recursive,
 };
 pub use interface::{interface_from_idx, interface_to_idx, node_model_interfaces};
+pub use ip::{
+    allocate_loopback_subnet, allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network,
+};
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks};
-pub use ip::{get_ip, get_ipv4_addr, get_ipv4_network};
 pub use mac::{clean_mac, random_mac};
 pub use output::{term_msg_highlight, term_msg_surround, term_msg_underline};
 pub use port::id_to_port;

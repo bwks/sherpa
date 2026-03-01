@@ -2,15 +2,15 @@ use anyhow::{Context, Result};
 use rustls::ClientConfig;
 use rustls::RootCertStore;
 use rustls::pki_types::{CertificateDer, ServerName};
-use shared::data::ServerConnection;
-use shared::util::{term_msg_surround, term_msg_underline};
 use std::fs::File;
 use std::io::{self, BufReader, IsTerminal, Write};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::cert_fetch::fetch_server_certificate;
-use crate::trust_store::{TrustStore, extract_cert_info};
+use crate::data::ServerConnection;
+use crate::tls::cert_fetch::fetch_server_certificate;
+use crate::tls::trust_store::{CertificateInfo, TrustStore, extract_cert_info};
+use crate::util::{term_msg_surround, term_msg_underline};
 
 /// Builds TLS configuration for WebSocket client
 pub struct TlsConfigBuilder {
@@ -243,7 +243,7 @@ impl rustls::client::danger::ServerCertVerifier for NoCertificateVerification {
 }
 
 /// Display certificate information to the user in a formatted way
-fn display_certificate_info(cert_info: &crate::trust_store::CertificateInfo) -> Result<()> {
+fn display_certificate_info(cert_info: &CertificateInfo) -> Result<()> {
     println!();
     term_msg_surround("Certificate Information");
     println!();

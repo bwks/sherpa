@@ -1,6 +1,6 @@
 [package]
 name = "shared"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 
 [dependencies]
@@ -42,6 +42,17 @@ dirs = "6.0"
 
 reqwest = "0.11.27"
 
+# TLS support
+rustls = { version = "0.23", features = ["ring"] }
+rustls-pki-types = "1.10"
+webpki-roots = "0.26"
+rustls-pemfile = "2.2"
+
+# Certificate parsing
+x509-parser = "0.16"
+hex = "0.4"
+url = "2.5"
+
 # Templates
 askama = "0.14.0"
 
@@ -61,6 +72,10 @@ surrealdb-types = "3.0.0"
 # Enum helpers
 strum = "0.27"
 strum_macros = "0.27"
+
+[dev-dependencies]
+tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
+tempfile = "3.25.0"
 
 [features]
 netinfo = ["dep:getifaddrs"]

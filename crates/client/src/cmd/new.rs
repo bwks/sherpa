@@ -16,7 +16,10 @@ pub fn new(force: bool) -> Result<()> {
     let manifest = Manifest::example()?;
     manifest.write_file(SHERPA_MANIFEST_FILE)?;
 
-    println!("Created {} with example lab manifest.", SHERPA_MANIFEST_FILE);
+    println!(
+        "Created {} with example lab manifest.",
+        SHERPA_MANIFEST_FILE
+    );
 
     Ok(())
 }

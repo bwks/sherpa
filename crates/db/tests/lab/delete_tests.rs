@@ -13,7 +13,15 @@ async fn test_delete_lab_success() -> Result<()> {
     let db = setup_db("test_delete_lab").await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0001", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0001",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Delete lab
     delete_lab(&db, &lab.lab_id).await?;
@@ -32,7 +40,15 @@ async fn test_delete_lab_by_id() -> Result<()> {
     let db = setup_db("test_delete_lab_by_id").await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0002", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0002",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
     let lab_id = lab.id.unwrap();
 
     // Delete by RecordId
@@ -65,8 +81,24 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
     let db = setup_db("test_delete_decreases_count").await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
-    create_lab(&db, "Lab 1", "lab-0003", &user).await?;
-    let lab2 = create_lab(&db, "Lab 2", "lab-0004", &user).await?;
+    create_lab(
+        &db,
+        "Lab 1",
+        "lab-0003",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
+    let lab2 = create_lab(
+        &db,
+        "Lab 2",
+        "lab-0004",
+        &user,
+        "127.127.2.0/24",
+        "172.31.2.0/24",
+    )
+    .await?;
 
     let count_before = count_labs(&db).await?;
 
@@ -86,7 +118,15 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
     let db = setup_db("test_delete_cascade_nodes").await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0005", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0005",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Create node configs first
     create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -116,7 +156,15 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
     let db = setup_db("test_delete_safe_nodes_fail").await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Test Lab", "lab-0006", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0006",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Create node config first
     create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -149,7 +197,15 @@ async fn test_delete_lab_safe_empty_succeeds() -> Result<()> {
     let db = setup_db("test_delete_safe_empty").await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Empty Lab", "lab-0007", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Empty Lab",
+        "lab-0007",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Safe delete should succeed (no nodes/links)
     delete_lab_safe(&db, &lab.lab_id).await?;
@@ -168,7 +224,15 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
     let db = setup_db("test_delete_cascade_full").await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Full Lab", "lab-0008", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Full Lab",
+        "lab-0008",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Create node configs first
     create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -200,7 +264,15 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     let db = setup_db("test_schema_cascade").await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
-    let lab = create_lab(&db, "Auto Cascade Lab", "lab-0009", &user).await?;
+    let lab = create_lab(
+        &db,
+        "Auto Cascade Lab",
+        "lab-0009",
+        &user,
+        "127.127.1.0/24",
+        "172.31.1.0/24",
+    )
+    .await?;
 
     // Create node configs first
     create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

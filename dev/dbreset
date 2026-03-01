@@ -27,4 +27,5 @@ sudo -u sherpa docker run -d \
         --user "${SHERPA_UID}:${SHERPA_GID}" \
         "${SURREALDB_IMAGE}" \
         start --log info --user "${SHERPA_DB_USER:-sherpa}" --pass "${SHERPA_DB_USER:-Everest1953!}" rocksdb:/data/sherpa.db;
-cargo run -p sherpa -- init;
+cargo run -p sherpactl -- init;
+cargo run -p sherpactl -- image scan;

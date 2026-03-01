@@ -1141,9 +1141,10 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
+ "ipnet",
  "serde",
  "serde_json",
  "shared",
@@ -4798,7 +4799,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4807,12 +4808,16 @@ dependencies = [
  "clap",
  "dirs",
  "getifaddrs",
+ "hex",
  "ipnet",
  "jiff",
  "md5",
  "rand 0.8.5",
  "regex",
  "reqwest 0.11.27",
+ "rustls",
+ "rustls-pemfile 2.2.0",
+ "rustls-pki-types",
  "serde",
  "serde_derive",
  "serde_json",
@@ -4824,10 +4829,15 @@ dependencies = [
  "surrealdb",
  "surrealdb-types",
  "tabled",
+ "tempfile",
  "thiserror 2.0.17",
+ "tokio",
  "toml",
  "tracing",
  "twox-hash",
+ "url",
+ "webpki-roots 0.26.11",
+ "x509-parser",
 ]
 
 [[package]]
@@ -4841,7 +4851,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "askama",
@@ -4852,7 +4862,6 @@ dependencies = [
  "dirs",
  "futures",
  "futures-util",
- "hex",
  "jiff",
  "libvirt",
  "petname",
@@ -4861,12 +4870,9 @@ dependencies = [
  "rpassword",
  "rustls",
  "rustls-native-certs",
- "rustls-pemfile 2.2.0",
- "rustls-pki-types",
  "serde",
  "serde_derive",
  "serde_json",
- "sha2",
  "shared",
  "tempfile",
  "template",
@@ -4880,13 +4886,11 @@ dependencies = [
  "uuid",
  "validate",
  "virt",
- "webpki-roots 0.26.11",
- "x509-parser",
 ]
 
 [[package]]
 name = "sherpactl"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4896,6 +4900,7 @@ dependencies = [
  "jiff",
  "libvirt",
  "rpassword",
+ "rustls",
  "serde",
  "serde_json",
  "shared",
@@ -4910,7 +4915,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "askama",

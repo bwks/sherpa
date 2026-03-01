@@ -8,7 +8,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
-use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
     Emoji, get_cwd, get_username, render_lab_info_table, render_nodes_table, term_msg_surround,
     term_msg_underline,
@@ -201,6 +201,36 @@ pub async fn up(
                 Err(e) => {
                     println!(
                         "\n{} Warning: Failed to create local SSH private key: {}",
+                        Emoji::Warning,
+                        e
+                    );
+                }
+            }
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                Emoji::Warning,
+                e
+            );
+        }
+    }
+
+    // Write lab-info.toml to local directory
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
+            match fs::write(&local_lab_info_path, up_data.lab_info.to_string()) {
+                Ok(_) => {
+                    println!(
+                        "{} Lab info created: {}",
+                        Emoji::Success,
+                        local_lab_info_path
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "\n{} Warning: Failed to create local lab info: {}",
                         Emoji::Warning,
                         e
                     );

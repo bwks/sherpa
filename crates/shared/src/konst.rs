@@ -54,6 +54,8 @@ pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
 pub const SHERPA_DB_SERVER: &str = "localhost";
 pub const SHERPA_DB_PORT: u16 = 8000;
 
+pub const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
+
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const _DEFAULT_STORAGE_POOL: &str = "default";

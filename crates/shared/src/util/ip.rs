@@ -84,9 +84,61 @@ pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
     Ok(interface_networks)
 }
 
-/// Get an IPv4 address from a host address.
-pub fn get_ip(host_addr: u8) -> Ipv4Addr {
-    Ipv4Addr::new(127, 127, 127, host_addr)
+/// Get an IPv4 address from a loopback subnet and host address.
+///
+/// Combines the subnet's network address with the host address offset
+/// to produce a unique loopback IP per lab per node.
+pub fn get_ip(loopback_subnet: &Ipv4Net, host_addr: u8) -> Ipv4Addr {
+    let net_bits = loopback_subnet.network().to_bits();
+    Ipv4Addr::from_bits(net_bits + host_addr as u32)
+}
+
+/// Allocate the next free loopback `/24` subnet from the supernet prefix.
+///
+/// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
+pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
+    let subnets: Vec<Ipv4Net> = prefix
+        .subnets(24)
+        .context("Failed to subnet loopback prefix into /24s")?
+        .collect();
+
+    for subnet in subnets {
+        // Skip the x.x.0.0/24 subnet (network zero)
+        if subnet.network().octets()[2] == 0 {
+            continue;
+        }
+        if !used.contains(&subnet) {
+            return Ok(subnet);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No free loopback /24 subnet found in prefix: {}",
+        prefix
+    ))
+}
+
+/// Allocate the next free management `/24` subnet from the supernet prefix.
+///
+/// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
+pub fn allocate_management_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
+    let subnets: Vec<Ipv4Net> = prefix
+        .subnets(24)
+        .context("Failed to subnet management prefix into /24s")?
+        .collect();
+
+    for subnet in subnets {
+        // Skip the x.x.0.0/24 subnet (network zero)
+        if subnet.network().octets()[2] == 0 {
+            continue;
+        }
+        if !used.contains(&subnet) {
+            return Ok(subnet);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No free management /24 subnet found in prefix: {}",
+        prefix
+    ))
 }
 
 #[cfg(test)]
@@ -94,45 +146,106 @@ mod tests {
     use super::*;
     use std::net::Ipv4Addr;
 
+    fn test_subnet(third_octet: u8) -> Ipv4Net {
+        Ipv4Net::new(Ipv4Addr::new(127, 127, third_octet, 0), 24).unwrap()
+    }
+
+    fn mgmt_subnet(third_octet: u8) -> Ipv4Net {
+        Ipv4Net::new(Ipv4Addr::new(172, 31, third_octet, 0), 24).unwrap()
+    }
+
     #[test]
     fn test_get_ip_valid_host_addr() {
-        let host_addr: u8 = 42;
-        let expected = Ipv4Addr::new(127, 127, 127, 42);
-        assert_eq!(get_ip(host_addr), expected);
+        let subnet = test_subnet(1);
+        let expected = Ipv4Addr::new(127, 127, 1, 42);
+        assert_eq!(get_ip(&subnet, 42), expected);
     }
 
     #[test]
     fn test_get_ip_zero() {
-        let host_addr: u8 = 0;
-        let expected = Ipv4Addr::new(127, 127, 127, 0);
-        assert_eq!(get_ip(host_addr), expected);
+        let subnet = test_subnet(1);
+        let expected = Ipv4Addr::new(127, 127, 1, 0);
+        assert_eq!(get_ip(&subnet, 0), expected);
     }
 
     #[test]
     fn test_get_ip_max() {
-        let host_addr: u8 = 255;
-        let expected = Ipv4Addr::new(127, 127, 127, 255);
-        assert_eq!(get_ip(host_addr), expected);
+        let subnet = test_subnet(1);
+        let expected = Ipv4Addr::new(127, 127, 1, 255);
+        assert_eq!(get_ip(&subnet, 255), expected);
     }
 
     #[test]
-    fn test_get_ip_first_three_octets() {
-        let host_addr: u8 = 1;
-        let ip = get_ip(host_addr);
-        assert_eq!(ip.octets()[0..3], [127, 127, 127]);
+    fn test_get_ip_different_subnets() {
+        let subnet1 = test_subnet(1);
+        let subnet2 = test_subnet(2);
+        let ip1 = get_ip(&subnet1, 1);
+        let ip2 = get_ip(&subnet2, 1);
+        assert_ne!(ip1, ip2);
+        assert_eq!(ip1.to_string(), "127.127.1.1");
+        assert_eq!(ip2.to_string(), "127.127.2.1");
     }
 
     #[test]
-    fn test_get_ip_different_inputs() {
-        let ip1 = get_ip(1);
-        let ip2 = get_ip(2);
+    fn test_get_ip_different_hosts() {
+        let subnet = test_subnet(5);
+        let ip1 = get_ip(&subnet, 1);
+        let ip2 = get_ip(&subnet, 2);
         assert_ne!(ip1, ip2);
     }
 
     #[test]
     fn test_get_ip_to_string() {
-        let host_addr: u8 = 100;
-        let ip = get_ip(host_addr);
-        assert_eq!(ip.to_string(), "127.127.127.100");
+        let subnet = test_subnet(3);
+        let ip = get_ip(&subnet, 100);
+        assert_eq!(ip.to_string(), "127.127.3.100");
+    }
+
+    #[test]
+    fn test_allocate_loopback_subnet_empty() {
+        let prefix = Ipv4Net::from_str("127.127.0.0/16").unwrap();
+        let result = allocate_loopback_subnet(&prefix, &[]).unwrap();
+        // Should skip 127.127.0.0/24 and return 127.127.1.0/24
+        assert_eq!(result, test_subnet(1));
+    }
+
+    #[test]
+    fn test_allocate_loopback_subnet_skips_used() {
+        let prefix = Ipv4Net::from_str("127.127.0.0/16").unwrap();
+        let used = vec![test_subnet(1)];
+        let result = allocate_loopback_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, test_subnet(2));
+    }
+
+    #[test]
+    fn test_allocate_loopback_subnet_skips_multiple_used() {
+        let prefix = Ipv4Net::from_str("127.127.0.0/16").unwrap();
+        let used = vec![test_subnet(1), test_subnet(2), test_subnet(3)];
+        let result = allocate_loopback_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, test_subnet(4));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_empty() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let result = allocate_management_subnet(&prefix, &[]).unwrap();
+        // Should skip 172.31.0.0/24 and return 172.31.1.0/24
+        assert_eq!(result, mgmt_subnet(1));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_skips_used() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let used = vec![mgmt_subnet(1)];
+        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, mgmt_subnet(2));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_skips_multiple_used() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let used = vec![mgmt_subnet(1), mgmt_subnet(2), mgmt_subnet(3)];
+        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, mgmt_subnet(4));
     }
 }
