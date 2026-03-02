@@ -1,11 +1,16 @@
 use std::net::Ipv4Addr;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use virt::connect::Connect;
 use virt::network::Network;
 
 use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
+
+/// Check if a libvirt network already exists (active or defined).
+fn network_exists(qemu_conn: &Connect, name: &str) -> bool {
+    Network::lookup_by_name(qemu_conn, name).is_ok()
+}
 
 pub struct BridgeNetwork {
     pub network_name: String,
@@ -14,6 +19,11 @@ pub struct BridgeNetwork {
 
 impl BridgeNetwork {
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        if network_exists(qemu_conn, &self.network_name) {
+            tracing::debug!(network_name = %self.network_name, "Bridge network already exists");
+            return Ok(());
+        }
+
         let network_name = &self.network_name;
         let bridge_name = &self.bridge_name;
         let network_xml = format!(
@@ -25,9 +35,10 @@ impl BridgeNetwork {
             </network>
             "#
         );
-        let network = Network::define_xml(qemu_conn, &network_xml)?;
-        network.create()?;
-        network.set_autostart(true)?;
+        let network = Network::define_xml(qemu_conn, &network_xml)
+            .context("Failed to define bridge network")?;
+        network.create().context("Failed to start bridge network")?;
+        network.set_autostart(true).context("Failed to set bridge network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Bridge network created and started");
 
@@ -44,6 +55,11 @@ impl IsolatedNetwork {
     /// Create an isolated bridge for forwarding disabled and ports
     /// isolated from one another.
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        if network_exists(qemu_conn, &self.network_name) {
+            tracing::debug!(network_name = %self.network_name, "Isolated network already exists");
+            return Ok(());
+        }
+
         let network_name = &self.network_name;
         let bridge_name = &self.bridge_name;
         let network_xml = format!(
@@ -58,9 +74,10 @@ impl IsolatedNetwork {
       "#
         );
 
-        let network = Network::define_xml(qemu_conn, &network_xml)?;
-        network.create()?;
-        network.set_autostart(true)?;
+        let network = Network::define_xml(qemu_conn, &network_xml)
+            .context("Failed to define isolated network")?;
+        network.create().context("Failed to start isolated network")?;
+        network.set_autostart(true).context("Failed to set isolated network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Isolated network created and started");
 
@@ -76,6 +93,11 @@ pub struct ReservedNetwork {
 impl ReservedNetwork {
     /// Create an reserved bridge for control traffic in a VM.
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        if network_exists(qemu_conn, &self.network_name) {
+            tracing::debug!(network_name = %self.network_name, "Reserved network already exists");
+            return Ok(());
+        }
+
         let network_name = &self.network_name;
         let bridge_name = &self.bridge_name;
         let network_xml = format!(
@@ -90,9 +112,10 @@ impl ReservedNetwork {
       "#
         );
 
-        let network = Network::define_xml(qemu_conn, &network_xml)?;
-        network.create()?;
-        network.set_autostart(true)?;
+        let network = Network::define_xml(qemu_conn, &network_xml)
+            .context("Failed to define reserved network")?;
+        network.create().context("Failed to start reserved network")?;
+        network.set_autostart(true).context("Failed to set reserved network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Reserved network created and started");
 
@@ -108,6 +131,11 @@ pub struct NatNetwork {
 }
 impl NatNetwork {
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
+        if network_exists(qemu_conn, &self.network_name) {
+            tracing::debug!(network_name = %self.network_name, "NAT network already exists");
+            return Ok(());
+        }
+
         let network_name = &self.network_name;
         let bridge_name = &self.bridge_name;
         let ipv4_address = &self.ipv4_address;
@@ -132,9 +160,10 @@ impl NatNetwork {
         "#
         );
 
-        let network = Network::define_xml(qemu_conn, &network_xml)?;
-        network.create()?;
-        network.set_autostart(true)?;
+        let network = Network::define_xml(qemu_conn, &network_xml)
+            .context("Failed to define NAT network")?;
+        network.create().context("Failed to start NAT network")?;
+        network.set_autostart(true).context("Failed to set NAT network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, ipv4_address = %self.ipv4_address, "NAT network created and started");
 
