@@ -21,3 +21,4 @@ CLAUDE.md
 .claude/
 .ruff_cache
 lab-info.toml
+*.env

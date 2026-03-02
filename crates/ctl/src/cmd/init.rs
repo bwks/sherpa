@@ -25,7 +25,7 @@ const SERVER_IMAGES_DIR: &str = "/opt/sherpa/images";
 const SERVER_CONTAINERS_DIR: &str = "/opt/sherpa/containers";
 const SERVER_BINS_DIR: &str = "/opt/sherpa/bins";
 
-pub async fn init(force: bool) -> Result<()> {
+pub async fn init(force: bool, db_password: &str) -> Result<()> {
     term_msg_surround("Sherpa Server Initializing");
 
     // Create server directories
@@ -79,10 +79,10 @@ pub async fn init(force: bool) -> Result<()> {
     }
 
     // Libvirt network and storage pool
-    term_msg_highlight("Creating Networks");
     let qemu = Qemu::default();
     let qemu_conn = qemu.connect()?;
 
+    term_msg_highlight("Creating Networks");
     println!("Creating network: {SHERPA_BRIDGE_NETWORK_NAME}");
     let bridge_network = BridgeNetwork {
         network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
@@ -90,6 +90,8 @@ pub async fn init(force: bool) -> Result<()> {
     };
     bridge_network.create(&qemu_conn)?;
 
+    term_msg_highlight("Creating Storage Pools");
+    println!("Creating storage pool: {SHERPA_STORAGE_POOL}");
     let storage_pool = SherpaStoragePool {
         name: SHERPA_STORAGE_POOL.to_owned(),
         path: SHERPA_STORAGE_POOL_PATH.to_owned(),
@@ -103,6 +105,7 @@ pub async fn init(force: bool) -> Result<()> {
         SHERPA_DB_PORT,
         SHERPA_DB_NAMESPACE,
         SHERPA_DB_NAME,
+        db_password,
     )
     .await?;
 

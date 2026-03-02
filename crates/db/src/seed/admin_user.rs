@@ -69,7 +69,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
-        let db = crate::connect("localhost", 8000, "test_seed_admin", "test_db").await?;
+        let db = crate::connect("localhost", 8000, "test_seed_admin", "test_db", shared::konst::SHERPA_PASSWORD).await?;
         crate::schema::apply_schema(&db).await?;
 
         // Clean up any existing users
@@ -92,7 +92,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_other_users_exist() -> Result<()> {
-        let db = crate::connect("localhost", 8000, "test_seed_admin_skip", "test_db").await?;
+        let db = crate::connect("localhost", 8000, "test_seed_admin_skip", "test_db", shared::konst::SHERPA_PASSWORD).await?;
         crate::schema::apply_schema(&db).await?;
 
         // Clean up any existing users
@@ -122,7 +122,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_validates_password() -> Result<()> {
-        let db = crate::connect("localhost", 8000, "test_seed_admin_validate", "test_db").await?;
+        let db = crate::connect("localhost", 8000, "test_seed_admin_validate", "test_db", shared::konst::SHERPA_PASSWORD).await?;
         crate::schema::apply_schema(&db).await?;
 
         // Clean up any existing users
@@ -145,7 +145,7 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_idempotent() -> Result<()> {
-        let db = crate::connect("localhost", 8000, "test_seed_admin_idem", "test_db").await?;
+        let db = crate::connect("localhost", 8000, "test_seed_admin_idem", "test_db", shared::konst::SHERPA_PASSWORD).await?;
         crate::schema::apply_schema(&db).await?;
 
         // Clean up any existing users

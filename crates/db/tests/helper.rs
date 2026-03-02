@@ -21,7 +21,9 @@ fn generate_test_namespace(test_name: &str) -> String {
 /// This ensures test isolation by using a dedicated namespace per test run
 pub async fn setup_db(namespace: &str) -> Result<Arc<Surreal<Client>>> {
     let namespace = generate_test_namespace(namespace);
-    let db = db::connect("localhost", 8000, &namespace, "test_cases").await?;
+    let db_password = std::env::var("SHERPA_DB_PASSWORD")
+        .unwrap_or_else(|_| shared::konst::SHERPA_PASSWORD.to_string());
+    let db = db::connect("localhost", 8000, &namespace, "test_cases", &db_password).await?;
 
     // Apply schema to ensure tables exist for tests
     apply_schema(&db).await?;

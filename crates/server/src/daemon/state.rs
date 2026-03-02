@@ -44,11 +44,14 @@ impl AppState {
         tracing::info!("JWT secret loaded successfully");
 
         // Connect to SurrealDB
+        let db_password = std::env::var("SHERPA_DB_PASSWORD")
+            .context("SHERPA_DB_PASSWORD environment variable is not set")?;
         let db = db::connect(
             SHERPA_DB_SERVER,
             SHERPA_DB_PORT,
             SHERPA_DB_NAMESPACE,
             SHERPA_DB_NAME,
+            &db_password,
         )
         .await
         .context("Failed to connect to SurrealDB")?;

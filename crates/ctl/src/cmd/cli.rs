@@ -47,6 +47,10 @@ enum Commands {
         /// Overwrite existing config and keys
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
+
+        /// SurrealDB password
+        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
+        db_password: String,
     },
     /// User management commands
     User {
@@ -113,8 +117,8 @@ impl Cli {
         }
 
         match &cli.commands {
-            Commands::Init { force } => {
-                init(*force).await?;
+            Commands::Init { force, db_password } => {
+                init(*force, db_password).await?;
             }
             Commands::User { commands } => {
                 user_commands(commands, &server_url, &server_connection, &cli.output).await?;

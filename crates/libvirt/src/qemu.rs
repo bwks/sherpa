@@ -19,6 +19,10 @@ impl Default for Qemu {
 
 impl Qemu {
     pub fn connect(&self) -> Result<QemuConnection> {
+        // Suppress libvirt's default error handler which prints to stderr.
+        // Errors are still returned via the Rust API.
+        virt::error::clear_error_callback();
+
         let conn = Connect::open(Some(self.uri.as_str()))?;
         Ok(QemuConnection { conn: Some(conn) })
     }

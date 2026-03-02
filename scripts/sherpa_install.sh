@@ -225,7 +225,7 @@ install_system_packages() {
     apt-get update -qq
 
     print_info "Installing packages..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 
     print_info "Enabling and starting libvirtd..."
     systemctl enable libvirtd
@@ -318,14 +318,6 @@ setup_sherpa_user() {
         print_success "Added sherpa to required groups (libvirt, kvm, docker)"
     fi
     
-    # Set libvirt default URI in sherpa user's bashrc
-    local bashrc="/opt/sherpa/.bashrc"
-    if [ ! -f "$bashrc" ] || ! grep -q 'LIBVIRT_DEFAULT_URI' "$bashrc"; then
-        echo 'export LIBVIRT_DEFAULT_URI=qemu:///system' >> "$bashrc"
-        chown sherpa:sherpa "$bashrc"
-        print_success "Set LIBVIRT_DEFAULT_URI in sherpa .bashrc"
-    fi
-
     # Add current user to sherpa group
     if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
         if ! id -nG "$ACTUAL_USER" | grep -qw sherpa; then
@@ -376,6 +368,14 @@ setup_directories() {
     chmod 775 "${SHERPA_CONFIG_DIR}"
     
     print_success "Directory permissions configured"
+
+    # Set libvirt default URI in sherpa user's bashrc
+    local bashrc="/home/sherpa/.bashrc"
+    if [ ! -f "$bashrc" ] || ! grep -q 'LIBVIRT_DEFAULT_URI' "$bashrc"; then
+        echo 'export LIBVIRT_DEFAULT_URI=qemu:///system' >> "$bashrc"
+        chown sherpa:sherpa "$bashrc"
+        print_success "Set LIBVIRT_DEFAULT_URI in sherpa .bashrc"
+    fi
 }
 
 ################################################################################
@@ -628,42 +628,103 @@ install_binaries() {
 
 install_systemd_service() {
     print_header "Installing Systemd Service"
-    
+
     # Check if systemd is available
     if ! command -v systemctl >/dev/null 2>&1; then
         print_warning "systemctl not found - skipping systemd service installation"
         print_warning "You'll need to manage sherpad manually"
         return 0
     fi
-    
-    # Get the script directory to find systemd files
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-    SERVICE_FILE="${REPO_ROOT}/systemd/sherpad.service"
-    ENV_EXAMPLE="${REPO_ROOT}/systemd/sherpad.env.example"
-    LOGROTATE_FILE="${REPO_ROOT}/systemd/logrotate.d/sherpad"
-    
-    # Check if service file exists in repo
-    if [ ! -f "$SERVICE_FILE" ]; then
-        print_error "Service file not found at: ${SERVICE_FILE}"
-        print_warning "Skipping systemd service installation"
-        return 1
-    fi
-    
+
     # Install systemd service file
     print_info "Installing systemd service file..."
-    cp "$SERVICE_FILE" /etc/systemd/system/sherpad.service
+    cat > /etc/systemd/system/sherpad.service << 'UNIT'
+[Unit]
+Description=Sherpa Daemon - VM, Container, and Unikernel Management Server
+Documentation=https://github.com/bwks/sherpa
+After=network-online.target docker.service libvirtd.service
+Wants=network-online.target
+Requires=docker.service libvirtd.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=sherpa
+Group=sherpa
+WorkingDirectory=/opt/sherpa
+
+# Run in foreground so systemd manages the process lifecycle
+ExecStart=/opt/sherpa/bin/sherpad start --foreground
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Environment configuration (optional file)
+EnvironmentFile=-/opt/sherpa/config/sherpad.env
+
+# Security hardening (basic level)
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Resource limits
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target
+UNIT
     chmod 644 /etc/systemd/system/sherpad.service
     print_success "Service file installed to /etc/systemd/system/sherpad.service"
-    
+
     # Install environment file example
-    if [ -f "$ENV_EXAMPLE" ]; then
-        print_info "Installing environment file example..."
-        cp "$ENV_EXAMPLE" "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-        chmod 640 "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-        chown sherpa:sherpa "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-    fi
-    
+    print_info "Installing environment file example..."
+    cat > "${SHERPA_CONFIG_DIR}/sherpad.env.example" << 'ENVEXAMPLE'
+# Sherpad Environment Configuration
+#
+# This is an example file. The actual environment file is at:
+#   /opt/sherpa/config/sherpad.env
+#
+# The environment file is automatically created during installation
+# with the database password you provided.
+
+# Database password (required)
+SHERPA_DB_PASSWORD=YourSecurePasswordHere
+
+# Rust logging configuration
+# Controls the verbosity of sherpad logs written to /opt/sherpa/logs/sherpad.log
+#
+# Available log levels (from least to most verbose):
+#   - error: Only critical errors that prevent operations
+#   - warn:  Warnings and errors (non-critical issues)
+#   - info:  General operational messages (recommended for production)
+#   - debug: Detailed information useful for troubleshooting
+#   - trace: Very verbose, includes all internal operations
+#
+# Default: info (if not set)
+# Recommended: info for normal operation, debug for troubleshooting
+RUST_LOG=info
+
+# Advanced: Per-module log filtering (optional)
+# You can set different log levels for different components to reduce noise
+# from dependencies while keeping detailed logs for sherpad itself.
+#
+# Example: Set sherpad to debug, but reduce dependency verbosity:
+# RUST_LOG=sherpad=debug,bollard=warn,surrealdb=warn,virt=warn
+#
+# Common dependencies to consider filtering:
+#   - bollard:    Docker client library
+#   - surrealdb:  Database client
+#   - virt:       Libvirt client
+#   - tower_http: HTTP server middleware
+
+# Custom configuration (add as needed)
+# SHERPA_CUSTOM_VAR=value
+ENVEXAMPLE
+    chmod 640 "${SHERPA_CONFIG_DIR}/sherpad.env.example"
+    chown sherpa:sherpa "${SHERPA_CONFIG_DIR}/sherpad.env.example"
+
     # Create actual environment file with database password
     print_info "Creating environment file with database password..."
     cat > "${SHERPA_CONFIG_DIR}/sherpad.env" << EOF
@@ -679,26 +740,32 @@ LIBVIRT_DEFAULT_URI=qemu:///system
 # Rust logging level (uncomment to enable)
 # RUST_LOG=info
 EOF
-    
+
     chmod 640 "${SHERPA_CONFIG_DIR}/sherpad.env"
     chown sherpa:sherpa "${SHERPA_CONFIG_DIR}/sherpad.env"
     print_success "Environment file created at ${SHERPA_CONFIG_DIR}/sherpad.env"
-    
+
     # Install logrotate configuration
-    if [ -f "$LOGROTATE_FILE" ]; then
-        print_info "Installing logrotate configuration..."
-        cp "$LOGROTATE_FILE" /etc/logrotate.d/sherpad
-        chmod 644 /etc/logrotate.d/sherpad
-        print_success "Logrotate config installed to /etc/logrotate.d/sherpad"
-    else
-        print_warning "Logrotate config not found at: ${LOGROTATE_FILE}"
-    fi
-    
+    print_info "Installing logrotate configuration..."
+    cat > /etc/logrotate.d/sherpad << 'LOGROTATE'
+/opt/sherpa/logs/sherpad.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+    chmod 644 /etc/logrotate.d/sherpad
+    print_success "Logrotate config installed to /etc/logrotate.d/sherpad"
+
     # Reload systemd to recognize new service
     print_info "Reloading systemd daemon..."
     systemctl daemon-reload
     print_success "Systemd daemon reloaded"
-    
+
     # Enable service to start on boot (don't start yet — sherpa.toml
     # must be created first via 'sherpactl init')
     print_info "Enabling sherpad service..."

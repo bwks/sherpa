@@ -51,6 +51,7 @@ pub const VETH_PREFIX: &str = "ve";
 
 pub const SHERPA_DB_NAME: &str = "sherpa";
 pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
+pub const SHERPA_DB_USER: &str = "sherpa";
 pub const SHERPA_DB_SERVER: &str = "localhost";
 pub const SHERPA_DB_PORT: u16 = 8000;
 
