@@ -21,7 +21,7 @@ Restart=on-failure
 RestartSec=5
 
 # Environment configuration (optional file)
-EnvironmentFile=-/opt/sherpa/config/sherpad.env
+EnvironmentFile=-/opt/sherpa/env/sherpa.env
 
 # Security hardening (basic level)
 NoNewPrivileges=yes

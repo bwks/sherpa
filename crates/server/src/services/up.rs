@@ -320,8 +320,9 @@ pub async fn up_lab(
     tracing::info!(lab_id = %lab_id, "Connected to libvirt/QEMU");
 
     // Connect to database
-    let db_password = std::env::var("SHERPA_DB_PASSWORD")
-        .context("SHERPA_DB_PASSWORD environment variable is not set")?;
+    let db_password = std::env::var("SHERPA_DB_PASSWORD").context(
+        "SHERPA_DB_PASSWORD environment variable is not set (check /opt/sherpa/env/sherpa.env)",
+    )?;
     let db = db::connect(
         SHERPA_DB_SERVER,
         SHERPA_DB_PORT,

@@ -1,4 +1,5 @@
 use std::io::{self, Write};
+use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result};
 
@@ -25,7 +26,11 @@ const SERVER_IMAGES_DIR: &str = "/opt/sherpa/images";
 const SERVER_CONTAINERS_DIR: &str = "/opt/sherpa/containers";
 const SERVER_BINS_DIR: &str = "/opt/sherpa/bins";
 
-pub async fn init(force: bool, db_password: &str) -> Result<()> {
+pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()> {
+    let server_ipv4: Ipv4Addr = server_ip
+        .parse()
+        .context("Invalid server IP address. Expected format: x.x.x.x")?;
+
     term_msg_surround("Sherpa Server Initializing");
 
     // Create server directories
@@ -60,7 +65,8 @@ pub async fn init(force: bool, db_password: &str) -> Result<()> {
         println!("Config file already exists: {SERVER_CONFIG_FILE}");
     } else {
         term_msg_underline("Writing Server Config");
-        let config = default_config();
+        let mut config = default_config();
+        config.server_ipv4 = server_ipv4;
         create_config(&config, SERVER_CONFIG_FILE)?;
         println!("Config written to: {SERVER_CONFIG_FILE}");
     }
