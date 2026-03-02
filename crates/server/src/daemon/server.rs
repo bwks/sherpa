@@ -23,9 +23,7 @@ use crate::api::build_router;
 use crate::api::websocket;
 use crate::daemon::state::AppState;
 use crate::tls::CertificateManager;
-use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_LOG_DIR, SHERPAD_LOG_FILE,
-};
+use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH};
 use shared::util::load_config;
 
 /// Run the sherpad server
@@ -48,9 +46,10 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             .init();
     } else {
         // Background mode: log to file without colors
-        let log_file = OpenOptions::new().create(true).append(true).open(format!(
-            "{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}/{SHERPAD_LOG_FILE}"
-        ))?;
+        let log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(SHERPAD_LOG_FILE_PATH)?;
 
         // Wrap file in Arc for thread-safe sharing
         let log_file = Arc::new(log_file);
@@ -74,9 +73,29 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     tracing::info!("Starting sherpad server");
 
     // Load configuration
-    let config_path = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}/{SHERPA_CONFIG_FILE}");
-    let config = load_config(&config_path)
+    let mut config = load_config(SHERPA_CONFIG_FILE_PATH)
         .context("Failed to load sherpa.toml config - cannot start server")?;
+
+    // Allow SHERPA_SERVER_IP env var to override the config file value
+    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IP") {
+        match ip_str.parse() {
+            Ok(ip) => {
+                tracing::info!(
+                    "Overriding server IP from SHERPA_SERVER_IP env var: {}",
+                    ip_str
+                );
+                config.server_ipv4 = ip;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Invalid SHERPA_SERVER_IP '{}': {} — using config value {}",
+                    ip_str,
+                    e,
+                    config.server_ipv4
+                );
+            }
+        }
+    }
 
     // Log server configuration
     let protocol = if config.tls.enabled { "wss" } else { "ws" };

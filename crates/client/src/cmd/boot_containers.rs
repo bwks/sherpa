@@ -5,8 +5,8 @@ use container::{Docker, run_container};
 use shared::data::{ContainerNetworkAttachment, SherpaNetwork, User, ZtpRecord};
 use shared::konst::{
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
-    DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_BASE_DIR, SHERPA_LABS_DIR,
-    SHERPA_MANAGEMENT_NETWORK_NAME, TFTP_DIR, ZTP_DIR,
+    DNSMASQ_LEASES_FILE, NODE_CONFIGS_DIR, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
+    TFTP_DIR, ZTP_DIR,
 };
 use shared::util::{create_dir, create_file, get_ipv4_addr, term_msg_underline};
 use template::{DnsmasqTemplate, SonicLinuxUserTemplate};
@@ -19,7 +19,7 @@ pub fn create_ztp_files(
 ) -> Result<()> {
     // Create ZTP files
     term_msg_underline("Creating ZTP configs");
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
 
     // Create directories
     let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
@@ -66,7 +66,7 @@ pub async fn create_boot_containers(
     lab_id: &str,
 ) -> Result<()> {
     // Setup directories for volume mounts
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
 
     // Volume mount dirs

@@ -38,7 +38,9 @@ impl BridgeNetwork {
         let network = Network::define_xml(qemu_conn, &network_xml)
             .context("Failed to define bridge network")?;
         network.create().context("Failed to start bridge network")?;
-        network.set_autostart(true).context("Failed to set bridge network autostart")?;
+        network
+            .set_autostart(true)
+            .context("Failed to set bridge network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Bridge network created and started");
 
@@ -76,8 +78,12 @@ impl IsolatedNetwork {
 
         let network = Network::define_xml(qemu_conn, &network_xml)
             .context("Failed to define isolated network")?;
-        network.create().context("Failed to start isolated network")?;
-        network.set_autostart(true).context("Failed to set isolated network autostart")?;
+        network
+            .create()
+            .context("Failed to start isolated network")?;
+        network
+            .set_autostart(true)
+            .context("Failed to set isolated network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Isolated network created and started");
 
@@ -114,8 +120,12 @@ impl ReservedNetwork {
 
         let network = Network::define_xml(qemu_conn, &network_xml)
             .context("Failed to define reserved network")?;
-        network.create().context("Failed to start reserved network")?;
-        network.set_autostart(true).context("Failed to set reserved network autostart")?;
+        network
+            .create()
+            .context("Failed to start reserved network")?;
+        network
+            .set_autostart(true)
+            .context("Failed to set reserved network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, "Reserved network created and started");
 
@@ -160,10 +170,12 @@ impl NatNetwork {
         "#
         );
 
-        let network = Network::define_xml(qemu_conn, &network_xml)
-            .context("Failed to define NAT network")?;
+        let network =
+            Network::define_xml(qemu_conn, &network_xml).context("Failed to define NAT network")?;
         network.create().context("Failed to start NAT network")?;
-        network.set_autostart(true).context("Failed to set NAT network autostart")?;
+        network
+            .set_autostart(true)
+            .context("Failed to set NAT network autostart")?;
 
         tracing::info!(network_name = %self.network_name, bridge_name = %self.bridge_name, ipv4_address = %self.ipv4_address, "NAT network created and started");
 

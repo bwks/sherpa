@@ -1,9 +1,7 @@
 use anyhow::{Context, Result};
 use axum_server::tls_rustls::RustlsConfig;
 use shared::data::TlsConfig;
-use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE, SHERPA_SERVER_KEY_FILE,
-};
+use shared::konst::{SHERPA_SERVER_CERT_PATH, SHERPA_SERVER_KEY_PATH};
 use std::path::{Path, PathBuf};
 
 use super::generator::generate_self_signed_certificate;
@@ -22,19 +20,13 @@ impl CertificateManager {
         let cert_path = if let Some(ref path) = config.cert_path {
             PathBuf::from(path)
         } else {
-            PathBuf::from(format!(
-                "{}/{}/{}",
-                SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE
-            ))
+            PathBuf::from(SHERPA_SERVER_CERT_PATH)
         };
 
         let key_path = if let Some(ref path) = config.key_path {
             PathBuf::from(path)
         } else {
-            PathBuf::from(format!(
-                "{}/{}/{}",
-                SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_KEY_FILE
-            ))
+            PathBuf::from(SHERPA_SERVER_KEY_PATH)
         };
 
         Ok(Self {

@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::Result;
 
 use shared::data::{DestroyError, DestroyResponse, DestroySummary};
-use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR};
+use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
 use shared::util::{dir_exists, load_file};
 
 use crate::daemon::state::AppState;
@@ -28,7 +28,7 @@ pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse
     let mut errors = Vec::new();
 
     // Try to load lab name from filesystem, fall back to "unknown"
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_name = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .ok()
         .and_then(|content| {

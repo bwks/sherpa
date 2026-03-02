@@ -12,9 +12,7 @@ use super::pidfile::{
     verify_not_running, write_pid,
 };
 use super::server::run_server;
-use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_LOG_FILE, SHERPAD_PID_FILE,
-};
+use shared::konst::{SHERPAD_LOG_FILE_PATH, SHERPAD_PID_FILE_PATH};
 
 /// Start the sherpad daemon
 pub async fn start_daemon(foreground: bool) -> Result<()> {
@@ -28,16 +26,12 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
     if foreground {
         // Foreground mode: run server directly in current process
         tracing::info!("Starting sherpad in foreground mode");
-        write_pid(&format!(
-            "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-        ))?;
+        write_pid(SHERPAD_PID_FILE_PATH)?;
 
         // Run server and clean up PID file on exit
         let result = run_server(true).await;
 
-        remove_pid(&format!(
-            "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-        ))?;
+        remove_pid(SHERPAD_PID_FILE_PATH)?;
 
         result
     } else {
@@ -75,16 +69,12 @@ pub async fn start_daemon(foreground: bool) -> Result<()> {
 /// Internal function to run as background child (called by start_daemon)
 pub async fn run_background_child() -> Result<()> {
     // Write our own PID
-    write_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))?;
+    write_pid(SHERPAD_PID_FILE_PATH)?;
 
     // Run server and clean up on exit
     let result = run_server(false).await;
 
-    remove_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))?;
+    remove_pid(SHERPAD_PID_FILE_PATH)?;
 
     result
 }
@@ -92,9 +82,7 @@ pub async fn run_background_child() -> Result<()> {
 /// Stop the sherpad daemon
 pub fn stop_daemon(force: bool) -> Result<()> {
     // Read PID from file
-    let pid = match read_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))? {
+    let pid = match read_pid(SHERPAD_PID_FILE_PATH)? {
         Some(pid) => pid,
         None => {
             bail!("Server is not running");
@@ -104,9 +92,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
     // Check if process is actually running
     if !is_process_running(pid) {
         tracing::warn!(pid = pid, "Server is not running (stale PID file found)");
-        remove_pid(&format!(
-            "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-        ))?;
+        remove_pid(SHERPAD_PID_FILE_PATH)?;
         return Ok(());
     }
 
@@ -131,9 +117,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
 
             if !is_process_running(pid) {
                 // Process has exited
-                remove_pid(&format!(
-                    "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-                ))?;
+                remove_pid(SHERPAD_PID_FILE_PATH)?;
                 tracing::info!("sherpad stopped successfully");
                 return Ok(());
             }
@@ -159,9 +143,7 @@ pub fn stop_daemon(force: bool) -> Result<()> {
         bail!("Failed to kill server process");
     }
 
-    remove_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))?;
+    remove_pid(SHERPAD_PID_FILE_PATH)?;
     tracing::info!("sherpad stopped successfully");
     Ok(())
 }
@@ -171,9 +153,7 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
     tracing::info!("Restarting sherpad");
 
     // Stop the daemon if it's running
-    if let Some(pid) = read_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))? {
+    if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
         if is_process_running(pid) {
             stop_daemon(false)?;
             // Give it a moment to fully stop
@@ -181,9 +161,7 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
         } else {
             // Clean up stale PID file
             tracing::debug!("Found stale PID file, cleaning up");
-            remove_pid(&format!(
-                "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-            ))?;
+            remove_pid(SHERPAD_PID_FILE_PATH)?;
         }
     }
 
@@ -193,9 +171,7 @@ pub async fn restart_daemon(foreground: bool) -> Result<()> {
 
 /// Show the status of the sherpad daemon
 pub fn status_daemon() -> Result<()> {
-    match read_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))? {
+    match read_pid(SHERPAD_PID_FILE_PATH)? {
         Some(pid) => {
             if is_process_running(pid) {
                 tracing::info!(pid = pid, "sherpad is running");
@@ -214,11 +190,10 @@ pub fn status_daemon() -> Result<()> {
 
 /// Show the logs of the sherpad daemon
 pub fn logs_daemon(follow: bool) -> Result<()> {
-    let path = format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}/{SHERPAD_LOG_FILE}");
-    let log_path = Path::new(&path);
+    let log_path = Path::new(SHERPAD_LOG_FILE_PATH);
 
     if !log_path.exists() {
-        bail!("Log file not found at {}", &path);
+        bail!("Log file not found at {}", SHERPAD_LOG_FILE_PATH);
     }
 
     if follow {
@@ -244,7 +219,7 @@ pub fn logs_daemon(follow: bool) -> Result<()> {
         // Just print the entire file
         let contents = fs::read_to_string(log_path).context(format!(
             "Failed to read log file: {}",
-            &format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}/{SHERPAD_LOG_FILE}")
+            SHERPAD_LOG_FILE_PATH
         ))?;
         print!("{}", contents);
         Ok(())

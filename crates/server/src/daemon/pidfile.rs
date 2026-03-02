@@ -4,14 +4,14 @@ use nix::unistd::Pid;
 use std::fs;
 use std::path::Path;
 
-use shared::konst::{SHERPA_BASE_DIR, SHERPA_LOG_DIR, SHERPA_RUN_DIR, SHERPAD_PID_FILE};
+use shared::konst::{SHERPA_LOG_PATH, SHERPA_RUN_PATH, SHERPAD_PID_FILE_PATH};
 
 /// Ensure the run directory exists
 pub fn ensure_run_dir() -> Result<()> {
-    if !Path::new(&format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).exists() {
-        fs::create_dir_all(format!("{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}")).context(format!(
+    if !Path::new(SHERPA_RUN_PATH).exists() {
+        fs::create_dir_all(SHERPA_RUN_PATH).context(format!(
             "Failed to create run directory: {}",
-            SHERPA_RUN_DIR
+            SHERPA_RUN_PATH
         ))?;
     }
     Ok(())
@@ -19,10 +19,10 @@ pub fn ensure_run_dir() -> Result<()> {
 
 /// Ensure the log directory exists
 pub fn ensure_log_dir() -> Result<()> {
-    if !Path::new(&format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}")).exists() {
-        fs::create_dir_all(format!("{SHERPA_BASE_DIR}/{SHERPA_LOG_DIR}")).context(format!(
+    if !Path::new(SHERPA_LOG_PATH).exists() {
+        fs::create_dir_all(SHERPA_LOG_PATH).context(format!(
             "Failed to create log directory: {}",
-            SHERPA_LOG_DIR
+            SHERPA_LOG_PATH
         ))?;
     }
     Ok(())
@@ -85,17 +85,13 @@ pub fn check_stale_pidfile(path: &str) -> Result<bool> {
 
 /// Verify server is not already running, cleaning up stale PID files if necessary
 pub fn verify_not_running() -> Result<()> {
-    if let Some(pid) = read_pid(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-    ))? {
+    if let Some(pid) = read_pid(SHERPAD_PID_FILE_PATH)? {
         if is_process_running(pid) {
             bail!("Server is already running (PID: {})", pid);
         } else {
             // Stale PID file - clean it up
             tracing::warn!("Found stale PID file, cleaning up");
-            remove_pid(&format!(
-                "{SHERPA_BASE_DIR}/{SHERPA_RUN_DIR}/{SHERPAD_PID_FILE}"
-            ))?;
+            remove_pid(SHERPAD_PID_FILE_PATH)?;
         }
     }
     Ok(())

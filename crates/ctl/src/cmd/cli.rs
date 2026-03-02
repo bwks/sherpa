@@ -5,8 +5,10 @@ use super::doctor::doctor;
 use super::image::{ImageCommands, image_commands};
 use super::init::init;
 use super::user::{UserCommands, user_commands};
-use shared::konst::{SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE};
-use shared::util::{build_websocket_url, get_server_url, load_config};
+use std::path::Path;
+
+use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_ENV_FILE_PATH};
+use shared::util::{build_websocket_url, get_server_url, load_config, read_env_file_value};
 
 #[derive(Debug, Parser)]
 #[command(name = "sherpactl")]
@@ -47,6 +49,14 @@ enum Commands {
         /// Overwrite existing config and keys
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
+
+        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
+        db_password: Option<String>,
+
+        /// Server listen IP address (also reads from SHERPA_SERVER_IP env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "server-ip", env = "SHERPA_SERVER_IP")]
+        server_ip: Option<String>,
     },
     /// User management commands
     User {
@@ -82,9 +92,7 @@ impl Cli {
         }
 
         // Resolve server URL (CLI > env > config > default)
-        let config_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}");
-        let config_file_path = format!("{config_dir}/{SHERPA_CONFIG_FILE}");
-        let config = load_config(&config_file_path).ok();
+        let config = load_config(SHERPA_CONFIG_FILE_PATH).ok();
 
         let server_url = cli
             .server_url
@@ -113,8 +121,35 @@ impl Cli {
         }
 
         match &cli.commands {
-            Commands::Init { force } => {
-                init(*force).await?;
+            Commands::Init {
+                force,
+                db_password,
+                server_ip,
+            } => {
+                let env_file = Path::new(SHERPA_ENV_FILE_PATH);
+
+                let password = match db_password {
+                    Some(p) => p.clone(),
+                    None => {
+                        read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Database password not provided. Supply it via:\n  \
+                                 1. --db-pass flag\n  \
+                                 2. SHERPA_DB_PASSWORD environment variable\n  \
+                                 3. SHERPA_DB_PASSWORD entry in {}",
+                                env_file.display()
+                            )
+                        })?
+                    }
+                };
+
+                let ip = match server_ip {
+                    Some(ip) => ip.clone(),
+                    None => read_env_file_value(env_file, "SHERPA_SERVER_IP")
+                        .unwrap_or_else(|| "0.0.0.0".to_string()),
+                };
+
+                init(*force, &password, &ip).await?;
             }
             Commands::User { commands } => {
                 user_commands(commands, &server_url, &server_connection, &cli.output).await?;

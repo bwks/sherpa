@@ -4,9 +4,7 @@ use anyhow::{Result, anyhow};
 
 use super::ssh::get_ssh_public_key;
 use crate::data::User;
-use crate::konst::{
-    SHERPA_BASE_DIR, SHERPA_PASSWORD, SHERPA_SSH_DIR, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
-};
+use crate::konst::{SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME};
 
 /// Get the username of the current user from environment variables.
 pub fn get_username() -> Result<String> {
@@ -17,9 +15,7 @@ pub fn get_username() -> Result<String> {
 /// Returns the default sherpa user and set sudo to True.
 pub fn sherpa_user() -> Result<User> {
     let username = SHERPA_USERNAME;
-    let ssh_public_key = get_ssh_public_key(&format!(
-        "{SHERPA_BASE_DIR}/{SHERPA_SSH_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"
-    ))?;
+    let ssh_public_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
     Ok(User {
         username: username.to_owned(),
         password: Some(SHERPA_PASSWORD.to_owned()),

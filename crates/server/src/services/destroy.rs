@@ -11,8 +11,8 @@ use shared::data::{
     DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, VETH_PREFIX,
+    BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    VETH_PREFIX,
 };
 use shared::util::{dir_exists, file_exists, load_file};
 use std::str::FromStr;
@@ -85,7 +85,7 @@ pub async fn destroy_lab(
     }
 
     // Load lab info from filesystem
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file. Is the lab running?")?;
     let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;

@@ -1,27 +1,34 @@
 use std::sync::Arc;
+
+use anyhow::{Context, Result};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
+
+use shared::konst::SHERPA_DB_USER;
 
 pub async fn connect(
     host: &str,
     port: u16,
     namespace: &str,
     database: &str,
-) -> surrealdb::Result<Arc<Surreal<Client>>> {
-    // docker run --rm -d --pull always --name surrealdb -p 8000:8000 surrealdb/surrealdb:v3.0.0-beta.2 start --log trace --user sherpa --pass Everest1953! memory
+    password: &str,
+) -> Result<Arc<Surreal<Client>>> {
+    let db = Surreal::new::<Ws>(format!("{host}:{port}/rpc"))
+        .await
+        .context("Failed to connect to SurrealDB")?;
 
-    let db = Surreal::new::<Ws>(format!("{host}:{port}/rpc")).await?;
-
-    // Sign in as root
     db.signin(Root {
-        username: "sherpa".to_string(),
-        password: "Everest1953!".to_string(),
+        username: SHERPA_DB_USER.to_string(),
+        password: password.to_string(),
     })
-    .await?;
+    .await
+    .context("There was a problem with database authentication")?;
 
-    // Select namespace and database
-    db.use_ns(namespace).use_db(database).await?;
+    db.use_ns(namespace)
+        .use_db(database)
+        .await
+        .context("Failed to select namespace and database")?;
 
     Ok(Arc::new(db))
 }

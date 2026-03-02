@@ -35,6 +35,7 @@ DB_DATABASE="sherpa"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
+SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 MIN_PASSWORD_LENGTH=8
 
 # GitHub release configuration
@@ -89,23 +90,26 @@ Install all Sherpa dependencies and set up SurrealDB container.
 Installs QEMU/KVM, libvirt, Docker, and supporting tools, then pulls and
 starts a SurrealDB container and installs Sherpa binaries from GitHub releases.
 
+The script will prompt for the SurrealDB password during installation.
+You can also set it via the SHERPA_DB_PASSWORD environment variable.
+
 Options:
-  --db-pass PASSWORD    Set SurrealDB password
   --version VERSION     Install a specific version (e.g. v0.3.4)
                         If omitted, the latest release is used
   -h, --help           Show this help message
 
 Environment Variables:
-  SHERPA_DB_PASSWORD   SurrealDB password (alternative to --db-pass)
+  SHERPA_DB_PASSWORD   SurrealDB password (skips interactive prompt)
+  SHERPA_SERVER_IP     Server listen IP address (skips interactive prompt)
 
 Examples:
-  # Using command line flag
-  sudo $0 --db-pass "MySecurePassword123"
+  # Interactive (will prompt for password)
+  sudo $0
 
   # Install a specific version
-  sudo $0 --db-pass "MySecurePassword123" --version v0.3.4
+  sudo $0 --version v0.3.4
 
-  # Using environment variable
+  # Non-interactive via environment variable
   export SHERPA_DB_PASSWORD="MySecurePassword123"
   sudo -E $0
 
@@ -225,7 +229,7 @@ install_system_packages() {
     apt-get update -qq
 
     print_info "Installing packages..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 
     print_info "Enabling and starting libvirtd..."
     systemctl enable libvirtd
@@ -258,26 +262,64 @@ install_docker() {
 
 get_database_password() {
     print_info "Validating database password..."
-    
-    # Priority: command line flag > environment variable
-    if [ -z "$DB_PASSWORD" ]; then
-        print_error "Database password not provided"
+
+    # Use environment variable if already set
+    if [ -n "$DB_PASSWORD" ]; then
+        print_info "Using password from environment"
+    else
+        # Prompt interactively
         echo ""
-        echo "You must provide a password using one of these methods:"
-        echo "  1. Command line: --db-pass \"YourPassword\""
-        echo "  2. Environment:  export SHERPA_DB_PASSWORD=\"YourPassword\""
-        echo ""
-        show_usage
-        exit 1
+        while true; do
+            read -r -s -p "Enter SurrealDB password: " DB_PASSWORD
+            echo ""
+            read -r -s -p "Confirm password: " DB_PASSWORD_CONFIRM
+            echo ""
+
+            if [ "$DB_PASSWORD" != "$DB_PASSWORD_CONFIRM" ]; then
+                print_error "Passwords do not match, please try again"
+                continue
+            fi
+
+            if [ -z "$DB_PASSWORD" ]; then
+                print_error "Password cannot be empty"
+                continue
+            fi
+
+            break
+        done
     fi
-    
+
     # Validate password length
     if [ ${#DB_PASSWORD} -lt $MIN_PASSWORD_LENGTH ]; then
         print_error "Password must be at least ${MIN_PASSWORD_LENGTH} characters long"
         exit 1
     fi
-    
+
     print_success "Password validated"
+}
+
+get_server_ip() {
+    print_info "Configuring server listen address..."
+
+    # Use environment variable if already set
+    if [ -n "$SERVER_IP" ]; then
+        print_info "Using server IP from environment: ${SERVER_IP}"
+    else
+        echo ""
+        print_info "The server IP address determines which network interface sherpad listens on."
+        print_info "Use 0.0.0.0 to listen on all interfaces (recommended for remote access)."
+        echo ""
+        read -r -p "Server listen IP address [0.0.0.0]: " SERVER_IP
+        SERVER_IP="${SERVER_IP:-0.0.0.0}"
+    fi
+
+    # Basic validation: check it looks like an IPv4 address
+    if ! echo "$SERVER_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+        print_error "Invalid IPv4 address: ${SERVER_IP}"
+        exit 1
+    fi
+
+    print_success "Server will listen on ${SERVER_IP}"
 }
 
 ################################################################################
@@ -318,14 +360,6 @@ setup_sherpa_user() {
         print_success "Added sherpa to required groups (libvirt, kvm, docker)"
     fi
     
-    # Set libvirt default URI in sherpa user's bashrc
-    local bashrc="/opt/sherpa/.bashrc"
-    if [ ! -f "$bashrc" ] || ! grep -q 'LIBVIRT_DEFAULT_URI' "$bashrc"; then
-        echo 'export LIBVIRT_DEFAULT_URI=qemu:///system' >> "$bashrc"
-        chown sherpa:sherpa "$bashrc"
-        print_success "Set LIBVIRT_DEFAULT_URI in sherpa .bashrc"
-    fi
-
     # Add current user to sherpa group
     if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
         if ! id -nG "$ACTUAL_USER" | grep -qw sherpa; then
@@ -368,13 +402,22 @@ setup_directories() {
     else
         print_info "Directory ${SHERPA_CONFIG_DIR} already exists"
     fi
-    
+
+    # Create env directory
+    if [ ! -d "${SHERPA_ENV_DIR}" ]; then
+        mkdir -p "${SHERPA_ENV_DIR}"
+        print_success "Created ${SHERPA_ENV_DIR}"
+    else
+        print_info "Directory ${SHERPA_ENV_DIR} already exists"
+    fi
+
     # Set ownership and permissions
     chown -R sherpa:sherpa "${SHERPA_BASE_DIR}"
     chmod 775 "${SHERPA_BASE_DIR}"
     chmod 775 "${SHERPA_DB_DIR}"
     chmod 775 "${SHERPA_CONFIG_DIR}"
-    
+    chmod 750 "${SHERPA_ENV_DIR}"
+
     print_success "Directory permissions configured"
 }
 
@@ -628,50 +671,120 @@ install_binaries() {
 
 install_systemd_service() {
     print_header "Installing Systemd Service"
-    
+
     # Check if systemd is available
     if ! command -v systemctl >/dev/null 2>&1; then
         print_warning "systemctl not found - skipping systemd service installation"
         print_warning "You'll need to manage sherpad manually"
         return 0
     fi
-    
-    # Get the script directory to find systemd files
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-    SERVICE_FILE="${REPO_ROOT}/systemd/sherpad.service"
-    ENV_EXAMPLE="${REPO_ROOT}/systemd/sherpad.env.example"
-    LOGROTATE_FILE="${REPO_ROOT}/systemd/logrotate.d/sherpad"
-    
-    # Check if service file exists in repo
-    if [ ! -f "$SERVICE_FILE" ]; then
-        print_error "Service file not found at: ${SERVICE_FILE}"
-        print_warning "Skipping systemd service installation"
-        return 1
-    fi
-    
+
     # Install systemd service file
     print_info "Installing systemd service file..."
-    cp "$SERVICE_FILE" /etc/systemd/system/sherpad.service
+    cat > /etc/systemd/system/sherpad.service << 'UNIT'
+[Unit]
+Description=Sherpa Daemon - VM, Container, and Unikernel Management Server
+Documentation=https://github.com/bwks/sherpa
+After=network-online.target docker.service libvirtd.service
+Wants=network-online.target
+Requires=docker.service libvirtd.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+User=sherpa
+Group=sherpa
+WorkingDirectory=/opt/sherpa
+
+# Run in foreground so systemd manages the process lifecycle
+ExecStart=/opt/sherpa/bin/sherpad start --foreground
+
+# Restart policy
+Restart=on-failure
+RestartSec=5
+
+# Environment configuration (optional file)
+EnvironmentFile=-/opt/sherpa/env/sherpa.env
+
+# Security hardening (basic level)
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+# Resource limits
+LimitNOFILE=65536
+TasksMax=4096
+
+[Install]
+WantedBy=multi-user.target
+UNIT
     chmod 644 /etc/systemd/system/sherpad.service
     print_success "Service file installed to /etc/systemd/system/sherpad.service"
-    
+
     # Install environment file example
-    if [ -f "$ENV_EXAMPLE" ]; then
-        print_info "Installing environment file example..."
-        cp "$ENV_EXAMPLE" "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-        chmod 640 "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-        chown sherpa:sherpa "${SHERPA_CONFIG_DIR}/sherpad.env.example"
-    fi
-    
+    print_info "Installing environment file example..."
+    cat > "${SHERPA_ENV_DIR}/sherpa.env.example" << 'ENVEXAMPLE'
+# Sherpa Environment Configuration
+#
+# This is an example file. The actual environment file is at:
+#   /opt/sherpa/env/sherpa.env
+#
+# The environment file is automatically created during installation
+# with the database password you provided.
+
+# Database password (required)
+SHERPA_DB_PASSWORD=YourSecurePasswordHere
+
+# Server listen IP address (0.0.0.0 for all interfaces)
+SHERPA_SERVER_IP=0.0.0.0
+
+# Libvirt connection URI
+LIBVIRT_DEFAULT_URI=qemu:///system
+
+# Rust logging configuration
+# Controls the verbosity of sherpad logs written to /opt/sherpa/logs/sherpad.log
+#
+# Available log levels (from least to most verbose):
+#   - error: Only critical errors that prevent operations
+#   - warn:  Warnings and errors (non-critical issues)
+#   - info:  General operational messages (recommended for production)
+#   - debug: Detailed information useful for troubleshooting
+#   - trace: Very verbose, includes all internal operations
+#
+# Default: info (if not set)
+# Recommended: info for normal operation, debug for troubleshooting
+RUST_LOG=info
+
+# Advanced: Per-module log filtering (optional)
+# You can set different log levels for different components to reduce noise
+# from dependencies while keeping detailed logs for sherpad itself.
+#
+# Example: Set sherpad to debug, but reduce dependency verbosity:
+# RUST_LOG=sherpad=debug,bollard=warn,surrealdb=warn,virt=warn
+#
+# Common dependencies to consider filtering:
+#   - bollard:    Docker client library
+#   - surrealdb:  Database client
+#   - virt:       Libvirt client
+#   - tower_http: HTTP server middleware
+
+# Custom configuration (add as needed)
+# SHERPA_CUSTOM_VAR=value
+ENVEXAMPLE
+    chmod 640 "${SHERPA_ENV_DIR}/sherpa.env.example"
+    chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env.example"
+
     # Create actual environment file with database password
     print_info "Creating environment file with database password..."
-    cat > "${SHERPA_CONFIG_DIR}/sherpad.env" << EOF
-# Sherpad Environment Configuration
+    cat > "${SHERPA_ENV_DIR}/sherpa.env" << EOF
+# Sherpa Environment Configuration
 # Generated by sherpa_install.sh on $(date)
 
 # Database password
 SHERPA_DB_PASSWORD=${DB_PASSWORD}
+
+# Server listen IP address
+SHERPA_SERVER_IP=${SERVER_IP}
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -679,26 +792,32 @@ LIBVIRT_DEFAULT_URI=qemu:///system
 # Rust logging level (uncomment to enable)
 # RUST_LOG=info
 EOF
-    
-    chmod 640 "${SHERPA_CONFIG_DIR}/sherpad.env"
-    chown sherpa:sherpa "${SHERPA_CONFIG_DIR}/sherpad.env"
-    print_success "Environment file created at ${SHERPA_CONFIG_DIR}/sherpad.env"
-    
+
+    chmod 640 "${SHERPA_ENV_DIR}/sherpa.env"
+    chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env"
+    print_success "Environment file created at ${SHERPA_ENV_DIR}/sherpa.env"
+
     # Install logrotate configuration
-    if [ -f "$LOGROTATE_FILE" ]; then
-        print_info "Installing logrotate configuration..."
-        cp "$LOGROTATE_FILE" /etc/logrotate.d/sherpad
-        chmod 644 /etc/logrotate.d/sherpad
-        print_success "Logrotate config installed to /etc/logrotate.d/sherpad"
-    else
-        print_warning "Logrotate config not found at: ${LOGROTATE_FILE}"
-    fi
-    
+    print_info "Installing logrotate configuration..."
+    cat > /etc/logrotate.d/sherpad << 'LOGROTATE'
+/opt/sherpa/logs/sherpad.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+    chmod 644 /etc/logrotate.d/sherpad
+    print_success "Logrotate config installed to /etc/logrotate.d/sherpad"
+
     # Reload systemd to recognize new service
     print_info "Reloading systemd daemon..."
     systemctl daemon-reload
     print_success "Systemd daemon reloaded"
-    
+
     # Enable service to start on boot (don't start yet — sherpa.toml
     # must be created first via 'sherpactl init')
     print_info "Enabling sherpad service..."
@@ -750,8 +869,9 @@ Useful Commands:
     Disable:       sudo systemctl disable sherpad
 
 Next Steps:
-  1. Run 'sudo sherpactl init' to initialize the server environment
-  2. Run 'sudo systemctl start sherpad' to start the service
+  1. Run: 'exec sg libvirt -c "newgrp $(id -gn)"'  -- to load new groups
+  2. Run: 'sherpactl init'                                           -- to initialize the server environment
+  3. Run: 'sudo systemctl start sherpad'                 -- to start the service
 
 EOF
 
@@ -796,13 +916,10 @@ cleanup_on_error() {
 main() {
     # Parse command line arguments
     DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
-    
+    SERVER_IP="${SHERPA_SERVER_IP:-}"
+
     while [ $# -gt 0 ]; do
         case "$1" in
-            --db-pass)
-                DB_PASSWORD="$2"
-                shift 2
-                ;;
             --version)
                 SHERPA_VERSION="$2"
                 shift 2
@@ -829,6 +946,7 @@ main() {
     check_root_privileges
     check_curl_installed
     get_database_password
+    get_server_ip
 
     echo ""
     print_info "Starting installation..."

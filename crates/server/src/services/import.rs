@@ -4,7 +4,7 @@ use shared::data::{
     ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse, NodeConfig,
     NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse, ScannedImage,
 };
-use shared::konst::{SHERPA_BASE_DIR, SHERPA_IMAGES_DIR};
+use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{copy_file, create_dir, file_exists, fix_permissions_recursive};
 
 use crate::daemon::state::AppState;
@@ -24,7 +24,7 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         anyhow::bail!("Source file does not exist: {}", request.src);
     }
 
-    let images_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}");
+    let images_dir = SHERPA_IMAGES_PATH.to_owned();
     let model_dir = format!("{images_dir}/{}", request.model);
     let version_dir = format!("{model_dir}/{}", request.version);
     let version_disk = format!("{version_dir}/virtioa.qcow2");
@@ -121,7 +121,7 @@ pub async fn scan_images(
     request: ScanImagesRequest,
     state: &AppState,
 ) -> Result<ScanImagesResponse> {
-    let images_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}");
+    let images_dir = SHERPA_IMAGES_PATH.to_owned();
     let mut scanned: Vec<ScannedImage> = Vec::new();
     let mut total_imported: usize = 0;
 

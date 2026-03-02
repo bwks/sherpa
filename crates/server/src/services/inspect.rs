@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use shared::data::{
     BridgeInfo, DbNode, DeviceInfo, InspectRequest, InspectResponse, LabInfo, LinkInfo, RecordId,
 };
-use shared::konst::{LAB_FILE_NAME, SHERPA_BASE_DIR, SHERPA_LABS_DIR, SHERPA_STORAGE_POOL};
+use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::{get_dhcp_leases, load_file};
 use std::str::FromStr;
 use virt::storage_pool::StoragePool;
@@ -48,7 +48,7 @@ pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<In
     }
 
     // Load lab info from filesystem
-    let lab_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_LABS_DIR}/{lab_id}");
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file. Is the lab running?")?;
     let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
