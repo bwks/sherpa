@@ -5,6 +5,7 @@ mod emoji;
 mod encode;
 mod env;
 mod file_system;
+mod host;
 mod interface;
 mod ip;
 mod mac;
@@ -35,6 +36,9 @@ pub use file_system::{
     copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_symlink, create_ztp_iso,
     fix_permissions_recursive,
 };
+#[cfg(feature = "netinfo")]
+pub use host::get_non_loopback_ipv4_addresses;
+pub use host::{get_fqdn, get_hostname};
 pub use interface::{interface_from_idx, interface_to_idx, node_model_interfaces};
 pub use ip::{
     allocate_loopback_subnet, allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network,

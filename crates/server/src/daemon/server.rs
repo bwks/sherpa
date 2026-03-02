@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -138,14 +138,61 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let cert_mgr =
             CertificateManager::new(&config.tls).context("Failed to create certificate manager")?;
 
-        // Determine SANs from config or use server IP as default
+        // Determine SANs from config or auto-detect
         let mut san = config.tls.san.clone();
         if san.is_empty() {
-            san.push(format!("IP:{}", config.server_ipv4));
-            tracing::info!(
-                "No SANs configured, using server IP: {}",
-                config.server_ipv4
-            );
+            if config.server_ipv4 == Ipv4Addr::UNSPECIFIED {
+                // Listening on 0.0.0.0 — add all non-loopback IPv4 interface addresses
+                match shared::util::get_non_loopback_ipv4_addresses() {
+                    Ok(addrs) => {
+                        for ip in &addrs {
+                            san.push(format!("IP:{ip}"));
+                        }
+                        tracing::info!(
+                            "Server listening on 0.0.0.0, auto-detected interface IPs for SANs: {:?}",
+                            san
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            "Failed to enumerate network interfaces: {}. Falling back to 0.0.0.0 SAN",
+                            e
+                        );
+                        san.push(format!("IP:{}", config.server_ipv4));
+                    }
+                }
+            } else {
+                san.push(format!("IP:{}", config.server_ipv4));
+                tracing::info!(
+                    "No SANs configured, using server IP: {}",
+                    config.server_ipv4
+                );
+            }
+
+            // Always add localhost and loopback
+            san.push("DNS:localhost".to_string());
+            san.push("IP:127.0.0.1".to_string());
+
+            // Add hostname and FQDN
+            match shared::util::get_hostname() {
+                Ok(hostname) => {
+                    san.push(format!("DNS:{hostname}"));
+                    // If hostname has no dots, try to resolve FQDN
+                    if !hostname.contains('.')
+                        && let Some(fqdn) = shared::util::get_fqdn()
+                        && fqdn != hostname
+                    {
+                        san.push(format!("DNS:{fqdn}"));
+                        tracing::info!("Added FQDN SAN: {}", fqdn);
+                    }
+                    tracing::info!("Added hostname SAN: {}", hostname);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to get hostname: {}, skipping hostname SAN", e);
+                }
+            }
+
+            tracing::info!("Auto-generated SANs: {:?}", san);
         }
 
         // Ensure certificates exist (generate if needed)
