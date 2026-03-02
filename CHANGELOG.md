@@ -2,11 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.3] - 2026-03-02
+## [0.3.4] - 2026-03-02
 
 ### Miscellaneous
 
-- Merge pull request #89 from bwks/installer
+- Merge pull request #90 from bwks/init-script
 
-version bump + installer by @bwks in [#89](https://github.com/bwks/sherpa/pull/89) ([acdde9b](https://github.com/bwks/sherpa/commit/acdde9b7a881204cf1aa6f60d2d40a1cc7155d56))
+Init script by @bwks in [#90](https://github.com/bwks/sherpa/pull/90) ([e4b4c9c](https://github.com/bwks/sherpa/commit/e4b4c9c1294d82e2fe4aff4b23b44e28c7b4a654))
 
