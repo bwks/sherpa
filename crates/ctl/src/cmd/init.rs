@@ -83,20 +83,12 @@ pub async fn init(force: bool) -> Result<()> {
     let qemu = Qemu::default();
     let qemu_conn = qemu.connect()?;
 
-    if qemu_conn
-        .list_networks()?
-        .iter()
-        .any(|net| net == SHERPA_BRIDGE_NETWORK_NAME)
-    {
-        println!("Network already exists: {SHERPA_BRIDGE_NETWORK_NAME}");
-    } else {
-        println!("Creating network: {SHERPA_BRIDGE_NETWORK_NAME}");
-        let bridge_network = BridgeNetwork {
-            network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
-            bridge_name: SHERPA_BRIDGE_NETWORK_BRIDGE.to_owned(),
-        };
-        bridge_network.create(&qemu_conn)?;
-    }
+    println!("Creating network: {SHERPA_BRIDGE_NETWORK_NAME}");
+    let bridge_network = BridgeNetwork {
+        network_name: SHERPA_BRIDGE_NETWORK_NAME.to_owned(),
+        bridge_name: SHERPA_BRIDGE_NETWORK_BRIDGE.to_owned(),
+    };
+    bridge_network.create(&qemu_conn)?;
 
     let storage_pool = SherpaStoragePool {
         name: SHERPA_STORAGE_POOL.to_owned(),

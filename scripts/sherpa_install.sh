@@ -318,6 +318,14 @@ setup_sherpa_user() {
         print_success "Added sherpa to required groups (libvirt, kvm, docker)"
     fi
     
+    # Set libvirt default URI in sherpa user's bashrc
+    local bashrc="/opt/sherpa/.bashrc"
+    if [ ! -f "$bashrc" ] || ! grep -q 'LIBVIRT_DEFAULT_URI' "$bashrc"; then
+        echo 'export LIBVIRT_DEFAULT_URI=qemu:///system' >> "$bashrc"
+        chown sherpa:sherpa "$bashrc"
+        print_success "Set LIBVIRT_DEFAULT_URI in sherpa .bashrc"
+    fi
+
     # Add current user to sherpa group
     if [ -n "$ACTUAL_USER" ] && [ "$ACTUAL_USER" != "root" ]; then
         if ! id -nG "$ACTUAL_USER" | grep -qw sherpa; then
@@ -664,6 +672,9 @@ install_systemd_service() {
 
 # Database password
 SHERPA_DB_PASSWORD=${DB_PASSWORD}
+
+# Libvirt connection URI
+LIBVIRT_DEFAULT_URI=qemu:///system
 
 # Rust logging level (uncomment to enable)
 # RUST_LOG=info
