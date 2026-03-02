@@ -29,7 +29,7 @@ use crate::user::{create_user, get_user};
 /// # use db::{connect, seed_admin_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let password = std::env::var("SHERPA_ADMIN_PASSWORD")?;
 ///
 /// if seed_admin_user(&db, &password).await? {

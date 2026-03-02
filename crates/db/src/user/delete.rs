@@ -28,7 +28,7 @@ use crate::helpers::get_user_id;
 /// # use db::{connect, create_user, delete_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 ///
 /// // Create a user
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
@@ -74,7 +74,7 @@ pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// # use db::{connect, create_user, delete_user_by_username};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 ///
 /// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 ///
@@ -123,7 +123,7 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 /// # use db::{connect, create_user, create_lab, delete_user_safe};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 ///
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.clone().expect("User should have ID");

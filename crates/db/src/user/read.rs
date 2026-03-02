@@ -24,7 +24,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # use db::{connect, create_user, get_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 ///
 /// let user = get_user(&db, "alice").await?;
@@ -60,7 +60,7 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
 /// # use db::{connect, create_user, get_user_by_id};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let created = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = created.id.expect("User should have ID");
 ///
@@ -94,7 +94,7 @@ pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<O
 /// # use db::{connect, create_user, list_users};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// create_user(&db, "bob".to_string(), "Pass123!", false, vec![]).await?;
 ///
@@ -128,7 +128,7 @@ pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
 /// # use db::{connect, create_user, count_users};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 ///
 /// let initial_count = count_users(&db).await?;
 /// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;

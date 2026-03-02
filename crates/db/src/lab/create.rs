@@ -64,7 +64,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// # use db::{connect, create_lab, create_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
 /// assert_eq!(lab.name, "My Lab");
@@ -126,7 +126,7 @@ pub async fn create_lab(
 /// # use shared::data::{DbLab, RecordId};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
 /// let user_id = user.id.unwrap();
 ///

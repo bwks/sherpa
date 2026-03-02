@@ -23,7 +23,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let id= RecordId::new("link", "abc123");
 /// let link = get_link(&db, id).await?;
 /// # Ok(())
@@ -76,7 +76,7 @@ pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let node_a_id= RecordId::new("node", "node1");
 /// let node_b_id= RecordId::new("node", "node2");
 /// let link = get_link_by_peers(&db, node_a_id, node_b_id, "eth0", "eth0").await?;
@@ -132,7 +132,7 @@ pub async fn get_link_by_peers(
 /// # use db::{connect, list_links};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let links = list_links(&db).await?;
 /// println!("Found {} links", links.len());
 /// # Ok(())
@@ -165,7 +165,7 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let lab_id= RecordId::new("lab", "lab1");
 /// let links = list_links_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} links", links.len());
@@ -203,7 +203,7 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let node_id= RecordId::new("node", "node1");
 /// let links = list_links_by_node(&db, node_id).await?;
 /// println!("Node has {} links", links.len());
@@ -240,7 +240,7 @@ pub async fn list_links_by_node(
 /// # use db::{connect, count_links};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let count = count_links(&db).await?;
 /// println!("Total links: {}", count);
 /// # Ok(())
@@ -274,7 +274,7 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let lab_id= RecordId::new("lab", "lab1");
 /// let count = count_links_by_lab(&db, lab_id).await?;
 /// println!("Lab contains {} links", count);
@@ -312,7 +312,7 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let node_id= RecordId::new("node", "node1");
 /// let count = count_links_by_node(&db, node_id).await?;
 /// println!("Node has {} links", count);

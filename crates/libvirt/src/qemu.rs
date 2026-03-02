@@ -49,10 +49,10 @@ impl Deref for QemuConnection {
 
 impl Drop for QemuConnection {
     fn drop(&mut self) {
-        if let Some(mut conn) = self.conn.take() {
-            if let Err(e) = conn.close() {
-                tracing::error!("Failed to close libvirt connection: {}", e);
-            }
+        if let Some(mut conn) = self.conn.take()
+            && let Err(e) = conn.close()
+        {
+            tracing::error!("Failed to close libvirt connection: {}", e);
         }
     }
 }
