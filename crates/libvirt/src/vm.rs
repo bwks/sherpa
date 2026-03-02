@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use virt::connect::Connect;
 use virt::domain::Domain;
@@ -92,6 +92,38 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
     Ok(())
 }
 
+/// Resize a volume in the storage pool via the libvirt API.
+pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
+    anyhow::ensure!(size_gb > 0, "Disk size must be greater than 0 GB");
+
+    let capacity_bytes = u64::from(size_gb) * 1024 * 1024 * 1024;
+    let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
+    let vol = StorageVol::lookup_by_path(conn, path)
+        .with_context(|| format!("Volume not found at path: {path}"))?;
+
+    let info = vol
+        .get_info()
+        .with_context(|| format!("Failed to get volume info for: {path}"))?;
+
+    if capacity_bytes <= info.capacity {
+        anyhow::bail!(
+            "Requested size {}G ({} bytes) must be larger than current size ({} bytes) for: {}",
+            size_gb,
+            capacity_bytes,
+            info.capacity,
+            path
+        );
+    }
+
+    pool.refresh(0)
+        .with_context(|| "Failed to refresh storage pool before resize")?;
+
+    vol.resize(capacity_bytes, 0)
+        .with_context(|| format!("Failed to resize volume '{path}' to {size_gb}G"))?;
+
+    Ok(())
+}
+
 /// Delete a volume from the storage pool.
 pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
@@ -123,5 +155,15 @@ pub fn get_mgmt_ip(conn: &Connect, vm_name: &str) -> Result<Option<String>> {
             None => Ok(None),
         },
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn test_resize_disk_size_gb_to_bytes_conversion() {
+        let size_gb: u16 = 100;
+        let capacity_bytes = u64::from(size_gb) * 1024 * 1024 * 1024;
+        assert_eq!(capacity_bytes, 107_374_182_400);
     }
 }

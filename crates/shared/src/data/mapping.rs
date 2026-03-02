@@ -15,6 +15,7 @@ pub struct NodeConnection {
 pub struct CloneDisk {
     pub src: String,
     pub dst: String,
+    pub disk_size: Option<u16>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
