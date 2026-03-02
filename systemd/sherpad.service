@@ -4,27 +4,21 @@ Documentation=https://github.com/bwks/sherpa
 After=network-online.target docker.service libvirtd.service
 Wants=network-online.target
 Requires=docker.service libvirtd.service
+StartLimitBurst=5
+StartLimitIntervalSec=60
 
 [Service]
-Type=forking
+Type=simple
 User=sherpa
 Group=sherpa
 WorkingDirectory=/opt/sherpa
 
-# Start daemon in background mode (logs to /opt/sherpa/logs/sherpad.log)
-ExecStart=/opt/sherpa/bin/sherpad start
-
-# Graceful stop using daemon's built-in stop command
-ExecStop=/opt/sherpa/bin/sherpad stop
-
-# PID file location (managed by daemon)
-PIDFile=/opt/sherpa/run/sherpad.pid
+# Run in foreground so systemd manages the process lifecycle
+ExecStart=/opt/sherpa/bin/sherpad start --foreground
 
 # Restart policy
 Restart=on-failure
 RestartSec=5
-StartLimitBurst=5
-StartLimitIntervalSec=60
 
 # Environment configuration (optional file)
 EnvironmentFile=-/opt/sherpa/config/sherpad.env

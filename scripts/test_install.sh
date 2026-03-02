@@ -39,12 +39,30 @@ echo "║  Sherpa Install Script - Automated Tests  ║"
 echo "╚═══════════════════════════════════════════╝"
 echo ""
 
+# A valid release version is required for install tests that download binaries.
+# Set SHERPA_TEST_VERSION to a known release tag, or the tests will attempt to
+# use the latest release from GitHub.
+VERSION_FLAG=""
+if [ -n "${SHERPA_TEST_VERSION:-}" ]; then
+    VERSION_FLAG="--version ${SHERPA_TEST_VERSION}"
+    echo "Using test version: ${SHERPA_TEST_VERSION}"
+else
+    echo "No SHERPA_TEST_VERSION set — install tests will use the latest GitHub release"
+fi
+echo ""
+
 # Test 1: Help messages
 print_test "Help Messages"
 if ./scripts/sherpa_install.sh --help | grep -q "Usage:"; then
     pass "Install help message displays"
 else
     fail "Install help message"
+fi
+
+if ./scripts/sherpa_install.sh --help | grep -q "\-\-version"; then
+    pass "Install help shows --version flag"
+else
+    fail "Install help missing --version flag"
 fi
 
 if ./scripts/sherpa_uninstall.sh --help | grep -q "Usage:"; then
@@ -95,7 +113,7 @@ pass "Port check logic exists in script"
 # Test 7: Fresh installation
 print_test "Fresh Installation"
 echo "Running install with password 'Everest1953!'..."
-if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" 2>&1 | grep -q "Installation Complete"; then
+if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" ${VERSION_FLAG} 2>&1 | grep -q "Installation Complete"; then
     pass "Installation completed successfully"
 else
     fail "Installation failed"
@@ -163,7 +181,7 @@ fi
 # Test 13: Re-run installation (idempotency)
 print_test "Idempotent Installation"
 echo "Running install again..."
-if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" 2>&1 | grep -q "Installation Complete"; then
+if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" ${VERSION_FLAG} 2>&1 | grep -q "Installation Complete"; then
     pass "Re-running install succeeded"
 else
     fail "Re-run installation failed"
@@ -199,7 +217,7 @@ fi
 
 # Test 15: Reinstall with existing data
 print_test "Reinstall with Existing Data"
-if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" 2>&1 | grep -q "Installation Complete"; then
+if sudo ./scripts/sherpa_install.sh --db-pass "Everest1953!" ${VERSION_FLAG} 2>&1 | grep -q "Installation Complete"; then
     pass "Reinstall with existing data succeeded"
 else
     fail "Reinstall failed"
@@ -223,7 +241,7 @@ fi
 # Test 17: Environment variable password
 print_test "Environment Variable Password"
 export SHERPA_DB_PASSWORD="Everest1953!"
-if sudo -E ./scripts/sherpa_install.sh 2>&1 | grep -q "Installation Complete"; then
+if sudo -E ./scripts/sherpa_install.sh ${VERSION_FLAG} 2>&1 | grep -q "Installation Complete"; then
     pass "Password from environment variable accepted"
 else
     fail "Environment variable password not working"
