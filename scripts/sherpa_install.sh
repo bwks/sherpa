@@ -869,9 +869,9 @@ Useful Commands:
     Disable:       sudo systemctl disable sherpad
 
 Next Steps:
-  1. Run 'exec newgrp' to load new groups
-  2. Run 'sherpactl init' to initialize the server environment
-  3. Run 'sudo systemctl start sherpad' to start the service
+  1. Run: 'exec sg libvirt -c "newgrp $(id -gn)"'  -- to load new groups
+  2. Run: 'sherpactl init'                                           -- to initialize the server environment
+  3. Run: 'sudo systemctl start sherpad'                 -- to start the service
 
 EOF
 
