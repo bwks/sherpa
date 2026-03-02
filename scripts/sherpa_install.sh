@@ -91,7 +91,7 @@ starts a SurrealDB container and installs Sherpa binaries from GitHub releases.
 
 Options:
   --db-pass PASSWORD    Set SurrealDB password
-  --version VERSION     Install a specific version (e.g. v0.3.3)
+  --version VERSION     Install a specific version (e.g. v0.3.4)
                         If omitted, the latest release is used
   -h, --help           Show this help message
 
@@ -103,7 +103,7 @@ Examples:
   sudo $0 --db-pass "MySecurePassword123"
 
   # Install a specific version
-  sudo $0 --db-pass "MySecurePassword123" --version v0.3.3
+  sudo $0 --db-pass "MySecurePassword123" --version v0.3.4
 
   # Using environment variable
   export SHERPA_DB_PASSWORD="MySecurePassword123"
