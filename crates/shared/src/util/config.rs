@@ -6,14 +6,14 @@ use std::str::FromStr;
 use anyhow::Result;
 use ipnet::Ipv4Net;
 
-use super::file_system::{create_file, expand_path};
+use super::file_system::create_file;
 use crate::data::{
     ClientConfig, Config, ConfigurationManagement, ContainerImage, ServerConnection, TlsConfig,
     VmProviders, ZtpServer,
 };
 use crate::konst::{
-    QEMU_BIN, SHERPA_BASE_DIR, SHERPA_BINS_DIR, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_DIR,
-    SHERPA_IMAGES_DIR, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
+    QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_USERNAME,
 };
 
 /// Build WebSocket URL from config
@@ -87,9 +87,9 @@ pub fn default_config() -> Config {
         password: Some(SHERPA_PASSWORD.to_owned()),
     };
 
-    let boxes_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_IMAGES_DIR}"));
-    let containers_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_CONTAINERS_DIR}"));
-    let bins_dir = expand_path(&format!("{SHERPA_BASE_DIR}/{SHERPA_BINS_DIR}"));
+    let boxes_dir = SHERPA_IMAGES_PATH.to_owned();
+    let containers_dir = SHERPA_CONTAINERS_PATH.to_owned();
+    let bins_dir = SHERPA_BINS_PATH.to_owned();
 
     Config {
         name: SHERPA_CONFIG_FILE.to_owned(),

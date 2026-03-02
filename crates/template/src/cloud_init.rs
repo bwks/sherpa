@@ -6,8 +6,7 @@ use serde_derive::{Deserialize, Serialize};
 
 use shared::data::NetworkV4;
 use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_DIR,
-    SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_USERNAME,
+    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME,
 };
 use shared::util::get_ssh_public_key;
 
@@ -138,9 +137,7 @@ pub struct CloudInitUser {
 }
 impl CloudInitUser {
     pub fn sherpa() -> Result<Self> {
-        let ssh_key = get_ssh_public_key(&format!(
-            "{SHERPA_BASE_DIR}/{SHERPA_SSH_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}"
-        ))?;
+        let ssh_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
         Ok(Self {
             name: SHERPA_USERNAME.to_owned(),
             plain_text_passwd: SHERPA_PASSWORD.to_owned(),

@@ -26,6 +26,33 @@ pub const SHERPA_BLANK_DISK_EXT4_2G: &str = "ext4-2g.img";
 pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";
 pub const SHERPA_BLANK_DISK_EXT4_4G: &str = "ext4-4g.img";
 pub const SHERPA_BLANK_DISK_EXT4_5G: &str = "ext4-5g.img";
+// ============================================================================
+// Full directory paths
+// ============================================================================
+pub const SHERPA_CONFIG_PATH: &str = "/opt/sherpa/config";
+pub const SHERPA_ENV_PATH: &str = "/opt/sherpa/env";
+pub const SHERPA_SSH_PATH: &str = "/opt/sherpa/ssh";
+pub const SHERPA_IMAGES_PATH: &str = "/opt/sherpa/images";
+pub const SHERPA_CONTAINERS_PATH: &str = "/opt/sherpa/containers";
+pub const SHERPA_BINS_PATH: &str = "/opt/sherpa/bins";
+pub const SHERPA_LABS_PATH: &str = "/opt/sherpa/labs";
+pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
+pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
+pub const SHERPA_CERTS_PATH: &str = "/opt/sherpa/.certs";
+pub const SHERPA_BLANK_DISK_PATH: &str = "/opt/sherpa/images/blank_disk";
+
+// ============================================================================
+// Full file paths
+// ============================================================================
+pub const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
+pub const SHERPA_ENV_FILE_PATH: &str = "/opt/sherpa/env/sherpa.env";
+pub const SHERPA_SSH_PUBLIC_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key.pub";
+pub const SHERPA_SSH_PRIVATE_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key";
+pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";
+pub const SHERPAD_LOG_FILE_PATH: &str = "/opt/sherpa/logs/sherpad.log";
+pub const SHERPA_SERVER_CERT_PATH: &str = "/opt/sherpa/.certs/server.crt";
+pub const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
+
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/opt/sherpa/libvirt/images";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";

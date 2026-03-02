@@ -7,9 +7,7 @@ use super::init::init;
 use super::user::{UserCommands, user_commands};
 use std::path::Path;
 
-use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_CONFIG_DIR, SHERPA_CONFIG_FILE, SHERPA_ENV_DIR, SHERPA_ENV_FILE,
-};
+use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_ENV_FILE_PATH};
 use shared::util::{build_websocket_url, get_server_url, load_config, read_env_file_value};
 
 #[derive(Debug, Parser)]
@@ -94,9 +92,7 @@ impl Cli {
         }
 
         // Resolve server URL (CLI > env > config > default)
-        let config_dir = format!("{SHERPA_BASE_DIR}/{SHERPA_CONFIG_DIR}");
-        let config_file_path = format!("{config_dir}/{SHERPA_CONFIG_FILE}");
-        let config = load_config(&config_file_path).ok();
+        let config = load_config(SHERPA_CONFIG_FILE_PATH).ok();
 
         let server_url = cli
             .server_url
@@ -130,14 +126,12 @@ impl Cli {
                 db_password,
                 server_ip,
             } => {
-                let env_file = Path::new(SHERPA_BASE_DIR)
-                    .join(SHERPA_ENV_DIR)
-                    .join(SHERPA_ENV_FILE);
+                let env_file = Path::new(SHERPA_ENV_FILE_PATH);
 
                 let password = match db_password {
                     Some(p) => p.clone(),
                     None => {
-                        read_env_file_value(&env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
+                        read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
                             anyhow::anyhow!(
                                 "Database password not provided. Supply it via:\n  \
                                  1. --db-pass flag\n  \
@@ -151,7 +145,7 @@ impl Cli {
 
                 let ip = match server_ip {
                     Some(ip) => ip.clone(),
-                    None => read_env_file_value(&env_file, "SHERPA_SERVER_IP")
+                    None => read_env_file_value(env_file, "SHERPA_SERVER_IP")
                         .unwrap_or_else(|| "0.0.0.0".to_string()),
                 };
 

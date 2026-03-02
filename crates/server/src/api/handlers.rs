@@ -35,9 +35,7 @@ use shared::data::{
     InspectResponse, InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType,
     NodeModel, OsVariant, ZtpMethod,
 };
-use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE,
-};
+use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
 
 /// Authenticate user and issue JWT token
 ///
@@ -888,10 +886,7 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
     let cert_path = if let Some(ref path) = state.config.tls.cert_path {
         PathBuf::from(path)
     } else {
-        PathBuf::from(format!(
-            "{}/{}/{}",
-            SHERPA_BASE_DIR, SHERPA_CERTS_DIR, SHERPA_SERVER_CERT_FILE
-        ))
+        PathBuf::from(SHERPA_SERVER_CERT_PATH)
     };
 
     // Check if certificate exists

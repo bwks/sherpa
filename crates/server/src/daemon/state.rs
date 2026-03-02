@@ -2,7 +2,9 @@ use anyhow::{Context, Result};
 use bollard::Docker;
 use libvirt::Qemu;
 use shared::data::Config;
-use shared::konst::{SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER};
+use shared::konst::{
+    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
+};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -44,9 +46,10 @@ impl AppState {
         tracing::info!("JWT secret loaded successfully");
 
         // Connect to SurrealDB
-        let db_password = std::env::var("SHERPA_DB_PASSWORD").context(
-            "SHERPA_DB_PASSWORD environment variable is not set (check /opt/sherpa/env/sherpa.env)",
-        )?;
+        let db_password = std::env::var("SHERPA_DB_PASSWORD").context(format!(
+            "SHERPA_DB_PASSWORD environment variable is not set (check {})",
+            SHERPA_ENV_FILE_PATH
+        ))?;
         let db = db::connect(
             SHERPA_DB_SERVER,
             SHERPA_DB_PORT,

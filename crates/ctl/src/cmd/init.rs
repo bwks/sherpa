@@ -7,24 +7,17 @@ use db::{apply_schema, connect, upsert_user};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use shared::data::{NodeConfig, NodeModel};
 use shared::konst::{
-    SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_FILE, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH,
+    SHERPA_BASE_DIR, SHERPA_BINS_PATH, SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE,
+    SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
+    SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
+    SHERPA_IMAGES_PATH, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH,
+    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
     term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 use ssh_key::Algorithm;
-
-const SERVER_BASE_DIR: &str = "/opt/sherpa";
-const SERVER_CONFIG_DIR: &str = "/opt/sherpa/config";
-const SERVER_CONFIG_FILE: &str = "/opt/sherpa/config/sherpa.toml";
-const SERVER_SSH_DIR: &str = "/opt/sherpa/ssh";
-const SERVER_IMAGES_DIR: &str = "/opt/sherpa/images";
-const SERVER_CONTAINERS_DIR: &str = "/opt/sherpa/containers";
-const SERVER_BINS_DIR: &str = "/opt/sherpa/bins";
 
 pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()> {
     let server_ipv4: Ipv4Addr = server_ip
@@ -35,13 +28,13 @@ pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()>
 
     // Create server directories
     term_msg_highlight("Creating Directories");
-    create_dir(SERVER_BASE_DIR)?;
-    create_dir(SERVER_CONFIG_DIR)?;
-    create_dir(SERVER_SSH_DIR)?;
-    create_dir(SERVER_CONTAINERS_DIR)?;
-    create_dir(SERVER_BINS_DIR)?;
-    create_dir(SERVER_IMAGES_DIR)?;
-    create_dir(&format!("{SERVER_IMAGES_DIR}/{SHERPA_BLANK_DISK_DIR}"))?;
+    create_dir(SHERPA_BASE_DIR)?;
+    create_dir(SHERPA_CONFIG_PATH)?;
+    create_dir(SHERPA_SSH_PATH)?;
+    create_dir(SHERPA_CONTAINERS_PATH)?;
+    create_dir(SHERPA_BINS_PATH)?;
+    create_dir(SHERPA_IMAGES_PATH)?;
+    create_dir(&format!("{SHERPA_IMAGES_PATH}/{SHERPA_BLANK_DISK_DIR}"))?;
 
     // Create image subdirectories for each node model
     term_msg_underline("Creating Node Image Directories");
@@ -49,7 +42,7 @@ pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()>
     for model in NodeModel::to_vec() {
         let node_image = NodeConfig::get_model(model);
         if created_models.insert(node_image.model) {
-            let model_dir = format!("{SERVER_IMAGES_DIR}/{}", node_image.model);
+            let model_dir = format!("{SHERPA_IMAGES_PATH}/{}", node_image.model);
             create_dir(&model_dir)?;
         }
     }
@@ -57,28 +50,30 @@ pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()>
     // Create container image directories from default config
     let config = default_config();
     for container_image in &config.container_images {
-        create_dir(&format!("{SERVER_CONTAINERS_DIR}/{}", container_image.name))?;
+        create_dir(&format!(
+            "{SHERPA_CONTAINERS_PATH}/{}",
+            container_image.name
+        ))?;
     }
 
     // Write server config
-    if file_exists(SERVER_CONFIG_FILE) && !force {
-        println!("Config file already exists: {SERVER_CONFIG_FILE}");
+    if file_exists(SHERPA_CONFIG_FILE_PATH) && !force {
+        println!("Config file already exists: {SHERPA_CONFIG_FILE_PATH}");
     } else {
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
         config.server_ipv4 = server_ipv4;
-        create_config(&config, SERVER_CONFIG_FILE)?;
-        println!("Config written to: {SERVER_CONFIG_FILE}");
+        create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
+        println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
     }
 
     // SSH Keys
-    let ssh_pub_key_file = format!("{SERVER_SSH_DIR}/{SHERPA_SSH_PUBLIC_KEY_FILE}");
-    if file_exists(&ssh_pub_key_file) && !force {
-        println!("SSH keys already exist: {ssh_pub_key_file}");
+    if file_exists(SHERPA_SSH_PUBLIC_KEY_PATH) && !force {
+        println!("SSH keys already exist: {SHERPA_SSH_PUBLIC_KEY_PATH}");
     } else {
         term_msg_underline("Creating SSH Keypair");
         generate_ssh_keypair(
-            SERVER_SSH_DIR,
+            SHERPA_SSH_PATH,
             SHERPA_SSH_PRIVATE_KEY_FILE,
             Algorithm::Rsa { hash: None },
         )?;
