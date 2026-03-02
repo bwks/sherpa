@@ -33,7 +33,7 @@ use crate::node::read::get_node;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # use shared::data::RecordId;
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let id= RecordId::new("node", "abc123");
 /// let mut node = get_node(&db, id).await?;
 /// node.name = "updated-node".to_string();

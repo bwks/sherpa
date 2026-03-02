@@ -33,7 +33,7 @@ use surrealdb_types::RecordId;
 /// use shared::data::RecordId;
 ///
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let image_id= RecordId::new("node_image", "image1");
 /// let lab_id= RecordId::new("lab", "lab1");
 ///

@@ -58,7 +58,7 @@ fn validate_username(username: &str) -> Result<()> {
 /// # use db::{connect, create_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let user = create_user(&db, "alice".to_string(), "SecurePass123!", false, vec![]).await?;
 /// assert_eq!(user.username, "alice");
 /// # Ok(())
@@ -125,7 +125,7 @@ pub async fn create_user(
 /// # use db::{connect, upsert_user};
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 ///
 /// // First call creates the user
 /// let user1 = upsert_user(&db, "bob".to_string(), "Pass123!", false, vec!["key1".to_string()]).await?;

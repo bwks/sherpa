@@ -39,7 +39,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # use shared::data::RecordId;
 /// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
 /// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME).await?;
+/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let node_a_id= RecordId::new("node", "node1");
 /// let node_b_id= RecordId::new("node", "node2");
 /// let lab_id= RecordId::new("lab", "lab1");
