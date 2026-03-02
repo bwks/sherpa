@@ -1,15 +1,17 @@
 #!/bin/bash
 
 ################################################################################
-# Sherpa Install Script - SurrealDB Container Setup
+# Sherpa Install Script
 ################################################################################
 #
-# This script sets up SurrealDB as a Docker container for the Sherpa application.
-# It must be executed with root/sudo privileges.
+# This script installs all required dependencies (QEMU/KVM, libvirt, Docker)
+# and sets up SurrealDB as a Docker container for the Sherpa application.
+# It must be executed with root/sudo privileges on an Ubuntu system.
 #
 # Requirements:
-#   - Docker installed and running
+#   - Ubuntu (uses apt for package installation)
 #   - Root/sudo access
+#   - curl installed
 #   - Port 8000 available
 #
 # Usage:
@@ -34,6 +36,14 @@ SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 MIN_PASSWORD_LENGTH=8
+
+# GitHub release configuration
+GITHUB_REPO="bwks/sherpa"
+GITHUB_API_URL="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
+GITHUB_DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download"
+TARGET="x86_64-unknown-linux-gnu"
+SHERPA_VERSION=""
+INSTALLED_VERSION=""
 
 # Color codes for output
 RED='\033[0;31m'
@@ -74,10 +84,15 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Setup SurrealDB container for Sherpa application.
+Install all Sherpa dependencies and set up SurrealDB container.
+
+Installs QEMU/KVM, libvirt, Docker, and supporting tools, then pulls and
+starts a SurrealDB container and installs Sherpa binaries from GitHub releases.
 
 Options:
   --db-pass PASSWORD    Set SurrealDB password
+  --version VERSION     Install a specific version (e.g. v0.3.3)
+                        If omitted, the latest release is used
   -h, --help           Show this help message
 
 Environment Variables:
@@ -86,13 +101,17 @@ Environment Variables:
 Examples:
   # Using command line flag
   sudo $0 --db-pass "MySecurePassword123"
-  
+
+  # Install a specific version
+  sudo $0 --db-pass "MySecurePassword123" --version v0.3.3
+
   # Using environment variable
   export SHERPA_DB_PASSWORD="MySecurePassword123"
   sudo -E $0
 
 Requirements:
-  - Docker must be installed and running
+  - Ubuntu system (uses apt for package installation)
+  - curl must be installed
   - Script must be run as root/sudo
   - Port ${DB_PORT} must be available
   - Password must be at least ${MIN_PASSWORD_LENGTH} characters
@@ -127,34 +146,19 @@ check_root_privileges() {
     fi
 }
 
-check_docker_installed() {
-    print_info "Checking Docker installation..."
-    
-    if ! check_command_exists docker; then
-        print_error "Docker is not installed"
-        echo ""
-        echo "Please install Docker first:"
-        echo "  https://docs.docker.com/engine/install/"
-        echo ""
-        exit 1
-    fi
-    
-    print_success "Docker is installed"
-}
+check_curl_installed() {
+    print_info "Checking curl installation..."
 
-check_docker_running() {
-    print_info "Checking Docker daemon status..."
-    
-    if ! docker info >/dev/null 2>&1; then
-        print_error "Docker daemon is not running"
+    if ! check_command_exists curl; then
+        print_error "curl is not installed"
         echo ""
-        echo "Please start Docker:"
-        echo "  sudo systemctl start docker"
+        echo "Please install curl first:"
+        echo "  sudo apt-get install curl"
         echo ""
         exit 1
     fi
-    
-    print_success "Docker daemon is running"
+
+    print_success "curl is installed"
 }
 
 check_port_available() {
@@ -186,6 +190,66 @@ check_port_available() {
     fi
     
     print_success "Port ${DB_PORT} is available"
+}
+
+################################################################################
+# Dependency Installation
+################################################################################
+
+install_system_packages() {
+    print_header "Installing System Packages"
+
+    local packages=(
+        # Supporting tools
+        cpu-checker
+        genisoimage
+        telnet
+        ssh
+        mtools
+        e2tools
+        gzip
+        unzip
+        # QEMU/KVM/libvirt
+        qemu-kvm
+        libvirt-daemon-system
+        libvirt-clients
+        libvirt-dev
+        bridge-utils
+        virtinst
+        libosinfo-bin
+        libguestfs-tools
+        ovmf
+    )
+
+    print_info "Updating package lists..."
+    apt-get update -qq
+
+    print_info "Installing packages..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${packages[@]}"
+
+    print_info "Enabling and starting libvirtd..."
+    systemctl enable libvirtd
+    systemctl start libvirtd
+
+    print_success "System packages installed"
+}
+
+install_docker() {
+    print_header "Installing Docker"
+
+    if check_command_exists docker; then
+        print_info "Docker is already installed — skipping"
+    else
+        print_info "Installing Docker via official convenience script..."
+        curl -fsSL https://get.docker.com | sh
+        print_success "Docker installed"
+    fi
+
+    print_info "Enabling and starting Docker service..."
+    systemctl enable docker
+    systemctl start docker
+
+    print_success "Docker is running"
 }
 
 ################################################################################
@@ -418,112 +482,136 @@ wait_for_database() {
 
 install_binaries() {
     print_header "Installing Sherpa Binaries"
-    
-    # Get the script directory to determine repo root
-    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-    REPO_ROOT="$(dirname "$SCRIPT_DIR")"
-    
+
+    # Stop sherpad so binaries can be overwritten
+    if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet sherpad 2>/dev/null; then
+        print_info "Stopping sherpad service before updating binaries..."
+        systemctl stop sherpad
+    fi
+
+    # Kill any remaining sherpad process not managed by systemd
+    if pgrep -x sherpad >/dev/null 2>&1; then
+        print_info "Stopping running sherpad process..."
+        pkill -x sherpad || true
+        sleep 1
+        # Force kill if still running
+        if pgrep -x sherpad >/dev/null 2>&1; then
+            pkill -9 -x sherpad || true
+            sleep 1
+        fi
+    fi
+
+    # Determine version to install
+    if [ -n "$SHERPA_VERSION" ]; then
+        print_info "Using specified version: ${SHERPA_VERSION}"
+    else
+        print_info "Fetching latest release version..."
+        SHERPA_VERSION=$(curl -sf "${GITHUB_API_URL}" | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+        if [ -z "$SHERPA_VERSION" ]; then
+            print_error "Failed to determine latest release version"
+            print_error "Check your internet connection or specify a version with --version"
+            exit 1
+        fi
+        print_success "Latest release: ${SHERPA_VERSION}"
+    fi
+
+    INSTALLED_VERSION="${SHERPA_VERSION}"
+
+    # Create a temp directory for downloads, clean up on exit
+    local tmp_dir
+    tmp_dir=$(mktemp -d)
+    trap 'rm -rf "${tmp_dir}"' RETURN
+
     # Create bin directory
     print_info "Creating binary directory..."
     mkdir -p "${SHERPA_BASE_DIR}/bin"
-    
-    # Install sherpad binary
-    local SHERPAD_SOURCE=""
-    if [ -f "${REPO_ROOT}/target/release/sherpad" ]; then
-        SHERPAD_SOURCE="${REPO_ROOT}/target/release/sherpad"
-        print_info "Found release sherpad binary"
-    elif [ -f "${REPO_ROOT}/target/debug/sherpad" ]; then
-        SHERPAD_SOURCE="${REPO_ROOT}/target/debug/sherpad"
-        print_warning "Using debug sherpad binary (release binary not found)"
-    else
-        print_error "sherpad binary not found"
-        print_error "Expected location: ${REPO_ROOT}/target/release/sherpad"
-        echo ""
-        echo "Please build the binary first: cargo build --release"
-        exit 1
-    fi
-    
-    print_info "Installing sherpad binary..."
-    cp "$SHERPAD_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpad"
-    chmod 755 "${SHERPA_BASE_DIR}/bin/sherpad"
-    chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpad"
-    print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpad"
-    
-    # Install sherpa binary
-    local SHERPA_SOURCE=""
-    if [ -f "${REPO_ROOT}/target/release/sherpa" ]; then
-        SHERPA_SOURCE="${REPO_ROOT}/target/release/sherpa"
-        print_info "Found release sherpa binary"
-    elif [ -f "${REPO_ROOT}/target/debug/sherpa" ]; then
-        SHERPA_SOURCE="${REPO_ROOT}/target/debug/sherpa"
-        print_warning "Using debug sherpa binary (release binary not found)"
-    else
-        print_warning "sherpa binary not found - skipping installation"
-        SHERPA_SOURCE=""
-    fi
-    
-    if [ -n "$SHERPA_SOURCE" ]; then
-        print_info "Installing sherpa binary..."
-        cp "$SHERPA_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpa"
-        chmod 755 "${SHERPA_BASE_DIR}/bin/sherpa"
-        chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpa"
-        print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpa"
-    fi
-    
-    # Install sherpactl binary
-    local SHERPACTL_SOURCE=""
-    if [ -f "${REPO_ROOT}/target/release/sherpactl" ]; then
-        SHERPACTL_SOURCE="${REPO_ROOT}/target/release/sherpactl"
-        print_info "Found release sherpactl binary"
-    elif [ -f "${REPO_ROOT}/target/debug/sherpactl" ]; then
-        SHERPACTL_SOURCE="${REPO_ROOT}/target/debug/sherpactl"
-        print_warning "Using debug sherpactl binary (release binary not found)"
-    else
-        print_warning "sherpactl binary not found - skipping installation"
-        SHERPACTL_SOURCE=""
-    fi
-    
-    if [ -n "$SHERPACTL_SOURCE" ]; then
-        print_info "Installing sherpactl binary..."
-        cp "$SHERPACTL_SOURCE" "${SHERPA_BASE_DIR}/bin/sherpactl"
-        chmod 755 "${SHERPA_BASE_DIR}/bin/sherpactl"
-        chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/sherpactl"
-        print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/sherpactl"
-    fi
-    
+
+    # Download and install each binary
+    # sherpad is required; sherpa and sherpactl are optional
+    local binaries="sherpad sherpa sherpactl"
+    local required_binaries="sherpad"
+
+    for binary in $binaries; do
+        local asset="${binary}-${TARGET}.tar.gz"
+        local url="${GITHUB_DOWNLOAD_URL}/${SHERPA_VERSION}/${asset}"
+        local is_required=false
+
+        for req in $required_binaries; do
+            if [ "$binary" = "$req" ]; then
+                is_required=true
+                break
+            fi
+        done
+
+        print_info "Downloading ${asset}..."
+        if curl -sfL -o "${tmp_dir}/${asset}" "${url}"; then
+            print_success "Downloaded ${asset}"
+
+            # Extract and install
+            print_info "Installing ${binary}..."
+            tar xzf "${tmp_dir}/${asset}" -C "${tmp_dir}"
+
+            if [ ! -f "${tmp_dir}/${binary}" ]; then
+                if [ "$is_required" = true ]; then
+                    print_error "Expected binary '${binary}' not found in archive"
+                    exit 1
+                else
+                    print_warning "Expected binary '${binary}' not found in archive — skipping"
+                    continue
+                fi
+            fi
+
+            cp "${tmp_dir}/${binary}" "${SHERPA_BASE_DIR}/bin/${binary}"
+            chmod 755 "${SHERPA_BASE_DIR}/bin/${binary}"
+            chown sherpa:sherpa "${SHERPA_BASE_DIR}/bin/${binary}"
+            print_success "Binary installed to ${SHERPA_BASE_DIR}/bin/${binary}"
+
+            # Clean up extracted binary for next iteration
+            rm -f "${tmp_dir}/${binary}"
+        else
+            if [ "$is_required" = true ]; then
+                print_error "Failed to download required binary: ${asset}"
+                print_error "URL: ${url}"
+                exit 1
+            else
+                print_warning "Optional binary not available: ${asset} — skipping"
+            fi
+        fi
+    done
+
     # Create symlinks in /usr/local/bin for all installed binaries
     print_info "Creating symlinks in /usr/local/bin..."
-    
+
     if [ -x "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
         ln -sf "${SHERPA_BASE_DIR}/bin/sherpad" /usr/local/bin/sherpad
         print_success "Symlink created: /usr/local/bin/sherpad"
     fi
-    
+
     if [ -x "${SHERPA_BASE_DIR}/bin/sherpa" ]; then
         ln -sf "${SHERPA_BASE_DIR}/bin/sherpa" /usr/local/bin/sherpa
         print_success "Symlink created: /usr/local/bin/sherpa"
     fi
-    
+
     if [ -x "${SHERPA_BASE_DIR}/bin/sherpactl" ]; then
         ln -sf "${SHERPA_BASE_DIR}/bin/sherpactl" /usr/local/bin/sherpactl
         print_success "Symlink created: /usr/local/bin/sherpactl"
     fi
-    
+
     # Verify installations
     print_info "Verifying installations..."
     local verification_failed=0
-    
+
     if [ ! -x "${SHERPA_BASE_DIR}/bin/sherpad" ]; then
         print_error "sherpad binary verification failed"
         verification_failed=1
     fi
-    
+
     if [ $verification_failed -eq 1 ]; then
         print_error "Binary installation verification failed"
         exit 1
     fi
-    
-    print_success "All binaries installed successfully"
+
+    print_success "All binaries installed successfully (${SHERPA_VERSION})"
 }
 
 ################################################################################
@@ -600,33 +688,12 @@ EOF
     systemctl daemon-reload
     print_success "Systemd daemon reloaded"
     
-    # Enable service to start on boot
+    # Enable service to start on boot (don't start yet — sherpa.toml
+    # must be created first via 'sherpactl init')
     print_info "Enabling sherpad service..."
     systemctl enable sherpad.service
-    print_success "Service enabled (will start on boot)"
-    
-    # Start the service immediately
-    print_info "Starting sherpad service..."
-    if systemctl start sherpad.service; then
-        print_success "Service started successfully"
-        
-        # Wait a moment for service to fully start
-        sleep 2
-        
-        # Show status
-        echo ""
-        systemctl status sherpad.service --no-pager -l || true
-        echo ""
-    else
-        print_error "Failed to start service"
-        echo ""
-        echo "Check logs for details:"
-        echo "  tail -f /opt/sherpa/logs/sherpad.log"
-        echo "  sudo systemctl status sherpad"
-        echo ""
-        return 1
-    fi
-    
+    print_success "Service enabled (will start on boot after initialization)"
+
     print_success "Systemd service installation complete"
 }
 
@@ -635,9 +702,11 @@ EOF
 ################################################################################
 
 print_success_message() {
-    print_header "SurrealDB Installation Complete!"
-    
+    print_header "Sherpa Installation Complete!"
+
     cat << EOF
+Sherpa Version: ${INSTALLED_VERSION:-unknown}
+
 Database Details:
   Container Name: ${CONTAINER_NAME}
   Status:         Running
@@ -670,8 +739,8 @@ Useful Commands:
     Disable:       sudo systemctl disable sherpad
 
 Next Steps:
-  1. Export SHERPA_DB_PASSWORD or use --db-pass flag when running sherpa
-  2. Run 'sherpa init' to initialize the application
+  1. Run 'sudo sherpactl init' to initialize the server environment
+  2. Run 'sudo systemctl start sherpad' to start the service
 
 EOF
 
@@ -723,6 +792,10 @@ main() {
                 DB_PASSWORD="$2"
                 shift 2
                 ;;
+            --version)
+                SHERPA_VERSION="$2"
+                shift 2
+                ;;
             -h|--help)
                 show_usage
                 exit 0
@@ -739,19 +812,20 @@ main() {
     trap cleanup_on_error EXIT
     
     # Print header
-    print_header "Sherpa Installation - SurrealDB Setup"
+    print_header "Sherpa Installation"
     
     # Run all checks and setup
     check_root_privileges
-    check_docker_installed
-    check_docker_running
-    check_port_available
+    check_curl_installed
     get_database_password
-    
+
     echo ""
     print_info "Starting installation..."
     echo ""
-    
+
+    install_system_packages
+    install_docker
+    check_port_available
     setup_sherpa_user
     setup_directories
     stop_existing_container
