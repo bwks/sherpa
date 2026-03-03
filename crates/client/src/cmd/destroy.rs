@@ -282,4 +282,3 @@ fn confirm_destroy(lab_name: &str, lab_id: &str, device_count: usize) -> Result<
     let input = input.trim().to_lowercase();
     Ok(input == "y" || input == "yes")
 }
-
