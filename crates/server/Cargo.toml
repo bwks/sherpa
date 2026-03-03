@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2024"
 
 [dependencies]
@@ -88,6 +88,9 @@ surrealdb-types = "3.0.0"
 
 # Generate SSH keys
 ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+
+# Password input
+rpassword = "7.3"
 
 # TLS support
 axum-server = { version = "0.7", features = ["tls-rustls"] }

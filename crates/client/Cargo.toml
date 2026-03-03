@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2024"
 
 [dependencies]
@@ -8,11 +8,6 @@ shared = { path = "../shared" }
 topology = { path = "../topology" }
 template = { path = "../template" }
 validate = { path = "../validate" }
-
-# Linux-only container dependency (gated behind "local" feature)
-container = { path = "../container", optional = true }
-libvirt = { path = "../libvirt" }
-db = { path = "../db" }
 
 # Errors
 anyhow = "1.0.100"
@@ -63,17 +58,11 @@ rpassword = "7.3"
 # Base64 decoding (for JWT)
 base64 = "0.22"
 
-# Generate SSH keys
-ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
-
 # Logging (subscriber for verbose mode)
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 # Time/date handling
 jiff = { version = "0.2.20", features = ["serde"] }
-
-# Libvirt
-virt = { version = "0.4.1", features = ["qemu"] }
 
 # TLS support
 rustls = { version = "0.23", features = ["ring"] }
@@ -81,10 +70,6 @@ rustls-native-certs = "0.8"
 
 # Home directory detection
 dirs = "6.0"
-
-[features]
-default = []
-local = ["dep:container"]
 
 [dev-dependencies]
 tempfile = "3.25.0"

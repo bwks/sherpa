@@ -1,4 +1,3 @@
-use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -10,19 +9,17 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 use shared::data::ServerConnection;
-use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPA_ENV_FILE_PATH};
-use shared::util::{build_websocket_url, get_server_url, load_config, read_env_file_value};
+use shared::konst::SHERPA_CONFIG_FILE_PATH;
+use shared::util::{build_websocket_url, get_server_url, load_config};
 
 mod clean;
-mod doctor;
 mod image;
-mod init;
+mod status;
 mod user;
 
 use clean::clean;
-use doctor::doctor;
 use image::{ServerImageCommands, image_commands};
-use init::init;
+use status::status;
 use user::{UserCommands, user_commands};
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -33,20 +30,8 @@ pub enum OutputFormat {
 
 #[derive(Debug, Subcommand)]
 pub enum ServerCommands {
-    /// Initialise the Sherpa server environment
-    Init {
-        /// Overwrite existing config and keys
-        #[arg(short, long, action = clap::ArgAction::SetTrue)]
-        force: bool,
-
-        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
-        db_password: Option<String>,
-
-        /// Server listen IP address (also reads from SHERPA_SERVER_IP env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "server-ip", env = "SHERPA_SERVER_IP")]
-        server_ip: Option<String>,
-    },
+    /// Check if the Sherpa server is reachable
+    Status,
 
     /// User management commands
     User {
@@ -64,13 +49,6 @@ pub enum ServerCommands {
     Clean {
         /// Lab ID to clean
         lab_id: String,
-    },
-
-    /// Fix up server environment
-    Doctor {
-        /// Set base box permissions to read-only
-        #[arg(long, action = clap::ArgAction::SetTrue)]
-        boxes: bool,
     },
 }
 
@@ -117,33 +95,8 @@ pub async fn run_server(
     }
 
     match commands {
-        ServerCommands::Init {
-            force,
-            db_password,
-            server_ip,
-        } => {
-            let env_file = Path::new(SHERPA_ENV_FILE_PATH);
-
-            let password = match db_password {
-                Some(p) => p.clone(),
-                None => read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Database password not provided. Supply it via:\n  \
-                             1. --db-pass flag\n  \
-                             2. SHERPA_DB_PASSWORD environment variable\n  \
-                             3. SHERPA_DB_PASSWORD entry in {}",
-                        env_file.display()
-                    )
-                })?,
-            };
-
-            let ip = match server_ip {
-                Some(ip) => ip.clone(),
-                None => read_env_file_value(env_file, "SHERPA_SERVER_IP")
-                    .unwrap_or_else(|| "0.0.0.0".to_string()),
-            };
-
-            init(*force, &password, &ip).await?;
+        ServerCommands::Status => {
+            status(&server_url, &server_connection).await?;
         }
         ServerCommands::User { commands } => {
             user_commands(commands, &server_url, &server_connection, output).await?;
@@ -153,9 +106,6 @@ pub async fn run_server(
         }
         ServerCommands::Clean { lab_id } => {
             clean(lab_id, &server_url, &server_connection).await?;
-        }
-        ServerCommands::Doctor { boxes } => {
-            doctor(*boxes)?;
         }
     }
 
