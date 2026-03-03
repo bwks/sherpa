@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use super::clean::clean;
 use super::doctor::doctor;
 use super::image::{ImageCommands, image_commands};
 use super::init::init;
@@ -67,6 +68,11 @@ enum Commands {
     Image {
         #[command(subcommand)]
         commands: ImageCommands,
+    },
+    /// Force clean all resources for a lab (admin-only)
+    Clean {
+        /// Lab ID to clean
+        lab_id: String,
     },
     /// Fix up server environment
     Doctor {
@@ -156,6 +162,9 @@ impl Cli {
             }
             Commands::Image { commands } => {
                 image_commands(commands, &server_url, &server_connection, &cli.output).await?;
+            }
+            Commands::Clean { lab_id } => {
+                clean(lab_id, &server_url, &server_connection).await?;
             }
             Commands::Doctor { boxes } => {
                 doctor(*boxes)?;

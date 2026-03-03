@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
-use super::clean::clean;
 use super::console::console;
 use super::destroy::destroy;
 use super::down::down;
@@ -102,12 +101,6 @@ enum Commands {
         /// Path to manifest file to validate (defaults to manifest.toml)
         #[arg(long)]
         manifest: Option<String>,
-    },
-
-    /// Force clean all resources for a lab (admin-only)
-    Clean {
-        /// Lab ID to clean (if omitted, derived from manifest)
-        lab_id: Option<String>,
     },
 
     /// Connect to a device via serial console over Telnet
@@ -261,24 +254,6 @@ impl Cli {
                 // Default to manifest.toml if no specific flag provided
                 let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
                 validate_manifest(manifest_path)?;
-            }
-            Commands::Clean { lab_id } => {
-                let lab_id = match lab_id {
-                    Some(id) => id.clone(),
-                    None => {
-                        let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                        get_id(&manifest.name)?
-                    }
-                };
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                clean(&lab_id, &server_url, &config).await?;
             }
             Commands::Console { name } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

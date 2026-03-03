@@ -1,7 +1,6 @@
 #[cfg(feature = "local")]
 mod boot_containers;
 mod cert;
-mod clean;
 mod cli;
 mod console;
 mod destroy;
