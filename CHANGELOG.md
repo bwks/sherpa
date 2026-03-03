@@ -2,11 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.9] - 2026-03-03
+## [0.3.10] - 2026-03-03
 
 ### Miscellaneous
 
-- Merge pull request #97 from bwks/dependency-fix
+- Merge pull request #98 from bwks/windows-path-fix
 
-fix tests and remove unused dependencies by @bwks in [#97](https://github.com/bwks/sherpa/pull/97) ([0c19e45](https://github.com/bwks/sherpa/commit/0c19e45cc6a294faa1aa2972cab2573dba01e6a3))
+(bug) Windows path fix by @bwks in [#98](https://github.com/bwks/sherpa/pull/98) ([d7c6fdb](https://github.com/bwks/sherpa/commit/d7c6fdbd70c8fba77f5892cf8e33d6df64ad4ae6))
 
