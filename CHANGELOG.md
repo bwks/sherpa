@@ -2,11 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.5] - 2026-03-02
+## [0.3.6] - 2026-03-03
 
 ### Miscellaneous
 
-- Merge pull request #92 from bwks/fix-tests
+- Merge pull request #94 from bwks/certificate
 
-tests by @bwks in [#92](https://github.com/bwks/sherpa/pull/92) ([3a543d0](https://github.com/bwks/sherpa/commit/3a543d0d8837b2e84ae29c3d44c24628bd0a1205))
+Certificate SAN fix by @bwks in [#94](https://github.com/bwks/sherpa/pull/94) ([e9a2172](https://github.com/bwks/sherpa/commit/e9a2172d5b29c142a38fe5b3e58ce9a694020b8f))
 
