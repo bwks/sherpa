@@ -42,4 +42,26 @@ pub enum Commands {
         #[arg(short, long)]
         follow: bool,
     },
+
+    /// Initialise the Sherpa server environment
+    Init {
+        /// Overwrite existing config and keys
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        force: bool,
+
+        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
+        db_password: Option<String>,
+
+        /// Server listen IP address (also reads from SHERPA_SERVER_IP env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "server-ip", env = "SHERPA_SERVER_IP")]
+        server_ip: Option<String>,
+    },
+
+    /// Fix up server environment
+    Doctor {
+        /// Set base box permissions to read-only
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        boxes: bool,
+    },
 }

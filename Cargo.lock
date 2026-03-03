@@ -4855,13 +4855,10 @@ dependencies = [
  "async-compression",
  "base64 0.22.1",
  "clap",
- "container",
- "db",
  "dirs",
  "futures",
  "futures-util",
  "jiff",
- "libvirt",
  "petname",
  "rand 0.8.5",
  "reqwest 0.11.27",
@@ -4872,7 +4869,6 @@ dependencies = [
  "serde_derive",
  "serde_json",
  "shared",
- "ssh-key",
  "tempfile",
  "template",
  "tokio",
@@ -4885,7 +4881,6 @@ dependencies = [
  "url",
  "uuid",
  "validate",
- "virt",
 ]
 
 [[package]]
@@ -4915,6 +4910,7 @@ dependencies = [
  "rand 0.8.5",
  "rcgen",
  "reqwest 0.11.27",
+ "rpassword",
  "rustls",
  "rustls-pemfile 2.2.0",
  "serde",

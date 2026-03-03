@@ -1,5 +1,6 @@
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 
@@ -10,16 +11,37 @@ use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_PATH, SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE,
     SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
     SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
-    SHERPA_IMAGES_PATH, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    term_msg_highlight, term_msg_surround, term_msg_underline,
+    read_env_file_value, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 use ssh_key::Algorithm;
 
-pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()> {
+pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str>) -> Result<()> {
+    let env_file = Path::new(SHERPA_ENV_FILE_PATH);
+
+    let db_password = match db_password {
+        Some(p) => p.to_string(),
+        None => read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
+            anyhow::anyhow!(
+                "Database password not provided. Supply it via:\n  \
+                     1. --db-pass flag\n  \
+                     2. SHERPA_DB_PASSWORD environment variable\n  \
+                     3. SHERPA_DB_PASSWORD entry in {}",
+                env_file.display()
+            )
+        })?,
+    };
+
+    let server_ip = match server_ip {
+        Some(ip) => ip.to_string(),
+        None => read_env_file_value(env_file, "SHERPA_SERVER_IP")
+            .unwrap_or_else(|| "0.0.0.0".to_string()),
+    };
+
     let server_ipv4: Ipv4Addr = server_ip
         .parse()
         .context("Invalid server IP address. Expected format: x.x.x.x")?;
@@ -106,7 +128,7 @@ pub async fn init(force: bool, db_password: &str, server_ip: &str) -> Result<()>
         SHERPA_DB_PORT,
         SHERPA_DB_NAMESPACE,
         SHERPA_DB_NAME,
-        db_password,
+        &db_password,
     )
     .await?;
 

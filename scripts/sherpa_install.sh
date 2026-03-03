@@ -814,7 +814,7 @@ LOGROTATE
     print_success "Systemd daemon reloaded"
 
     # Enable service to start on boot (don't start yet — sherpa.toml
-    # must be created first via 'sherpa server init')
+    # must be created first via 'sherpad init')
     print_info "Enabling sherpad service..."
     systemctl enable sherpad.service
     print_success "Service enabled (will start on boot after initialization)"
@@ -865,7 +865,7 @@ Useful Commands:
 
 Next Steps:
   1. Run: 'exec sg libvirt -c "newgrp \$(id -gn)"'  -- to load new groups
-  2. Run: 'sherpactl init'                                             -- to initialize the server environment
+  2. Run: 'sherpad init'                                               -- to initialize the server environment
   3. Run: 'sudo systemctl start sherpad'                   -- to start the service
 
 EOF

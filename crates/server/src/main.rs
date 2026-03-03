@@ -2,6 +2,8 @@ mod api;
 mod auth;
 mod cli;
 mod daemon;
+mod doctor;
+mod init;
 mod services;
 mod templates;
 mod tls;
@@ -35,5 +37,11 @@ async fn main() -> Result<()> {
         Commands::Restart { foreground } => restart_daemon(foreground).await,
         Commands::Status => status_daemon(),
         Commands::Logs { follow } => logs_daemon(follow),
+        Commands::Init {
+            force,
+            db_password,
+            server_ip,
+        } => init::init(force, db_password.as_deref(), server_ip.as_deref()).await,
+        Commands::Doctor { boxes } => doctor::doctor(boxes),
     }
 }
