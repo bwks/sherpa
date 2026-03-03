@@ -15,7 +15,6 @@ use super::resume::resume;
 use super::ssh::ssh;
 use super::up::up;
 use super::validate::validate_manifest;
-use super::virtual_machine::VirtualMachineCommands;
 
 use shared::data::ClientConfig;
 use shared::data::Sherpa;
@@ -117,11 +116,6 @@ enum Commands {
     /// SSH to a device.
     Ssh { name: String },
 
-    /// Virtual machine management commands
-    Vm {
-        #[command(subcommand)]
-        commands: VirtualMachineCommands,
-    },
     /// Image management commands
     Image {
         #[command(subcommand)]
@@ -292,11 +286,6 @@ impl Cli {
             }
             Commands::Ssh { name } => {
                 ssh(name).await?;
-            }
-            Commands::Vm { commands } => {
-                // parse_vm_commands(commands, &sherpa).await?;
-                let _cmds = commands;
-                println!("NOT IMPLEMENTED");
             }
             Commands::Image { commands } => {
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);

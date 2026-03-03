@@ -16,6 +16,5 @@ mod resume;
 mod ssh;
 mod up;
 mod validate;
-mod virtual_machine;
 
 pub use cli::Cli;
