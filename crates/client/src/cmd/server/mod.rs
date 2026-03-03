@@ -14,10 +14,12 @@ use shared::util::{build_websocket_url, get_server_url, load_config};
 
 mod clean;
 mod image;
+mod status;
 mod user;
 
 use clean::clean;
 use image::{ServerImageCommands, image_commands};
+use status::status;
 use user::{UserCommands, user_commands};
 
 #[derive(Debug, Clone, clap::ValueEnum)]
@@ -28,6 +30,9 @@ pub enum OutputFormat {
 
 #[derive(Debug, Subcommand)]
 pub enum ServerCommands {
+    /// Check if the Sherpa server is reachable
+    Status,
+
     /// User management commands
     User {
         #[command(subcommand)]
@@ -90,6 +95,9 @@ pub async fn run_server(
     }
 
     match commands {
+        ServerCommands::Status => {
+            status(&server_url, &server_connection).await?;
+        }
         ServerCommands::User { commands } => {
             user_commands(commands, &server_url, &server_connection, output).await?;
         }
