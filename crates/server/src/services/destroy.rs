@@ -11,10 +11,9 @@ use shared::data::{
     DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
-    VETH_PREFIX,
+    BRIDGE_PREFIX, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL, VETH_PREFIX,
 };
-use shared::util::{dir_exists, file_exists, load_file};
+use shared::util::{dir_exists, load_file};
 use std::str::FromStr;
 
 use crate::daemon::state::AppState;
@@ -399,15 +398,11 @@ pub(crate) fn destroy_vms_and_disks(
     errors: &mut Vec<DestroyError>,
 ) -> Result<()> {
     let qemu_conn = qemu.connect().context("Failed to connect to libvirt")?;
+
+    // Destroy VMs
     let domains = qemu_conn
         .list_all_domains(0)
         .context("Failed to list domains")?;
-    let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
-        format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
-    )?;
-    let pool_disks = storage_pool
-        .list_volumes()
-        .context("Failed to list storage volumes")?;
 
     for domain in domains {
         let vm_name = match domain.get_name() {
@@ -422,56 +417,57 @@ pub(crate) fn destroy_vms_and_disks(
             }
         };
 
-        if vm_name.contains(lab_id) {
-            let is_active = domain.is_active().unwrap_or(false);
+        if !vm_name.contains(lab_id) {
+            continue;
+        }
 
-            // Destroy the VM
-            match (|| -> Result<()> {
-                // UEFI domains will have an NVRAM file that must be deleted.
-                let nvram_flag = VIR_DOMAIN_UNDEFINE_NVRAM;
-                domain
-                    .undefine_flags(nvram_flag)
-                    .context("Failed to undefine domain")?;
+        let is_active = domain.is_active().unwrap_or(false);
+
+        // UEFI domains will have an NVRAM file that must be deleted.
+        let result = domain
+            .undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)
+            .context("Failed to undefine domain")
+            .and_then(|_| {
                 if is_active {
                     domain.destroy().context("Failed to destroy domain")?;
                 }
                 Ok(())
-            })() {
-                Ok(_) => {
-                    summary.vms_destroyed.push(vm_name.clone());
-                    tracing::info!("Destroyed VM: {}", vm_name);
+            });
 
-                    // Destroy associated disks
-                    let domain_disks: Vec<&String> = pool_disks
-                        .iter()
-                        .filter(|d| d.starts_with(&vm_name))
-                        .collect();
+        match result {
+            Ok(_) => {
+                summary.vms_destroyed.push(vm_name.clone());
+                tracing::info!("Destroyed VM: {}", vm_name);
+            }
+            Err(e) => {
+                summary.vms_failed.push(vm_name.clone());
+                errors.push(DestroyError::new("vm", &vm_name, format!("{:?}", e)));
+                tracing::error!("Failed to destroy VM {}: {:?}", vm_name, e);
+            }
+        }
+    }
 
-                    for disk in domain_disks {
-                        if file_exists(&format!("{SHERPA_STORAGE_POOL_PATH}/{disk}")) {
-                            match delete_disk(&qemu_conn, disk) {
-                                Ok(_) => {
-                                    summary.disks_deleted.push(disk.to_string());
-                                    tracing::info!("Deleted disk: {}", disk);
-                                }
-                                Err(e) => {
-                                    summary.disks_failed.push(disk.to_string());
-                                    errors.push(DestroyError::new(
-                                        "disk",
-                                        disk,
-                                        format!("{:?}", e),
-                                    ));
-                                    tracing::error!("Failed to delete disk {}: {:?}", disk, e);
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    summary.vms_failed.push(vm_name.clone());
-                    errors.push(DestroyError::new("vm", &vm_name, format!("{:?}", e)));
-                    tracing::error!("Failed to destroy VM {}: {:?}", vm_name, e);
-                }
+    // Delete all disks belonging to this lab
+
+    let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
+        format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
+    )?;
+    let pool_disks = storage_pool
+        .list_volumes()
+        .context("Failed to list storage volumes")?;
+
+    let lab_disks: Vec<&String> = pool_disks.iter().filter(|d| d.contains(lab_id)).collect();
+
+    for disk in lab_disks {
+        match delete_disk(&qemu_conn, disk) {
+            Ok(_) => {
+                summary.disks_deleted.push(disk.to_string());
+                tracing::info!("Deleted disk: {}", disk);
+            }
+            Err(e) => {
+                summary.disks_failed.push(disk.to_string());
+                errors.push(DestroyError::new("disk", disk, format!("{:?}", e)));
+                tracing::error!("Failed to delete disk {}: {:?}", disk, e);
             }
         }
     }
