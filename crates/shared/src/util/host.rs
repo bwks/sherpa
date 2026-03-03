@@ -1,6 +1,8 @@
+#[cfg(feature = "netinfo")]
 use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result, anyhow};
+
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
 
