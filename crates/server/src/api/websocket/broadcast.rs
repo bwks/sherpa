@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test__broadcast_log_to_empty_registry() {
+    async fn test_broadcast_log_to_empty_registry() {
         let registry = crate::api::websocket::connection::create_registry();
 
         let message = ServerMessage::Log {

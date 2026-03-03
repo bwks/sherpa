@@ -163,8 +163,6 @@ pub fn validate_token(secret: &[u8], token: &str) -> Result<Claims> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn test_create_and_validate_token() {

@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2024"
 
 [dependencies]
@@ -26,7 +26,7 @@ anyhow = "1.0.100"
 nix = { version = "0.29", features = ["signal", "process"] }
 
 # CLI
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { version = "4.5.16", features = ["derive", "env"] }
 
 # Serialization/Deserialization
 serde = "1.0.208"

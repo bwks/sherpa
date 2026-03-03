@@ -33,7 +33,6 @@ pub async fn authenticate_request(params: &Value, state: &AppState) -> Result<Au
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use serde_json::json;
 
     // Note: authenticate_request() tests require full AppState infrastructure (DB, Docker, libvirt, etc.)
