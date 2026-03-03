@@ -9,10 +9,10 @@ topology = { path = "../topology" }
 template = { path = "../template" }
 validate = { path = "../validate" }
 
-# Linux-only dependencies (gated behind "local" feature)
+# Linux-only container dependency (gated behind "local" feature)
 container = { path = "../container", optional = true }
-libvirt = { path = "../libvirt", optional = true }
-db = { path = "../db", optional = true }
+libvirt = { path = "../libvirt" }
+db = { path = "../db" }
 
 # Errors
 anyhow = "1.0.100"
@@ -60,11 +60,20 @@ tracing = "0.1"
 # Password input
 rpassword = "7.3"
 
+# Base64 decoding (for JWT)
+base64 = "0.22"
+
+# Generate SSH keys
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+
+# Logging (subscriber for verbose mode)
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
 # Time/date handling
 jiff = { version = "0.2.20", features = ["serde"] }
 
-# Libvirt (Linux-only, gated behind "local" feature)
-virt = { version = "0.4.1", features = ["qemu"], optional = true }
+# Libvirt
+virt = { version = "0.4.1", features = ["qemu"] }
 
 # TLS support
 rustls = { version = "0.23", features = ["ring"] }
@@ -75,7 +84,7 @@ dirs = "6.0"
 
 [features]
 default = []
-local = ["dep:libvirt", "dep:db", "dep:container", "dep:virt"]
+local = ["dep:container"]
 
 [dev-dependencies]
 tempfile = "3.25.0"

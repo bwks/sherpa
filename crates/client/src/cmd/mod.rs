@@ -12,6 +12,7 @@ mod login;
 mod manifest_processing;
 mod new;
 mod resume;
+pub mod server;
 mod ssh;
 mod up;
 mod validate;

@@ -11,6 +11,7 @@ use super::inspect::inspect;
 use super::login::{login, logout, whoami};
 use super::new::new;
 use super::resume::resume;
+use super::server::{OutputFormat, ServerCommands, run_server};
 use super::ssh::ssh;
 use super::up::up;
 use super::validate::validate_manifest;
@@ -119,6 +120,20 @@ enum Commands {
     Cert {
         #[command(subcommand)]
         commands: CertCommands,
+    },
+
+    /// Server administration commands
+    Server {
+        /// Enable verbose logging
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        output: OutputFormat,
+
+        #[command(subcommand)]
+        commands: ServerCommands,
     },
 }
 
@@ -279,6 +294,13 @@ impl Cli {
                 CertCommands::Trust { server_url } => cert_trust(server_url).await?,
                 CertCommands::Delete { server_url } => cert_delete(server_url).await?,
             },
+            Commands::Server {
+                verbose,
+                output,
+                commands,
+            } => {
+                run_server(commands, *verbose, output, cli.server_url, cli.insecure).await?;
+            }
         }
         Ok(())
     }
