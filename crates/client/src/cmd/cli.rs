@@ -299,7 +299,14 @@ impl Cli {
                 output,
                 commands,
             } => {
-                run_server(commands, *verbose, output, cli.server_url, cli.insecure).await?;
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                run_server(commands, *verbose, output, &server_url, &config).await?;
             }
         }
         Ok(())
