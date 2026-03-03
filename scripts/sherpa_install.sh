@@ -578,8 +578,8 @@ install_binaries() {
     mkdir -p "${SHERPA_BASE_DIR}/bin"
 
     # Download and install each binary
-    # sherpad is required; sherpa and sherpactl are optional
-    local binaries="sherpad sherpa sherpactl"
+    # sherpad is required; sherpa is optional
+    local binaries="sherpad sherpa"
     local required_binaries="sherpad"
 
     for binary in $binaries; do
@@ -641,11 +641,6 @@ install_binaries() {
     if [ -x "${SHERPA_BASE_DIR}/bin/sherpa" ]; then
         ln -sf "${SHERPA_BASE_DIR}/bin/sherpa" /usr/local/bin/sherpa
         print_success "Symlink created: /usr/local/bin/sherpa"
-    fi
-
-    if [ -x "${SHERPA_BASE_DIR}/bin/sherpactl" ]; then
-        ln -sf "${SHERPA_BASE_DIR}/bin/sherpactl" /usr/local/bin/sherpactl
-        print_success "Symlink created: /usr/local/bin/sherpactl"
     fi
 
     # Verify installations
@@ -819,7 +814,7 @@ LOGROTATE
     print_success "Systemd daemon reloaded"
 
     # Enable service to start on boot (don't start yet — sherpa.toml
-    # must be created first via 'sherpactl init')
+    # must be created first via 'sherpa server init')
     print_info "Enabling sherpad service..."
     systemctl enable sherpad.service
     print_success "Service enabled (will start on boot after initialization)"
@@ -869,9 +864,9 @@ Useful Commands:
     Disable:       sudo systemctl disable sherpad
 
 Next Steps:
-  1. Run: 'exec sg libvirt -c "newgrp $(id -gn)"'  -- to load new groups
-  2. Run: 'sherpactl init'                                           -- to initialize the server environment
-  3. Run: 'sudo systemctl start sherpad'                 -- to start the service
+  1. Run: 'exec sg libvirt -c "newgrp \$(id -gn)"'  -- to load new groups
+  2. Run: 'sherpactl init'                                             -- to initialize the server environment
+  3. Run: 'sudo systemctl start sherpad'                   -- to start the service
 
 EOF
 

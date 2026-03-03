@@ -1,7 +1,6 @@
 #[cfg(feature = "local")]
 mod boot_containers;
 mod cert;
-mod clean;
 mod cli;
 mod console;
 mod destroy;
@@ -13,9 +12,9 @@ mod login;
 mod manifest_processing;
 mod new;
 mod resume;
+pub mod server;
 mod ssh;
 mod up;
 mod validate;
-mod virtual_machine;
 
 pub use cli::Cli;

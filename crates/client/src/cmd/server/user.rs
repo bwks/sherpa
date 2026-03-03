@@ -1,12 +1,14 @@
-use anyhow::{Context, Result};
-use clap::Subcommand;
 use std::io::{self, Write};
 
-use crate::cmd::cli::OutputFormat;
-use crate::common::rpc::RpcClient;
-use crate::token;
+use anyhow::{Context, Result};
+use base64::{Engine as _, engine::general_purpose};
+use clap::Subcommand;
+
 use shared::data::{self, ServerConnection};
 use shared::util::emoji_success;
+
+use super::OutputFormat;
+use super::rpc_call;
 
 #[derive(Debug, Subcommand)]
 pub enum UserCommands {
@@ -112,9 +114,6 @@ async fn create_user(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Get token
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     // Prompt for password from env or interactively
     let password = if let Ok(env_password) = std::env::var("SHERPA_USER_PASSWORD") {
         env_password
@@ -139,14 +138,13 @@ async fn create_user(
         } else {
             Some(ssh_keys)
         },
-        token: token.clone(),
+        token: String::new(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::CreateUserResponse = rpc_client
-        .call("user.create", request, Some(token))
-        .await
-        .context("Failed to create user")?;
+    let response: data::CreateUserResponse =
+        rpc_call("user.create", request, server_url, server_connection)
+            .await
+            .context("Failed to create user")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -167,18 +165,14 @@ async fn list_users(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Get token
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     let request = data::ListUsersRequest {
-        token: token.clone(),
+        token: String::new(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ListUsersResponse = rpc_client
-        .call("user.list", request, Some(token))
-        .await
-        .context("Failed to list users")?;
+    let response: data::ListUsersResponse =
+        rpc_call("user.list", request, server_url, server_connection)
+            .await
+            .context("Failed to list users")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -189,7 +183,7 @@ async fn list_users(
                 println!("No users found");
             } else {
                 println!("\n{} user(s) found:\n", response.users.len());
-                for user in response.users {
+                for user in &response.users {
                     println!("  • {}", user.username);
                     println!("    Admin: {}", if user.is_admin { "Yes" } else { "No" });
                     println!(
@@ -221,9 +215,6 @@ async fn delete_user(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Get token
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     // Confirm deletion unless --force flag is set
     if !force {
         print!(
@@ -245,14 +236,13 @@ async fn delete_user(
 
     let request = data::DeleteUserRequest {
         username: username.to_string(),
-        token: token.clone(),
+        token: String::new(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::DeleteUserResponse = rpc_client
-        .call("user.delete", request, Some(token))
-        .await
-        .context("Failed to delete user")?;
+    let response: data::DeleteUserResponse =
+        rpc_call("user.delete", request, server_url, server_connection)
+            .await
+            .context("Failed to delete user")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -278,29 +268,11 @@ async fn change_password(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Get token
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     // If no username provided, use current user from token
     let target_username = if let Some(name) = username {
         name.to_string()
     } else {
-        // Parse JWT to get current username (simple base64 decode of payload)
-        use base64::{Engine as _, engine::general_purpose};
-        let parts: Vec<&str> = token.split('.').collect();
-        if parts.len() != 3 {
-            anyhow::bail!("Invalid token format");
-        }
-        let payload = general_purpose::STANDARD_NO_PAD
-            .decode(parts[1])
-            .context("Failed to decode token")?;
-        let payload_str = String::from_utf8(payload).context("Invalid token payload")?;
-        let payload_json: serde_json::Value =
-            serde_json::from_str(&payload_str).context("Failed to parse token payload")?;
-        payload_json["sub"]
-            .as_str()
-            .context("No username in token")?
-            .to_string()
+        extract_username_from_token()?
     };
 
     // Prompt for new password from env or interactively
@@ -320,16 +292,15 @@ async fn change_password(
     };
 
     let request = data::ChangePasswordRequest {
-        username: target_username.clone(),
+        username: target_username,
         new_password,
-        token: token.clone(),
+        token: String::new(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ChangePasswordResponse = rpc_client
-        .call("user.passwd", request, Some(token))
-        .await
-        .context("Failed to change password")?;
+    let response: data::ChangePasswordResponse =
+        rpc_call("user.passwd", request, server_url, server_connection)
+            .await
+            .context("Failed to change password")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -355,48 +326,29 @@ async fn get_user_info(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Get token
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     // If no username provided, use current user from token
     let target_username = if let Some(name) = username {
         name.to_string()
     } else {
-        // Parse JWT to get current username (simple base64 decode of payload)
-        use base64::{Engine as _, engine::general_purpose};
-        let parts: Vec<&str> = token.split('.').collect();
-        if parts.len() != 3 {
-            anyhow::bail!("Invalid token format");
-        }
-        let payload = general_purpose::STANDARD_NO_PAD
-            .decode(parts[1])
-            .context("Failed to decode token")?;
-        let payload_str = String::from_utf8(payload).context("Invalid token payload")?;
-        let payload_json: serde_json::Value =
-            serde_json::from_str(&payload_str).context("Failed to parse token payload")?;
-        payload_json["sub"]
-            .as_str()
-            .context("No username in token")?
-            .to_string()
+        extract_username_from_token()?
     };
 
     let request = data::GetUserInfoRequest {
         username: target_username,
-        token: token.clone(),
+        token: String::new(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::GetUserInfoResponse = rpc_client
-        .call("user.info", request, Some(token))
-        .await
-        .context("Failed to get user info")?;
+    let response: data::GetUserInfoResponse =
+        rpc_call("user.info", request, server_url, server_connection)
+            .await
+            .context("Failed to get user info")?;
 
     match output_format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         OutputFormat::Text => {
-            let user = response.user;
+            let user = &response.user;
             println!("\nUser Information:");
             println!("  Username: {}", user.username);
             println!("  Admin: {}", if user.is_admin { "Yes" } else { "No" });
@@ -410,7 +362,6 @@ async fn get_user_info(
             );
             if !user.ssh_keys.is_empty() {
                 for (i, key) in user.ssh_keys.iter().enumerate() {
-                    // Show first 40 chars of the key
                     let key_preview = if key.len() > 40 {
                         format!("{}...", &key[..40])
                     } else {
@@ -434,4 +385,24 @@ async fn get_user_info(
     }
 
     Ok(())
+}
+
+/// Parse JWT to extract the current username from the "sub" claim.
+fn extract_username_from_token() -> Result<String> {
+    let token = crate::token::load_token().context("Not authenticated. Please login first.")?;
+
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 3 {
+        anyhow::bail!("Invalid token format");
+    }
+    let payload = general_purpose::STANDARD_NO_PAD
+        .decode(parts[1])
+        .context("Failed to decode token")?;
+    let payload_str = String::from_utf8(payload).context("Invalid token payload")?;
+    let payload_json: serde_json::Value =
+        serde_json::from_str(&payload_str).context("Failed to parse token payload")?;
+    payload_json["sub"]
+        .as_str()
+        .context("No username in token")
+        .map(|s| s.to_string())
 }

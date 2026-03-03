@@ -46,7 +46,9 @@ pub use ip::{
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks};
 pub use mac::{clean_mac, random_mac};
-pub use output::{term_msg_highlight, term_msg_surround, term_msg_underline};
+pub use output::{
+    display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
+};
 pub use port::id_to_port;
 pub use random::get_id;
 pub use sanitizers::dasher;

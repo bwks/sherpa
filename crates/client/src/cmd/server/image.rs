@@ -1,14 +1,14 @@
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
-use crate::cmd::cli::OutputFormat;
-use crate::common::rpc::RpcClient;
-use crate::token;
 use shared::data::{self, NodeKind, NodeModel, ServerConnection};
 use shared::util::{emoji_success, render_images_table, render_scanned_images_table};
 
+use super::OutputFormat;
+use super::rpc_call;
+
 #[derive(Debug, Subcommand)]
-pub enum ImageCommands {
+pub enum ServerImageCommands {
     /// List all images
     List {
         /// Optional: List images for a specific model
@@ -62,13 +62,13 @@ pub enum ImageCommands {
 }
 
 pub async fn image_commands(
-    command: &ImageCommands,
+    command: &ServerImageCommands,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
     match command {
-        ImageCommands::List {
+        ServerImageCommands::List {
             model,
             container,
             unikernel,
@@ -85,7 +85,7 @@ pub async fn image_commands(
             };
             list_images(*model, kind, server_url, server_connection, output_format).await
         }
-        ImageCommands::Scan {
+        ServerImageCommands::Scan {
             container,
             unikernel,
             virtual_machine,
@@ -102,7 +102,7 @@ pub async fn image_commands(
             };
             scan_images(kind, *dry_run, server_url, server_connection, output_format).await
         }
-        ImageCommands::Import {
+        ServerImageCommands::Import {
             src,
             version,
             model,
@@ -117,7 +117,7 @@ pub async fn image_commands(
             )
             .await
         }
-        ImageCommands::Pull { image } => {
+        ServerImageCommands::Pull { image } => {
             pull_image(image, server_url, server_connection, output_format).await
         }
     }
@@ -130,15 +130,12 @@ async fn list_images(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     let request = data::ListImagesRequest { model, kind };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ListImagesResponse = rpc_client
-        .call("image.list", request, Some(token))
-        .await
-        .context("Failed to list images")?;
+    let response: data::ListImagesResponse =
+        rpc_call("image.list", request, server_url, server_connection)
+            .await
+            .context("Failed to list images")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -163,15 +160,12 @@ async fn scan_images(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     let request = data::ScanImagesRequest { kind, dry_run };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ScanImagesResponse = rpc_client
-        .call("image.scan", request, Some(token))
-        .await
-        .context("Failed to scan images")?;
+    let response: data::ScanImagesResponse =
+        rpc_call("image.scan", request, server_url, server_connection)
+            .await
+            .context("Failed to scan images")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -209,19 +203,16 @@ async fn import_image(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     let request = data::ImportRequest {
         model: *model,
         version: version.to_string(),
         src: src.to_string(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ImportResponse = rpc_client
-        .call("image.import", request, Some(token))
-        .await
-        .context("Failed to import image")?;
+    let response: data::ImportResponse =
+        rpc_call("image.import", request, server_url, server_connection)
+            .await
+            .context("Failed to import image")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -253,8 +244,6 @@ async fn pull_image(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    let token = token::load_token().context("Not authenticated. Please login first.")?;
-
     // Parse image reference into repo:tag
     let (repo, tag) = if let Some((r, t)) = image.rsplit_once(':') {
         (r.to_string(), t.to_string())
@@ -267,11 +256,10 @@ async fn pull_image(
         tag: tag.clone(),
     };
 
-    let rpc_client = RpcClient::new(server_url.to_string(), server_connection.clone());
-    let response: data::ContainerPullResponse = rpc_client
-        .call("image.pull", request, Some(token))
-        .await
-        .context("Failed to pull container image")?;
+    let response: data::ContainerPullResponse =
+        rpc_call("image.pull", request, server_url, server_connection)
+            .await
+            .context("Failed to pull container image")?;
 
     match output_format {
         OutputFormat::Json => {

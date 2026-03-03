@@ -2,7 +2,6 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
-use super::clean::clean;
 use super::console::console;
 use super::destroy::destroy;
 use super::down::down;
@@ -12,10 +11,10 @@ use super::inspect::inspect;
 use super::login::{login, logout, whoami};
 use super::new::new;
 use super::resume::resume;
+use super::server::{OutputFormat, ServerCommands, run_server};
 use super::ssh::ssh;
 use super::up::up;
 use super::validate::validate_manifest;
-use super::virtual_machine::VirtualMachineCommands;
 
 use shared::data::ClientConfig;
 use shared::data::Sherpa;
@@ -105,23 +104,12 @@ enum Commands {
         manifest: Option<String>,
     },
 
-    /// Force clean all resources for a lab (admin-only)
-    Clean {
-        /// Lab ID to clean (if omitted, derived from manifest)
-        lab_id: Option<String>,
-    },
-
     /// Connect to a device via serial console over Telnet
     Console { name: String },
 
     /// SSH to a device.
     Ssh { name: String },
 
-    /// Virtual machine management commands
-    Vm {
-        #[command(subcommand)]
-        commands: VirtualMachineCommands,
-    },
     /// Image management commands
     Image {
         #[command(subcommand)]
@@ -132,6 +120,20 @@ enum Commands {
     Cert {
         #[command(subcommand)]
         commands: CertCommands,
+    },
+
+    /// Server administration commands
+    Server {
+        /// Enable verbose logging
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Output format (text or json)
+        #[arg(long, default_value = "text")]
+        output: OutputFormat,
+
+        #[command(subcommand)]
+        commands: ServerCommands,
     },
 }
 
@@ -268,35 +270,12 @@ impl Cli {
                 let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
                 validate_manifest(manifest_path)?;
             }
-            Commands::Clean { lab_id } => {
-                let lab_id = match lab_id {
-                    Some(id) => id.clone(),
-                    None => {
-                        let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                        get_id(&manifest.name)?
-                    }
-                };
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
-
-                let server_url = resolve_server_url(cli.server_url, &config);
-                clean(&lab_id, &server_url, &config).await?;
-            }
             Commands::Console { name } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 console(name, &manifest)?;
             }
             Commands::Ssh { name } => {
                 ssh(name).await?;
-            }
-            Commands::Vm { commands } => {
-                // parse_vm_commands(commands, &sherpa).await?;
-                let _cmds = commands;
-                println!("NOT IMPLEMENTED");
             }
             Commands::Image { commands } => {
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
@@ -315,6 +294,13 @@ impl Cli {
                 CertCommands::Trust { server_url } => cert_trust(server_url).await?,
                 CertCommands::Delete { server_url } => cert_delete(server_url).await?,
             },
+            Commands::Server {
+                verbose,
+                output,
+                commands,
+            } => {
+                run_server(commands, *verbose, output, cli.server_url, cli.insecure).await?;
+            }
         }
         Ok(())
     }
