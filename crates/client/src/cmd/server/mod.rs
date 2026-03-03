@@ -8,9 +8,7 @@ use serde::de::DeserializeOwned;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-use shared::data::ServerConnection;
-use shared::konst::SHERPA_CONFIG_FILE_PATH;
-use shared::util::{build_websocket_url, get_server_url, load_config};
+use shared::data::{ClientConfig, ServerConnection};
 
 mod clean;
 mod image;
@@ -57,8 +55,8 @@ pub async fn run_server(
     commands: &ServerCommands,
     verbose: bool,
     output: &OutputFormat,
-    cli_server_url: Option<String>,
-    cli_insecure: bool,
+    server_url: &str,
+    config: &ClientConfig,
 ) -> Result<()> {
     // Setup logging based on verbose flag
     if verbose {
@@ -67,45 +65,20 @@ pub async fn run_server(
             .init();
     }
 
-    // Resolve server URL from CLI > env > server config > default
-    let config = load_config(SHERPA_CONFIG_FILE_PATH).ok();
-
-    let server_url = cli_server_url
-        .or_else(get_server_url)
-        .or_else(|| {
-            config
-                .as_ref()
-                .and_then(|c| c.server_connection.url.clone())
-        })
-        .unwrap_or_else(|| {
-            config
-                .as_ref()
-                .map(build_websocket_url)
-                .unwrap_or_else(|| "ws://localhost:3030/ws".to_string())
-        });
-
-    // Build ServerConnection from config, with CLI overrides
-    let mut server_connection = config
-        .as_ref()
-        .map(|c| c.server_connection.clone())
-        .unwrap_or_default();
-
-    if cli_insecure {
-        server_connection.insecure = true;
-    }
+    let server_connection = config.server_connection.clone();
 
     match commands {
         ServerCommands::Status => {
-            status(&server_url, &server_connection).await?;
+            status(server_url, &server_connection).await?;
         }
         ServerCommands::User { commands } => {
-            user_commands(commands, &server_url, &server_connection, output).await?;
+            user_commands(commands, server_url, &server_connection, output).await?;
         }
         ServerCommands::Image { commands } => {
-            image_commands(commands, &server_url, &server_connection, output).await?;
+            image_commands(commands, server_url, &server_connection, output).await?;
         }
         ServerCommands::Clean { lab_id } => {
-            clean(lab_id, &server_url, &server_connection).await?;
+            clean(lab_id, server_url, &server_connection).await?;
         }
     }
 
