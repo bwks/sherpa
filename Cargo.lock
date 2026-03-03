@@ -4889,31 +4889,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sherpactl"
-version = "0.3.7"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "clap",
- "db",
- "futures-util",
- "jiff",
- "libvirt",
- "rpassword",
- "rustls",
- "serde",
- "serde_json",
- "shared",
- "ssh-key",
- "tokio",
- "tokio-tungstenite 0.24.0",
- "toml",
- "tracing",
- "tracing-subscriber",
- "uuid",
-]
-
-[[package]]
 name = "sherpad"
 version = "0.3.7"
 dependencies = [
