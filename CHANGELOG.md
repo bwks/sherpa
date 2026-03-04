@@ -2,11 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.10] - 2026-03-03
+## [0.3.11] - 2026-03-04
 
 ### Miscellaneous
 
-- Merge pull request #98 from bwks/windows-path-fix
+- Merge pull request #103 from bwks/sherpad-permissions
 
-(bug) Windows path fix by @bwks in [#98](https://github.com/bwks/sherpa/pull/98) ([d7c6fdb](https://github.com/bwks/sherpa/commit/d7c6fdbd70c8fba77f5892cf8e33d6df64ad4ae6))
+Sherpad permissions fixes by @bwks in [#103](https://github.com/bwks/sherpa/pull/103) ([10fd744](https://github.com/bwks/sherpa/commit/10fd744085d6ea0be80ffcaeacb76bd5c8985f33))
 
