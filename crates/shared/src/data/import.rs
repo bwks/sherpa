@@ -94,6 +94,32 @@ pub struct ScanImagesResponse {
     pub total_imported: usize,
 }
 
+/// Request type for deleting an imported image
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteImageRequest {
+    /// The node model of the image to delete
+    pub model: NodeModel,
+    /// Version string for the image to delete
+    pub version: String,
+}
+
+/// Response from an image delete operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteImageResponse {
+    /// Whether the delete succeeded
+    pub success: bool,
+    /// The node model that was deleted
+    pub model: NodeModel,
+    /// The node kind (VirtualMachine, Container, Unikernel)
+    pub kind: NodeKind,
+    /// The version that was deleted
+    pub version: String,
+    /// Whether the disk files were deleted
+    pub disk_deleted: bool,
+    /// Whether the database record was deleted
+    pub db_deleted: bool,
+}
+
 /// Request type for pulling a container image from an OCI registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerPullRequest {

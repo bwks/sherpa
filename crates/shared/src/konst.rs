@@ -291,6 +291,10 @@ pub const RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT: &str =
     "Access denied: only administrators can import images";
 pub const RPC_MSG_ADMIN_ONLY_IMAGE_SCAN: &str =
     "Access denied: only administrators can scan images";
+pub const RPC_MSG_IMAGE_DELETE_FAILED: &str = "Image delete operation failed";
+pub const RPC_MSG_ADMIN_ONLY_IMAGE_DELETE: &str =
+    "Access denied: only administrators can delete images";
+pub const RPC_MSG_INVALID_PARAMS_IMAGE_DELETE: &str = "Invalid params: expected DeleteImageRequest";
 
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";
