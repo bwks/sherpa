@@ -688,9 +688,15 @@ StartLimitIntervalSec=60
 
 [Service]
 Type=simple
+
+# Run as sherpa user/group
 User=sherpa
 Group=sherpa
 WorkingDirectory=/opt/sherpa
+
+# Capabilities needed for network operations (bridge, raw sockets, etc.)
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
 
 # Run in foreground so systemd manages the process lifecycle
 ExecStart=/opt/sherpa/bin/sherpad start --foreground
@@ -702,9 +708,11 @@ RestartSec=5
 # Environment configuration (optional file)
 EnvironmentFile=-/opt/sherpa/env/sherpa.env
 
-# Security hardening (basic level)
-NoNewPrivileges=yes
-PrivateTmp=yes
+# Security hardening (keep basic options that are compatible with caps)
+# NOTE: PrivateTmp is intentionally disabled because the server needs
+# to access user-provided file paths (e.g. image imports from /tmp).
+NoNewPrivileges=no
+PrivateTmp=no
 
 # Resource limits
 LimitNOFILE=65536

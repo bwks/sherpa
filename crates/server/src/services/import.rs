@@ -5,7 +5,7 @@ use shared::data::{
     NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse, ScannedImage,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
-use shared::util::{copy_file, create_dir, file_exists, fix_permissions_recursive};
+use shared::util::{copy_file, create_dir, file_exists};
 
 use crate::daemon::state::AppState;
 
@@ -39,9 +39,6 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
     } else {
         tracing::info!("Image already exists at {}, skipping copy", version_disk);
     }
-
-    // Fix permissions on the images directory
-    fix_permissions_recursive(&images_dir).context("Failed to set image permissions")?;
 
     // Upsert node_image record in the database
     let mut db_config = config;
