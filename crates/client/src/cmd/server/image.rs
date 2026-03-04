@@ -59,6 +59,16 @@ pub enum ServerImageCommands {
         /// Container image reference (e.g., ghcr.io/nokia/srlinux:1.2.3)
         image: String,
     },
+
+    /// Delete an imported image from disk and database
+    Delete {
+        /// Model of the device image to delete
+        #[arg(short, long, value_enum)]
+        model: NodeModel,
+        /// Version of the device image to delete
+        #[arg(short, long)]
+        version: String,
+    },
 }
 
 pub async fn image_commands(
@@ -119,6 +129,9 @@ pub async fn image_commands(
         }
         ServerImageCommands::Pull { image } => {
             pull_image(image, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::Delete { model, version } => {
+            delete_image(model, version, server_url, server_connection, output_format).await
         }
     }
 }
@@ -231,6 +244,50 @@ async fn import_image(
                 );
             } else {
                 eprintln!("Image import failed");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn delete_image(
+    model: &NodeModel,
+    version: &str,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let request = data::DeleteImageRequest {
+        model: *model,
+        version: version.to_string(),
+    };
+
+    let response: data::DeleteImageResponse =
+        rpc_call("image.delete", request, server_url, server_connection)
+            .await
+            .context("Failed to delete image")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            if response.success {
+                println!("{}", emoji_success("Image deleted successfully"));
+                println!("   Model:       {}", response.model);
+                println!("   Kind:        {}", response.kind);
+                println!("   Version:     {}", response.version);
+                println!(
+                    "   DB Deleted:  {}",
+                    if response.db_deleted { "yes" } else { "no" }
+                );
+                println!(
+                    "   Disk Deleted: {}",
+                    if response.disk_deleted { "yes" } else { "no" }
+                );
+            } else {
+                eprintln!("Image delete failed");
             }
         }
     }
