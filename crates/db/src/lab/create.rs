@@ -74,6 +74,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub async fn create_lab(
     db: &Arc<Surreal<Client>>,
     name: &str,
