@@ -95,6 +95,25 @@ pub async fn get_node_image_versions(
     Ok(configs)
 }
 
+/// Get multiple node_images by a list of RecordIds in a single query
+pub async fn list_node_images_by_ids(
+    db: &Arc<Surreal<Client>>,
+    ids: Vec<RecordId>,
+) -> Result<Vec<NodeConfig>> {
+    if ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut response = db
+        .query("SELECT * FROM $ids")
+        .bind(("ids", ids))
+        .await
+        .context("Failed to batch query node_images by ids")?;
+
+    let configs: Vec<NodeConfig> = response.take(0)?;
+    Ok(configs)
+}
+
 /// Get node_image by RecordId
 pub async fn get_node_image_by_id(
     db: &Arc<Surreal<Client>>,

@@ -10,7 +10,7 @@ pub use create::{create_node_image, upsert_node_image};
 pub use read::{
     count_node_images, get_default_node_image, get_node_image_by_id,
     get_node_image_by_model_kind_version, get_node_image_versions, list_node_images,
-    list_node_images_by_kind,
+    list_node_images_by_ids, list_node_images_by_kind,
 };
 
 // Public exports - UPDATE operations
