@@ -196,6 +196,22 @@ check_port_available() {
     print_success "Port ${DB_PORT} is available"
 }
 
+check_virtualization() {
+    print_header "Checking Virtualization Support"
+
+    if grep -q 'vmx' /proc/cpuinfo; then
+        print_success "Hardware virtualization supported (Intel VT-x)"
+    elif grep -q 'svm' /proc/cpuinfo; then
+        print_success "Hardware virtualization supported (AMD-V)"
+    else
+        print_error "Hardware virtualization extensions not detected"
+        echo ""
+        echo "Sherpa requires Intel VT-x or AMD-V to run VMs and unikernels via KVM/QEMU."
+        echo "Please enable virtualization extensions in your BIOS/UEFI settings and try again."
+        exit 1
+    fi
+}
+
 ################################################################################
 # Dependency Installation
 ################################################################################
@@ -947,6 +963,7 @@ main() {
     
     # Run all checks and setup
     check_root_privileges
+    check_virtualization
     check_curl_installed
     get_database_password
     get_server_ip
