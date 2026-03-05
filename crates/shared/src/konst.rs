@@ -40,7 +40,7 @@ pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
 pub const SHERPA_CERTS_PATH: &str = "/opt/sherpa/.certs";
 pub const SHERPA_BLANK_DISK_PATH: &str = "/opt/sherpa/images/blank_disk";
-
+pub const WEB_ASSETS_DIR: &str = "web/static";
 // ============================================================================
 // Full file paths
 // ============================================================================

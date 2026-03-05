@@ -1,10 +1,38 @@
-use crate::daemon::state::AppState;
-use axum::{
-    Router,
-    routing::{delete, get, post},
-};
+use axum::http::{StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use axum::routing::{delete, get, post};
+use axum::{Router, extract::Path};
+use rust_embed::Embed;
 use tower_http::cors::{AllowOrigin, CorsLayer};
-use tower_http::services::ServeDir;
+
+use crate::daemon::state::AppState;
+
+#[derive(Embed)]
+#[folder = "web/static"]
+struct StaticAssets;
+
+async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
+    match StaticAssets::get(&path) {
+        Some(file) => {
+            let mime = match path.rsplit_once('.').map(|(_, ext)| ext) {
+                Some("css") => "text/css",
+                Some("js") => "application/javascript",
+                Some("html") => "text/html",
+                Some("svg") => "image/svg+xml",
+                Some("png") => "image/png",
+                Some("jpg" | "jpeg") => "image/jpeg",
+                Some("ico") => "image/x-icon",
+                Some("woff2") => "font/woff2",
+                Some("woff") => "font/woff",
+                Some("ttf") => "font/ttf",
+                Some("json") => "application/json",
+                _ => "application/octet-stream",
+            };
+            (StatusCode::OK, [(header::CONTENT_TYPE, mime)], file.data).into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
 
 use super::handlers::{
     add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
@@ -123,8 +151,6 @@ pub fn build_router() -> Router<AppState> {
         .route("/up", post(lab_up))
         // Apply CORS middleware to all routes
         .layer(cors)
-        // Serve static files as fallback (catches all unmatched routes)
-        .fallback_service(
-            ServeDir::new("crates/server/web/static").append_index_html_on_directories(true),
-        )
+        // Serve embedded static files
+        .route("/{*path}", get(embedded_asset_handler))
 }
