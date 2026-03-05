@@ -22,6 +22,8 @@ pub struct DbLab {
     pub user: RecordId,
     pub loopback_network: String,
     pub management_network: String,
+    pub gateway_ipv4: String,
+    pub router_ipv4: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]

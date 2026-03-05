@@ -21,6 +21,8 @@ async fn test_delete_link_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -84,6 +86,8 @@ async fn test_delete_link_by_id_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -147,6 +151,8 @@ async fn test_delete_link_nonexistent_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -213,6 +219,8 @@ async fn test_delete_link_decrements_count() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -298,6 +306,8 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -402,6 +412,8 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab2 = create_lab(
@@ -411,6 +423,8 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -535,6 +549,8 @@ async fn test_delete_links_by_node_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -646,6 +662,8 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

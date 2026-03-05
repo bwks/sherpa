@@ -21,6 +21,8 @@ async fn test_get_link_by_id_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -82,6 +84,8 @@ async fn test_get_link_not_found() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -110,6 +114,8 @@ async fn test_get_link_by_peers_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -177,6 +183,8 @@ async fn test_get_link_by_peers_not_found() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -241,6 +249,8 @@ async fn test_list_links_returns_all() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -323,6 +333,8 @@ async fn test_list_links_by_lab_empty() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -347,6 +359,8 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab2 = create_lab(
@@ -356,6 +370,8 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -477,6 +493,8 @@ async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -600,6 +618,8 @@ async fn test_count_links_accurate() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -660,6 +680,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab2 = create_lab(
@@ -669,6 +691,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -798,6 +822,8 @@ async fn test_count_links_by_node_accurate() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

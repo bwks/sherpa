@@ -92,7 +92,11 @@ enum Commands {
     /// Resume environment
     Resume,
     /// Destroy environment
-    Destroy,
+    Destroy {
+        /// Skip confirmation prompt
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        yes: bool,
+    },
     /// Inspect environment
     #[default]
     Inspect,
@@ -237,7 +241,7 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 resume(&lab_name, &lab_id, &server_url, &config).await?;
             }
-            Commands::Destroy => {
+            Commands::Destroy { yes } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
@@ -249,7 +253,7 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                destroy(&lab_name, &lab_id, &server_url, &config).await?;
+                destroy(&lab_name, &lab_id, &server_url, &config, *yes).await?;
             }
             Commands::Inspect => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

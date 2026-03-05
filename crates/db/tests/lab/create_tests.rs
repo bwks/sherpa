@@ -20,6 +20,8 @@ async fn test_create_lab_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -45,6 +47,8 @@ async fn test_create_lab_with_user() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -70,6 +74,8 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -81,6 +87,8 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await;
 
@@ -112,6 +120,8 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -123,6 +133,8 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await;
 
@@ -158,6 +170,8 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         &user1,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab2 = create_lab(
@@ -167,6 +181,8 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         &user2,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -193,6 +209,8 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await;
 
@@ -223,6 +241,8 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await;
 
@@ -253,6 +273,8 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await;
 
@@ -300,6 +322,8 @@ async fn test_upsert_lab_creates_new() -> Result<()> {
         user: user_id.clone(),
         loopback_network: "127.127.1.0/24".to_string(),
         management_network: "172.31.1.0/24".to_string(),
+        gateway_ipv4: "172.31.1.1".to_string(),
+        router_ipv4: "172.31.1.2".to_string(),
     };
 
     let result = upsert_lab(&db, lab).await?;
@@ -327,6 +351,8 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab_id = lab.id.clone().unwrap();
@@ -339,6 +365,8 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         user: user.id.unwrap(),
         loopback_network: "127.127.1.0/24".to_string(),
         management_network: "172.31.1.0/24".to_string(),
+        gateway_ipv4: "172.31.1.1".to_string(),
+        router_ipv4: "172.31.1.2".to_string(),
     };
 
     let result = upsert_lab(&db, updated_lab).await?;
@@ -369,6 +397,8 @@ async fn test_create_lab_increases_count() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 

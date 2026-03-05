@@ -20,6 +20,8 @@ async fn test_update_link_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -95,6 +97,8 @@ async fn test_update_link_without_id_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -159,6 +163,8 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab2 = create_lab(
@@ -168,6 +174,8 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -235,6 +243,8 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -311,6 +321,8 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -387,6 +399,8 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -475,6 +489,8 @@ async fn test_update_link_preserves_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -539,6 +555,8 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -607,6 +625,8 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

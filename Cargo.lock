@@ -953,7 +953,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1140,7 +1140,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2078,12 +2078,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "http-range-header"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
-
-[[package]]
 name = "httparse"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2677,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "shared",
@@ -2962,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "futures",
@@ -4345,6 +4339,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust-embed"
+version = "8.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04113cb9355a377d83f06ef1f0a45b8ab8cd7d8b1288160717d66df5c7988d27"
+dependencies = [
+ "rust-embed-impl",
+ "rust-embed-utils",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-impl"
+version = "8.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da0902e4c7c8e997159ab384e6d0fc91c221375f6894346ae107f47dd0f3ccaa"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "rust-embed-utils",
+ "syn 2.0.117",
+ "walkdir",
+]
+
+[[package]]
+name = "rust-embed-utils"
+version = "8.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bcdef0be6fe7f6fa333b1073c949729274b05f123a0ad7efcb8efd878e5c3b1"
+dependencies = [
+ "sha2",
+ "walkdir",
+]
+
+[[package]]
 name = "rust-stemmers"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4796,7 +4824,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4848,7 +4876,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "askama",
@@ -4885,7 +4913,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "askama",
@@ -4911,6 +4939,7 @@ dependencies = [
  "rcgen",
  "reqwest 0.11.27",
  "rpassword",
+ "rust-embed",
  "rustls",
  "rustls-pemfile 2.2.0",
  "serde",
@@ -5502,7 +5531,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "askama",
@@ -5888,7 +5917,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "petname",
@@ -5926,20 +5955,11 @@ checksum = "d4e6559d53cc268e5031cd8429d05415bc4cb4aefc4aa5d6cc35fbf5b924a1f8"
 dependencies = [
  "bitflags 2.11.0",
  "bytes",
- "futures-core",
  "futures-util",
  "http 1.4.0",
  "http-body 1.0.1",
- "http-body-util",
- "http-range-header",
- "httpdate",
  "iri-string",
- "mime",
- "mime_guess",
- "percent-encoding",
  "pin-project-lite",
- "tokio",
- "tokio-util",
  "tower",
  "tower-layer",
  "tower-service",
@@ -6196,7 +6216,7 @@ dependencies = [
 
 [[package]]
 name = "validate"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "anyhow",
  "shared",

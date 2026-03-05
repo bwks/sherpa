@@ -49,6 +49,8 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// * `user` - Lab owner (DbUser record with id)
 /// * `loopback_network` - The allocated loopback /24 subnet for this lab (e.g. "127.127.1.0/24")
 /// * `management_network` - The allocated management /24 subnet for this lab (e.g. "172.31.1.0/24")
+/// * `gateway_ipv4` - The gateway IPv4 address for the lab management network (e.g. "172.31.1.1")
+/// * `router_ipv4` - The router IPv4 address for the lab management network (e.g. "172.31.1.2")
 ///
 /// # Returns
 /// The created DbLab with assigned ID
@@ -66,12 +68,13 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// # async fn example() -> anyhow::Result<()> {
 /// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
 /// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24").await?;
+/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
 /// assert_eq!(lab.name, "My Lab");
 /// assert_eq!(lab.lab_id, "lab-0001");
 /// # Ok(())
 /// # }
 /// ```
+#[allow(clippy::too_many_arguments)]
 pub async fn create_lab(
     db: &Arc<Surreal<Client>>,
     name: &str,
@@ -79,6 +82,8 @@ pub async fn create_lab(
     user: &DbUser,
     loopback_network: &str,
     management_network: &str,
+    gateway_ipv4: &str,
+    router_ipv4: &str,
 ) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(lab_id)?;
@@ -96,6 +101,8 @@ pub async fn create_lab(
             user: user_id,
             loopback_network: loopback_network.to_string(),
             management_network: management_network.to_string(),
+            gateway_ipv4: gateway_ipv4.to_string(),
+            router_ipv4: router_ipv4.to_string(),
         })
         .await
         .context(format!("Failed to create lab: '{}'", name))?;
@@ -137,6 +144,8 @@ pub async fn create_lab(
 ///     user: user_id,
 ///     loopback_network: "127.127.1.0/24".to_string(),
 ///     management_network: "172.31.1.0/24".to_string(),
+///     gateway_ipv4: "172.31.1.1".to_string(),
+///     router_ipv4: "172.31.1.2".to_string(),
 /// };
 /// let result = upsert_lab(&db, lab).await?;
 /// # Ok(())

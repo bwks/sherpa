@@ -20,6 +20,8 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -59,6 +61,8 @@ async fn test_get_lab_by_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let lab_id = created.id.clone().unwrap();
@@ -101,6 +105,8 @@ async fn test_get_lab_by_name_and_user() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -143,6 +149,8 @@ async fn test_list_labs() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -152,6 +160,8 @@ async fn test_list_labs() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -161,6 +171,8 @@ async fn test_list_labs() -> Result<()> {
         &user,
         "127.127.3.0/24",
         "172.31.3.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -200,6 +212,8 @@ async fn test_list_labs_by_user() -> Result<()> {
         &user1,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -209,6 +223,8 @@ async fn test_list_labs_by_user() -> Result<()> {
         &user1,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -218,6 +234,8 @@ async fn test_list_labs_by_user() -> Result<()> {
         &user2,
         "127.127.3.0/24",
         "172.31.3.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -245,6 +263,8 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -279,6 +299,8 @@ async fn test_count_labs() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -288,6 +310,8 @@ async fn test_count_labs() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -313,6 +337,8 @@ async fn test_count_labs_by_user() -> Result<()> {
         &user1,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -322,6 +348,8 @@ async fn test_count_labs_by_user() -> Result<()> {
         &user1,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -331,6 +359,8 @@ async fn test_count_labs_by_user() -> Result<()> {
         &user1,
         "127.127.3.0/24",
         "172.31.3.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -340,6 +370,8 @@ async fn test_count_labs_by_user() -> Result<()> {
         &user2,
         "127.127.4.0/24",
         "172.31.4.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -372,6 +404,8 @@ async fn test_get_used_management_networks() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -381,6 +415,8 @@ async fn test_get_used_management_networks() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 

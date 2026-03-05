@@ -17,6 +17,8 @@ async fn test_update_lab_success() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -46,6 +48,8 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         user: user_id,
         loopback_network: "127.127.1.0/24".to_string(),
         management_network: "172.31.1.0/24".to_string(),
+        gateway_ipv4: "172.31.1.1".to_string(),
+        router_ipv4: "172.31.1.2".to_string(),
     };
 
     let result = update_lab(&db, lab).await;
@@ -72,6 +76,8 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         user: user.id.unwrap(),
         loopback_network: "127.127.1.0/24".to_string(),
         management_network: "172.31.1.0/24".to_string(),
+        gateway_ipv4: "172.31.1.1".to_string(),
+        router_ipv4: "172.31.1.2".to_string(),
     };
 
     let result = update_lab(&db, lab).await;
@@ -95,6 +101,8 @@ async fn test_update_preserves_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     let original_id = lab.id.clone();
@@ -121,6 +129,8 @@ async fn test_update_lab_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -153,6 +163,8 @@ async fn test_update_cannot_change_owner() -> Result<()> {
         &user1,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -187,6 +199,8 @@ async fn test_update_lab_name_constraint() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
     create_lab(
@@ -196,6 +210,8 @@ async fn test_update_lab_name_constraint() -> Result<()> {
         &user,
         "127.127.2.0/24",
         "172.31.2.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 
@@ -225,6 +241,8 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 

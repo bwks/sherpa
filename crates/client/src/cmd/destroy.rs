@@ -27,6 +27,7 @@ pub async fn destroy(
     lab_id: &str,
     server_url: &str,
     config: &ClientConfig,
+    yes: bool,
 ) -> Result<()> {
     term_msg_surround(&format!("Destroy environment - {lab_name}-{lab_id}"));
 
@@ -128,8 +129,8 @@ pub async fn destroy(
 
     let device_count = inspect_data.devices.len();
 
-    // Phase 2: Ask for confirmation
-    if !confirm_destroy(lab_name, lab_id, device_count)? {
+    // Phase 2: Ask for confirmation (skip if --yes flag is set)
+    if !yes && !confirm_destroy(lab_name, lab_id, device_count)? {
         println!("\n{} Destroy operation cancelled by user", Emoji::Warning);
         return Ok(());
     }
