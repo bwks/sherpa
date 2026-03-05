@@ -125,6 +125,8 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         &user,
         "127.127.1.0/24",
         "172.31.1.0/24",
+        "172.31.1.1",
+        "172.31.1.2",
     )
     .await?;
 

@@ -502,6 +502,10 @@ pub async fn up_lab(
             "Allocated management subnet for lab"
         );
 
+        // Compute gateway and router IPs from management subnet
+        let gateway_ipv4 = util::get_ipv4_addr(&management_subnet, 1)?;
+        let router_ipv4 = util::get_ipv4_addr(&management_subnet, 2)?;
+
         // Create lab record in database
         let lab_record = db::create_lab(
             &db,
@@ -510,6 +514,8 @@ pub async fn up_lab(
             &db_user,
             &loopback_subnet.to_string(),
             &management_subnet.to_string(),
+            &gateway_ipv4.to_string(),
+            &router_ipv4.to_string(),
         )
         .await
         .context("Failed to create lab record in database")?;
@@ -684,14 +690,12 @@ pub async fn up_lab(
         )?;
 
         let lab_net = management_subnet;
-        let gateway_ip = util::get_ipv4_addr(&lab_net, 1)?;
-        let lab_router_ip = util::get_ipv4_addr(&lab_net, 2)?;
 
         tracing::info!(
             lab_id = %lab_id,
             subnet = %lab_net,
-            gateway = %gateway_ip,
-            boot_server = %lab_router_ip,
+            gateway = %gateway_ipv4,
+            boot_server = %router_ipv4,
             "Allocated lab network subnet"
         );
 
@@ -700,8 +704,8 @@ pub async fn up_lab(
             user: current_user.clone(),
             name: manifest.name.clone(),
             ipv4_network: lab_net,
-            ipv4_gateway: gateway_ip,
-            ipv4_router: lab_router_ip,
+            ipv4_gateway: gateway_ipv4,
+            ipv4_router: router_ipv4,
             loopback_network: loopback_subnet,
         };
 
@@ -711,9 +715,9 @@ pub async fn up_lab(
         let mgmt_net = data::SherpaNetwork {
             v4: data::NetworkV4 {
                 prefix: lab_net,
-                first: gateway_ip,
+                first: gateway_ipv4,
                 last: lab_net.broadcast(),
-                boot_server: lab_router_ip,
+                boot_server: router_ipv4,
                 network: lab_net.network(),
                 subnet_mask: lab_net.netmask(),
                 hostmask: lab_net.hostmask(),
@@ -737,7 +741,7 @@ pub async fn up_lab(
         let management_network_obj = libvirt::NatNetwork {
             network_name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
-            ipv4_address: gateway_ip,
+            ipv4_address: gateway_ipv4,
             ipv4_netmask: lab_net.netmask(),
         };
         management_network_obj.create(&qemu_conn)?;
