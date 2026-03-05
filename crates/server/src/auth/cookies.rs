@@ -31,7 +31,7 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
     // In production, add Secure flag. For development/testing, omit it.
     // You can check an env var or compile-time flag if needed.
     format!(
-        "{}={}; Path=/; HttpOnly; SameSite=Strict; Max-Age={}",
+        "{}={}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age={}",
         AUTH_COOKIE_NAME, token, max_age
     )
 }
@@ -44,7 +44,7 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
 /// A Set-Cookie header value string that clears the auth cookie
 pub fn create_clear_cookie() -> String {
     format!(
-        "{}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0",
+        "{}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
         AUTH_COOKIE_NAME
     )
 }
