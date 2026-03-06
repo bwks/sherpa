@@ -2288,6 +2288,7 @@ pub async fn up_lab(
         let management_network_attachment = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             ipv4_address: Some(boot_server_ipv4.clone()),
+            linux_interface_name: None,
         };
 
         tracing::info!(
@@ -2620,25 +2621,39 @@ pub async fn up_lab(
             if node_a_data.kind == data::NodeKind::Container {
                 let docker_net_name =
                     format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-                container_link_networks
+                let entries = container_link_networks
                     .entry(node_a_data.name.clone())
-                    .or_default()
-                    .push(data::ContainerNetworkAttachment {
-                        name: docker_net_name,
-                        ipv4_address: None,
-                    });
+                    .or_default();
+                let linux_interface_name =
+                    if node_a_data.model == data::NodeModel::NokiaSrlinux {
+                        Some(format!("e1-{}", entries.len() + 1))
+                    } else {
+                        None
+                    };
+                entries.push(data::ContainerNetworkAttachment {
+                    name: docker_net_name,
+                    ipv4_address: None,
+                    linux_interface_name,
+                });
             }
 
             if node_b_data.kind == data::NodeKind::Container {
                 let docker_net_name =
                     format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-                container_link_networks
+                let entries = container_link_networks
                     .entry(node_b_data.name.clone())
-                    .or_default()
-                    .push(data::ContainerNetworkAttachment {
-                        name: docker_net_name,
-                        ipv4_address: None,
-                    });
+                    .or_default();
+                let linux_interface_name =
+                    if node_b_data.model == data::NodeModel::NokiaSrlinux {
+                        Some(format!("e1-{}", entries.len() + 1))
+                    } else {
+                        None
+                    };
+                entries.push(data::ContainerNetworkAttachment {
+                    name: docker_net_name,
+                    ipv4_address: None,
+                    linux_interface_name,
+                });
             }
         }
 
@@ -2739,6 +2754,7 @@ pub async fn up_lab(
                 let management_network_attachment = data::ContainerNetworkAttachment {
                     name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                     ipv4_address: mgmt_ipv4.clone(),
+                    linux_interface_name: None,
                 };
 
                 let mut additional_networks = vec![];

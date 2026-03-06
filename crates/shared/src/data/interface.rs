@@ -785,6 +785,48 @@ interface_enum!(
 );
 
 interface_enum!(
+    NokiaSrlinuxInt,
+    "NokiaSrlinux",
+    [
+        Mgmt0 => 0, "mgmt0",
+        Eth1_1 => 1, "eth-1/1",
+        Eth1_2 => 2, "eth-1/2",
+        Eth1_3 => 3, "eth-1/3",
+        Eth1_4 => 4, "eth-1/4",
+        Eth1_5 => 5, "eth-1/5",
+        Eth1_6 => 6, "eth-1/6",
+        Eth1_7 => 7, "eth-1/7",
+        Eth1_8 => 8, "eth-1/8",
+        Eth1_9 => 9, "eth-1/9",
+        Eth1_10 => 10, "eth-1/10",
+        Eth1_11 => 11, "eth-1/11",
+        Eth1_12 => 12, "eth-1/12",
+        Eth1_13 => 13, "eth-1/13",
+        Eth1_14 => 14, "eth-1/14",
+        Eth1_15 => 15, "eth-1/15",
+        Eth1_16 => 16, "eth-1/16",
+        Eth1_17 => 17, "eth-1/17",
+        Eth1_18 => 18, "eth-1/18",
+        Eth1_19 => 19, "eth-1/19",
+        Eth1_20 => 20, "eth-1/20",
+        Eth1_21 => 21, "eth-1/21",
+        Eth1_22 => 22, "eth-1/22",
+        Eth1_23 => 23, "eth-1/23",
+        Eth1_24 => 24, "eth-1/24",
+        Eth1_25 => 25, "eth-1/25",
+        Eth1_26 => 26, "eth-1/26",
+        Eth1_27 => 27, "eth-1/27",
+        Eth1_28 => 28, "eth-1/28",
+        Eth1_29 => 29, "eth-1/29",
+        Eth1_30 => 30, "eth-1/30",
+        Eth1_31 => 31, "eth-1/31",
+        Eth1_32 => 32, "eth-1/32",
+        Eth1_33 => 33, "eth-1/33",
+        Eth1_34 => 34, "eth-1/34"
+    ]
+);
+
+interface_enum!(
     JuniperVsrxv3Int,
     "JuniperVsrxv3",
     [

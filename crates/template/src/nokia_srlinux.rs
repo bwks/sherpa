@@ -40,6 +40,8 @@ struct System {
     aaa: Aaa,
     #[serde(rename = "srl_nokia-ssh:ssh-server")]
     ssh_server: Vec<SshServer>,
+    #[serde(rename = "srl_nokia-lldp:lldp")]
+    lldp: Lldp,
 }
 
 #[derive(Serialize)]
@@ -63,6 +65,16 @@ struct SshServer {
     admin_state: String,
     #[serde(rename = "network-instance")]
     network_instance: String,
+}
+
+// ============================================================================
+// LLDP
+// ============================================================================
+
+#[derive(Serialize)]
+struct Lldp {
+    #[serde(rename = "admin-state")]
+    admin_state: String,
 }
 
 // ============================================================================
@@ -296,6 +308,9 @@ pub fn build_srlinux_config(
                 admin_state: "enable".to_string(),
                 network_instance: "mgmt".to_string(),
             }],
+            lldp: Lldp {
+                admin_state: "enable".to_string(),
+            },
         },
         interface: vec![Interface {
             name: "mgmt0".to_string(),
