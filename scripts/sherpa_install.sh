@@ -101,6 +101,8 @@ Options:
 Environment Variables:
   SHERPA_DB_PASSWORD   SurrealDB password (skips interactive prompt)
   SHERPA_SERVER_IP4     Server listen IP address (skips interactive prompt)
+  SHERPA_SERVER_PORT   Server listen port (default: 3030)
+  SHERPA_DB_PORT       SurrealDB port (default: 8000)
 
 Examples:
   # Interactive (will prompt for password)
@@ -760,6 +762,12 @@ SHERPA_DB_PASSWORD=YourSecurePasswordHere
 # Server listen IP address (0.0.0.0 for all interfaces)
 SHERPA_SERVER_IP4=0.0.0.0
 
+# Server listen port (default: 3030)
+# SHERPA_SERVER_PORT=3030
+
+# SurrealDB port (default: 8000)
+# SHERPA_DB_PORT=8000
+
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
 
@@ -807,6 +815,12 @@ SHERPA_DB_PASSWORD=${DB_PASSWORD}
 
 # Server listen IP address
 SHERPA_SERVER_IP4=${SERVER_IP}
+
+# Server listen port
+SHERPA_SERVER_PORT=${SERVER_PORT}
+
+# SurrealDB port
+SHERPA_DB_PORT=${DB_PORT}
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -939,6 +953,8 @@ main() {
     # Parse command line arguments
     DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
     SERVER_IP="${SHERPA_SERVER_IP4:-}"
+    DB_PORT="${SHERPA_DB_PORT:-${DB_PORT}}"
+    SERVER_PORT="${SHERPA_SERVER_PORT:-3030}"
 
     while [ $# -gt 0 ]; do
         case "$1" in

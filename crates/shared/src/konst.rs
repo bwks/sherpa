@@ -83,6 +83,7 @@ pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
 pub const SHERPA_DB_USER: &str = "sherpa";
 pub const SHERPA_DB_SERVER: &str = "localhost";
 pub const SHERPA_DB_PORT: u16 = 8000;
+pub const SHERPA_SERVER_PORT: u16 = 3030;
 
 pub const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
 

@@ -97,6 +97,27 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         }
     }
 
+    // Allow SHERPA_SERVER_PORT env var to override the config file value
+    if let Ok(port_str) = std::env::var("SHERPA_SERVER_PORT") {
+        match port_str.parse::<u16>() {
+            Ok(port) => {
+                tracing::info!(
+                    "Overriding server port from SHERPA_SERVER_PORT env var: {}",
+                    port
+                );
+                config.server_port = port;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Invalid SHERPA_SERVER_PORT '{}': {} — using config value {}",
+                    port_str,
+                    e,
+                    config.server_port
+                );
+            }
+        }
+    }
+
     // Log server configuration
     let protocol = if config.tls.enabled { "wss" } else { "ws" };
     tracing::info!(

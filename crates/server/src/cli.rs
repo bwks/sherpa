@@ -56,6 +56,14 @@ pub enum Commands {
         /// Server listen IP address (also reads from SHERPA_SERVER_IP4 env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "server-ip", env = "SHERPA_SERVER_IP4")]
         server_ip: Option<String>,
+
+        /// Server listen port (also reads from SHERPA_SERVER_PORT env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "server-port", env = "SHERPA_SERVER_PORT")]
+        server_port: Option<u16>,
+
+        /// SurrealDB port (also reads from SHERPA_DB_PORT env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "db-port", env = "SHERPA_DB_PORT")]
+        db_port: Option<u16>,
     },
 
     /// Fix up server environment

@@ -8,7 +8,7 @@ use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
-use crate::konst::{SHERPA_PASSWORD, SHERPA_USERNAME};
+use crate::konst::{SHERPA_PASSWORD, SHERPA_SERVER_PORT, SHERPA_USERNAME};
 use crate::util::path_to_string;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -174,7 +174,7 @@ fn default_server_ipv4() -> Ipv4Addr {
 }
 
 fn default_server_port() -> u16 {
-    3030
+    SHERPA_SERVER_PORT
 }
 
 fn default_management_prefix() -> Ipv4Net {

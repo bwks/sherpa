@@ -41,7 +41,18 @@ async fn main() -> Result<()> {
             force,
             db_password,
             server_ip,
-        } => init::init(force, db_password.as_deref(), server_ip.as_deref()).await,
+            server_port,
+            db_port,
+        } => {
+            init::init(
+                force,
+                db_password.as_deref(),
+                server_ip.as_deref(),
+                server_port,
+                db_port,
+            )
+            .await
+        }
         Commands::Doctor { boxes } => doctor::doctor(boxes),
     }
 }

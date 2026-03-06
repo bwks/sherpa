@@ -326,9 +326,15 @@ pub async fn up_lab(
         "SHERPA_DB_PASSWORD environment variable is not set (check {})",
         SHERPA_ENV_FILE_PATH
     ))?;
+
+    let db_port = std::env::var("SHERPA_DB_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(SHERPA_DB_PORT);
+
     let db = db::connect(
         SHERPA_DB_SERVER,
-        SHERPA_DB_PORT,
+        db_port,
         SHERPA_DB_NAMESPACE,
         SHERPA_DB_NAME,
         &db_password,

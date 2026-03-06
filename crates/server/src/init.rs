@@ -11,7 +11,8 @@ use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_PATH, SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE,
     SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
     SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
-    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SERVER_PORT, SHERPA_SSH_PATH,
+    SHERPA_SSH_PRIVATE_KEY_FILE,
     SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
@@ -20,7 +21,13 @@ use shared::util::{
 };
 use ssh_key::Algorithm;
 
-pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str>) -> Result<()> {
+pub async fn init(
+    force: bool,
+    db_password: Option<&str>,
+    server_ip: Option<&str>,
+    server_port: Option<u16>,
+    db_port: Option<u16>,
+) -> Result<()> {
     let env_file = Path::new(SHERPA_ENV_FILE_PATH);
 
     let db_password = match db_password {
@@ -40,6 +47,20 @@ pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str
         Some(ip) => ip.to_string(),
         None => read_env_file_value(env_file, "SHERPA_SERVER_IP4")
             .unwrap_or_else(|| "0.0.0.0".to_string()),
+    };
+
+    let server_port = match server_port {
+        Some(p) => p,
+        None => read_env_file_value(env_file, "SHERPA_SERVER_PORT")
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(SHERPA_SERVER_PORT),
+    };
+
+    let db_port = match db_port {
+        Some(p) => p,
+        None => read_env_file_value(env_file, "SHERPA_DB_PORT")
+            .and_then(|v| v.parse::<u16>().ok())
+            .unwrap_or(SHERPA_DB_PORT),
     };
 
     let server_ipv4: Ipv4Addr = server_ip
@@ -85,6 +106,7 @@ pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
         config.server_ipv4 = server_ipv4;
+        config.server_port = server_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
     }
@@ -125,7 +147,7 @@ pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str
     term_msg_highlight("Initializing Database");
     let db = connect(
         SHERPA_DB_SERVER,
-        SHERPA_DB_PORT,
+        db_port,
         SHERPA_DB_NAMESPACE,
         SHERPA_DB_NAME,
         &db_password,
