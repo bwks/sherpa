@@ -247,11 +247,14 @@ install_system_packages() {
     print_info "Installing packages..."
     DEBIAN_FRONTEND=noninteractive apt-get install -y "${packages[@]}"
 
+    print_success "System packages installed"
+}
+
+enable_libvirtd() {
     print_info "Enabling and starting libvirtd..."
     systemctl enable libvirtd
     systemctl start libvirtd
-
-    print_success "System packages installed"
+    print_success "libvirtd enabled and started"
 }
 
 install_docker() {
@@ -973,6 +976,7 @@ main() {
     echo ""
 
     install_system_packages
+    enable_libvirtd
     install_docker
     check_port_available
     setup_sherpa_user
