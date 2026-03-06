@@ -2298,7 +2298,7 @@ pub async fn up_lab(
             "Starting dnsmasq boot container"
         );
 
-        container::run_container(
+        let is_running = container::run_container(
             &docker_conn,
             &format!("{CONTAINER_DNSMASQ_NAME}-{lab_id}"),
             CONTAINER_DNSMASQ_REPO,
@@ -2312,6 +2312,12 @@ pub async fn up_lab(
             None,
         )
         .await?;
+
+        if !is_running {
+            anyhow::bail!(
+                "dnsmasq boot container {CONTAINER_DNSMASQ_NAME}-{lab_id} is not in running state after start"
+            );
+        }
 
         phases_completed.push("Sherpa Router".to_string());
 
@@ -2782,7 +2788,7 @@ pub async fn up_lab(
                     "Container configuration"
                 );
 
-                container::run_container(
+                let is_running = container::run_container(
                     &docker_conn,
                     &container_name,
                     &container_image,
@@ -2796,6 +2802,15 @@ pub async fn up_lab(
                     user,
                 )
                 .await?;
+
+                if !is_running {
+                    tracing::warn!(
+                        lab_id = %lab_id,
+                        node_name = %container.name,
+                        "Container is not in running state after start"
+                    );
+                    continue;
+                }
 
                 tracing::info!(
                     lab_id = %lab_id,

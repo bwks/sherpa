@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
-    NetworkConnectRequest, NetworkingConfig,
+    ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
@@ -27,7 +27,7 @@ pub async fn run_container(
     commands: Vec<String>,
     privileged: bool,
     user: Option<String>,
-) -> Result<()> {
+) -> Result<bool> {
     // Environment variables
 
     // let env = env_vars.iter().map(|s| s.to_string()).collect();
@@ -154,8 +154,8 @@ pub async fn run_container(
     let inspect_options = Some(InspectContainerOptions { size: false });
     let details = docker.inspect_container(&id, inspect_options).await?;
 
-    // Get the status
-    if let Some(state) = &details.state {
+    // Check if the container is running
+    let is_running = if let Some(state) = &details.state {
         let status = state
             .status
             .as_ref()
@@ -168,6 +168,10 @@ pub async fn run_container(
             exit_code = exit_code,
             "Container status after creation"
         );
-    }
-    Ok(())
+        state.status == Some(ContainerStateStatusEnum::RUNNING)
+    } else {
+        false
+    };
+
+    Ok(is_running)
 }
