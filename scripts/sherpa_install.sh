@@ -352,7 +352,7 @@ setup_sherpa_user() {
     
     # Create sherpa user if it doesn't exist
     if ! id -u sherpa >/dev/null 2>&1; then
-        useradd -r -m -s /bin/bash -d /opt/sherpa \
+        useradd -r -M -s /usr/sbin/nologin \
                 -c "Sherpa service user" sherpa
         print_success "Created sherpa user"
     else
