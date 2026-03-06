@@ -29,6 +29,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             environment_variables: node.environment_variables.clone(),
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
+            user: node.user.clone(),
         })
         .collect()
 }

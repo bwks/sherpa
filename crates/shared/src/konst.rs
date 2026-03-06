@@ -145,6 +145,7 @@ pub const ARISTA_ABOOT_DIR: &str = "aboot_iso";
 pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
 pub const ARISTA_VEOS_ZTP: &str = "startup-config";
 pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/flash/startup-config";
+pub const NOKIA_SRLINUX_ZTP_VOLUME_MOUNT: &str = "/etc/opt/srlinux/config.json";
 pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";
 pub const ARUBA_ZTP_SCRIPT: &str = "aos-config.sh";
@@ -176,8 +177,9 @@ pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
+pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
 pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] =
-    &["sudo", "bash", "/opt/srlinux/bin/sr_linux"];
+    &["bash", "/opt/srlinux/bin/sr_linux"];
 
 pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[

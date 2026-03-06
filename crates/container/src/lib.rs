@@ -7,7 +7,7 @@ mod network;
 pub use connect::docker_connection;
 
 // Re-export container operations
-pub use container::{kill_container, list_containers, remove_container, run_container};
+pub use container::{exec_container, kill_container, list_containers, remove_container, run_container};
 
 // Re-export network operations
 pub use network::{

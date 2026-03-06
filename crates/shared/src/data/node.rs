@@ -12,8 +12,7 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET,
-    MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
