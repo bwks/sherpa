@@ -76,19 +76,19 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     let mut config = load_config(SHERPA_CONFIG_FILE_PATH)
         .context("Failed to load sherpa.toml config - cannot start server")?;
 
-    // Allow SHERPA_SERVER_IP4 env var to override the config file value
-    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IP4") {
+    // Allow SHERPA_SERVER_IPV4 env var to override the config file value
+    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV4") {
         match ip_str.parse() {
             Ok(ip) => {
                 tracing::info!(
-                    "Overriding server IP from SHERPA_SERVER_IP4 env var: {}",
+                    "Overriding server IP from SHERPA_SERVER_IPV4 env var: {}",
                     ip_str
                 );
                 config.server_ipv4 = ip;
             }
             Err(e) => {
                 tracing::warn!(
-                    "Invalid SHERPA_SERVER_IP4 '{}': {} — using config value {}",
+                    "Invalid SHERPA_SERVER_IPV4 '{}': {} — using config value {}",
                     ip_str,
                     e,
                     config.server_ipv4

@@ -18,8 +18,8 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
     }
 
     // Prompt for server IP
-    let server_ip = prompt_with_default("Server IP address", "127.0.0.1")?;
-    let server_ipv4: Ipv4Addr = server_ip
+    let server_ipv4 = prompt_with_default("Server IP address", "127.0.0.1")?;
+    let server_ipv4_addr: Ipv4Addr = server_ipv4
         .parse()
         .context("Invalid IPv4 address. Expected format: x.x.x.x")?;
 
@@ -34,7 +34,7 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
 
     // Build and write client config
     let config = ClientConfig {
-        server_ipv4,
+        server_ipv4: server_ipv4_addr,
         server_port,
         ..ClientConfig::default()
     };

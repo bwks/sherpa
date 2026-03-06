@@ -40,14 +40,14 @@ async fn main() -> Result<()> {
         Commands::Init {
             force,
             db_password,
-            server_ip,
+            server_ipv4,
             server_port,
             db_port,
         } => {
             init::init(
                 force,
                 db_password.as_deref(),
-                server_ip.as_deref(),
+                server_ipv4.as_deref(),
                 server_port,
                 db_port,
             )

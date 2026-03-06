@@ -11,9 +11,9 @@ use shared::konst::{
     SHERPA_BASE_DIR, SHERPA_BINS_PATH, SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE,
     SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
     SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
-    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SERVER_PORT, SHERPA_SSH_PATH,
-    SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SERVER_IPV4, SHERPA_SERVER_PORT, SHERPA_SSH_PATH,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
@@ -24,7 +24,7 @@ use ssh_key::Algorithm;
 pub async fn init(
     force: bool,
     db_password: Option<&str>,
-    server_ip: Option<&str>,
+    server_ipv4: Option<&str>,
     server_port: Option<u16>,
     db_port: Option<u16>,
 ) -> Result<()> {
@@ -43,10 +43,10 @@ pub async fn init(
         })?,
     };
 
-    let server_ip = match server_ip {
+    let server_ipv4 = match server_ipv4 {
         Some(ip) => ip.to_string(),
-        None => read_env_file_value(env_file, "SHERPA_SERVER_IP4")
-            .unwrap_or_else(|| "0.0.0.0".to_string()),
+        None => read_env_file_value(env_file, "SHERPA_SERVER_IPV4")
+            .unwrap_or_else(|| SHERPA_SERVER_IPV4.to_string()),
     };
 
     let server_port = match server_port {
@@ -63,7 +63,7 @@ pub async fn init(
             .unwrap_or(SHERPA_DB_PORT),
     };
 
-    let server_ipv4: Ipv4Addr = server_ip
+    let server_ipv4_addr: Ipv4Addr = server_ipv4
         .parse()
         .context("Invalid server IP address. Expected format: x.x.x.x")?;
 
@@ -105,7 +105,7 @@ pub async fn init(
     } else {
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
-        config.server_ipv4 = server_ipv4;
+        config.server_ipv4 = server_ipv4_addr;
         config.server_port = server_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
