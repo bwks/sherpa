@@ -120,6 +120,28 @@ pub struct DeleteImageResponse {
     pub db_deleted: bool,
 }
 
+/// Request type for setting the default version of an image
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetDefaultImageRequest {
+    /// The node model to set the default for
+    pub model: NodeModel,
+    /// Version string to make the default
+    pub version: String,
+}
+
+/// Response from setting the default image version
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetDefaultImageResponse {
+    /// Whether the operation succeeded
+    pub success: bool,
+    /// The node model that was updated
+    pub model: NodeModel,
+    /// The node kind (VirtualMachine, Container, Unikernel)
+    pub kind: NodeKind,
+    /// The version that is now the default
+    pub version: String,
+}
+
 /// Request type for pulling a container image from an OCI registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerPullRequest {

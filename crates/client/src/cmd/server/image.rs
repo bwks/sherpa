@@ -69,6 +69,16 @@ pub enum ServerImageCommands {
         #[arg(short, long)]
         version: String,
     },
+
+    /// Set the default version for an image
+    SetDefault {
+        /// Model of the device image
+        #[arg(short, long, value_enum)]
+        model: NodeModel,
+        /// Version to set as default
+        #[arg(short, long)]
+        version: String,
+    },
 }
 
 pub async fn image_commands(
@@ -132,6 +142,9 @@ pub async fn image_commands(
         }
         ServerImageCommands::Delete { model, version } => {
             delete_image(model, version, server_url, server_connection, output_format).await
+        }
+        ServerImageCommands::SetDefault { model, version } => {
+            set_default_image(model, version, server_url, server_connection, output_format).await
         }
     }
 }
@@ -288,6 +301,42 @@ async fn delete_image(
                 );
             } else {
                 eprintln!("Image delete failed");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn set_default_image(
+    model: &NodeModel,
+    version: &str,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let request = data::SetDefaultImageRequest {
+        model: *model,
+        version: version.to_string(),
+    };
+
+    let response: data::SetDefaultImageResponse =
+        rpc_call("image.set_default", request, server_url, server_connection)
+            .await
+            .context("Failed to set default image")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            if response.success {
+                println!("{}", emoji_success("Default image set successfully"));
+                println!("   Model:   {}", response.model);
+                println!("   Kind:    {}", response.kind);
+                println!("   Version: {}", response.version);
+            } else {
+                eprintln!("Failed to set default image");
             }
         }
     }
