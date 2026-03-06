@@ -24,6 +24,7 @@ pub async fn run_container(
     additional_networks: Vec<ContainerNetworkAttachment>,
     commands: Vec<String>,
     privileged: bool,
+    user: Option<String>,
 ) -> Result<()> {
     // Environment variables
 
@@ -73,7 +74,8 @@ pub async fn run_container(
         networking_config: Some(networking_config),
         tty: Some(true),
         open_stdin: Some(true),
-        cmd: Some(cmds), // Add the command here
+        cmd: Some(cmds),
+        user,
         ..Default::default()
     };
 

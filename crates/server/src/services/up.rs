@@ -22,15 +22,15 @@ use shared::konst::{
     CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS,
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME,
     CONTAINER_DNSMASQ_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO,
-    CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_FILE_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE,
-    SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME, SHERPA_ENV_FILE_PATH,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_LABS_PATH,
-    SHERPA_LOOPBACK_PREFIX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
+    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE,
+    JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR,
+    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
+    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_FILE_PATH, SHERPA_DB_NAME,
+    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
+    SHERPA_ENV_FILE_PATH, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
+    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
     SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
@@ -200,6 +200,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             environment_variables: node.environment_variables.clone(),
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
+            user: node.user.clone(),
         })
         .collect()
 }
@@ -1124,14 +1125,31 @@ pub async fn up_lab(
                     );
                 }
                 data::NodeModel::NokiaSrlinux => {
+                    let srlinux_config = template::build_srlinux_config(
+                        &node.name,
+                        &sherpa_user,
+                        &dns,
+                        &mgmt_net.v4,
+                        node.ipv4_address,
+                    )?;
+                    let ztp_config = format!("{dir}/{}.json", node.name);
+                    let ztp_volume = topology::VolumeMount {
+                        src: ztp_config.clone(),
+                        dst: NOKIA_SRLINUX_ZTP_VOLUME_MOUNT.to_string(),
+                    };
+                    util::create_dir(&dir)?;
+                    util::create_file(&ztp_config, srlinux_config)?;
+
                     node.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
                     node.privileged = Some(true);
+                    node.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
                     node.environment_variables = Some(
                         CONTAINER_NOKIA_SRLINUX_ENV_VARS
                             .iter()
                             .map(|s| s.to_string())
                             .collect(),
                     );
+                    node.volumes = Some(vec![ztp_volume]);
                     node.commands = Some(
                         CONTAINER_NOKIA_SRLINUX_COMMANDS
                             .iter()
@@ -2290,6 +2308,7 @@ pub async fn up_lab(
             vec![],
             vec![],
             false,
+            None,
         )
         .await?;
 
@@ -2707,6 +2726,7 @@ pub async fn up_lab(
                 let privileged = container.privileged.unwrap_or(false);
                 let env_vars = container.environment_variables.clone().unwrap_or_default();
                 let commands = container.commands.clone().unwrap_or_default();
+                let user = container.user.clone();
                 let volumes = if let Some(volumes) = container.volumes.clone() {
                     volumes
                         .iter()
@@ -2757,6 +2777,7 @@ pub async fn up_lab(
                     additional_networks,
                     commands,
                     privileged,
+                    user,
                 )
                 .await?;
 
@@ -2765,6 +2786,27 @@ pub async fn up_lab(
                     node_name = %container.name,
                     "Container started and ready"
                 );
+
+                // SR Linux: Docker assigns the mgmt IP to mgmt0 in the default
+                // namespace. SR Linux also assigns it to mgmt0.0 in srbase-mgmt.
+                // Both responding causes DUP pings and SSH resets.
+                // Wait for srbase-mgmt to come up, then flush the default NS IP.
+                if container.model == data::NodeModel::NokiaSrlinux {
+                    let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
+                    container::exec_container(
+                        &docker_conn,
+                        &container_name,
+                        vec!["bash", "-c", flush_cmd],
+                    )
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "Failed to flush default namespace IP for {}",
+                            container.name
+                        )
+                    })?;
+                }
+
                 progress.send_status(
                     format!("Node {} - Started", container.name),
                     StatusKind::Done,

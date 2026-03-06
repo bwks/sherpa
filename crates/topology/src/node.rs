@@ -23,6 +23,7 @@ pub struct Node {
     pub environment_variables: Option<Vec<String>>,
     pub volumes: Option<Vec<VolumeMount>>,
     pub privileged: Option<bool>,
+    pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -45,6 +46,7 @@ pub struct NodeExpanded {
     pub environment_variables: Option<Vec<String>>,
     pub volumes: Option<Vec<VolumeMount>>,
     pub privileged: Option<bool>,
+    pub user: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

@@ -34,8 +34,14 @@ The project is organized as a Cargo workspace with crates under `crates/`:
 ### Building
 
 ```bash
-cargo build            # debug build
-cargo build --release  # release build
+# debug build
+cargo build
+
+ # release build
+cargo build --release
+
+  # release build for all workspace crates
+cargo build --workspace --all-targets --release
 ```
 
 ### Code Quality

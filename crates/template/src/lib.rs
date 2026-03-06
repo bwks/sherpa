@@ -13,6 +13,7 @@ mod dnsmasq;
 mod domain;
 mod ignition;
 mod juniper_junos;
+mod nokia_srlinux;
 mod pyats;
 mod sonic_linux;
 mod ssh;
@@ -37,6 +38,7 @@ pub use ignition::{
     IgnitionLink, IgnitionUnit, IgnitionUser,
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
+pub use nokia_srlinux::build_srlinux_config;
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::SshConfigTemplate;

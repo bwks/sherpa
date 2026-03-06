@@ -11,7 +11,9 @@ use strum_macros::EnumIter;
 use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
-use crate::konst::{CONTAINER_ARISTA_CEOS_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD};
+use crate::konst::{
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+};
 
 #[derive(
     Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
@@ -1416,7 +1418,7 @@ impl NodeConfig {
             id: None,
             model: NodeModel::NokiaSrlinux,
             version: "0.0.0".to_owned(),
-            repo: None,
+            repo: Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string()),
             os_variant: OsVariant::Srlinux,
             kind: NodeKind::Container,
             bios: BiosTypes::SeaBios,
