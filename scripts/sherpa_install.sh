@@ -96,12 +96,12 @@ You can also set it via the SHERPA_DB_PASSWORD environment variable.
 Options:
   --version VERSION     Install a specific version (e.g. v0.3.4)
                         If omitted, the latest release is used
-  -h, --help           Show this help message
+  -h, --help            Show this help message
 
 Environment Variables:
-  SHERPA_DB_PASSWORD   SurrealDB password (skips interactive prompt)
-  SHERPA_SERVER_IPV4     Server listen IP address (skips interactive prompt)
+  SHERPA_SERVER_IPV4   Server listen IP address
   SHERPA_SERVER_PORT   Server listen port (default: 3030)
+  SHERPA_DB_PASSWORD   SurrealDB password
   SHERPA_DB_PORT       SurrealDB port (default: 8000)
 
 Examples:
@@ -132,6 +132,33 @@ check_command_exists() {
 ################################################################################
 # Pre-flight Checks
 ################################################################################
+
+check_ubuntu_version() {
+    print_info "Checking Ubuntu version..."
+
+    if [ ! -f /etc/os-release ]; then
+        print_error "Cannot determine OS: /etc/os-release not found"
+        exit 1
+    fi
+
+    . /etc/os-release
+
+    if [ "$ID" != "ubuntu" ]; then
+        print_error "This script requires Ubuntu (detected: ${ID:-unknown})"
+        exit 1
+    fi
+
+    # Extract major and minor version (e.g. "24.04" -> 2404)
+    local version_num
+    version_num=$(echo "$VERSION_ID" | tr -d '.')
+
+    if [ "$version_num" -lt 2404 ] 2>/dev/null; then
+        print_error "Ubuntu 24.04 or later is required (detected: ${VERSION_ID})"
+        exit 1
+    fi
+
+    print_success "Ubuntu ${VERSION_ID} detected"
+}
 
 check_root_privileges() {
     print_info "Checking root privileges..."
@@ -981,6 +1008,7 @@ main() {
     print_header "Sherpa Installation"
     
     # Run all checks and setup
+    check_ubuntu_version
     check_root_privileges
     check_virtualization
     check_curl_installed
