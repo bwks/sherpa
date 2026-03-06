@@ -118,6 +118,27 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         }
     }
 
+    // Allow SHERPA_SERVER_HTTP_PORT env var to override the config file value
+    if let Ok(port_str) = std::env::var("SHERPA_SERVER_HTTP_PORT") {
+        match port_str.parse::<u16>() {
+            Ok(port) => {
+                tracing::info!(
+                    "Overriding HTTP port from SHERPA_SERVER_HTTP_PORT env var: {}",
+                    port
+                );
+                config.http_port = port;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Invalid SHERPA_SERVER_HTTP_PORT '{}': {} — using config value {}",
+                    port_str,
+                    e,
+                    config.http_port
+                );
+            }
+        }
+    }
+
     // Log server configuration
     let protocol = if config.tls.enabled { "wss" } else { "ws" };
     tracing::info!(
@@ -230,9 +251,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
         tracing::info!("Starting TLS-enabled server on wss://{}", addr);
 
-        // Start HTTP-only listener for certificate download endpoint on port + 1
+        // Start HTTP-only listener for certificate download endpoint
         // This allows clients to fetch the certificate via HTTP before trusting it
-        let http_port = config.server_port + 1;
+        let http_port = config.http_port;
         let http_addr: SocketAddr = format!("{}:{}", config.server_ipv4, http_port)
             .parse()
             .context("Invalid HTTP server address")?;

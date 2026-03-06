@@ -42,6 +42,7 @@ async fn main() -> Result<()> {
             db_password,
             server_ipv4,
             server_port,
+            http_port,
             db_port,
         } => {
             init::init(
@@ -49,6 +50,7 @@ async fn main() -> Result<()> {
                 db_password.as_deref(),
                 server_ipv4.as_deref(),
                 server_port,
+                http_port,
                 db_port,
             )
             .await

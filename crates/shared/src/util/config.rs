@@ -13,7 +13,8 @@ use crate::data::{
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
-    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_SERVER_PORT, SHERPA_USERNAME,
+    SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_PORT,
+    SHERPA_USERNAME,
 };
 
 /// Build WebSocket URL from config
@@ -105,6 +106,7 @@ pub fn default_config() -> Config {
         server_connection: ServerConnection::default(),
         server_ipv4: Ipv4Addr::new(127, 0, 0, 1),
         server_port: SHERPA_SERVER_PORT,
+        http_port: SHERPA_SERVER_HTTP_PORT,
         tls: TlsConfig::default(),
     }
 }

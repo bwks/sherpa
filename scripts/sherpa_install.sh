@@ -101,6 +101,7 @@ Options:
 Environment Variables:
   SHERPA_SERVER_IPV4   Server listen IP address
   SHERPA_SERVER_PORT   Server listen port (default: 3030)
+  SHERPA_SERVER_HTTP_PORT     HTTP certificate endpoint port (default: 3031)
   SHERPA_DB_PASSWORD   SurrealDB password
   SHERPA_DB_PORT       SurrealDB port (default: 8000)
 
@@ -792,6 +793,9 @@ SHERPA_SERVER_IPV4=0.0.0.0
 # Server listen port (default: 3030)
 # SHERPA_SERVER_PORT=3030
 
+# HTTP certificate endpoint port (default: 3031)
+# SHERPA_SERVER_HTTP_PORT=3031
+
 # SurrealDB port (default: 8000)
 # SHERPA_DB_PORT=8000
 
@@ -845,6 +849,9 @@ SHERPA_SERVER_IPV4=${SERVER_IP}
 
 # Server listen port
 SHERPA_SERVER_PORT=${SERVER_PORT}
+
+# HTTP certificate endpoint port
+SHERPA_SERVER_HTTP_PORT=${HTTP_PORT}
 
 # SurrealDB port
 SHERPA_DB_PORT=${DB_PORT}
@@ -978,10 +985,11 @@ cleanup_on_error() {
 
 main() {
     # Parse command line arguments
-    DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
     SERVER_IP="${SHERPA_SERVER_IPV4:-}"
-    DB_PORT="${SHERPA_DB_PORT:-${DB_PORT}}"
     SERVER_PORT="${SHERPA_SERVER_PORT:-3030}"
+    HTTP_PORT="${SHERPA_SERVER_HTTP_PORT:-3031}"
+    DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
+    DB_PORT="${SHERPA_DB_PORT:-${DB_PORT}}"
 
     while [ $# -gt 0 ]; do
         case "$1" in

@@ -105,7 +105,7 @@ impl TlsConfigBuilder {
                 // Certificate not in trust store - fetch from server
                 tracing::info!("Certificate not found in trust store, fetching from server...");
 
-                let fetched_cert = fetch_server_certificate(server_url)
+                let fetched_cert = fetch_server_certificate(server_url, None)
                     .await
                     .context("Failed to fetch server certificate")?;
 

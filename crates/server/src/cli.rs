@@ -61,6 +61,10 @@ pub enum Commands {
         #[arg(long = "server-port", env = "SHERPA_SERVER_PORT")]
         server_port: Option<u16>,
 
+        /// HTTP port for certificate endpoint (also reads from SHERPA_SERVER_HTTP_PORT env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT")]
+        http_port: Option<u16>,
+
         /// SurrealDB port (also reads from SHERPA_DB_PORT env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "db-port", env = "SHERPA_DB_PORT")]
         db_port: Option<u16>,

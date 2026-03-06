@@ -143,7 +143,7 @@ pub async fn cert_trust(server_url: &str) -> Result<()> {
     println!();
 
     // Fetch certificate from server
-    let cert_pem = fetch_server_certificate(&normalized_url)
+    let cert_pem = fetch_server_certificate(&normalized_url, None)
         .await
         .context("Failed to fetch server certificate")?;
 

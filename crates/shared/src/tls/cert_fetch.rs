@@ -7,10 +7,13 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 use url::Url;
 
+use crate::konst::SHERPA_SERVER_HTTP_PORT;
+
 /// Fetch server certificate from the /cert endpoint via HTTP
 ///
 /// # Arguments
 /// * `server_url` - The WebSocket server URL (ws:// or wss://)
+/// * `http_port` - Optional HTTP port for the /cert endpoint. If `None`, defaults to `SHERPA_SERVER_HTTP_PORT`.
 ///
 /// # Returns
 /// The certificate in PEM format
@@ -19,32 +22,14 @@ use url::Url;
 /// - Network errors (connection failed, timeout, etc.)
 /// - Server returned non-200 status
 /// - Invalid PEM format received
-pub async fn fetch_server_certificate(server_url: &str) -> Result<String> {
-    // Parse the WebSocket URL to extract host and port
+pub async fn fetch_server_certificate(server_url: &str, http_port: Option<u16>) -> Result<String> {
+    // Parse the WebSocket URL to extract host
     let ws_url =
         Url::parse(server_url).with_context(|| format!("Invalid server URL: {}", server_url))?;
 
     let host = ws_url.host_str().context("Server URL missing host")?;
 
-    let port = ws_url
-        .port()
-        .or_else(|| {
-            // Default ports based on scheme
-            match ws_url.scheme() {
-                "ws" => Some(80),
-                "wss" => Some(443),
-                _ => None,
-            }
-        })
-        .context("Unable to determine server port")?;
-
-    // For WSS connections, the HTTP /cert endpoint is on port + 1
-    // For WS connections, use the same port
-    let http_port = if ws_url.scheme() == "wss" {
-        port + 1
-    } else {
-        port
-    };
+    let http_port = http_port.unwrap_or(SHERPA_SERVER_HTTP_PORT);
 
     // Construct HTTP URL for certificate endpoint
     let cert_url = format!("http://{}:{}/cert", host, http_port);
@@ -174,7 +159,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_certificate_invalid_url() {
-        let result = fetch_server_certificate("not a valid url").await;
+        let result = fetch_server_certificate("not a valid url", None).await;
         assert!(result.is_err());
     }
 

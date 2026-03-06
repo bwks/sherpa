@@ -8,7 +8,7 @@ use super::container::ContainerImage;
 // use super::node::NodeConfig;
 use super::provider::VmProviders;
 
-use crate::konst::{SHERPA_PASSWORD, SHERPA_SERVER_PORT, SHERPA_USERNAME};
+use crate::konst::{SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_PORT, SHERPA_USERNAME};
 use crate::util::path_to_string;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -124,6 +124,8 @@ pub struct ClientConfig {
     pub server_ipv4: Ipv4Addr,
     #[serde(default = "default_server_port")]
     pub server_port: u16,
+    #[serde(default = "default_http_port")]
+    pub http_port: u16,
     #[serde(default)]
     pub server_connection: ServerConnection,
     #[serde(default)]
@@ -136,6 +138,7 @@ impl Default for ClientConfig {
             name: String::new(),
             server_ipv4: default_server_ipv4(),
             server_port: default_server_port(),
+            http_port: default_http_port(),
             server_connection: ServerConnection::default(),
             tls: TlsConfig::default(),
         }
@@ -150,6 +153,8 @@ pub struct Config {
     pub server_ipv4: Ipv4Addr,
     #[serde(default = "default_server_port")]
     pub server_port: u16,
+    #[serde(default = "default_http_port")]
+    pub http_port: u16,
     pub vm_provider: VmProviders,
     pub qemu_bin: String,
     #[serde(default = "default_management_prefix")]
@@ -175,6 +180,10 @@ fn default_server_ipv4() -> Ipv4Addr {
 
 fn default_server_port() -> u16 {
     SHERPA_SERVER_PORT
+}
+
+fn default_http_port() -> u16 {
+    SHERPA_SERVER_HTTP_PORT
 }
 
 fn default_management_prefix() -> Ipv4Net {
