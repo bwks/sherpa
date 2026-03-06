@@ -296,6 +296,11 @@ pub const RPC_MSG_IMAGE_DELETE_FAILED: &str = "Image delete operation failed";
 pub const RPC_MSG_ADMIN_ONLY_IMAGE_DELETE: &str =
     "Access denied: only administrators can delete images";
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_DELETE: &str = "Invalid params: expected DeleteImageRequest";
+pub const RPC_MSG_IMAGE_SET_DEFAULT_FAILED: &str = "Image set-default operation failed";
+pub const RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT: &str =
+    "Access denied: only administrators can set the default image";
+pub const RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT: &str =
+    "Invalid params: expected SetDefaultImageRequest";
 
 // Serialization errors
 pub const RPC_MSG_SERIALIZE_FAILED: &str = "Failed to serialize response";

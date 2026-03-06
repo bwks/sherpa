@@ -3,6 +3,7 @@ use anyhow::{Context, Result};
 use shared::data::{
     ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse, NodeConfig,
     NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse, ScannedImage,
+    SetDefaultImageRequest, SetDefaultImageResponse,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{copy_file, create_dir, file_exists};
@@ -432,5 +433,49 @@ pub async fn scan_images(
     Ok(ScanImagesResponse {
         scanned,
         total_imported,
+    })
+}
+
+/// Set the default version for a node image
+pub async fn set_default_image(
+    request: SetDefaultImageRequest,
+    state: &AppState,
+) -> Result<SetDefaultImageResponse> {
+    let config = NodeConfig::get_model(request.model);
+    let kind = config.kind.clone();
+
+    // Look up the image in the database
+    let node_image = db::get_node_image_by_model_kind_version(
+        &state.db,
+        &request.model,
+        &kind,
+        &request.version,
+    )
+    .await
+    .context("Failed to look up image in database")?;
+
+    let mut node_image = match node_image {
+        Some(img) => img,
+        None => {
+            anyhow::bail!(
+                "Image not found for model '{}' with version '{}'. Use 'server image list' to see available images.",
+                request.model,
+                request.version
+            );
+        }
+    };
+
+    // Set as default — update_node_image already unsets other defaults
+    node_image.default = true;
+
+    db::update_node_image(&state.db, node_image)
+        .await
+        .context("Failed to update image as default")?;
+
+    Ok(SetDefaultImageResponse {
+        success: true,
+        model: request.model,
+        kind,
+        version: request.version,
     })
 }
