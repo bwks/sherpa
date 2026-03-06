@@ -97,22 +97,22 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         }
     }
 
-    // Allow SHERPA_SERVER_PORT env var to override the config file value
-    if let Ok(port_str) = std::env::var("SHERPA_SERVER_PORT") {
+    // Allow SHERPA_SERVER_WS_PORT env var to override the config file value
+    if let Ok(port_str) = std::env::var("SHERPA_SERVER_WS_PORT") {
         match port_str.parse::<u16>() {
             Ok(port) => {
                 tracing::info!(
-                    "Overriding server port from SHERPA_SERVER_PORT env var: {}",
+                    "Overriding server port from SHERPA_SERVER_WS_PORT env var: {}",
                     port
                 );
-                config.server_port = port;
+                config.ws_port = port;
             }
             Err(e) => {
                 tracing::warn!(
-                    "Invalid SHERPA_SERVER_PORT '{}': {} — using config value {}",
+                    "Invalid SHERPA_SERVER_WS_PORT '{}': {} — using config value {}",
                     port_str,
                     e,
-                    config.server_port
+                    config.ws_port
                 );
             }
         }
@@ -145,7 +145,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         "Server will listen on {}://{}:{}",
         protocol,
         config.server_ipv4,
-        config.server_port
+        config.ws_port
     );
 
     if config.tls.enabled {
@@ -170,7 +170,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .with_state(state);
 
     // Socket address for binding
-    let addr: SocketAddr = format!("{}:{}", config.server_ipv4, config.server_port)
+    let addr: SocketAddr = format!("{}:{}", config.server_ipv4, config.ws_port)
         .parse()
         .context("Invalid server IP or port")?;
 

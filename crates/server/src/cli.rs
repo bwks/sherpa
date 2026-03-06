@@ -57,9 +57,9 @@ pub enum Commands {
         #[arg(long = "server-ipv4", env = "SHERPA_SERVER_IPV4")]
         server_ipv4: Option<String>,
 
-        /// Server listen port (also reads from SHERPA_SERVER_PORT env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "server-port", env = "SHERPA_SERVER_PORT")]
-        server_port: Option<u16>,
+        /// Server listen port (also reads from SHERPA_SERVER_WS_PORT env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "ws-port", env = "SHERPA_SERVER_WS_PORT")]
+        ws_port: Option<u16>,
 
         /// HTTP port for certificate endpoint (also reads from SHERPA_SERVER_HTTP_PORT env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT")]

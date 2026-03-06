@@ -41,7 +41,7 @@ async fn main() -> Result<()> {
             force,
             db_password,
             server_ipv4,
-            server_port,
+            ws_port,
             http_port,
             db_port,
         } => {
@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
                 force,
                 db_password.as_deref(),
                 server_ipv4.as_deref(),
-                server_port,
+                ws_port,
                 http_port,
                 db_port,
             )

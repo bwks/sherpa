@@ -25,7 +25,7 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
 
     // Prompt for server port
     let port_str = prompt_with_default("Server port", "3030")?;
-    let server_port: u16 = port_str
+    let ws_port: u16 = port_str
         .parse()
         .context("Invalid port number. Expected a number between 1 and 65535")?;
 
@@ -35,7 +35,7 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
     // Build and write client config
     let config = ClientConfig {
         server_ipv4: server_ipv4_addr,
-        server_port,
+        ws_port,
         ..ClientConfig::default()
     };
 

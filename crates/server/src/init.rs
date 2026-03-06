@@ -12,8 +12,8 @@ use shared::konst::{
     SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
     SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
     SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4,
-    SHERPA_SERVER_PORT, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH,
-    SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_SERVER_WS_PORT, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
@@ -25,7 +25,7 @@ pub async fn init(
     force: bool,
     db_password: Option<&str>,
     server_ipv4: Option<&str>,
-    server_port: Option<u16>,
+    ws_port: Option<u16>,
     http_port: Option<u16>,
     db_port: Option<u16>,
 ) -> Result<()> {
@@ -50,11 +50,11 @@ pub async fn init(
             .unwrap_or_else(|| SHERPA_SERVER_IPV4.to_string()),
     };
 
-    let server_port = match server_port {
+    let ws_port = match ws_port {
         Some(p) => p,
-        None => read_env_file_value(env_file, "SHERPA_SERVER_PORT")
+        None => read_env_file_value(env_file, "SHERPA_SERVER_WS_PORT")
             .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(SHERPA_SERVER_PORT),
+            .unwrap_or(SHERPA_SERVER_WS_PORT),
     };
 
     let http_port = match http_port {
@@ -114,7 +114,7 @@ pub async fn init(
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
         config.server_ipv4 = server_ipv4_addr;
-        config.server_port = server_port;
+        config.ws_port = ws_port;
         config.http_port = http_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
         println!("Config written to: {SHERPA_CONFIG_FILE_PATH}");
