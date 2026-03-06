@@ -2630,12 +2630,11 @@ pub async fn up_lab(
                 let entries = container_link_networks
                     .entry(node_a_data.name.clone())
                     .or_default();
-                let linux_interface_name =
-                    if node_a_data.model == data::NodeModel::NokiaSrlinux {
-                        Some(format!("e1-{}", entries.len() + 1))
-                    } else {
-                        None
-                    };
+                let linux_interface_name = if node_a_data.model == data::NodeModel::NokiaSrlinux {
+                    Some(format!("e1-{}", entries.len() + 1))
+                } else {
+                    None
+                };
                 entries.push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
@@ -2649,12 +2648,11 @@ pub async fn up_lab(
                 let entries = container_link_networks
                     .entry(node_b_data.name.clone())
                     .or_default();
-                let linux_interface_name =
-                    if node_b_data.model == data::NodeModel::NokiaSrlinux {
-                        Some(format!("e1-{}", entries.len() + 1))
-                    } else {
-                        None
-                    };
+                let linux_interface_name = if node_b_data.model == data::NodeModel::NokiaSrlinux {
+                    Some(format!("e1-{}", entries.len() + 1))
+                } else {
+                    None
+                };
                 entries.push(data::ContainerNetworkAttachment {
                     name: docker_net_name,
                     ipv4_address: None,
