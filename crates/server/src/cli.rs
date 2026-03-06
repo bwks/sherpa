@@ -53,8 +53,8 @@ pub enum Commands {
         #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
         db_password: Option<String>,
 
-        /// Server listen IP address (also reads from SHERPA_SERVER_IP env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "server-ip", env = "SHERPA_SERVER_IP")]
+        /// Server listen IP address (also reads from SHERPA_SERVER_IP4 env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "server-ip", env = "SHERPA_SERVER_IP4")]
         server_ip: Option<String>,
     },
 

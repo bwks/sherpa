@@ -100,7 +100,7 @@ Options:
 
 Environment Variables:
   SHERPA_DB_PASSWORD   SurrealDB password (skips interactive prompt)
-  SHERPA_SERVER_IP     Server listen IP address (skips interactive prompt)
+  SHERPA_SERVER_IP4     Server listen IP address (skips interactive prompt)
 
 Examples:
   # Interactive (will prompt for password)
@@ -468,7 +468,7 @@ stop_existing_container() {
 pull_surrealdb_image() {
     print_info "Pulling SurrealDB image (${SURREALDB_VERSION})..."
     
-    if docker pull "${SURREALDB_IMAGE}"; then
+    if docker image pull "${SURREALDB_IMAGE}"; then
         print_success "Image pulled successfully"
     else
         print_error "Failed to pull SurrealDB image"
@@ -758,7 +758,7 @@ UNIT
 SHERPA_DB_PASSWORD=YourSecurePasswordHere
 
 # Server listen IP address (0.0.0.0 for all interfaces)
-SHERPA_SERVER_IP=0.0.0.0
+SHERPA_SERVER_IP4=0.0.0.0
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -806,7 +806,7 @@ ENVEXAMPLE
 SHERPA_DB_PASSWORD=${DB_PASSWORD}
 
 # Server listen IP address
-SHERPA_SERVER_IP=${SERVER_IP}
+SHERPA_SERVER_IP4=${SERVER_IP}
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -938,7 +938,7 @@ cleanup_on_error() {
 main() {
     # Parse command line arguments
     DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
-    SERVER_IP="${SHERPA_SERVER_IP:-}"
+    SERVER_IP="${SHERPA_SERVER_IP4:-}"
 
     while [ $# -gt 0 ]; do
         case "$1" in

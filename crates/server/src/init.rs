@@ -38,7 +38,7 @@ pub async fn init(force: bool, db_password: Option<&str>, server_ip: Option<&str
 
     let server_ip = match server_ip {
         Some(ip) => ip.to_string(),
-        None => read_env_file_value(env_file, "SHERPA_SERVER_IP")
+        None => read_env_file_value(env_file, "SHERPA_SERVER_IP4")
             .unwrap_or_else(|| "0.0.0.0".to_string()),
     };
 
