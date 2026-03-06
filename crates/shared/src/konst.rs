@@ -178,8 +178,7 @@ pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
-pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] =
-    &["bash", "/opt/srlinux/bin/sr_linux"];
+pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
 
 pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
 pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[

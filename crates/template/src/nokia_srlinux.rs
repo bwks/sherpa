@@ -279,7 +279,11 @@ pub fn build_srlinux_config(
                     role: vec![AaaRole {
                         rolename: "srl-admin".to_string(),
                         superuser: Some(true),
-                        services: vec!["cli".to_string(), "gnmi".to_string(), "json-rpc".to_string()],
+                        services: vec![
+                            "cli".to_string(),
+                            "gnmi".to_string(),
+                            "json-rpc".to_string(),
+                        ],
                     }],
                 },
                 server_group: vec![AaaServerGroup {

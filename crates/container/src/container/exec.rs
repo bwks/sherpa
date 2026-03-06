@@ -3,11 +3,7 @@ use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecOptions};
 
 /// Execute a command inside a running container in detached mode.
-pub async fn exec_container(
-    docker: &Docker,
-    container_name: &str,
-    cmd: Vec<&str>,
-) -> Result<()> {
+pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str>) -> Result<()> {
     let config = CreateExecOptions {
         cmd: Some(cmd),
         user: Some("root"),
