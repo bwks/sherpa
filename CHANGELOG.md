@@ -2,11 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.12] - 2026-03-05
+## [0.3.13] - 2026-03-06
 
 ### Miscellaneous
 
-- Merge pull request #107 from bwks/v3.0.12
+- Merge pull request #108 from bwks/v0.1.13
 
-V3.0.12 by @bwks in [#107](https://github.com/bwks/sherpa/pull/107) ([360a623](https://github.com/bwks/sherpa/commit/360a623fe672379e467a274ca0e55d571eb6e254))
+V0.1.13 by @bwks in [#108](https://github.com/bwks/sherpa/pull/108) ([e60c793](https://github.com/bwks/sherpa/commit/e60c793814ebf3e0c207849f7d466a79e7331363))
 
