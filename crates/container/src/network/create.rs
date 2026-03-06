@@ -67,6 +67,7 @@ pub async fn create_docker_macvlan_network(
 ) -> Result<()> {
     let mut options = HashMap::new();
     options.insert("parent".to_string(), parent_interface.to_string());
+    options.insert("macvlan_mode".to_string(), "passthru".to_string());
 
     let create_request = NetworkCreateRequest {
         name: network_name.to_owned(),
@@ -92,7 +93,7 @@ pub async fn create_docker_macvlan_network(
     tracing::info!(
         network_name = %network_name,
         parent_interface = %parent_interface,
-        "Created Docker macvlan network on bridge"
+        "Created Docker macvlan network on bridge (passthru mode)"
     );
 
     Ok(())

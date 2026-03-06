@@ -44,4 +44,7 @@ impl ContainerImage {
 pub struct ContainerNetworkAttachment {
     pub name: String,
     pub ipv4_address: Option<String>,
+    /// When set, the Docker-assigned interface will be renamed to this name
+    /// inside the container after network attachment (e.g. `e1-1` for SR Linux).
+    pub linux_interface_name: Option<String>,
 }

@@ -3,14 +3,16 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{
-    ContainerCreateBody, ContainerCreateResponse, EndpointIpamConfig, EndpointSettings, HostConfig,
-    NetworkConnectRequest, NetworkingConfig,
+    ContainerCreateBody, ContainerCreateResponse, ContainerStateStatusEnum, EndpointIpamConfig,
+    EndpointSettings, HostConfig, NetworkConnectRequest, NetworkingConfig,
 };
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
 
 use shared::data::ContainerNetworkAttachment;
+
+use super::exec::exec_container;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_container(
@@ -25,7 +27,7 @@ pub async fn run_container(
     commands: Vec<String>,
     privileged: bool,
     user: Option<String>,
-) -> Result<()> {
+) -> Result<bool> {
     // Environment variables
 
     // let env = env_vars.iter().map(|s| s.to_string()).collect();
@@ -100,7 +102,7 @@ pub async fn run_container(
 
     // Attach remaining networks sequentially to preserve interface order
     // Skip the first network since it was attached during container creation
-    for attachment in additional_networks.iter() {
+    for (i, attachment) in additional_networks.iter().enumerate() {
         let connect_request = NetworkConnectRequest {
             container: Some(id.clone()),
             endpoint_config: Some(EndpointSettings {
@@ -124,14 +126,36 @@ pub async fn run_container(
             })?;
 
         tracing::debug!(container_name = %name, network = %attachment.name, "Connected network to container");
+
+        // Rename the interface inside the container if requested.
+        // Docker assigns data interfaces as eth1, eth2, ... (eth0 is management).
+        if let Some(target_name) = &attachment.linux_interface_name {
+            let eth_name = format!("eth{}", i + 1);
+            let rename_cmd = format!(
+                "ip link set {eth_name} down && ip link set {eth_name} name {target_name} && ip link set {target_name} promisc on && ip link set {target_name} up"
+            );
+            exec_container(docker, name, vec!["bash", "-c", &rename_cmd])
+                .await
+                .with_context(|| {
+                    format!(
+                        "Failed to rename interface {eth_name} to {target_name} in container {name}"
+                    )
+                })?;
+            tracing::info!(
+                container_name = %name,
+                from = %eth_name,
+                to = %target_name,
+                "Renamed interface in container"
+            );
+        }
     }
 
     // After starting the container:
     let inspect_options = Some(InspectContainerOptions { size: false });
     let details = docker.inspect_container(&id, inspect_options).await?;
 
-    // Get the status
-    if let Some(state) = &details.state {
+    // Check if the container is running
+    let is_running = if let Some(state) = &details.state {
         let status = state
             .status
             .as_ref()
@@ -144,6 +168,10 @@ pub async fn run_container(
             exit_code = exit_code,
             "Container status after creation"
         );
-    }
-    Ok(())
+        state.status == Some(ContainerStateStatusEnum::RUNNING)
+    } else {
+        false
+    };
+
+    Ok(is_running)
 }
