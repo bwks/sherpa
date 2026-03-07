@@ -97,6 +97,9 @@ struct DeviceTableRow {
     #[tabled(rename = "Mgmt IP")]
     mgmt_ip: String,
 
+    #[tabled(rename = "VNC Port")]
+    vnc_port: String,
+
     #[tabled(rename = "Disks")]
     disks: String,
 }
@@ -121,6 +124,7 @@ struct DeviceTableRow {
 ///         kind: NodeKind::VirtualMachine,
 ///         state: NodeState::Running,
 ///         mgmt_ipv4: "172.31.0.11".to_string(),
+///         vnc_port: None,
 ///         disks: vec![],
 ///     },
 /// ];
@@ -145,12 +149,18 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
                 device.disks.join("\n")
             };
 
+            let vnc_port = match device.vnc_port {
+                Some(port) => port.to_string(),
+                None => "-".to_string(),
+            };
+
             DeviceTableRow {
                 device: device.name.clone(),
                 model: device.model.to_string(),
                 kind: device.kind.to_string(),
                 state: device.state.to_string(),
                 mgmt_ip,
+                vnc_port,
                 disks,
             }
         })
@@ -524,6 +534,7 @@ mod tests {
             kind: NodeKind::VirtualMachine,
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
+            vnc_port: None,
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
 
@@ -550,6 +561,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
+                vnc_port: Some(5900),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
                     "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
@@ -561,6 +573,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.12".to_string(),
+                vnc_port: None,
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
             },
         ];
@@ -587,6 +600,7 @@ mod tests {
             kind: NodeKind::Container,
             state: NodeState::Stopped,
             mgmt_ipv4: "".to_string(),
+            vnc_port: None,
             disks: vec![],
         }];
 

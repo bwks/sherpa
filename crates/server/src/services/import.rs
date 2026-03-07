@@ -44,7 +44,7 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
     // Upsert node_image record in the database
     let mut db_config = config;
     db_config.version = request.version.clone();
-    db_config.default = false;
+    db_config.default = request.default;
     db_config.id = None;
 
     let db_tracked = match db::upsert_node_image(&state.db, db_config).await {

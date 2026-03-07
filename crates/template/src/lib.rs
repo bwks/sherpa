@@ -8,6 +8,7 @@ mod cisco_iosxr;
 mod cisco_ise;
 mod cisco_nxos;
 mod cloud_init;
+mod cloudbase_init;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
@@ -29,6 +30,9 @@ pub use cisco_ise::CiscoIseZtpTemplate;
 pub use cisco_nxos::CiscoNxosZtpTemplate;
 pub use cloud_init::{
     CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, MetaDataConfig,
+};
+pub use cloudbase_init::{
+    CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,
 };
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;

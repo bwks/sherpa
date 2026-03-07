@@ -27,6 +27,7 @@ pub struct DomainTemplate {
     pub management_network: String,
     pub isolated_network: String,
     pub reserved_network: String,
+    pub is_windows: bool,
 }
 
 pub struct BootServer {

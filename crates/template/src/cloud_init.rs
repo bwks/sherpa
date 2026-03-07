@@ -16,6 +16,8 @@ pub struct MetaDataConfig {
     pub instance_id: String,
     #[serde(rename = "local-hostname")]
     pub local_hostname: String,
+    #[serde(rename = "public-keys", skip_serializing_if = "Vec::is_empty")]
+    pub public_keys: Vec<String>,
 }
 impl MetaDataConfig {
     pub fn to_string(&self) -> Result<String> {

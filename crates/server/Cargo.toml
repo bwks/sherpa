@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.17"
+version = "0.3.18"
 edition = "2024"
 
 [dependencies]
@@ -84,6 +84,9 @@ virt = { version = "0.4.1", features = ["qemu"] }
 
 # Docker
 bollard = "0.19.3"
+
+# Regex
+regex = "1"
 
 # Database
 surrealdb = "3.0.0"
