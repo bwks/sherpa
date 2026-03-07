@@ -254,16 +254,30 @@ fn process_manifest_links(
     Ok(links_detailed)
 }
 
-/// Get node image from a list of node images
+/// Get node image from a list of node images.
+/// When a version is provided, match on that version. Otherwise fall back to the default.
 fn get_node_image(
     node_model: &data::NodeModel,
+    version: Option<&str>,
     data: &[data::NodeConfig],
 ) -> Result<data::NodeConfig> {
-    Ok(data
-        .iter()
-        .find(|x| &x.model == node_model && x.default)
-        .ok_or_else(|| anyhow!("Default node image not found for model: {}", node_model))?
-        .clone())
+    if let Some(v) = version {
+        data.iter()
+            .find(|x| &x.model == node_model && x.version == v)
+            .cloned()
+            .ok_or_else(|| {
+                anyhow!(
+                    "Node image not found for model: {} version: {}",
+                    node_model,
+                    v
+                )
+            })
+    } else {
+        data.iter()
+            .find(|x| &x.model == node_model && x.default)
+            .cloned()
+            .ok_or_else(|| anyhow!("Default node image not found for model: {}", node_model))
+    }
 }
 
 // ============================================================================
@@ -419,7 +433,7 @@ pub async fn up_lab(
     let mut ztp_records = vec![];
 
     for node in &nodes_expanded {
-        let node_image = get_node_image(&node.model, &node_images)
+        let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)
             .context(format!("Node config not found for model: {}", node.model))?;
 
         if !node_image.dedicated_management_interface {
@@ -540,7 +554,7 @@ pub async fn up_lab(
         let mut node_setup_data = vec![];
 
         for node in nodes_expanded.iter() {
-            let node_image = get_node_image(&node.model, &node_images)?;
+            let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
 
             tracing::info!(
                 lab_id = %lab_id,
@@ -1084,7 +1098,7 @@ pub async fn up_lab(
                 db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
             }
 
-            let node_image = get_node_image(&node.model, &node_images)?;
+            let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
 
             // Add to ZTP records for SSH config and DNS resolution
             ztp_records.push(data::ZtpRecord {
@@ -1189,7 +1203,7 @@ pub async fn up_lab(
             let node_ip_idx = 10 + node_idx as u32;
             let node_name_with_lab = format!("{}-{}", node.name, lab_id);
 
-            let node_image = get_node_image(&node.model, &node_images)?;
+            let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let mut disks: Vec<data::NodeDisk> = vec![];
             let hdd_bus = node_image.hdd_bus.clone();
             let cdrom_bus = node_image.cdrom_bus.clone();
@@ -1304,13 +1318,23 @@ pub async fn up_lab(
                                 };
                                 let user_data_config = cloud_init_config.to_string()?;
 
+                                let meta_data_obj = template::MetaDataConfig {
+                                    instance_id: format!("iid-{}", node.name.clone()),
+                                    local_hostname: format!(
+                                        "{}.{}",
+                                        node.name.clone(),
+                                        SHERPA_DOMAIN_NAME
+                                    ),
+                                };
+                                let meta_data_config = meta_data_obj.to_string()?;
+
                                 let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                                 let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                                 let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
                                 util::create_dir(&dir)?;
                                 util::create_file(&user_data, user_data_config)?;
-                                util::create_file(&meta_data, "".to_string())?;
+                                util::create_file(&meta_data, meta_data_config)?;
 
                                 let ztp_interface = template::CloudInitNetwork::ztp_interface(
                                     node_ipv4_address,
@@ -1332,13 +1356,23 @@ pub async fn up_lab(
                                 };
                                 let user_data_config = cloudbase_config.to_string()?;
 
+                                let meta_data_obj = template::MetaDataConfig {
+                                    instance_id: format!("iid-{}", node.name.clone()),
+                                    local_hostname: format!(
+                                        "{}.{}",
+                                        node.name.clone(),
+                                        SHERPA_DOMAIN_NAME
+                                    ),
+                                };
+                                let meta_data_config = meta_data_obj.to_string()?;
+
                                 let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
                                 let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
                                 let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
 
                                 util::create_dir(&dir)?;
                                 util::create_file(&user_data, user_data_config)?;
-                                util::create_file(&meta_data, "".to_string())?;
+                                util::create_file(&meta_data, meta_data_config)?;
 
                                 let ztp_interface = template::CloudbaseInitNetwork::ztp_interface(
                                     node_ipv4_address,
