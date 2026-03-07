@@ -15,6 +15,13 @@
     <acpi/>
     <apic/>
     <pae/>
+    {% if is_windows %}
+    <hyperv mode='custom'>
+      <relaxed state='on'/>
+      <vapic state='on'/>
+      <spinlocks state='on' retries='8191'/>
+    </hyperv>
+    {% endif %}
   </features>
 
   {% match cpu_model %}
@@ -31,11 +38,18 @@
     {% endif %}
   </cpu>
 
+  {% if is_windows %}
+  <clock offset='localtime'>
+    <timer name='hypervclock' present='yes'/>
+    <timer name='hpet' present='no'/>
+  </clock>
+  {% else %}
   <clock offset='utc'>
     <timer name='rtc' tickpolicy='catchup'/>
     <timer name='pit' tickpolicy='delay'/>
     <timer name='hpet' present='no'/>
   </clock>
+  {% endif %}
 
   <on_poweroff>destroy</on_poweroff>
   <on_reboot>restart</on_reboot>

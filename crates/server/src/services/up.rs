@@ -1323,6 +1323,34 @@ pub async fn up_lab(
                                 util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?;
                             }
 
+                            data::NodeModel::WindowsServer => {
+                                let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
+
+                                let cloudbase_config = template::CloudbaseInitConfig {
+                                    set_hostname: node.name.clone(),
+                                    users: vec![cloudbase_user],
+                                };
+                                let user_data_config = cloudbase_config.to_string()?;
+
+                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
+                                let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
+
+                                util::create_dir(&dir)?;
+                                util::create_file(&user_data, user_data_config)?;
+                                util::create_file(&meta_data, "".to_string())?;
+
+                                let ztp_interface = template::CloudbaseInitNetwork::ztp_interface(
+                                    node_ipv4_address,
+                                    mac_address.clone(),
+                                    mgmt_net.v4.clone(),
+                                );
+                                let cloud_network_config = ztp_interface.to_string()?;
+                                util::create_file(&network_config, cloud_network_config)?;
+
+                                util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?;
+                            }
+
                             data::NodeModel::AlpineLinux => {
                                 let meta_data = template::MetaDataConfig {
                                     instance_id: format!("iid-{}", node.name.clone()),
@@ -2224,6 +2252,7 @@ pub async fn up_lab(
                 management_network,
                 isolated_network: isolated_network.network_name,
                 reserved_network,
+                is_windows: node_image.model == data::NodeModel::WindowsServer,
             };
             domains.push(domain);
         }

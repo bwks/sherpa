@@ -256,7 +256,7 @@ pub enum OsVariant {
     Sonic, // Sonic Linux
 
     // Windows
-    Server2012,
+    Server,
 
     // Nokia
     Srlinux,
@@ -281,7 +281,7 @@ impl fmt::Display for OsVariant {
             OsVariant::Nxos => write!(f, "nxos"),
             OsVariant::Sonic => write!(f, "sonic"),
             OsVariant::Bsd => write!(f, "bsd"),
-            OsVariant::Server2012 => write!(f, "server2012"),
+            OsVariant::Server => write!(f, "server"),
             OsVariant::Srlinux => write!(f, "srlinux"),
             OsVariant::Unknown => write!(f, "unknown"),
         }
@@ -1793,9 +1793,9 @@ impl NodeConfig {
             model: NodeModel::WindowsServer,
             version: "0.0.0".to_owned(),
             repo: None,
-            os_variant: OsVariant::Server2012,
+            os_variant: OsVariant::Server,
             kind: NodeKind::VirtualMachine,
-            bios: BiosTypes::SeaBios,
+            bios: BiosTypes::Uefi,
             data_interface_count: 1,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::Virtio,
