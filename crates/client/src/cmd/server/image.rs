@@ -52,6 +52,9 @@ pub enum ServerImageCommands {
         /// Model of Device
         #[arg(short, long, value_enum)]
         model: NodeModel,
+        /// Set this image as the default version
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        default: bool,
     },
 
     /// Pull a container image from an OCI registry
@@ -126,11 +129,13 @@ pub async fn image_commands(
             src,
             version,
             model,
+            default,
         } => {
             import_image(
                 src,
                 version,
                 model,
+                *default,
                 server_url,
                 server_connection,
                 output_format,
@@ -225,6 +230,7 @@ async fn import_image(
     src: &str,
     version: &str,
     model: &NodeModel,
+    default: bool,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
@@ -233,6 +239,7 @@ async fn import_image(
         model: *model,
         version: version.to_string(),
         src: src.to_string(),
+        default,
     };
 
     let response: data::ImportResponse =
@@ -255,6 +262,7 @@ async fn import_image(
                     "   DB Track: {}",
                     if response.db_tracked { "yes" } else { "no" }
                 );
+                println!("   Default:  {}", if default { "yes" } else { "no" });
             } else {
                 eprintln!("Image import failed");
             }

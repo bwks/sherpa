@@ -43,6 +43,9 @@ pub struct ImportRequest {
     pub version: String,
     /// Source file path on the server filesystem
     pub src: String,
+    /// Whether to set this image as the default version
+    #[serde(default)]
+    pub default: bool,
 }
 
 /// Response from an image import operation
