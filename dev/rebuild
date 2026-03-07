@@ -1,0 +1,8 @@
+#! /usr/bin/bash
+
+set -euo pipefail
+
+cargo build --workspace --all-targets --release
+sudo systemctl stop sherpad
+sudo cp target/release/sherpad /opt/sherpa/bin/
+sudo systemctl restart sherpad

@@ -174,15 +174,15 @@ pub fn status_daemon() -> Result<()> {
     match read_pid(SHERPAD_PID_FILE_PATH)? {
         Some(pid) => {
             if is_process_running(pid) {
-                tracing::info!(pid = pid, "sherpad is running");
+                println!("sherpad is running (pid: {pid})");
                 Ok(())
             } else {
-                tracing::warn!("sherpad is not running (stale PID file found)");
+                eprintln!("sherpad is not running (stale PID file found)");
                 std::process::exit(1);
             }
         }
         None => {
-            tracing::info!("sherpad is not running");
+            eprintln!("sherpad is not running");
             std::process::exit(1);
         }
     }

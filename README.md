@@ -62,6 +62,7 @@ dev/testdb start       # spin up an in-memory SurrealDB test database
 dev/testdb stop        # stop the test database
 dev/testdb restart     # fresh database
 dev/dbreset            # reset the database
+dev/rebuild            # Rebuild the project and copy binaries to path
 ```
 
 ## Logging
