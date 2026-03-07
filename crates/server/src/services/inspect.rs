@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, anyhow};
+use regex::Regex;
 use shared::data::{
     BridgeInfo, DbNode, DeviceInfo, InspectRequest, InspectResponse, LabInfo, LinkInfo, NodeConfig,
     RecordId,
@@ -178,6 +179,7 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
             kind: node_image.kind.clone(),
             state: node.state,
             mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
+            vnc_port: None,
             disks: Vec::new(),
         };
 
@@ -186,7 +188,10 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
             .iter()
             .find(|d| d.get_name().unwrap_or_default() == device_name);
 
-        if domain_found.is_some() {
+        if let Some(domain) = domain_found {
+            // Extract VNC port from domain XML
+            device_info.vnc_port = extract_vnc_port(domain);
+
             // Filter pre-fetched volumes for this device
             for volume in &volumes {
                 if volume.contains(&device_name) {
@@ -206,6 +211,21 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
         links,
         bridges,
     })
+}
+
+/// Extract the VNC port from a libvirt domain's XML definition.
+fn extract_vnc_port(domain: &virt::domain::Domain) -> Option<i32> {
+    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(
+            r#"<graphics[^>]*type=['"]\s*vnc\s*['"][^>]*port=['"]\s*(\d+)\s*['"]([\s\S]*?)/>"#,
+        )
+        .unwrap_or_else(|e| panic!("invalid VNC port regex: {e}"))
+    });
+
+    let xml = domain.get_xml_desc(0).ok()?;
+    let caps = RE.captures(&xml)?;
+    let port: i32 = caps.get(1)?.as_str().parse().ok()?;
+    if port > 0 { Some(port) } else { None }
 }
 
 /// Find a node image by RecordId in the pre-fetched list.

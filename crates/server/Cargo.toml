@@ -85,6 +85,9 @@ virt = { version = "0.4.1", features = ["qemu"] }
 # Docker
 bollard = "0.19.3"
 
+# Regex
+regex = "1"
+
 # Database
 surrealdb = "3.0.0"
 surrealdb-types = "3.0.0"
