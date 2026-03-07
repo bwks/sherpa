@@ -28,9 +28,19 @@ impl CloudbaseInitUser {
 }
 
 #[derive(Serialize, Debug)]
+pub struct CloudbaseWriteFile {
+    pub path: String,
+    pub content: String,
+    pub permissions: String,
+}
+
+#[derive(Serialize, Debug)]
 pub struct CloudbaseInitConfig {
     pub set_hostname: String,
     pub users: Vec<CloudbaseInitUser>,
+    pub write_files: Vec<CloudbaseWriteFile>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub runcmd: Vec<String>,
 }
 
 impl CloudbaseInitConfig {

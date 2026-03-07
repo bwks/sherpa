@@ -33,8 +33,8 @@ use shared::konst::{
     SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
     SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
-    TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 // use topology::{self, BridgeDetailed};
@@ -1325,6 +1325,7 @@ pub async fn up_lab(
                                         node.name.clone(),
                                         SHERPA_DOMAIN_NAME
                                     ),
+                                    ..Default::default()
                                 };
                                 let meta_data_config = meta_data_obj.to_string()?;
 
@@ -1350,9 +1351,27 @@ pub async fn up_lab(
                             data::NodeModel::WindowsServer => {
                                 let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
 
+                                let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
+                                let ssh_key_str = format!("{} {}", ssh_key.algorithm, ssh_key.key);
+
+                                let admin_keys_path =
+                                    r"C:\ProgramData\ssh\administrators_authorized_keys";
+
                                 let cloudbase_config = template::CloudbaseInitConfig {
                                     set_hostname: node.name.clone(),
                                     users: vec![cloudbase_user],
+                                    write_files: vec![template::CloudbaseWriteFile {
+                                        path: admin_keys_path.to_string(),
+                                        content: ssh_key_str.clone(),
+                                        permissions: "0644".to_string(),
+                                    }],
+                                    runcmd: vec![
+                                        format!(
+                                            "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
+                                            admin_keys_path
+                                        ),
+                                        "powershell -Command \"Restart-Service sshd\"".to_string(),
+                                    ],
                                 };
                                 let user_data_config = cloudbase_config.to_string()?;
 
@@ -1363,6 +1382,7 @@ pub async fn up_lab(
                                         node.name.clone(),
                                         SHERPA_DOMAIN_NAME
                                     ),
+                                    public_keys: vec![ssh_key_str],
                                 };
                                 let meta_data_config = meta_data_obj.to_string()?;
 
@@ -1393,6 +1413,7 @@ pub async fn up_lab(
                                         node.name.clone(),
                                         SHERPA_DOMAIN_NAME
                                     ),
+                                    ..Default::default()
                                 };
                                 cloud_init_user.shell = "/bin/sh".to_string();
                                 cloud_init_user.groups = vec!["wheel".to_string()];

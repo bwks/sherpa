@@ -31,7 +31,9 @@ pub use cisco_nxos::CiscoNxosZtpTemplate;
 pub use cloud_init::{
     CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, MetaDataConfig,
 };
-pub use cloudbase_init::{CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser};
+pub use cloudbase_init::{
+    CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,
+};
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate};
