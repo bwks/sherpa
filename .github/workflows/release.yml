@@ -129,6 +129,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # Clean up stale branch from a previous failed run
+          git push origin --delete "$BRANCH" 2>/dev/null || true
+
           git checkout -b "$BRANCH"
           git add CHANGELOG.md
           git commit -m "chore(release): update changelog for ${{ inputs.version }}"
@@ -140,21 +143,23 @@ jobs:
             --base main \
             --head "$BRANCH"
 
-          gh pr merge "$BRANCH" --merge --auto
+          # Merge directly if clean, otherwise enable auto-merge and wait
+          if ! gh pr merge "$BRANCH" --merge; then
+            gh pr merge "$BRANCH" --merge --auto
 
-          # Wait for the PR to merge (poll every 10s, timeout after 5 minutes)
-          for i in $(seq 1 30); do
-            STATE=$(gh pr view "$BRANCH" --json state --jq '.state')
-            if [ "$STATE" = "MERGED" ]; then
-              echo "PR merged successfully."
-              break
-            fi
-            if [ "$i" -eq 30 ]; then
-              echo "Timed out waiting for PR to merge."
-              exit 1
-            fi
-            sleep 10
-          done
+            for i in $(seq 1 30); do
+              STATE=$(gh pr view "$BRANCH" --json state --jq '.state')
+              if [ "$STATE" = "MERGED" ]; then
+                echo "PR merged successfully."
+                break
+              fi
+              if [ "$i" -eq 30 ]; then
+                echo "Timed out waiting for PR to merge."
+                exit 1
+              fi
+              sleep 10
+            done
+          fi
 
       - name: Create and push tag
         env:
