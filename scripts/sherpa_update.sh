@@ -222,7 +222,7 @@ start_sherpad() {
     print_info "Starting sherpad..."
 
     if command -v systemctl >/dev/null 2>&1 && systemctl is-enabled --quiet sherpad 2>/dev/null; then
-        systemctl start sherpad
+        systemctl restart sherpad
         sleep 2
 
         if systemctl is-active --quiet sherpad 2>/dev/null; then

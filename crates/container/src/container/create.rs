@@ -12,7 +12,7 @@ use bollard::query_parameters::{
 
 use shared::data::ContainerNetworkAttachment;
 
-use super::exec::exec_container;
+use super::exec::exec_container_with_retry;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_container(
@@ -131,20 +131,33 @@ pub async fn run_container(
         // Docker assigns data interfaces as eth1, eth2, ... (eth0 is management).
         if let Some(target_name) = &attachment.linux_interface_name {
             let eth_name = format!("eth{}", i + 1);
-            let rename_cmd = format!(
-                "ip link set {eth_name} down && ip link set {eth_name} name {target_name} && ip link set {target_name} promisc on && ip link set {target_name} up"
-            );
-            exec_container(docker, name, vec!["bash", "-c", &rename_cmd])
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to rename interface {eth_name} to {target_name} in container {name}"
-                    )
-                })?;
+            let rename_cmd = if attachment.admin_down {
+                // Disabled interface: rename but leave admin-down
+                format!("ip link set {eth_name} down && ip link set {eth_name} name {target_name}")
+            } else {
+                // Active interface: rename, enable promisc, bring up
+                format!(
+                    "ip link set {eth_name} down && ip link set {eth_name} name {target_name} && ip link set {target_name} promisc on && ip link set {target_name} up"
+                )
+            };
+            exec_container_with_retry(
+                docker,
+                name,
+                vec!["sh", "-c", &rename_cmd],
+                3,
+                std::time::Duration::from_secs(2),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to rename interface {eth_name} to {target_name} in container {name}"
+                )
+            })?;
             tracing::info!(
                 container_name = %name,
                 from = %eth_name,
                 to = %target_name,
+                admin_down = %attachment.admin_down,
                 "Renamed interface in container"
             );
         }

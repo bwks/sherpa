@@ -98,3 +98,46 @@ pub async fn create_docker_macvlan_network(
 
     Ok(())
 }
+
+/// Create a Docker macvlan network in **bridge** mode on an existing Linux bridge.
+/// Unlike `create_docker_macvlan_network` (passthru), bridge mode allows multiple
+/// macvlan networks to share the same parent bridge — required for isolated bridges
+/// that carry multiple disabled interfaces.
+pub async fn create_docker_macvlan_bridge_network(
+    docker: &Docker,
+    parent_interface: &str,
+    network_name: &str,
+) -> Result<()> {
+    let mut options = HashMap::new();
+    options.insert("parent".to_string(), parent_interface.to_string());
+    options.insert("macvlan_mode".to_string(), "bridge".to_string());
+
+    let create_request = NetworkCreateRequest {
+        name: network_name.to_owned(),
+        driver: Some("macvlan".to_owned()),
+        options: Some(options),
+        internal: Some(false),
+        ipam: None,
+        enable_ipv4: Some(false),
+        enable_ipv6: Some(false),
+        ..Default::default()
+    };
+
+    docker
+        .create_network(create_request)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to create Docker macvlan bridge-mode network '{}' on bridge '{}'",
+                network_name, parent_interface
+            )
+        })?;
+
+    tracing::info!(
+        network_name = %network_name,
+        parent_interface = %parent_interface,
+        "Created Docker macvlan network on bridge (bridge mode)"
+    );
+
+    Ok(())
+}

@@ -8,12 +8,14 @@ pub use connect::docker_connection;
 
 // Re-export container operations
 pub use container::{
-    exec_container, kill_container, list_containers, remove_container, run_container,
+    exec_container, exec_container_detached, exec_container_with_retry, kill_container,
+    list_containers, remove_container, run_container,
 };
 
 // Re-export network operations
 pub use network::{
-    create_docker_bridge_network, create_docker_macvlan_network, delete_network, list_networks,
+    create_docker_bridge_network, create_docker_macvlan_bridge_network,
+    create_docker_macvlan_network, delete_network, list_networks,
 };
 
 // Re-export image operations

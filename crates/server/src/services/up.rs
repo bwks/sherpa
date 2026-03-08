@@ -630,7 +630,14 @@ pub async fn up_lab(
                 }
             }
 
-            let node_isolated_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
+            let has_disabled_interfaces = node_interfaces_detailed
+                .iter()
+                .any(|i| matches!(i.data, data::NodeInterface::Disabled));
+
+            let node_isolated_network = if matches!(
+                node_image.kind,
+                data::NodeKind::VirtualMachine | data::NodeKind::Container
+            ) && has_disabled_interfaces
             {
                 Some(node_isolated_network_data(&node.name, node.index, lab_id))
             } else {
@@ -656,11 +663,19 @@ pub async fn up_lab(
                     network_type = "isolated",
                     "Creating node isolated network"
                 );
-                let node_isolated_network = libvirt::IsolatedNetwork {
-                    network_name: network.network_name,
-                    bridge_name: network.bridge_name,
-                };
-                node_isolated_network.create(&qemu_conn)?;
+                match node_image.kind {
+                    data::NodeKind::VirtualMachine => {
+                        let node_isolated_network = libvirt::IsolatedNetwork {
+                            network_name: network.network_name,
+                            bridge_name: network.bridge_name,
+                        };
+                        node_isolated_network.create(&qemu_conn)?;
+                    }
+                    data::NodeKind::Container => {
+                        network::create_bridge(&network.bridge_name, &network.network_name).await?;
+                    }
+                    _ => {}
+                }
             }
 
             if let Some(network) = node_reserved_network.clone() {
@@ -966,6 +981,42 @@ pub async fn up_lab(
                 container::create_docker_macvlan_network(
                     &docker_conn,
                     &link_data.bridge_b,
+                    &docker_net_name,
+                )
+                .await?;
+                docker_net_count += 1;
+            }
+        }
+
+        // Create Docker macvlan bridge-mode networks for disabled interfaces on container nodes
+        for nsd in &node_setup_data {
+            let iso_network = match &nsd.isolated_network {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // Only process container nodes
+            let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
+                Some(n) if n.kind == data::NodeKind::Container => n,
+                _ => continue,
+            };
+
+            for iface in &nsd.interfaces {
+                if !matches!(iface.data, data::NodeInterface::Disabled) {
+                    continue;
+                }
+                let docker_net_name = format!("{}-iso{}-{}", node_data.name, iface.index, lab_id);
+                tracing::info!(
+                    lab_id = %lab_id,
+                    node = %node_data.name,
+                    interface = %iface.name,
+                    network = %docker_net_name,
+                    bridge = %iso_network.bridge_name,
+                    "Creating isolated Docker macvlan bridge-mode network"
+                );
+                container::create_docker_macvlan_bridge_network(
+                    &docker_conn,
+                    &iso_network.bridge_name,
                     &docker_net_name,
                 )
                 .await?;
@@ -2379,6 +2430,7 @@ pub async fn up_lab(
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             ipv4_address: Some(boot_server_ipv4.clone()),
             linux_interface_name: None,
+            admin_down: false,
         };
 
         tracing::info!(
@@ -2690,10 +2742,15 @@ pub async fn up_lab(
         );
         progress.send_status("SSH private key loaded".to_string(), StatusKind::Done)?;
 
-        // Build container network mappings
+        // Build container network mappings from the full interface list.
+        // This ensures all defined data interfaces appear in model-index order,
+        // with linked interfaces active and disabled interfaces admin-down.
         let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
             HashMap::new();
 
+        // Step 1: Build a lookup of (node_name, interface_name) -> docker_network_name
+        // from the link data for container nodes.
+        let mut container_link_net_lookup: HashMap<(String, String), String> = HashMap::new();
         for link_data in &lab_link_data {
             let node_a_data = lab_node_data
                 .iter()
@@ -2717,38 +2774,81 @@ pub async fn up_lab(
             if node_a_data.kind == data::NodeKind::Container {
                 let docker_net_name =
                     format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-                let entries = container_link_networks
-                    .entry(node_a_data.name.clone())
-                    .or_default();
-                let linux_interface_name = if node_a_data.model == data::NodeModel::NokiaSrlinux {
-                    Some(format!("e1-{}", entries.len() + 1))
-                } else {
-                    None
-                };
-                entries.push(data::ContainerNetworkAttachment {
-                    name: docker_net_name,
-                    ipv4_address: None,
-                    linux_interface_name,
-                });
+                container_link_net_lookup.insert(
+                    (node_a_data.name.clone(), link_data.int_a.clone()),
+                    docker_net_name,
+                );
             }
 
             if node_b_data.kind == data::NodeKind::Container {
                 let docker_net_name =
                     format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-                let entries = container_link_networks
-                    .entry(node_b_data.name.clone())
-                    .or_default();
-                let linux_interface_name = if node_b_data.model == data::NodeModel::NokiaSrlinux {
-                    Some(format!("e1-{}", entries.len() + 1))
-                } else {
-                    None
-                };
-                entries.push(data::ContainerNetworkAttachment {
-                    name: docker_net_name,
-                    ipv4_address: None,
-                    linux_interface_name,
-                });
+                container_link_net_lookup.insert(
+                    (node_b_data.name.clone(), link_data.int_b.clone()),
+                    docker_net_name,
+                );
             }
+        }
+
+        // Step 2: Walk each container node's interfaces in index order.
+        // For each data interface, produce a ContainerNetworkAttachment with
+        // the correct docker network name and linux_interface_name.
+        for nsd in &node_setup_data {
+            let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
+                Some(n) if n.kind == data::NodeKind::Container => n,
+                _ => continue,
+            };
+
+            let attachments: Vec<data::ContainerNetworkAttachment> = nsd
+                .interfaces
+                .iter()
+                .filter_map(|iface| {
+                    match &iface.data {
+                        data::NodeInterface::Peer(_) | data::NodeInterface::Bridge(_) => {
+                            // Linked interface — look up docker network name
+                            let docker_net_name = container_link_net_lookup
+                                .get(&(nsd.name.clone(), iface.name.clone()))?;
+                            let linux_interface_name =
+                                if node_data.model == data::NodeModel::NokiaSrlinux {
+                                    util::srlinux_to_linux_interface(&iface.name).ok()
+                                } else {
+                                    None
+                                };
+                            Some(data::ContainerNetworkAttachment {
+                                name: docker_net_name.clone(),
+                                ipv4_address: None,
+                                linux_interface_name,
+                                admin_down: false,
+                            })
+                        }
+                        data::NodeInterface::Disabled => {
+                            // Disabled interface — use isolated network
+                            let docker_net_name =
+                                format!("{}-iso{}-{}", node_data.name, iface.index, lab_id);
+                            let linux_interface_name =
+                                util::interface_from_idx(&node_data.model, iface.index)
+                                    .ok()
+                                    .and_then(|name| {
+                                        if node_data.model == data::NodeModel::NokiaSrlinux {
+                                            util::srlinux_to_linux_interface(&name).ok()
+                                        } else {
+                                            Some(name)
+                                        }
+                                    });
+                            Some(data::ContainerNetworkAttachment {
+                                name: docker_net_name,
+                                ipv4_address: None,
+                                linux_interface_name,
+                                admin_down: true,
+                            })
+                        }
+                        // Skip Management and Reserved
+                        _ => None,
+                    }
+                })
+                .collect();
+
+            container_link_networks.insert(nsd.name.clone(), attachments);
         }
 
         tracing::info!(
@@ -2849,6 +2949,7 @@ pub async fn up_lab(
                     name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                     ipv4_address: mgmt_ipv4.clone(),
                     linux_interface_name: None,
+                    admin_down: false,
                 };
 
                 let mut additional_networks = vec![];
@@ -2912,10 +3013,10 @@ pub async fn up_lab(
                 // Wait for srbase-mgmt to come up, then flush the default NS IP.
                 if container.model == data::NodeModel::NokiaSrlinux {
                     let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
-                    container::exec_container(
+                    container::exec_container_detached(
                         &docker_conn,
                         &container_name,
-                        vec!["bash", "-c", flush_cmd],
+                        vec!["sh", "-c", flush_cmd],
                     )
                     .await
                     .with_context(|| {

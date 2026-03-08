@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 
 use crate::data::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
@@ -80,5 +80,34 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
         NodeModel::CumulusLinux => CumulusLinuxInt::all_interfaces(),
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::all_interfaces(),
         _ => EthernetInt::all_interfaces(),
+    }
+}
+
+/// Convert an SR Linux interface name to the Linux-compatible name used
+/// inside the container.  e.g. "eth-1/3" → "e1-3".
+pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
+    let rest = name.strip_prefix("eth-").unwrap_or(name);
+    let linux_name = rest.replace('/', "-");
+    let linux_name = format!("e{linux_name}");
+    if linux_name == format!("e{name}") && !name.starts_with("eth-") {
+        bail!("Not a recognised SR Linux interface name: {name}");
+    }
+    Ok(linux_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_srlinux_to_linux_interface() {
+        assert_eq!(srlinux_to_linux_interface("eth-1/1").unwrap(), "e1-1");
+        assert_eq!(srlinux_to_linux_interface("eth-1/3").unwrap(), "e1-3");
+        assert_eq!(srlinux_to_linux_interface("eth-1/34").unwrap(), "e1-34");
+    }
+
+    #[test]
+    fn test_srlinux_to_linux_interface_invalid() {
+        assert!(srlinux_to_linux_interface("mgmt0").is_err());
     }
 }
