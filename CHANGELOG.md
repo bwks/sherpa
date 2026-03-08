@@ -2,6 +2,41 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.18] - 2026-03-08
+
+### Bug Fixes
+
+- Fix version being ignore from manifest.toml file. by @bwks ([e2aba5a](https://github.com/bwks/sherpa/commit/e2aba5ab2cb44838149813b08d9dec91d08749e4))
+
+### Documentation
+
+- Rebuild bins [ci skip] by @bwks ([9eca50f](https://github.com/bwks/sherpa/commit/9eca50f4fce11a81999a55d19d1f3e541674a4f4))
+
+### Features
+
+- Windows server ztp config updates by @bwks ([46e47ea](https://github.com/bwks/sherpa/commit/46e47eab206b34e93d9582c1bf4ba1b3910a6776))
+- Default flag for image import by @bwks ([95c53bf](https://github.com/bwks/sherpa/commit/95c53bfdfe0acb0ff8e20c240cec34d203b94c27))
+- Show vnc port by @bwks ([59e2dba](https://github.com/bwks/sherpa/commit/59e2dba1702975f351a7ef9d8a32a6ea2f5440e8))
+- Windows server bios/machine type by @bwks ([2358b4b](https://github.com/bwks/sherpa/commit/2358b4b4b1d9ec2f01d9bff9d1ddd76a2582f17c))
+- Enable VNC by @bwks ([7811197](https://github.com/bwks/sherpa/commit/7811197966fe013454f43156259ea87667dca1b6))
+- Windows server 2022 support by @bwks ([6c40896](https://github.com/bwks/sherpa/commit/6c408966a7356cdf8d7d3e17d47ab5715777cd42))
+- Sherpa update script by @bwks ([baf75e3](https://github.com/bwks/sherpa/commit/baf75e33c8ed0f38e1597ea9e3919b54aa85dd88))
+
+### Miscellaneous
+
+- V0.3.18
+
+V0.3.18 by @bwks in [#121](https://github.com/bwks/sherpa/pull/121) ([cfac78b](https://github.com/bwks/sherpa/commit/cfac78b792bac81ef729d791041bdfd1abb54c68))
+- Version bump by @bwks ([30b2b46](https://github.com/bwks/sherpa/commit/30b2b46401b6ef2f2f0858ea06d04b85d9a62276))
+- Rebuild script executable by @bwks ([7ef1568](https://github.com/bwks/sherpa/commit/7ef1568a1efcedd6bc8bc56428e6c101d4eee896))
+- Merge pull request #120 from bwks/v0.3.18
+
+Docs and install scripts by @bwks in [#120](https://github.com/bwks/sherpa/pull/120) ([a437eae](https://github.com/bwks/sherpa/commit/a437eae1376d09b46ee2a6aef8bca1fca9ae54e2))
+- Add rebuild script for development by @bwks ([603908a](https://github.com/bwks/sherpa/commit/603908a1cfa05b5e2f823584a910126196ad14cd))
+- Add outputs for sherpd status by @bwks ([914ba0e](https://github.com/bwks/sherpa/commit/914ba0e12432ed121be82109d1dfcee170a68aee))
+- Merge pull request #118 from bwks/changelog/v0.3.17
+
+chore(release): update changelog for v0.3.17 by @github-actions[bot] in [#118](https://github.com/bwks/sherpa/pull/118) ([efeef0f](https://github.com/bwks/sherpa/commit/efeef0f37c23f8940288400682abca854a5d912f))
 ## [0.3.17] - 2026-03-07
 
 ### Miscellaneous
