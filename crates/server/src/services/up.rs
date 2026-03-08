@@ -2810,7 +2810,7 @@ pub async fn up_lab(
                                 .get(&(nsd.name.clone(), iface.name.clone()))?;
                             let linux_interface_name =
                                 if node_data.model == data::NodeModel::NokiaSrlinux {
-                                    Some(iface.name.clone())
+                                    util::srlinux_to_linux_interface(&iface.name).ok()
                                 } else {
                                     None
                                 };
@@ -2826,7 +2826,15 @@ pub async fn up_lab(
                             let docker_net_name =
                                 format!("{}-iso{}-{}", node_data.name, iface.index, lab_id);
                             let linux_interface_name =
-                                util::interface_from_idx(&node_data.model, iface.index).ok();
+                                util::interface_from_idx(&node_data.model, iface.index)
+                                    .ok()
+                                    .and_then(|name| {
+                                        if node_data.model == data::NodeModel::NokiaSrlinux {
+                                            util::srlinux_to_linux_interface(&name).ok()
+                                        } else {
+                                            Some(name)
+                                        }
+                                    });
                             Some(data::ContainerNetworkAttachment {
                                 name: docker_net_name,
                                 ipv4_address: None,
@@ -3005,10 +3013,10 @@ pub async fn up_lab(
                 // Wait for srbase-mgmt to come up, then flush the default NS IP.
                 if container.model == data::NodeModel::NokiaSrlinux {
                     let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
-                    container::exec_container(
+                    container::exec_container_detached(
                         &docker_conn,
                         &container_name,
-                        vec!["bash", "-c", flush_cmd],
+                        vec!["sh", "-c", flush_cmd],
                     )
                     .await
                     .with_context(|| {

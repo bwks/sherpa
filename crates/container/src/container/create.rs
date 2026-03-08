@@ -12,7 +12,7 @@ use bollard::query_parameters::{
 
 use shared::data::ContainerNetworkAttachment;
 
-use super::exec::exec_container;
+use super::exec::exec_container_with_retry;
 
 #[allow(clippy::too_many_arguments)]
 pub async fn run_container(
@@ -140,13 +140,19 @@ pub async fn run_container(
                     "ip link set {eth_name} down && ip link set {eth_name} name {target_name} && ip link set {target_name} promisc on && ip link set {target_name} up"
                 )
             };
-            exec_container(docker, name, vec!["bash", "-c", &rename_cmd])
-                .await
-                .with_context(|| {
-                    format!(
-                        "Failed to rename interface {eth_name} to {target_name} in container {name}"
-                    )
-                })?;
+            exec_container_with_retry(
+                docker,
+                name,
+                vec!["sh", "-c", &rename_cmd],
+                3,
+                std::time::Duration::from_secs(2),
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to rename interface {eth_name} to {target_name} in container {name}"
+                )
+            })?;
             tracing::info!(
                 container_name = %name,
                 from = %eth_name,

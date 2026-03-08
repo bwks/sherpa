@@ -39,7 +39,9 @@ pub use file_system::{
 #[cfg(feature = "netinfo")]
 pub use host::get_non_loopback_ipv4_addresses;
 pub use host::{get_fqdn, get_hostname};
-pub use interface::{interface_from_idx, interface_to_idx, node_model_interfaces};
+pub use interface::{
+    interface_from_idx, interface_to_idx, node_model_interfaces, srlinux_to_linux_interface,
+};
 pub use ip::{
     allocate_loopback_subnet, allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network,
 };
