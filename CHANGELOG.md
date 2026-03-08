@@ -2,7 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.18] - 2026-03-08
+## [0.3.19] - 2026-03-08
+
+### Features
+
+- Container disabled interfaces by @bwks ([bf13335](https://github.com/bwks/sherpa/commit/bf133358a70d7485f957f63fae109c10e24dc7b6))
+- Add all interfaces to containers by @bwks ([1b0b269](https://github.com/bwks/sherpa/commit/1b0b269ef1a4334fc726e9e2d3856ee1273ade5c))
+- Enable lldp by @bwks ([50858cf](https://github.com/bwks/sherpa/commit/50858cf21d03358a5b0bafdbc4d94e8a65ca23da))
+
+### Miscellaneous
+
+- V0.3.19
+
+V0.3.19 by @bwks in [#124](https://github.com/bwks/sherpa/pull/124) ([77c145c](https://github.com/bwks/sherpa/commit/77c145cb1c75240aff19b3a86ae76eab87cc40e8))
+- Formatting by @bwks ([c90c035](https://github.com/bwks/sherpa/commit/c90c035308a4b6c58110a5af8e929b07c0dcaed9))
+- Version bump by @bwks ([ff99156](https://github.com/bwks/sherpa/commit/ff991569258c05bcdd77e813f52d8cb4931cd081))
+- Merge pull request #122 from bwks/changelog/v0.3.18
+
+chore(release): update changelog for v0.3.18 by @github-actions[bot] in [#122](https://github.com/bwks/sherpa/pull/122) ([5e846fe](https://github.com/bwks/sherpa/commit/5e846fe250c16e5726ca2b2c5f0911d252b667e7))
+## [0.3.18] - 2026-03-07
 
 ### Bug Fixes
 
