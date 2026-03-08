@@ -30,6 +30,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
             user: node.user.clone(),
+            skip_ready_check: node.skip_ready_check,
         })
         .collect()
 }

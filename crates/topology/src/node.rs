@@ -24,6 +24,7 @@ pub struct Node {
     pub volumes: Option<Vec<VolumeMount>>,
     pub privileged: Option<bool>,
     pub user: Option<String>,
+    pub skip_ready_check: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -47,6 +48,7 @@ pub struct NodeExpanded {
     pub volumes: Option<Vec<VolumeMount>>,
     pub privileged: Option<bool>,
     pub user: Option<String>,
+    pub skip_ready_check: Option<bool>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

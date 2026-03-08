@@ -201,6 +201,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
             user: node.user.clone(),
+            skip_ready_check: node.skip_ready_check,
         })
         .collect()
 }
@@ -2862,18 +2863,19 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 13: Node Readiness Polling
         // ========================================================================
+        let ready_timeout_secs = manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT);
         progress.send_phase(
             data::UpPhase::NodeReadiness,
             format!(
                 "Waiting for {} nodes to become ready (up to {} seconds)",
                 container_nodes.len() + vm_nodes.len(),
-                READINESS_TIMEOUT
+                ready_timeout_secs
             ),
         )?;
 
         let start_time_readiness = Instant::now();
         let readiness_timer = std::time::Instant::now();
-        let timeout = Duration::from_secs(READINESS_TIMEOUT);
+        let timeout = Duration::from_secs(ready_timeout_secs);
         let mut connected_nodes = std::collections::HashSet::new();
         let mut node_info_list = vec![];
 
@@ -2884,16 +2886,6 @@ pub async fn up_lab(
         ]
         .concat();
         let total_lab_nodes = all_lab_nodes.len();
-
-        tracing::info!(
-            lab_id = %lab_id,
-            total_nodes = total_lab_nodes,
-            containers = container_nodes.len(),
-            vms = vm_nodes.len(),
-            unikernels = unikernel_nodes.len(),
-            timeout_secs = READINESS_TIMEOUT,
-            "Starting node readiness polling"
-        );
 
         let node_names = all_lab_nodes
             .iter()
@@ -2911,6 +2903,45 @@ pub async fn up_lab(
             format!("Waiting for nodes: {}", node_names),
             StatusKind::Waiting,
         )?;
+
+        // Handle nodes with skip_ready_check enabled
+        for node in &all_lab_nodes {
+            if node.skip_ready_check.unwrap_or(false) {
+                tracing::info!(
+                    lab_id = %lab_id,
+                    node_name = %node.name,
+                    "Skipping ready check for node"
+                );
+                progress.send_status(
+                    format!("Node {} - Ready check skipped", node.name),
+                    StatusKind::Done,
+                )?;
+                connected_nodes.insert(node.name.clone());
+                let kind = lab_node_data
+                    .iter()
+                    .find(|n| n.name == node.name)
+                    .map(|n| format!("{:?}", n.kind))
+                    .unwrap_or_else(|| "Unknown".to_string());
+                node_info_list.push(data::NodeInfo {
+                    name: node.name.clone(),
+                    kind,
+                    model: node.model,
+                    status: NodeState::Unknown,
+                    ip_address: node.ipv4_address.map(|i| i.to_string()),
+                    ssh_port: None,
+                });
+            }
+        }
+
+        tracing::info!(
+            lab_id = %lab_id,
+            total_nodes = total_lab_nodes,
+            containers = container_nodes.len(),
+            vms = vm_nodes.len(),
+            unikernels = unikernel_nodes.len(),
+            timeout_secs = ready_timeout_secs,
+            "Starting node readiness polling"
+        );
 
         while start_time_readiness.elapsed() < timeout && connected_nodes.len() < total_lab_nodes {
             // Start containers
@@ -3126,7 +3157,7 @@ pub async fn up_lab(
                 nodes_ready = connected_nodes.len(),
                 total_nodes = total_lab_nodes,
                 duration_secs = readiness_elapsed,
-                timeout_secs = READINESS_TIMEOUT,
+                timeout_secs = ready_timeout_secs,
                 "Timeout reached - not all nodes ready"
             );
             progress.send_status(
