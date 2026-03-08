@@ -47,4 +47,7 @@ pub struct ContainerNetworkAttachment {
     /// When set, the Docker-assigned interface will be renamed to this name
     /// inside the container after network attachment (e.g. `e1-1` for SR Linux).
     pub linux_interface_name: Option<String>,
+    /// When `true`, the interface is renamed but left admin-down (no promisc, no `ip link set up`).
+    /// Used for disabled/unused interfaces attached to the isolated bridge.
+    pub admin_down: bool,
 }

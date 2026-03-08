@@ -13,7 +13,8 @@ pub use container::{
 
 // Re-export network operations
 pub use network::{
-    create_docker_bridge_network, create_docker_macvlan_network, delete_network, list_networks,
+    create_docker_bridge_network, create_docker_macvlan_bridge_network,
+    create_docker_macvlan_network, delete_network, list_networks,
 };
 
 // Re-export image operations
