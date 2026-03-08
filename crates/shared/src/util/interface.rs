@@ -86,9 +86,7 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
 /// Convert an SR Linux interface name to the Linux-compatible name used
 /// inside the container.  e.g. "eth-1/3" → "e1-3".
 pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
-    let rest = name
-        .strip_prefix("eth-")
-        .unwrap_or(name);
+    let rest = name.strip_prefix("eth-").unwrap_or(name);
     let linux_name = rest.replace('/', "-");
     let linux_name = format!("e{linux_name}");
     if linux_name == format!("e{name}") && !name.starts_with("eth-") {
