@@ -1,14 +1,16 @@
 use anyhow::{Context, Result};
+use tokio::io::AsyncWriteExt;
 
 use shared::data::{
-    ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse, NodeConfig,
-    NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse, ScannedImage,
-    SetDefaultImageRequest, SetDefaultImageResponse,
+    DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
+    ListImagesResponse, NodeConfig, NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse,
+    ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, StatusKind,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{copy_file, create_dir, file_exists};
 
 use crate::daemon::state::AppState;
+use crate::services::progress::ProgressSender;
 
 /// Import a disk image to the server filesystem and track it in the database
 pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<ImportResponse> {
@@ -478,4 +480,210 @@ pub async fn set_default_image(
         kind,
         version: request.version,
     })
+}
+
+/// Resolve the download URL for a VM image
+fn resolve_download_url(model: &NodeModel, version: &str, url: Option<&str>) -> Result<String> {
+    if let Some(url) = url {
+        return Ok(url.to_string());
+    }
+
+    match model {
+        NodeModel::UbuntuLinux => Ok(format!(
+            "https://cloud-images.ubuntu.com/releases/{version}/release/ubuntu-{version}-server-cloudimg-amd64.img"
+        )),
+        _ => anyhow::bail!("No auto-download URL for model '{}'. Provide --url.", model),
+    }
+}
+
+/// Download a VM image from a URL and track it in the database
+pub async fn download_image(
+    request: DownloadImageRequest,
+    state: &AppState,
+    progress: ProgressSender,
+) -> Result<ImportResponse> {
+    let config = NodeConfig::get_model(request.model);
+    let kind = config.kind.clone();
+
+    if kind != NodeKind::VirtualMachine {
+        anyhow::bail!(
+            "Image download is only supported for virtual machine models, got '{}'",
+            kind
+        );
+    }
+
+    let _ = progress.send_status("Resolving download URL...".to_string(), StatusKind::Info);
+
+    let download_url =
+        resolve_download_url(&request.model, &request.version, request.url.as_deref())?;
+
+    let images_dir = SHERPA_IMAGES_PATH.to_owned();
+    let model_dir = format!("{images_dir}/{}", request.model);
+    let version_dir = format!("{model_dir}/{}", request.version);
+    let version_disk = format!("{version_dir}/virtioa.qcow2");
+
+    // Create version directory
+    create_dir(&version_dir).context("Failed to create version directory")?;
+
+    // Skip download if file already exists
+    if file_exists(&version_disk) {
+        tracing::info!(
+            "Image already exists at {}, skipping download",
+            version_disk
+        );
+        let _ = progress.send_status(
+            "Image already exists, skipping download".to_string(),
+            StatusKind::Info,
+        );
+    } else {
+        tracing::info!(
+            "Downloading image from {} to {}",
+            download_url,
+            version_disk
+        );
+
+        let _ = progress.send_status(
+            format!(
+                "Downloading {} {} from {}...",
+                request.model, request.version, download_url
+            ),
+            StatusKind::Progress,
+        );
+
+        let response = reqwest::get(&download_url)
+            .await
+            .context(format!("Failed to download image from {}", download_url))?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Failed to download image: HTTP {} from {}",
+                response.status(),
+                download_url
+            );
+        }
+
+        // Get content length for progress reporting
+        let total_size = response.content_length();
+
+        // Stream the response body to a file in chunks
+        let mut file = tokio::fs::File::create(&version_disk)
+            .await
+            .context(format!("Failed to create file {}", version_disk))?;
+
+        let mut downloaded: u64 = 0;
+        let mut last_reported: u64 = 0;
+        let report_interval: u64 = 5 * 1024 * 1024; // Report every 5MB
+
+        let mut stream = response.bytes_stream();
+        use futures_util::StreamExt;
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("Failed to read response chunk")?;
+            file.write_all(&chunk)
+                .await
+                .context("Failed to write chunk to disk")?;
+
+            downloaded += chunk.len() as u64;
+
+            // Report progress every ~5MB
+            if downloaded - last_reported >= report_interval {
+                last_reported = downloaded;
+                let msg = if let Some(total) = total_size {
+                    let percent = (downloaded as f64 / total as f64 * 100.0) as u64;
+                    format!(
+                        "Downloaded {:.1} MB / {:.1} MB ({}%)",
+                        downloaded as f64 / 1_048_576.0,
+                        total as f64 / 1_048_576.0,
+                        percent
+                    )
+                } else {
+                    format!("Downloaded {:.1} MB", downloaded as f64 / 1_048_576.0)
+                };
+                let _ = progress.send_status(msg, StatusKind::Progress);
+            }
+        }
+
+        file.flush().await.context("Failed to flush image file")?;
+
+        tracing::info!("Download complete: {}", version_disk);
+
+        // Final download size message
+        let final_msg = if let Some(total) = total_size {
+            format!("Download complete: {:.1} MB", total as f64 / 1_048_576.0)
+        } else {
+            format!(
+                "Download complete: {:.1} MB",
+                downloaded as f64 / 1_048_576.0
+            )
+        };
+        let _ = progress.send_status(final_msg, StatusKind::Done);
+    }
+
+    let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
+
+    // Upsert node_image record in the database
+    let mut db_config = config;
+    db_config.version = request.version.clone();
+    db_config.default = request.default;
+    db_config.id = None;
+
+    let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
+        Ok(_) => {
+            tracing::info!(
+                "Upserted node_image for model={} version={}",
+                request.model,
+                request.version
+            );
+            true
+        }
+        Err(e) => {
+            tracing::error!(
+                "Failed to upsert node_image for model={} version={}: {:?}",
+                request.model,
+                request.version,
+                e
+            );
+            false
+        }
+    };
+
+    let _ = progress.send_status("Image tracked in database".to_string(), StatusKind::Done);
+
+    Ok(ImportResponse {
+        success: true,
+        model: request.model,
+        kind,
+        version: request.version,
+        image_path: version_disk,
+        db_tracked,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_download_url_ubuntu() {
+        let url = resolve_download_url(&NodeModel::UbuntuLinux, "24.04", None).unwrap();
+        assert_eq!(
+            url,
+            "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
+        );
+    }
+
+    #[test]
+    fn test_resolve_download_url_user_override() {
+        let custom = "https://example.com/my-image.qcow2";
+        let url = resolve_download_url(&NodeModel::FedoraLinux, "42", Some(custom)).unwrap();
+        assert_eq!(url, custom);
+    }
+
+    #[test]
+    fn test_resolve_download_url_unsupported_model_no_url() {
+        let result = resolve_download_url(&NodeModel::FedoraLinux, "42", None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("No auto-download URL"));
+        assert!(err.contains("fedora_linux"));
+    }
 }

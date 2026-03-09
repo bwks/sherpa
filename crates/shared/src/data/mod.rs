@@ -74,9 +74,9 @@ pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,
-    ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse,
-    ScanImagesRequest, ScanImagesResponse, ScannedImage, SetDefaultImageRequest,
-    SetDefaultImageResponse,
+    DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
+    ListImagesResponse, ScanImagesRequest, ScanImagesResponse, ScannedImage,
+    SetDefaultImageRequest, SetDefaultImageResponse,
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{

@@ -1,11 +1,14 @@
 use anyhow::{Context, Result, bail};
 use clap::Subcommand;
 
-use shared::data::{self, NodeKind, NodeModel, ServerConnection};
-use shared::util::{emoji_success, render_images_table, render_scanned_images_table};
+use shared::data::{
+    self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
+};
+use shared::konst::CONTAINER_NOKIA_SRLINUX_REPO;
+use shared::util::{Emoji, emoji_success, render_images_table, render_scanned_images_table};
 
 use super::OutputFormat;
-use super::rpc_call;
+use super::{rpc_call, rpc_call_streaming};
 
 #[derive(Debug, Subcommand)]
 pub enum ServerImageCommands {
@@ -57,10 +60,23 @@ pub enum ServerImageCommands {
         default: bool,
     },
 
-    /// Pull a container image from an OCI registry
+    /// Pull a container or VM image
     Pull {
-        /// Container image reference (e.g., ghcr.io/nokia/srlinux:1.2.3)
-        image: String,
+        /// Model of the device image to pull
+        #[arg(short, long, value_enum)]
+        model: NodeModel,
+        /// Version of the image (required for known-repo containers and VMs)
+        #[arg(short, long)]
+        version: Option<String>,
+        /// Full container image reference (e.g., registry.io/account/image:version)
+        #[arg(short, long)]
+        repo: Option<String>,
+        /// VM image download URL
+        #[arg(short, long)]
+        url: Option<String>,
+        /// Set this image as the default version
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        default: bool,
     },
 
     /// Delete an imported image from disk and database
@@ -142,8 +158,45 @@ pub async fn image_commands(
             )
             .await
         }
-        ServerImageCommands::Pull { image } => {
-            pull_image(image, server_url, server_connection, output_format).await
+        ServerImageCommands::Pull {
+            model,
+            version,
+            repo,
+            url,
+            default,
+        } => {
+            let config = NodeConfig::get_model(*model);
+            match config.kind {
+                NodeKind::Container => {
+                    pull_container_image(
+                        model,
+                        version.as_deref(),
+                        repo.as_deref(),
+                        server_url,
+                        server_connection,
+                        output_format,
+                    )
+                    .await
+                }
+                NodeKind::VirtualMachine => {
+                    let version = version.as_deref().ok_or_else(|| {
+                        anyhow::anyhow!("--version is required for VM image downloads")
+                    })?;
+                    download_vm_image(
+                        model,
+                        version,
+                        url.as_deref(),
+                        *default,
+                        server_url,
+                        server_connection,
+                        output_format,
+                    )
+                    .await
+                }
+                NodeKind::Unikernel => {
+                    bail!("Image pull is not supported for unikernel models")
+                }
+            }
         }
         ServerImageCommands::Delete { model, version } => {
             delete_image(model, version, server_url, server_connection, output_format).await
@@ -352,22 +405,38 @@ async fn set_default_image(
     Ok(())
 }
 
-async fn pull_image(
-    image: &str,
+async fn pull_container_image(
+    model: &NodeModel,
+    version: Option<&str>,
+    repo: Option<&str>,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
-    // Parse image reference into repo:tag
-    let (repo, tag) = if let Some((r, t)) = image.rsplit_once(':') {
-        (r.to_string(), t.to_string())
+    let (pull_repo, pull_tag) = if let Some(repo_str) = repo {
+        // Full repo reference provided — split on last ':' for repo + tag
+        if let Some((repo, tag)) = repo_str.rsplit_once(':') {
+            (repo.to_string(), tag.to_string())
+        } else {
+            bail!(
+                "Invalid repo format. Expected format: registry/image:tag (e.g., ghcr.io/nokia/srlinux:1.2.3)"
+            )
+        }
+    } else if *model == NodeModel::NokiaSrlinux {
+        // Known public repo — use constant, version is the tag
+        let tag =
+            version.ok_or_else(|| anyhow::anyhow!("--version is required for Nokia SR Linux"))?;
+        (CONTAINER_NOKIA_SRLINUX_REPO.to_string(), tag.to_string())
     } else {
-        bail!("Invalid image format. Expected format: repo:tag (e.g., ghcr.io/nokia/srlinux:1.2.3)")
+        bail!(
+            "--repo is required for model '{}'. Provide the full image reference (e.g., registry.io/account/image:version)",
+            model
+        )
     };
 
     let request = data::ContainerPullRequest {
-        repo: repo.clone(),
-        tag: tag.clone(),
+        repo: pull_repo.clone(),
+        tag: pull_tag.clone(),
     };
 
     let response: data::ContainerPullResponse =
@@ -390,6 +459,69 @@ async fn pull_image(
                 );
             } else {
                 eprintln!("Container image pull failed: {}", response.message);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+async fn download_vm_image(
+    model: &NodeModel,
+    version: &str,
+    url: Option<&str>,
+    default: bool,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let request = data::DownloadImageRequest {
+        model: *model,
+        version: version.to_string(),
+        url: url.map(|u| u.to_string()),
+        default,
+    };
+
+    let response: data::ImportResponse = rpc_call_streaming(
+        "image.download",
+        request,
+        server_url,
+        server_connection,
+        |msg_text| {
+            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
+                && status_msg.r#type == "status"
+            {
+                let emoji = match status_msg.kind {
+                    StatusKind::Progress => Emoji::Progress,
+                    StatusKind::Done => Emoji::Success,
+                    StatusKind::Info => Emoji::Info,
+                    StatusKind::Waiting => Emoji::Hourglass,
+                };
+                println!("{} {}", emoji, status_msg.message);
+            }
+        },
+    )
+    .await
+    .context("Failed to download VM image")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            if response.success {
+                println!("{}", emoji_success("VM image downloaded successfully"));
+                println!("   Model:    {}", response.model);
+                println!("   Kind:     {}", response.kind);
+                println!("   Version:  {}", response.version);
+                println!("   Path:     {}", response.image_path);
+                println!(
+                    "   DB Track: {}",
+                    if response.db_tracked { "yes" } else { "no" }
+                );
+                println!("   Default:  {}", if default { "yes" } else { "no" });
+            } else {
+                eprintln!("VM image download failed");
             }
         }
     }

@@ -17,14 +17,15 @@ use shared::konst::{
     RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
     RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
     RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
-    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
-    RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED, RPC_MSG_IMAGE_DELETE_FAILED,
-    RPC_MSG_IMAGE_IMPORT_FAILED, RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED,
-    RPC_MSG_IMAGE_SET_DEFAULT_FAILED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
-    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DELETE, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
+    RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
+    RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
+    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED,
+    RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
+    RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
+    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL,
+    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
+    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
+    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
     RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMPORT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
     RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED,
@@ -62,6 +63,7 @@ pub async fn handle_rpc_request(
         "image.list" => handle_image_list(id, params, state).await,
         "image.scan" => handle_image_scan(id, params, state).await,
         "image.pull" => handle_image_pull(id, params, state).await,
+        // Note: "image.download" is handled separately via handle_streaming_rpc_request
         "user.create" => handle_user_create(id, params, state).await,
         "user.list" => handle_user_list(id, params, state).await,
         "user.delete" => handle_user_delete(id, params, state).await,
@@ -95,6 +97,7 @@ pub async fn handle_streaming_rpc_request(
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
+        "image.download" => handle_image_download_streaming(id, params, state, connection).await,
         _ => {
             // Unknown streaming method
             let response = ServerMessage::RpcResponse {
@@ -1271,6 +1274,143 @@ async fn handle_image_pull(
                 }),
             }
         }
+    }
+}
+
+/// Handle "image.download" RPC call
+///
+/// Expected params: DownloadImageRequest {"model": "string", "version": "string", "url": "string?", "default": bool, "token": "string"}
+async fn handle_image_download_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    // Helper to send error and return
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for image.download: {}", e);
+            send_error(
+                id,
+                RpcErrorCode::AuthRequired,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Admin-only check
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted image download without admin privileges",
+            auth_ctx.username
+        );
+        send_error(
+            id,
+            RpcErrorCode::AccessDenied,
+            RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD.to_string(),
+            None,
+        )
+        .await;
+        return;
+    }
+
+    // Parse params into DownloadImageRequest
+    let request: data::DownloadImageRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    // Call download service with progress
+    let result = import::download_image(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress_tx is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "Admin '{}' downloaded image successfully (model={}, version={})",
+                    auth_ctx.username,
+                    response.model,
+                    response.version
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_IMAGE_DOWNLOAD_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    };
+
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
     }
 }
 
