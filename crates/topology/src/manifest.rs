@@ -156,6 +156,25 @@ nodes = [
     }
 
     #[test]
+    fn test_manifest_deserialize_ztp_config() {
+        let toml_str = r#"
+name = "my-lab"
+
+nodes = [
+  { name = "dev01", model = "cisco_cat8000v", ztp_config = "configs/dev01.txt" },
+  { name = "dev02", model = "cisco_iosv" },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        assert_eq!(manifest.nodes.len(), 2);
+        assert_eq!(
+            manifest.nodes[0].ztp_config,
+            Some("configs/dev01.txt".to_string())
+        );
+        assert_eq!(manifest.nodes[1].ztp_config, None);
+    }
+
+    #[test]
     fn test_manifest_deserialize_all_ready_check_fields() {
         let toml_str = r#"
 name = "my-lab"

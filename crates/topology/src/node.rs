@@ -25,6 +25,7 @@ pub struct Node {
     pub privileged: Option<bool>,
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
+    pub ztp_config: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -49,6 +50,7 @@ pub struct NodeExpanded {
     pub privileged: Option<bool>,
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
+    pub ztp_config: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

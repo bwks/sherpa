@@ -168,6 +168,42 @@ fn node_reserved_network_data(
     }
 }
 
+/// Map a node model to its ZTP config filename for CDROM-based ZTP.
+fn ztp_config_filename(model: &data::NodeModel) -> Result<String> {
+    let name = match model {
+        data::NodeModel::CiscoCsr1000v
+        | data::NodeModel::CiscoCat8000v
+        | data::NodeModel::CiscoCat9000v => CISCO_IOSXE_ZTP_CONFIG.replace("-", "_"),
+        data::NodeModel::CiscoAsav => CISCO_ASAV_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoNexus9300v => CISCO_NXOS_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoIosxrv9000 => CISCO_IOSXR_ZTP_CONFIG.to_string(),
+        data::NodeModel::CiscoFtdv => CISCO_FTDV_ZTP_CONFIG.to_string(),
+        data::NodeModel::JuniperVsrxv3
+        | data::NodeModel::JuniperVrouter
+        | data::NodeModel::JuniperVswitch => JUNIPER_ZTP_CONFIG.to_string(),
+        _ => bail!("No ZTP config filename mapping for model: {}", model),
+    };
+    Ok(name)
+}
+
+/// If the node has a custom ZTP config, log and send a progress message, then return the content.
+fn take_custom_ztp_config(
+    node: &mut topology::NodeExpanded,
+    progress: &ProgressSender,
+) -> Result<Option<String>> {
+    match node.ztp_config.take() {
+        Some(config) => {
+            tracing::info!(node_name = %node.name, "Using custom ZTP config for node");
+            progress.send_status(
+                format!("Using custom ZTP config for node: {}", node.name),
+                StatusKind::Info,
+            )?;
+            Ok(Some(config))
+        }
+        None => Ok(None),
+    }
+}
+
 fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<data::NodeSetupData> {
     Ok(data
         .iter()
@@ -202,6 +238,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             commands: node.commands.clone(),
             user: node.user.clone(),
             skip_ready_check: node.skip_ready_check,
+            ztp_config: node.ztp_config.clone(),
         })
         .collect()
 }
@@ -1124,6 +1161,14 @@ pub async fn up_lab(
 
         // Container nodes ZTP generation
         for node in &mut container_nodes {
+            // Decode base64 ztp_config if present
+            if let Some(ref encoded) = node.ztp_config {
+                let decoded = util::base64_decode(encoded).with_context(|| {
+                    format!("Failed to decode ztp_config for node '{}'", node.name)
+                })?;
+                node.ztp_config = Some(decoded);
+            }
+
             let node_data = get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
             let node_ip_idx = 10 + node_idx as u32;
@@ -1162,16 +1207,23 @@ pub async fn up_lab(
                 ssh_port: SSH_PORT,
             });
 
+            let custom_ztp = take_custom_ztp_config(node, &progress)?;
+
             match node.model {
                 data::NodeModel::AristaCeos => {
-                    let arista_template = template::AristaCeosZtpTemplate {
-                        hostname: node.name.clone(),
-                        user: sherpa_user.clone(),
-                        dns: dns.clone(),
-                        mgmt_ipv4_address: node.ipv4_address,
-                        mgmt_ipv4: mgmt_net.v4.clone(),
+                    let rendered_template = match &custom_ztp {
+                        Some(config) => config.clone(),
+                        None => {
+                            let arista_template = template::AristaCeosZtpTemplate {
+                                hostname: node.name.clone(),
+                                user: sherpa_user.clone(),
+                                dns: dns.clone(),
+                                mgmt_ipv4_address: node.ipv4_address,
+                                mgmt_ipv4: mgmt_net.v4.clone(),
+                            };
+                            arista_template.render()?
+                        }
                     };
-                    let rendered_template = arista_template.render()?;
                     let ztp_config = format!("{dir}/{}.conf", node.name);
                     let ztp_volume = topology::VolumeMount {
                         src: ztp_config.clone(),
@@ -1197,13 +1249,16 @@ pub async fn up_lab(
                     );
                 }
                 data::NodeModel::NokiaSrlinux => {
-                    let srlinux_config = template::build_srlinux_config(
-                        &node.name,
-                        &sherpa_user,
-                        &dns,
-                        &mgmt_net.v4,
-                        node.ipv4_address,
-                    )?;
+                    let srlinux_config = match &custom_ztp {
+                        Some(config) => config.clone(),
+                        None => template::build_srlinux_config(
+                            &node.name,
+                            &sherpa_user,
+                            &dns,
+                            &mgmt_net.v4,
+                            node.ipv4_address,
+                        )?,
+                    };
                     let ztp_config = format!("{dir}/{}.json", node.name);
                     let ztp_volume = topology::VolumeMount {
                         src: ztp_config.clone(),
@@ -1250,6 +1305,14 @@ pub async fn up_lab(
         );
 
         for node in &mut vm_nodes {
+            // Decode base64 ztp_config if present
+            if let Some(ref encoded) = node.ztp_config {
+                let decoded = util::base64_decode(encoded).with_context(|| {
+                    format!("Failed to decode ztp_config for node '{}'", node.name)
+                })?;
+                node.ztp_config = Some(decoded);
+            }
+
             let node_data = get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
             let node_ip_idx = 10 + node_idx as u32;
@@ -1321,6 +1384,26 @@ pub async fn up_lab(
                 (None, None);
 
             if node_image.ztp_enable {
+                // Validate that custom ZTP config is not used with unsupported methods
+                if node.ztp_config.is_some() {
+                    match node_image.ztp_method {
+                        data::ZtpMethod::CloudInit
+                        | data::ZtpMethod::Ignition
+                        | data::ZtpMethod::Http
+                        | data::ZtpMethod::None => {
+                            bail!(
+                                "Custom ZTP config is not supported for node '{}' with ZTP method '{:?}'. \
+                                 Only Tftp, Cdrom, Disk, Usb, and Volume methods support custom ZTP config files.",
+                                node.name,
+                                node_image.ztp_method
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+
+                let custom_ztp = take_custom_ztp_config(node, &progress)?;
+
                 tracing::info!(
                     lab_id = %lab_id,
                     node_name = %node.name,
@@ -1522,45 +1605,50 @@ pub async fn up_lab(
                             StatusKind::Progress,
                         )?;
 
-                        match node.model {
-                            data::NodeModel::AristaVeos => {
-                                let arista_template = template::AristaVeosZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user: sherpa_user.clone(),
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = arista_template.render()?;
-                                let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                util::create_file(&ztp_config, rendered_template)?;
-                            }
-                            data::NodeModel::ArubaAoscx => {
-                                let aruba_template = template::ArubaAoscxTemplate {
-                                    hostname: node.name.clone(),
-                                    user: sherpa_user.clone(),
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = aruba_template.render()?;
-                                let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                util::create_file(&ztp_config, rendered_template)?;
-                            }
-                            data::NodeModel::JuniperVevolved => {
-                                let juniper_template = template::JunipervJunosZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user: sherpa_user.clone(),
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let juniper_rendered_template = juniper_template.render()?;
-                                let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                util::create_file(&ztp_config, juniper_rendered_template)?;
-                            }
-                            _ => {
-                                bail!("TFTP ZTP method not supported for {}", node_image.model);
+                        if let Some(ref custom_config) = custom_ztp {
+                            let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                            util::create_file(&ztp_config, custom_config.clone())?;
+                        } else {
+                            match node.model {
+                                data::NodeModel::AristaVeos => {
+                                    let arista_template = template::AristaVeosZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user: sherpa_user.clone(),
+                                        dns: dns.clone(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = arista_template.render()?;
+                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                }
+                                data::NodeModel::ArubaAoscx => {
+                                    let aruba_template = template::ArubaAoscxTemplate {
+                                        hostname: node.name.clone(),
+                                        user: sherpa_user.clone(),
+                                        dns: dns.clone(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = aruba_template.render()?;
+                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                }
+                                data::NodeModel::JuniperVevolved => {
+                                    let juniper_template = template::JunipervJunosZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user: sherpa_user.clone(),
+                                        mgmt_interface: node_image.management_interface.to_string(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let juniper_rendered_template = juniper_template.render()?;
+                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
+                                    util::create_file(&ztp_config, juniper_rendered_template)?;
+                                }
+                                _ => {
+                                    bail!("TFTP ZTP method not supported for {}", node_image.model);
+                                }
                             }
                         }
                         tracing::debug!(
@@ -1577,128 +1665,140 @@ pub async fn up_lab(
                         )?;
 
                         let dir = format!("{lab_dir}/{}", node.name);
-                        let mut user = sherpa_user.clone();
 
-                        match node.model {
-                            data::NodeModel::CiscoCsr1000v
-                            | data::NodeModel::CiscoCat8000v
-                            | data::NodeModel::CiscoCat9000v => {
-                                let license_boot_command =
-                                    if node.model == data::NodeModel::CiscoCat8000v {
-                                        Some(
+                        if let Some(ref custom_config) = custom_ztp {
+                            let config_filename = ztp_config_filename(&node.model)?;
+                            let ztp_config = format!("{dir}/{config_filename}");
+                            util::create_dir(&dir)?;
+                            util::create_file(&ztp_config, custom_config.clone())?;
+                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                        } else {
+                            let mut user = sherpa_user.clone();
+
+                            match node.model {
+                                data::NodeModel::CiscoCsr1000v
+                                | data::NodeModel::CiscoCat8000v
+                                | data::NodeModel::CiscoCat9000v => {
+                                    let license_boot_command =
+                                        if node.model == data::NodeModel::CiscoCat8000v {
+                                            Some(
                                             "license boot level network-premier addon dna-premier"
                                                 .to_string(),
                                         )
-                                    } else if node.model == data::NodeModel::CiscoCat9000v {
-                                        Some(
+                                        } else if node.model == data::NodeModel::CiscoCat9000v {
+                                            Some(
                                         "license boot level network-advantage addon dna-advantage"
                                             .to_string(),
                                     )
-                                    } else {
-                                        None
-                                    };
+                                        } else {
+                                            None
+                                        };
 
-                                let key_hash =
-                                    util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                                user.ssh_public_key.key = key_hash;
-                                let t = template::CiscoIosXeZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    dns: dns.clone(),
-                                    license_boot_command,
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = t.render()?;
-                                let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
-                                let ztp_config = format!("{dir}/{c}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            data::NodeModel::CiscoAsav => {
-                                let key_hash =
-                                    util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
-                                user.ssh_public_key.key = key_hash;
-                                let t = template::CiscoAsavZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = t.render()?;
-                                let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            data::NodeModel::CiscoNexus9300v => {
-                                let t = template::CiscoNxosZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = t.render()?;
-                                let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            data::NodeModel::CiscoIosxrv9000 => {
-                                let t = template::CiscoIosxrZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = t.render()?;
-                                let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            data::NodeModel::CiscoFtdv => {
-                                let t = template::CiscoFtdvZtpTemplate {
-                                    eula: "accept".to_string(),
-                                    hostname: node.name.clone(),
-                                    admin_password: SHERPA_PASSWORD.to_string(),
-                                    dns1: Some(mgmt_net.v4.boot_server),
-                                    ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
-                                    ipv4_addr: Some(node_ipv4_address),
-                                    ipv4_gw: Some(mgmt_net.v4.first),
-                                    ipv4_mask: Some(mgmt_net.v4.subnet_mask),
-                                    manage_locally: true,
-                                    ..Default::default()
-                                };
-                                let rendered_template = serde_json::to_string(&t)?;
-                                let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            data::NodeModel::JuniperVsrxv3
-                            | data::NodeModel::JuniperVrouter
-                            | data::NodeModel::JuniperVswitch => {
-                                let t = template::JunipervJunosZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                };
-                                let rendered_template = t.render()?;
-                                let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-                                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                            }
-                            _ => {
-                                bail!("CDROM ZTP method not supported for {}", node_image.model);
+                                    let key_hash =
+                                        util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
+                                    user.ssh_public_key.key = key_hash;
+                                    let t = template::CiscoIosXeZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user,
+                                        mgmt_interface: node_image.management_interface.to_string(),
+                                        dns: dns.clone(),
+                                        license_boot_command,
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = t.render()?;
+                                    let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
+                                    let ztp_config = format!("{dir}/{c}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                data::NodeModel::CiscoAsav => {
+                                    let key_hash =
+                                        util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
+                                    user.ssh_public_key.key = key_hash;
+                                    let t = template::CiscoAsavZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user,
+                                        dns: dns.clone(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = t.render()?;
+                                    let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                data::NodeModel::CiscoNexus9300v => {
+                                    let t = template::CiscoNxosZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user,
+                                        dns: dns.clone(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = t.render()?;
+                                    let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                data::NodeModel::CiscoIosxrv9000 => {
+                                    let t = template::CiscoIosxrZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user,
+                                        dns: dns.clone(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = t.render()?;
+                                    let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                data::NodeModel::CiscoFtdv => {
+                                    let t = template::CiscoFtdvZtpTemplate {
+                                        eula: "accept".to_string(),
+                                        hostname: node.name.clone(),
+                                        admin_password: SHERPA_PASSWORD.to_string(),
+                                        dns1: Some(mgmt_net.v4.boot_server),
+                                        ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
+                                        ipv4_addr: Some(node_ipv4_address),
+                                        ipv4_gw: Some(mgmt_net.v4.first),
+                                        ipv4_mask: Some(mgmt_net.v4.subnet_mask),
+                                        manage_locally: true,
+                                        ..Default::default()
+                                    };
+                                    let rendered_template = serde_json::to_string(&t)?;
+                                    let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                data::NodeModel::JuniperVsrxv3
+                                | data::NodeModel::JuniperVrouter
+                                | data::NodeModel::JuniperVswitch => {
+                                    let t = template::JunipervJunosZtpTemplate {
+                                        hostname: node.name.clone(),
+                                        user,
+                                        mgmt_interface: node_image.management_interface.to_string(),
+                                        mgmt_ipv4_address: Some(node_ipv4_address),
+                                        mgmt_ipv4: mgmt_net.v4.clone(),
+                                    };
+                                    let rendered_template = t.render()?;
+                                    let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
+                                    util::create_dir(&dir)?;
+                                    util::create_file(&ztp_config, rendered_template)?;
+                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                                }
+                                _ => {
+                                    bail!(
+                                        "CDROM ZTP method not supported for {}",
+                                        node_image.model
+                                    );
+                                }
                             }
                         }
                         src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
@@ -1723,18 +1823,26 @@ pub async fn up_lab(
 
                         match node.model {
                             data::NodeModel::CiscoIosv => {
-                                let key_hash =
-                                    util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                                user.ssh_public_key.key = key_hash;
-                                let t = template::CiscoIosvZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
+                                let rendered_template = match &custom_ztp {
+                                    Some(config) => config.clone(),
+                                    None => {
+                                        let key_hash = util::pub_ssh_key_to_md5_hash(
+                                            &user.ssh_public_key.key,
+                                        )?;
+                                        user.ssh_public_key.key = key_hash;
+                                        let t = template::CiscoIosvZtpTemplate {
+                                            hostname: node.name.clone(),
+                                            user,
+                                            mgmt_interface: node_image
+                                                .management_interface
+                                                .to_string(),
+                                            dns: dns.clone(),
+                                            mgmt_ipv4_address: Some(node_ipv4_address),
+                                            mgmt_ipv4: mgmt_net.v4.clone(),
+                                        };
+                                        t.render()?
+                                    }
                                 };
-                                let rendered_template = t.render()?;
                                 let c = CISCO_IOSV_ZTP_CONFIG;
                                 let ztp_config = format!("{dir}/{c}");
                                 util::create_dir(&dir)?;
@@ -1759,18 +1867,26 @@ pub async fn up_lab(
                                 ));
                             }
                             data::NodeModel::CiscoIosvl2 => {
-                                let key_hash =
-                                    util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                                user.ssh_public_key.key = key_hash;
-                                let t = template::CiscoIosvl2ZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
+                                let rendered_template = match &custom_ztp {
+                                    Some(config) => config.clone(),
+                                    None => {
+                                        let key_hash = util::pub_ssh_key_to_md5_hash(
+                                            &user.ssh_public_key.key,
+                                        )?;
+                                        user.ssh_public_key.key = key_hash;
+                                        let t = template::CiscoIosvl2ZtpTemplate {
+                                            hostname: node.name.clone(),
+                                            user,
+                                            mgmt_interface: node_image
+                                                .management_interface
+                                                .to_string(),
+                                            dns: dns.clone(),
+                                            mgmt_ipv4_address: Some(node_ipv4_address),
+                                            mgmt_ipv4: mgmt_net.v4.clone(),
+                                        };
+                                        t.render()?
+                                    }
                                 };
-                                let rendered_template = t.render()?;
                                 let c = CISCO_IOSV_ZTP_CONFIG;
                                 let ztp_config = format!("{dir}/{c}");
                                 util::create_dir(&dir)?;
@@ -1795,14 +1911,19 @@ pub async fn up_lab(
                                 ));
                             }
                             data::NodeModel::CiscoIse => {
-                                let t = template::CiscoIseZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: node_ipv4_address,
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
+                                let rendered_template = match &custom_ztp {
+                                    Some(config) => config.clone(),
+                                    None => {
+                                        let t = template::CiscoIseZtpTemplate {
+                                            hostname: node.name.clone(),
+                                            user,
+                                            dns: dns.clone(),
+                                            mgmt_ipv4_address: node_ipv4_address,
+                                            mgmt_ipv4: mgmt_net.v4.clone(),
+                                        };
+                                        t.render()?
+                                    }
                                 };
-                                let rendered_template = t.render()?;
                                 let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
                                 util::create_dir(&dir)?;
                                 util::create_file(&ztp_config, rendered_template)?;
@@ -1844,14 +1965,19 @@ pub async fn up_lab(
 
                         match node_image.model {
                             data::NodeModel::CumulusLinux => {
-                                let t = template::CumulusLinuxZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    dns: dns.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
+                                let rendered_template = match &custom_ztp {
+                                    Some(config) => config.clone(),
+                                    None => {
+                                        let t = template::CumulusLinuxZtpTemplate {
+                                            hostname: node.name.clone(),
+                                            user,
+                                            dns: dns.clone(),
+                                            mgmt_ipv4_address: Some(node_ipv4_address),
+                                            mgmt_ipv4: mgmt_net.v4.clone(),
+                                        };
+                                        t.render()?
+                                    }
                                 };
-                                let rendered_template = t.render()?;
                                 let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
                                 util::create_dir(&dir)?;
                                 util::create_file(&ztp_config, rendered_template)?;
@@ -1875,14 +2001,21 @@ pub async fn up_lab(
                                 ));
                             }
                             data::NodeModel::JuniperVevolved => {
-                                let t = template::JunipervJunosZtpTemplate {
-                                    hostname: node.name.clone(),
-                                    user,
-                                    mgmt_interface: node_image.management_interface.to_string(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
+                                let rendered_template = match &custom_ztp {
+                                    Some(config) => config.clone(),
+                                    None => {
+                                        let t = template::JunipervJunosZtpTemplate {
+                                            hostname: node.name.clone(),
+                                            user,
+                                            mgmt_interface: node_image
+                                                .management_interface
+                                                .to_string(),
+                                            mgmt_ipv4_address: Some(node_ipv4_address),
+                                            mgmt_ipv4: mgmt_net.v4.clone(),
+                                        };
+                                        t.render()?
+                                    }
                                 };
-                                let rendered_template = t.render()?;
                                 let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
                                 let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
 

@@ -9,6 +9,13 @@ pub fn base64_encode(input: &str) -> String {
     general_purpose::STANDARD.encode(input)
 }
 
+pub fn base64_decode(input: &str) -> Result<String> {
+    let bytes = general_purpose::STANDARD
+        .decode(input)
+        .context("Failed to base64 decode")?;
+    String::from_utf8(bytes).context("Base64 decoded content is not valid UTF-8")
+}
+
 pub fn base64_encode_file(filename: &str) -> Result<String> {
     let file_content =
         load_file(filename).with_context(|| format!("Failed to base64 encode: {filename}"))?;
@@ -18,6 +25,22 @@ pub fn base64_encode_file(filename: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_base64_decode_simple_string() {
+        assert_eq!(
+            base64_decode("SGVsbG8sIFdvcmxkIQ==").unwrap(),
+            "Hello, World!"
+        );
+    }
+
+    #[test]
+    fn test_base64_decode_roundtrip() {
+        let original = "hostname dev01\ninterface eth0\n no shutdown";
+        let encoded = base64_encode(original);
+        let decoded = base64_decode(&encoded).unwrap();
+        assert_eq!(decoded, original);
+    }
 
     #[test]
     fn test_base64_encode_empty_string() {

@@ -31,6 +31,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             commands: node.commands.clone(),
             user: node.user.clone(),
             skip_ready_check: node.skip_ready_check,
+            ztp_config: node.ztp_config.clone(),
         })
         .collect()
 }
