@@ -322,6 +322,9 @@ pub const RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD: &str =
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str =
     "Invalid params: expected DownloadImageRequest";
 
+// Node name params
+pub const RPC_MSG_INVALID_PARAMS_NODE_NAME: &str = "Invalid 'node_name' parameter";
+
 // Invalid params messages
 pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
 pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";

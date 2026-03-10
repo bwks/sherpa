@@ -4,7 +4,7 @@ use anyhow::{Context, Result, anyhow};
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use container::{delete_network, kill_container, list_containers, list_networks};
+use container::{delete_network, kill_container, list_containers, list_networks, remove_container};
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
 use shared::data::{
@@ -352,6 +352,14 @@ pub(crate) async fn destroy_containers(
                             );
                             match kill_container(docker, name).await {
                                 Ok(_) => {
+                                    if let Err(e) = remove_container(docker, name).await {
+                                        tracing::warn!(
+                                            lab_id = %lab_id,
+                                            container_name = %name,
+                                            error = ?e,
+                                            "Failed to remove container after kill"
+                                        );
+                                    }
                                     summary.containers_destroyed.push(name.to_string());
                                     tracing::info!(
                                         lab_id = %lab_id,

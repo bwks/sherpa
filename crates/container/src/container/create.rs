@@ -63,7 +63,7 @@ pub async fn run_container(
     let host_config = HostConfig {
         binds: Some(volumes),
         cap_add: Some(caps),
-        auto_remove: Some(true),
+        auto_remove: Some(false),
         privileged: Some(privileged),
         ..Default::default()
     };

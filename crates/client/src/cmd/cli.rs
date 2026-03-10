@@ -88,9 +88,17 @@ enum Commands {
     },
 
     /// Stop environment
-    Down,
+    Down {
+        /// Target a specific node (omit for all nodes)
+        #[arg(short, long)]
+        node: Option<String>,
+    },
     /// Resume environment
-    Resume,
+    Resume {
+        /// Target a specific node (omit for all nodes)
+        #[arg(short, long)]
+        node: Option<String>,
+    },
     /// Destroy environment
     Destroy {
         /// Skip confirmation prompt
@@ -213,7 +221,7 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 up(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
-            Commands::Down => {
+            Commands::Down { node } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
@@ -225,9 +233,9 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                down(&lab_name, &lab_id, &server_url, &config).await?;
+                down(&lab_name, &lab_id, node.as_deref(), &server_url, &config).await?;
             }
-            Commands::Resume => {
+            Commands::Resume { node } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
@@ -239,7 +247,7 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                resume(&lab_name, &lab_id, &server_url, &config).await?;
+                resume(&lab_name, &lab_id, node.as_deref(), &server_url, &config).await?;
             }
             Commands::Destroy { yes } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

@@ -108,7 +108,7 @@ pub use user_management::{
     DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
     ListUsersRequest, ListUsersResponse, UserInfo,
 };
-pub use vm_action::{LabVmActionResponse, VmActionResult};
+pub use vm_action::{LabNodeActionResponse, NodeActionResult};
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience

@@ -234,9 +234,9 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
     }
 }
 
-/// Handle "down" RPC call — suspend all VMs for a lab
+/// Handle "down" RPC call — shutdown all (or a specific) node(s) for a lab
 ///
-/// Expected params: {"lab_id": "string", "token": "string"}
+/// Expected params: {"lab_id": "string", "token": "string", "node_name": "string" (optional)}
 async fn handle_down(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
@@ -270,6 +270,12 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
             };
         }
     };
+
+    // Parse optional node_name
+    let node_name = params
+        .get("node_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Check authorization: user must own the lab or be an admin
     match db::get_lab_owner_username(&state.db, &lab_id).await {
@@ -306,13 +312,14 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
     }
 
     // Call service
-    match down::suspend_lab_vms(&lab_id, state).await {
+    match down::shutdown_lab_nodes(&lab_id, node_name.as_deref(), state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
-                    "User '{}' suspended lab '{}' VMs",
+                    "User '{}' shut down lab '{}' nodes (node_name: {:?})",
                     auth_ctx.username,
-                    lab_id
+                    lab_id,
+                    node_name
                 );
                 ServerMessage::RpcResponse {
                     id,
@@ -345,9 +352,9 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
     }
 }
 
-/// Handle "resume" RPC call — resume all paused VMs for a lab
+/// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
 ///
-/// Expected params: {"lab_id": "string", "token": "string"}
+/// Expected params: {"lab_id": "string", "token": "string", "node_name": "string" (optional)}
 async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
@@ -381,6 +388,12 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
             };
         }
     };
+
+    // Parse optional node_name
+    let node_name = params
+        .get("node_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Check authorization: user must own the lab or be an admin
     match db::get_lab_owner_username(&state.db, &lab_id).await {
@@ -417,10 +430,15 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
     }
 
     // Call service
-    match resume::resume_lab_vms(&lab_id, state).await {
+    match resume::start_lab_nodes(&lab_id, node_name.as_deref(), state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
-                tracing::info!("User '{}' resumed lab '{}' VMs", auth_ctx.username, lab_id);
+                tracing::info!(
+                    "User '{}' started lab '{}' nodes (node_name: {:?})",
+                    auth_ctx.username,
+                    lab_id,
+                    node_name
+                );
                 ServerMessage::RpcResponse {
                     id,
                     result: Some(result),

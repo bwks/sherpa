@@ -1,83 +1,207 @@
-use anyhow::{Context, Result};
-use shared::data::{LabVmActionResponse, VmActionResult};
-use virt::domain::Domain;
-use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING};
+use anyhow::{Context, Result, anyhow};
+use futures::future::join_all;
+use shared::data::{LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
+use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use crate::daemon::state::AppState;
 
-/// Resume all paused VMs for a lab
-pub async fn resume_lab_vms(lab_id: &str, state: &AppState) -> Result<LabVmActionResponse> {
-    let qemu = state.qemu.clone();
-    let lab_id = lab_id.to_string();
+/// Start/poweron all (or a specific) node(s) for a lab.
+///
+/// VMs: if shutoff, calls `domain.create()` (cold boot). If paused, calls `domain.resume()`.
+/// Containers: calls `docker start`.
+/// DB node state is updated to `Running` on success.
+pub async fn start_lab_nodes(
+    lab_id: &str,
+    node_name: Option<&str>,
+    state: &AppState,
+) -> Result<LabNodeActionResponse> {
+    // Get lab from DB to obtain RecordId
+    let db_lab = db::get_lab(&state.db, lab_id)
+        .await
+        .context(format!("Lab '{}' not found in database", lab_id))?;
 
-    let results = tokio::task::spawn_blocking(move || -> Result<Vec<VmActionResult>> {
-        let conn = qemu.connect().context("Failed to connect to libvirt")?;
-        let domains = conn
-            .list_all_domains(0)
-            .context("Failed to list libvirt domains")?;
+    let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
-        let mut results = Vec::new();
+    // Get all nodes for this lab
+    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
+        .await
+        .context("Failed to list nodes for lab")?;
 
-        for domain in domains {
-            let vm_name = match domain.get_name() {
-                Ok(name) => name,
-                Err(e) => {
-                    tracing::warn!("Failed to get domain name: {}", e);
-                    continue;
-                }
-            };
+    // Filter by node_name if provided
+    let target_nodes: Vec<_> = if let Some(name) = node_name {
+        db_nodes.into_iter().filter(|n| n.name == name).collect()
+    } else {
+        db_nodes
+    };
 
-            if !vm_name.contains(&lab_id) {
+    if let Some(name) = node_name
+        && target_nodes.is_empty()
+    {
+        return Err(anyhow!("Node '{}' not found in lab '{}'", name, lab_id));
+    }
+
+    // Batch-fetch node images to determine kind (VM vs Container)
+    let mut image_ids: Vec<RecordId> = target_nodes.iter().map(|n| n.image.clone()).collect();
+    image_ids.dedup();
+
+    let node_images = db::list_node_images_by_ids(&state.db, image_ids)
+        .await
+        .context("Failed to batch fetch node images")?;
+
+    // Build futures for all node operations concurrently
+    let mut futures = Vec::new();
+    let mut immediate_results = Vec::new();
+
+    for node in &target_nodes {
+        let device_name = format!("{}-{}", node.name, lab_id);
+
+        // Determine node kind from image
+        let node_image = node_images
+            .iter()
+            .find(|img| img.id.as_ref() == Some(&node.image));
+
+        let kind = match node_image {
+            Some(img) => img.kind.clone(),
+            None => {
+                immediate_results.push(NodeActionResult {
+                    name: node.name.clone(),
+                    success: false,
+                    message: "Node image not found in database".to_string(),
+                });
                 continue;
             }
+        };
 
-            let result = resume_domain(&domain, &vm_name);
-            results.push(result);
+        let node_name = node.name.clone();
+        let node_id = node.id.clone();
+        let state = state.clone();
+
+        futures.push(async move {
+            let result = match kind {
+                NodeKind::VirtualMachine | NodeKind::Unikernel => {
+                    start_vm(&device_name, &node_name, &state).await
+                }
+                NodeKind::Container => start_container_node(&device_name, &node_name, &state).await,
+            };
+
+            (result, node_name, node_id)
+        });
+    }
+
+    // Run all operations concurrently
+    let concurrent_results = join_all(futures).await;
+
+    // Collect results and update DB state
+    let mut results = immediate_results;
+    for (result, node_name, node_id) in concurrent_results {
+        if result.success
+            && let Some(id) = node_id
+            && let Err(e) = db::update_node_state(&state.db, id, NodeState::Running).await
+        {
+            tracing::warn!("Failed to update DB state for node '{}': {}", node_name, e);
         }
+        results.push(result);
+    }
 
-        Ok(results)
-    })
-    .await
-    .context("Blocking task panicked")?
-    .context("Failed to resume lab VMs")?;
-
-    Ok(LabVmActionResponse { results })
+    Ok(LabNodeActionResponse { results })
 }
 
-fn resume_domain(domain: &Domain, vm_name: &str) -> VmActionResult {
-    match domain.get_state() {
-        Ok((state, _reason)) => {
-            if state == VIR_DOMAIN_PAUSED {
-                match domain.resume() {
-                    Ok(_) => VmActionResult {
-                        name: vm_name.to_string(),
-                        success: true,
-                        message: "Resumed".to_string(),
-                    },
-                    Err(e) => VmActionResult {
-                        name: vm_name.to_string(),
-                        success: false,
-                        message: format!("Failed to resume: {}", e),
-                    },
-                }
-            } else if state == VIR_DOMAIN_RUNNING {
-                VmActionResult {
-                    name: vm_name.to_string(),
-                    success: true,
-                    message: "Already running".to_string(),
-                }
-            } else {
-                VmActionResult {
-                    name: vm_name.to_string(),
+async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeActionResult {
+    let qemu = state.qemu.clone();
+    let device_name = device_name.to_string();
+    let node_name_owned = node_name.to_string();
+
+    match tokio::task::spawn_blocking(move || -> Result<NodeActionResult> {
+        let node_name = node_name_owned;
+        let conn = qemu.connect().context("Failed to connect to libvirt")?;
+        let domain = match virt::domain::Domain::lookup_by_name(&conn, &device_name) {
+            Ok(d) => d,
+            Err(e) => {
+                return Ok(NodeActionResult {
+                    name: node_name,
                     success: false,
-                    message: format!("Not paused (state: {})", state),
+                    message: format!("Domain not found: {}", e),
+                });
+            }
+        };
+
+        match domain.get_state() {
+            Ok((state, _reason)) => {
+                if state == VIR_DOMAIN_SHUTOFF {
+                    // Cold boot a defined-but-inactive domain
+                    match domain.create() {
+                        Ok(_) => Ok(NodeActionResult {
+                            name: node_name,
+                            success: true,
+                            message: "Started".to_string(),
+                        }),
+                        Err(e) => Ok(NodeActionResult {
+                            name: node_name,
+                            success: false,
+                            message: format!("Failed to start: {}", e),
+                        }),
+                    }
+                } else if state == VIR_DOMAIN_PAUSED {
+                    // Resume a paused domain
+                    match domain.resume() {
+                        Ok(_) => Ok(NodeActionResult {
+                            name: node_name,
+                            success: true,
+                            message: "Resumed".to_string(),
+                        }),
+                        Err(e) => Ok(NodeActionResult {
+                            name: node_name,
+                            success: false,
+                            message: format!("Failed to resume: {}", e),
+                        }),
+                    }
+                } else {
+                    // Already running or other state
+                    Ok(NodeActionResult {
+                        name: node_name,
+                        success: true,
+                        message: "Already running".to_string(),
+                    })
                 }
             }
+            Err(e) => Ok(NodeActionResult {
+                name: node_name,
+                success: false,
+                message: format!("Failed to get state: {}", e),
+            }),
         }
-        Err(e) => VmActionResult {
-            name: vm_name.to_string(),
+    })
+    .await
+    {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => NodeActionResult {
+            name: node_name.to_string(),
             success: false,
-            message: format!("Failed to get state: {}", e),
+            message: format!("Libvirt error: {}", e),
+        },
+        Err(e) => NodeActionResult {
+            name: node_name.to_string(),
+            success: false,
+            message: format!("Task panicked: {}", e),
+        },
+    }
+}
+
+async fn start_container_node(
+    device_name: &str,
+    node_name: &str,
+    state: &AppState,
+) -> NodeActionResult {
+    match container::unpause_container(&state.docker, device_name).await {
+        Ok(()) => NodeActionResult {
+            name: node_name.to_string(),
+            success: true,
+            message: "Unpaused".to_string(),
+        },
+        Err(e) => NodeActionResult {
+            name: node_name.to_string(),
+            success: false,
+            message: format!("Failed to unpause: {:#}", e),
         },
     }
 }
