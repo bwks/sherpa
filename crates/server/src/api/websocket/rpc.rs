@@ -9,7 +9,7 @@ use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, import, inspect, progress, resume, up,
+    clean, container_pull, delete, destroy, down, import, inspect, progress, redeploy, resume, up,
 };
 use shared::data;
 use shared::error::RpcErrorCode;
@@ -17,21 +17,23 @@ use shared::konst::{
     RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
     RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
     RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
-    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
-    RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED, RPC_MSG_IMAGE_DELETE_FAILED,
-    RPC_MSG_IMAGE_IMPORT_FAILED, RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED,
-    RPC_MSG_IMAGE_SET_DEFAULT_FAILED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
-    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DELETE, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
+    RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
+    RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
+    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED,
+    RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
+    RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
+    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL,
+    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
+    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
+    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
     RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMPORT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED,
-    RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED,
-    RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
+    RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
     RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
@@ -62,6 +64,7 @@ pub async fn handle_rpc_request(
         "image.list" => handle_image_list(id, params, state).await,
         "image.scan" => handle_image_scan(id, params, state).await,
         "image.pull" => handle_image_pull(id, params, state).await,
+        // Note: "image.download" is handled separately via handle_streaming_rpc_request
         "user.create" => handle_user_create(id, params, state).await,
         "user.list" => handle_user_list(id, params, state).await,
         "user.delete" => handle_user_delete(id, params, state).await,
@@ -95,6 +98,8 @@ pub async fn handle_streaming_rpc_request(
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
+        "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
+        "image.download" => handle_image_download_streaming(id, params, state, connection).await,
         _ => {
             // Unknown streaming method
             let response = ServerMessage::RpcResponse {
@@ -231,9 +236,9 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
     }
 }
 
-/// Handle "down" RPC call — suspend all VMs for a lab
+/// Handle "down" RPC call — shutdown all (or a specific) node(s) for a lab
 ///
-/// Expected params: {"lab_id": "string", "token": "string"}
+/// Expected params: {"lab_id": "string", "token": "string", "node_name": "string" (optional)}
 async fn handle_down(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
@@ -267,6 +272,12 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
             };
         }
     };
+
+    // Parse optional node_name
+    let node_name = params
+        .get("node_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Check authorization: user must own the lab or be an admin
     match db::get_lab_owner_username(&state.db, &lab_id).await {
@@ -303,13 +314,14 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
     }
 
     // Call service
-    match down::suspend_lab_vms(&lab_id, state).await {
+    match down::shutdown_lab_nodes(&lab_id, node_name.as_deref(), state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
-                    "User '{}' suspended lab '{}' VMs",
+                    "User '{}' shut down lab '{}' nodes (node_name: {:?})",
                     auth_ctx.username,
-                    lab_id
+                    lab_id,
+                    node_name
                 );
                 ServerMessage::RpcResponse {
                     id,
@@ -342,9 +354,9 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
     }
 }
 
-/// Handle "resume" RPC call — resume all paused VMs for a lab
+/// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
 ///
-/// Expected params: {"lab_id": "string", "token": "string"}
+/// Expected params: {"lab_id": "string", "token": "string", "node_name": "string" (optional)}
 async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
@@ -378,6 +390,12 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
             };
         }
     };
+
+    // Parse optional node_name
+    let node_name = params
+        .get("node_name")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
 
     // Check authorization: user must own the lab or be an admin
     match db::get_lab_owner_username(&state.db, &lab_id).await {
@@ -414,10 +432,15 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
     }
 
     // Call service
-    match resume::resume_lab_vms(&lab_id, state).await {
+    match resume::start_lab_nodes(&lab_id, node_name.as_deref(), state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
-                tracing::info!("User '{}' resumed lab '{}' VMs", auth_ctx.username, lab_id);
+                tracing::info!(
+                    "User '{}' started lab '{}' nodes (node_name: {:?})",
+                    auth_ctx.username,
+                    lab_id,
+                    node_name
+                );
                 ServerMessage::RpcResponse {
                     id,
                     result: Some(result),
@@ -592,6 +615,195 @@ async fn handle_destroy_streaming(
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_DESTROY_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    };
+
+    // Send final response
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
+    }
+}
+
+/// Handle "redeploy" streaming RPC call
+///
+/// Expected params: {"lab_id": "string", "node_name": "string", "manifest": {...}, "token": "string"}
+async fn handle_redeploy_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    // Helper function to send error and return
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for redeploy: {}", e);
+            send_error(
+                id,
+                RpcErrorCode::AuthRequired,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Parse params
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    let node_name = match params.get("node_name").and_then(|v| v.as_str()) {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    let manifest = match params.get("manifest") {
+        Some(m) => m.clone(),
+        None => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Check authorization: user must own the lab or be an admin
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to redeploy node '{}' in lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    node_name,
+                    lab_id,
+                    owner_username
+                );
+                send_error(
+                    id,
+                    RpcErrorCode::AccessDenied,
+                    RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                    None,
+                )
+                .await;
+                return;
+            }
+        }
+        Err(e) => {
+            send_error(
+                id,
+                RpcErrorCode::NotFound,
+                format!("Lab not found: {}", lab_id),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    }
+
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    let request = data::RedeployRequest {
+        lab_id,
+        node_name: node_name.clone(),
+        manifest,
+        username: auth_ctx.username.clone(),
+    };
+
+    // Call service with progress sender
+    let result = redeploy::redeploy_node(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
+        Ok(redeploy_response) => match serde_json::to_value(&redeploy_response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' redeployed node '{}' successfully",
+                    auth_ctx.username,
+                    node_name
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_REDEPLOY_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }
@@ -1271,6 +1483,143 @@ async fn handle_image_pull(
                 }),
             }
         }
+    }
+}
+
+/// Handle "image.download" RPC call
+///
+/// Expected params: DownloadImageRequest {"model": "string", "version": "string", "url": "string?", "default": bool, "token": "string"}
+async fn handle_image_download_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    // Helper to send error and return
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for image.download: {}", e);
+            send_error(
+                id,
+                RpcErrorCode::AuthRequired,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Admin-only check
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted image download without admin privileges",
+            auth_ctx.username
+        );
+        send_error(
+            id,
+            RpcErrorCode::AccessDenied,
+            RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD.to_string(),
+            None,
+        )
+        .await;
+        return;
+    }
+
+    // Parse params into DownloadImageRequest
+    let request: data::DownloadImageRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    // Call download service with progress
+    let result = import::download_image(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress_tx is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "Admin '{}' downloaded image successfully (model={}, version={})",
+                    auth_ctx.username,
+                    response.model,
+                    response.version
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_IMAGE_DOWNLOAD_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    };
+
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
     }
 }
 

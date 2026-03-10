@@ -1,21 +1,26 @@
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
 
-use shared::data::{ClientConfig, LabVmActionResponse};
+use shared::data::{ClientConfig, LabNodeActionResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-/// Resume lab VMs via WebSocket RPC to sherpad server
+/// Start/poweron lab nodes via WebSocket RPC to sherpad server
 pub async fn resume(
     lab_name: &str,
     lab_id: &str,
+    node_name: Option<&str>,
     server_url: &str,
     config: &ClientConfig,
 ) -> Result<()> {
-    term_msg_surround(&format!("Resuming Environment - {lab_name}-{lab_id}"));
+    let action_msg = match node_name {
+        Some(name) => format!("Starting node {name} - {lab_name}-{lab_id}"),
+        None => format!("Starting environment - {lab_name}-{lab_id}"),
+    };
+    term_msg_surround(&action_msg);
 
     // Load authentication token
     let token = match load_token() {
@@ -44,16 +49,22 @@ pub async fn resume(
         .context("Failed to connect to sherpad server")?;
 
     // Create RPC request
-    let request = RpcRequest::new(
-        "resume",
-        serde_json::json!({
-            "lab_id": lab_id,
-            "token": token,
-        }),
-    );
+    let mut params = serde_json::json!({
+        "lab_id": lab_id,
+        "token": token,
+    });
+    if let Some(name) = node_name {
+        params["node_name"] = serde_json::Value::String(name.to_string());
+    }
+
+    let request = RpcRequest::new("resume", params);
 
     // Send request and wait for response
-    println!("Resuming lab VMs...");
+    let status_msg = match node_name {
+        Some(name) => format!("Starting node {}...", name),
+        None => "Starting lab nodes...".to_string(),
+    };
+    println!("{}", status_msg);
     let response = rpc_client.call(request).await.context("RPC call failed")?;
 
     // Close connection
@@ -81,19 +92,24 @@ pub async fn resume(
 
     let result = response.result.context("No result in response")?;
 
-    let action_response: LabVmActionResponse =
+    let action_response: LabNodeActionResponse =
         serde_json::from_value(result).context("Failed to parse resume response")?;
 
-    for vm_result in &action_response.results {
-        if vm_result.success {
+    for node_result in &action_response.results {
+        if node_result.success {
             println!(
                 "{} {}: {}",
                 Emoji::Success,
-                vm_result.name,
-                vm_result.message
+                node_result.name,
+                node_result.message
             );
         } else {
-            eprintln!("{} {}: {}", Emoji::Error, vm_result.name, vm_result.message);
+            eprintln!(
+                "{} {}: {}",
+                Emoji::Error,
+                node_result.name,
+                node_result.message
+            );
         }
     }
 

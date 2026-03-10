@@ -10,6 +10,7 @@ use super::init::init;
 use super::inspect::inspect;
 use super::login::{login, logout, whoami};
 use super::new::new;
+use super::redeploy::redeploy;
 use super::resume::resume;
 use super::server::{OutputFormat, ServerCommands, run_server};
 use super::ssh::ssh;
@@ -88,9 +89,26 @@ enum Commands {
     },
 
     /// Stop environment
-    Down,
+    Down {
+        /// Target a specific node (omit for all nodes)
+        #[arg(short, long)]
+        node: Option<String>,
+    },
     /// Resume environment
-    Resume,
+    Resume {
+        /// Target a specific node (omit for all nodes)
+        #[arg(short, long)]
+        node: Option<String>,
+    },
+    /// Redeploy a single node (destroy and recreate with fresh ZTP)
+    Redeploy {
+        /// Target node to redeploy
+        #[arg(short, long)]
+        node: String,
+        /// Path to manifest file (defaults to manifest.toml)
+        #[arg(long, default_value = SHERPA_MANIFEST_FILE)]
+        manifest: String,
+    },
     /// Destroy environment
     Destroy {
         /// Skip confirmation prompt
@@ -213,7 +231,7 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 up(&lab_name, &lab_id, manifest, &server_url, &config).await?;
             }
-            Commands::Down => {
+            Commands::Down { node } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
@@ -225,9 +243,9 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                down(&lab_name, &lab_id, &server_url, &config).await?;
+                down(&lab_name, &lab_id, node.as_deref(), &server_url, &config).await?;
             }
-            Commands::Resume => {
+            Commands::Resume { node } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest.name)?;
                 let lab_name = manifest.name.clone();
@@ -239,7 +257,21 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                resume(&lab_name, &lab_id, &server_url, &config).await?;
+                resume(&lab_name, &lab_id, node.as_deref(), &server_url, &config).await?;
+            }
+            Commands::Redeploy { node, manifest } => {
+                let manifest_obj = Manifest::load_file(manifest)?;
+                let lab_id = get_id(&manifest_obj.name)?;
+                let lab_name = manifest_obj.name.clone();
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                redeploy(&lab_name, &lab_id, node, manifest, &server_url, &config).await?;
             }
             Commands::Destroy { yes } => {
                 let manifest = Manifest::load_file(SHERPA_MANIFEST_FILE)?;

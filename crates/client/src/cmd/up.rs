@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 use std::fs;
+use std::path::Path;
 use std::time::Duration;
 
 #[cfg(unix)]
@@ -16,6 +17,13 @@ use shared::util::{
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
+
+/// Helper struct for deserializing log messages
+#[derive(Deserialize)]
+struct LogMessage {
+    r#type: String,
+    message: String,
+}
 
 /// Start lab  to sherpad server with streaming progress updates
 ///
@@ -48,12 +56,15 @@ pub async fn up(
     // Load and parse manifest
     println!("\nLoading manifest from: {}\n", manifest_path);
 
-    let manifest_str = fs::read_to_string(manifest_path)
-        .with_context(|| format!("Failed to read manifest file: {}", manifest_path))?;
+    let mut manifest = topology::Manifest::load_file(manifest_path)
+        .with_context(|| format!("Failed to parse manifest: {}", manifest_path))?;
 
-    // Parse TOML to JSON Value
-    let manifest_value: serde_json::Value = toml::from_str(&manifest_str)
-        .with_context(|| format!("Failed to parse manifest TOML: {}", manifest_path))?;
+    // Read per-node ztp_config file paths and base64 encode their contents
+    resolve_ztp_configs(&mut manifest, manifest_path)?;
+
+    // Serialize manifest to JSON for transmission
+    let manifest_value =
+        serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
 
     // Extended timeout for long-running up operation (15 minutes)
     let timeout = Duration::from_secs(900);
@@ -252,11 +263,50 @@ pub async fn up(
     Ok(())
 }
 
-/// Helper struct for deserializing log messages
-#[derive(Deserialize)]
-struct LogMessage {
-    r#type: String,
-    message: String,
+/// Resolve `ztp_config` file paths in manifest nodes.
+///
+/// For each node with a `ztp_config` field, the value is treated as a file path.
+/// The file is read, base64 encoded, and the value is replaced with the encoded contents.
+/// Relative paths are resolved from the manifest file's parent directory.
+pub(crate) fn resolve_ztp_configs(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+
+    for node in &mut manifest.nodes {
+        let ztp_path_str = match &node.ztp_config {
+            Some(s) => s.clone(),
+            None => continue,
+        };
+
+        let ztp_path = Path::new(&ztp_path_str);
+        let resolved_path = if ztp_path.is_absolute() {
+            ztp_path.to_path_buf()
+        } else {
+            manifest_dir.join(ztp_path)
+        };
+
+        let contents = fs::read_to_string(&resolved_path).with_context(|| {
+            format!(
+                "Failed to read ztp_config for node '{}': {}",
+                node.name,
+                resolved_path.display()
+            )
+        })?;
+
+        if contents.is_empty() {
+            bail!(
+                "ztp_config for node '{}' is empty: {}",
+                node.name,
+                resolved_path.display()
+            );
+        }
+
+        node.ztp_config = Some(shared::util::base64_encode(&contents));
+    }
+
+    Ok(())
 }
 
 /// Display lab creation results
@@ -300,4 +350,111 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::NodeModel;
+    use std::io::Write;
+    use tempfile::NamedTempFile;
+
+    fn test_manifest(nodes: Vec<topology::Node>) -> topology::Manifest {
+        topology::Manifest {
+            name: "test-lab".to_string(),
+            nodes,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_ztp_configs_base64_encodes_content() {
+        let mut config_file = NamedTempFile::new().expect("Failed to create temp file");
+        write!(config_file, "hostname dev01").expect("Failed to write");
+        let config_path = config_file.path().to_str().expect("path").to_string();
+
+        let mut manifest = test_manifest(vec![
+            topology::Node {
+                name: "dev01".to_string(),
+                model: NodeModel::CiscoCat8000v,
+                ztp_config: Some(config_path),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev02".to_string(),
+                model: NodeModel::CiscoIosv,
+                ..Default::default()
+            },
+        ]);
+
+        resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml").expect("resolve should succeed");
+
+        // dev01: ztp_config is now base64 encoded contents
+        let encoded = manifest.nodes[0]
+            .ztp_config
+            .as_ref()
+            .expect("should have value");
+        let decoded = shared::util::base64_decode(encoded).expect("should decode");
+        assert_eq!(decoded, "hostname dev01");
+
+        // dev02: unchanged, no ztp_config
+        assert!(manifest.nodes[1].ztp_config.is_none());
+    }
+
+    #[test]
+    fn test_resolve_ztp_configs_relative_path() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let config_path = dir.path().join("my_config.txt");
+        std::fs::write(&config_path, "interface eth0").expect("write config");
+
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "r01".to_string(),
+            model: NodeModel::AristaVeos,
+            ztp_config: Some("my_config.txt".to_string()),
+            ..Default::default()
+        }]);
+
+        resolve_ztp_configs(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect("resolve should succeed");
+
+        let encoded = manifest.nodes[0]
+            .ztp_config
+            .as_ref()
+            .expect("should have value");
+        let decoded = shared::util::base64_decode(encoded).expect("should decode");
+        assert_eq!(decoded, "interface eth0");
+    }
+
+    #[test]
+    fn test_resolve_ztp_configs_empty_file_error() {
+        let config_file = NamedTempFile::new().expect("Failed to create temp file");
+        let config_path = config_file.path().to_str().expect("path").to_string();
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::CiscoCat8000v,
+            ztp_config: Some(config_path),
+            ..Default::default()
+        }]);
+
+        let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.err().expect("should be error"));
+        assert!(err_msg.contains("empty"));
+    }
+
+    #[test]
+    fn test_resolve_ztp_configs_missing_file_error() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::CiscoCat8000v,
+            ztp_config: Some("/nonexistent/path/config.txt".to_string()),
+            ..Default::default()
+        }]);
+
+        let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
+        assert!(result.is_err());
+    }
 }

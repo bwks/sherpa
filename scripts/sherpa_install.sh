@@ -28,6 +28,7 @@ set -e  # Exit on error
 CONTAINER_NAME="sherpa-db"
 SURREALDB_VERSION="v3.0.0"
 SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"
+SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
 DB_PORT=8000
 DB_USER="sherpa"
 DB_NAMESPACE="sherpa"
@@ -502,6 +503,17 @@ pull_surrealdb_image() {
         print_success "Image pulled successfully"
     else
         print_error "Failed to pull SurrealDB image"
+        exit 1
+    fi
+}
+
+pull_sherpa_router_image() {
+    print_info "Pulling Sherpa Router image..."
+
+    if docker image pull "${SHERPA_ROUTER_IMAGE}"; then
+        print_success "Sherpa Router image pulled successfully"
+    else
+        print_error "Failed to pull Sherpa Router image"
         exit 1
     fi
 }
@@ -1035,6 +1047,7 @@ main() {
     setup_directories
     stop_existing_container
     pull_surrealdb_image
+    pull_sherpa_router_image
     start_container
     wait_for_database
     

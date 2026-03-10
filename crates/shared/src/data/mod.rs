@@ -53,6 +53,7 @@ mod mapping;
 mod network;
 mod node;
 mod provider;
+mod redeploy;
 mod ssh;
 mod up;
 mod user;
@@ -74,9 +75,9 @@ pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
 pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,
-    ImageSummary, ImportRequest, ImportResponse, ListImagesRequest, ListImagesResponse,
-    ScanImagesRequest, ScanImagesResponse, ScannedImage, SetDefaultImageRequest,
-    SetDefaultImageResponse,
+    DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
+    ListImagesResponse, ScanImagesRequest, ScanImagesResponse, ScannedImage,
+    SetDefaultImageRequest, SetDefaultImageResponse,
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{
@@ -98,6 +99,7 @@ pub use node::{
     NodeState, OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;
+pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
     NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse, UpSummary,
@@ -108,7 +110,7 @@ pub use user_management::{
     DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
     ListUsersRequest, ListUsersResponse, UserInfo,
 };
-pub use vm_action::{LabVmActionResponse, VmActionResult};
+pub use vm_action::{LabNodeActionResponse, NodeActionResult};
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience

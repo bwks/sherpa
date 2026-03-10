@@ -34,6 +34,7 @@ pub struct DbNode {
     pub index: u16,
     pub lab: RecordId,
     pub mgmt_ipv4: Option<String>,
+    pub mgmt_mac: Option<String>,
     pub state: NodeState,
 }
 

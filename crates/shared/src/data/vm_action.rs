@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 
-/// Result of a single VM action (suspend, resume, etc.)
+/// Result of a single node action (shutdown, start, etc.)
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VmActionResult {
+pub struct NodeActionResult {
     pub name: String,
     pub success: bool,
     pub message: String,
 }
 
-/// Response for lab-wide VM actions (down/resume)
+/// Response for lab-wide node actions (down/resume)
 #[derive(Debug, Serialize, Deserialize)]
-pub struct LabVmActionResponse {
-    pub results: Vec<VmActionResult>,
+pub struct LabNodeActionResponse {
+    pub results: Vec<NodeActionResult>,
 }

@@ -106,6 +106,38 @@ pub async fn update_node_mgmt_ipv4(
     updated.ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
 }
 
+/// Update a node's management MAC address.
+///
+/// Fetches the existing node, sets the `mgmt_mac` field, and writes it back.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `node_id` - RecordId of the node to update
+/// * `mgmt_mac` - The management MAC address to set
+///
+/// # Returns
+/// The updated DbNode record
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+pub async fn update_node_mgmt_mac(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    mgmt_mac: &str,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.mgmt_mac = Some(mgmt_mac.to_string());
+
+    let updated: Option<DbNode> = db
+        .update(node_id.clone())
+        .content(node.clone())
+        .await
+        .context(format!("Failed to update mgmt_mac for node: {}", node.name))?;
+
+    updated.ok_or_else(|| anyhow!("Node mgmt_mac update failed: {}", node.name))
+}
+
 /// Update a node's runtime state.
 ///
 /// Fetches the existing node, sets the `state` field, and writes it back.

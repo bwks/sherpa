@@ -953,7 +953,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1140,7 +1140,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2671,7 +2671,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "shared",
@@ -2956,7 +2956,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "futures",
@@ -4042,10 +4042,12 @@ dependencies = [
  "system-configuration",
  "tokio",
  "tokio-native-tls",
+ "tokio-util",
  "tower-service",
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
+ "wasm-streams 0.4.2",
  "web-sys",
  "winreg",
 ]
@@ -4087,7 +4089,7 @@ dependencies = [
  "url",
  "wasm-bindgen",
  "wasm-bindgen-futures",
- "wasm-streams",
+ "wasm-streams 0.5.0",
  "web-sys",
 ]
 
@@ -4824,7 +4826,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4876,7 +4878,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "askama",
@@ -4913,7 +4915,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "askama",
@@ -5532,7 +5534,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "askama",
@@ -5918,7 +5920,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "petname",
@@ -6217,7 +6219,7 @@ dependencies = [
 
 [[package]]
 name = "validate"
-version = "0.3.19"
+version = "0.3.20"
 dependencies = [
  "anyhow",
  "shared",
@@ -6392,6 +6394,19 @@ dependencies = [
  "indexmap 2.13.0",
  "wasm-encoder",
  "wasmparser",
+]
+
+[[package]]
+name = "wasm-streams"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15053d8d85c7eccdbefef60f06769760a563c7f0a9d6902a13d35c7800b0ad65"
+dependencies = [
+ "futures-util",
+ "js-sys",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

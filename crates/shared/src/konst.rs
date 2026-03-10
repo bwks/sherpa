@@ -315,6 +315,21 @@ pub const RPC_MSG_ADMIN_ONLY_CONTAINER_PULL: &str =
 pub const RPC_MSG_INVALID_PARAMS_CONTAINER_PULL: &str =
     "Invalid params: expected ContainerPullRequest";
 
+// VM image download operations
+pub const RPC_MSG_IMAGE_DOWNLOAD_FAILED: &str = "Image download operation failed";
+pub const RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD: &str =
+    "Access denied: only administrators can download images";
+pub const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str =
+    "Invalid params: expected DownloadImageRequest";
+
+// Node name params
+pub const RPC_MSG_INVALID_PARAMS_NODE_NAME: &str = "Invalid 'node_name' parameter";
+
+// Redeploy operations
+pub const RPC_MSG_REDEPLOY_FAILED: &str = "Redeploy operation failed";
+pub const RPC_MSG_INVALID_PARAMS_REDEPLOY: &str =
+    "Invalid params: expected lab_id, node_name, manifest, and token";
+
 // Invalid params messages
 pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
 pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";

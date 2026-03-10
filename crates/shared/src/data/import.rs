@@ -166,3 +166,17 @@ pub struct ContainerPullResponse {
     /// Human-readable status message
     pub message: String,
 }
+
+/// Request type for downloading a VM image from a URL
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DownloadImageRequest {
+    /// The node model to download the image for
+    pub model: NodeModel,
+    /// Version string for the image
+    pub version: String,
+    /// Optional download URL (auto-resolved for some models)
+    pub url: Option<String>,
+    /// Whether to set this image as the default version
+    #[serde(default)]
+    pub default: bool,
+}

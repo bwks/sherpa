@@ -13,6 +13,9 @@ use shared::util::load_file as load_file_util;
 #[derive(Debug, Deserialize, Serialize, Default)]
 pub struct Manifest {
     pub name: String,
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ready_timeout: Option<u64>,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
     pub bridges: Option<Vec<Bridge>>,
@@ -114,65 +117,79 @@ impl Manifest {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::data::DeviceModels;
-//     use std::fs;
-//     use tempfile::tempdir;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-//     #[test]
-//     fn test_write_file() -> Result<()> {
-//         // Create temp directory
-//         let temp_dir = tempdir()?;
-//         let test_file = temp_dir.path().join("manifest.toml");
+    #[test]
+    fn test_manifest_deserialize_ready_timeout() {
+        let toml_str = r#"
+name = "my-lab"
+ready_timeout = 300
 
-//         // Set environment variable for test
-//         std::env::set_var("SHERPA_MANIFEST_FILE", test_file.to_str().unwrap());
+nodes = [
+  { name = "dev01", model = "cisco_iosv" },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        assert_eq!(manifest.name, "my-lab");
+        assert_eq!(manifest.ready_timeout, Some(300));
+        assert_eq!(manifest.nodes.len(), 1);
+        assert_eq!(manifest.nodes[0].skip_ready_check, None);
+    }
 
-//         // Create test manifest
-//         let manifest = Manifest {
-//             name: "blah".to_string(),
-//             devices: vec![
-//                 Device {
-//                     name: "dev01".to_string(),
-//                     model: DeviceModels::CiscoCat8000v,
-//                     ..Default::default()
-//                 },
-//                 Device {
-//                     name: "dev02".to_string(),
-//                     model: DeviceModels::AristaVeos,
-//                     ..Default::default()
-//                 },
-//             ],
-//             links: Some(vec![Link {
-//                 dev_a: "dev01".to_string(),
-//                 int_a: 2,
-//                 dev_b: "dev02".to_string(),
-//                 int_b: 1,
-//             }]),
-//             ..Default::default()
-//         };
+    #[test]
+    fn test_manifest_deserialize_skip_ready_check() {
+        let toml_str = r#"
+name = "my-lab"
 
-//         // Write manifest
-//         manifest.write_file(test_file.to_str().unwrap())?;
+nodes = [
+  { name = "dev01", model = "cisco_iosv" },
+  { name = "dev02", model = "cisco_cat8000v", skip_ready_check = true },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        assert_eq!(manifest.ready_timeout, None);
+        assert_eq!(manifest.nodes.len(), 2);
+        assert_eq!(manifest.nodes[0].skip_ready_check, None);
+        assert_eq!(manifest.nodes[1].skip_ready_check, Some(true));
+    }
 
-//         // Read and verify contents
-//         let contents = fs::read_to_string(test_file)?;
-//         let expected = r#"name = "blah"
+    #[test]
+    fn test_manifest_deserialize_ztp_config() {
+        let toml_str = r#"
+name = "my-lab"
 
-// devices = [
-//   { name = "dev01", model = "cisco_cat8000v" },
-//   { name = "dev02", model = "arista_veos" },
-// ]
+nodes = [
+  { name = "dev01", model = "cisco_cat8000v", ztp_config = "configs/dev01.txt" },
+  { name = "dev02", model = "cisco_iosv" },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        assert_eq!(manifest.nodes.len(), 2);
+        assert_eq!(
+            manifest.nodes[0].ztp_config,
+            Some("configs/dev01.txt".to_string())
+        );
+        assert_eq!(manifest.nodes[1].ztp_config, None);
+    }
 
-// links = [
-//   { dev_a = "dev01", int_a = 2, dev_b = "dev02", int_b = 1 },
-// ]
+    #[test]
+    fn test_manifest_deserialize_all_ready_check_fields() {
+        let toml_str = r#"
+name = "my-lab"
+ready_timeout = 120
 
-// "#;
-
-//         assert_eq!(contents, expected);
-//         Ok(())
-//     }
-// }
+nodes = [
+  { name = "dev01", model = "cisco_iosv" },
+  { name = "dev02", model = "cisco_cat8000v", skip_ready_check = true },
+  { name = "dev03", model = "ubuntu_linux", skip_ready_check = false },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml_str).expect("Failed to parse manifest");
+        assert_eq!(manifest.ready_timeout, Some(120));
+        assert_eq!(manifest.nodes[0].skip_ready_check, None);
+        assert_eq!(manifest.nodes[1].skip_ready_check, Some(true));
+        assert_eq!(manifest.nodes[2].skip_ready_check, Some(false));
+    }
+}

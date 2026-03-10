@@ -25,7 +25,7 @@ pub use config::{
 pub use dhcp::get_dhcp_leases;
 pub use dns::default_dns;
 pub use emoji::{Emoji, emoji_error, emoji_success, emoji_warning};
-pub use encode::{base64_encode, base64_encode_file};
+pub use encode::{base64_decode, base64_encode, base64_encode_file};
 pub use env::{get_server_url, read_env_file_value};
 pub use file_system::{
     check_file_size, copy_file, create_dir, create_file, delete_dirs, dir_exists, expand_path,
