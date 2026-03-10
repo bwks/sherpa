@@ -11,6 +11,7 @@
 //! - `image`: Foreign key reference to node_image record
 //! - `lab`: Foreign key reference to owning lab
 //! - `mgmt_ipv4`: Management IPv4 address (optional, set during lab setup)
+//! - `mgmt_mac`: Management MAC address (optional, set during lab setup)
 //!
 //! ## Constraints
 //! - Node name must be unique per lab
@@ -56,6 +57,7 @@ use super::helpers::vec_to_str;
 ///   - `image`: record reference to node_image table
 ///   - `lab`: record reference to lab table
 ///   - `mgmt_ipv4`: optional string (management IPv4 address)
+///   - `mgmt_mac`: optional string (management MAC address)
 /// - **Indexes**:
 ///   - `unique_node_name_per_lab`: Ensures node names are unique within each lab
 ///   - `unique_node_index_per_lab`: Ensures node indexes are unique within each lab
@@ -85,6 +87,7 @@ DEFINE FIELD index ON TABLE node TYPE number
 DEFINE FIELD image ON TABLE node TYPE record<node_image> REFERENCE ON DELETE REJECT;
 DEFINE FIELD lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
 DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
+DEFINE FIELD mgmt_mac ON TABLE node TYPE option<string>;
 DEFINE FIELD state ON TABLE node TYPE string
     ASSERT $value IN [{node_states}]
     DEFAULT "unknown";

@@ -410,6 +410,7 @@ pub async fn redeploy_node(
                 &sherpa_user,
                 &dns,
                 &progress,
+                db_node.mgmt_mac.as_deref(),
             )?;
 
             let _ = progress.send_status(

@@ -67,6 +67,7 @@ pub async fn create_node(
             index,
             lab: lab_id.clone(),
             mgmt_ipv4: None,
+            mgmt_mac: None,
             state: NodeState::Unknown,
         })
         .await

@@ -306,13 +306,16 @@ pub fn generate_vm_ztp(
     sherpa_user: &data::User,
     dns: &data::Dns,
     progress: &ProgressSender,
+    mgmt_mac: Option<&str>,
 ) -> Result<VmZtpResult> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let hdd_bus = node_image.hdd_bus.clone();
     let cdrom_bus = node_image.cdrom_bus.clone();
 
-    // Generate MAC address for management interface
-    let mac_address = util::random_mac(KVM_OUI);
+    // Reuse existing MAC address if provided, otherwise generate a new one
+    let mac_address = mgmt_mac
+        .map(|m| m.to_string())
+        .unwrap_or_else(|| util::random_mac(KVM_OUI));
 
     let mut clone_disks: Vec<data::CloneDisk> = vec![];
     let mut disks: Vec<data::NodeDisk> = vec![];

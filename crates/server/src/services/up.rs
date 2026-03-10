@@ -1142,7 +1142,14 @@ pub async fn up_lab(
                 &sherpa_user,
                 &dns,
                 &progress,
+                None,
             )?;
+
+            // Persist management MAC to the database
+            if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
+                let record_id = db::get_node_id(&node_data.record)?;
+                db::update_node_mgmt_mac(&db, record_id, &ztp_result.mac_address).await?;
+            }
 
             ztp_records.push(ztp_result.ztp_record);
             clone_disks.extend(ztp_result.clone_disks);
