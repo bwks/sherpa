@@ -1,0 +1,31 @@
+!
+! Sherpa IOL Default Configuration
+!
+hostname <hostname>
+!
+no ip domain lookup
+ip domain name lab.local
+!
+aaa new-model
+aaa authentication login default local
+aaa authorization exec default local
+!
+username admin privilege 15 secret admin
+!
+crypto key generate rsa modulus 2048
+!
+interface Ethernet0/0
+ mac-address <eth0_mac>
+ ip address dhcp
+ no shutdown
+!
+<interfaces>
+!
+ip ssh version 2
+!
+line con 0
+ logging synchronous
+line vty 0 4
+ transport input ssh
+!
+end
