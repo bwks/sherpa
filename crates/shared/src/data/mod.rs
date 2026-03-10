@@ -53,6 +53,7 @@ mod mapping;
 mod network;
 mod node;
 mod provider;
+mod redeploy;
 mod ssh;
 mod up;
 mod user;
@@ -98,6 +99,7 @@ pub use node::{
     NodeState, OsVariant, ZtpMethod,
 };
 pub use provider::VmProviders;
+pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
     NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse, UpSummary,

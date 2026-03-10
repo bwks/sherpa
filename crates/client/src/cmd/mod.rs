@@ -9,6 +9,7 @@ mod inspect;
 mod login;
 mod manifest_processing;
 mod new;
+mod redeploy;
 mod resume;
 pub mod server;
 mod ssh;

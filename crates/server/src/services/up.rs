@@ -11,38 +11,26 @@ use serde_json;
 
 use crate::daemon::state::AppState;
 use crate::services::clean;
+use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 
 use shared::data;
 use shared::data::{NodeState, StatusKind};
 use shared::konst::{
-    ARISTA_ABOOT_DIR, ARISTA_CEOS_ZTP_VOLUME_MOUNT, BRIDGE_PREFIX, CISCO_ASAV_ZTP_CONFIG,
-    CISCO_FTDV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG,
-    CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG,
-    CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS,
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_DISK_NAME, CONTAINER_DNSMASQ_NAME,
-    CONTAINER_DNSMASQ_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
-    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE,
-    JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_CONFIG_FILE_PATH, SHERPA_DB_NAME,
-    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_DOMAIN_NAME,
-    SHERPA_ENV_FILE_PATH, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME,
-    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    BRIDGE_PREFIX, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE,
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
-// use topology::{self, BridgeDetailed};
 
 // ============================================================================
 // ============================================================================
-// Helper Functions (ported from client)
+// Helper Functions
 // ============================================================================
+// node_isolated_network_data, node_reserved_network_data, ztp_config_filename,
+// take_custom_ztp_config, get_node_data — imported from node_ops module
 
 fn find_interface_link(
     node_name: &str,
@@ -138,78 +126,6 @@ fn process_manifest_bridges(
         });
     }
     Ok(bridges_detailed)
-}
-
-fn node_isolated_network_data(
-    node_name: &str,
-    node_index: u16,
-    lab_id: &str,
-) -> data::LabIsolatedNetwork {
-    data::LabIsolatedNetwork {
-        network_name: format!("{}-{}-{}", SHERPA_ISOLATED_NETWORK_NAME, node_name, lab_id),
-        bridge_name: format!(
-            "{}{}-{}",
-            SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, node_index, lab_id
-        ),
-    }
-}
-
-fn node_reserved_network_data(
-    node_name: &str,
-    node_index: u16,
-    lab_id: &str,
-) -> data::LabReservedNetwork {
-    data::LabReservedNetwork {
-        network_name: format!("{}-{}-{}", SHERPA_RESERVED_NETWORK_NAME, node_name, lab_id),
-        bridge_name: format!(
-            "{}{}-{}",
-            SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, node_index, lab_id
-        ),
-    }
-}
-
-/// Map a node model to its ZTP config filename for CDROM-based ZTP.
-fn ztp_config_filename(model: &data::NodeModel) -> Result<String> {
-    let name = match model {
-        data::NodeModel::CiscoCsr1000v
-        | data::NodeModel::CiscoCat8000v
-        | data::NodeModel::CiscoCat9000v => CISCO_IOSXE_ZTP_CONFIG.replace("-", "_"),
-        data::NodeModel::CiscoAsav => CISCO_ASAV_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoNexus9300v => CISCO_NXOS_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoIosxrv9000 => CISCO_IOSXR_ZTP_CONFIG.to_string(),
-        data::NodeModel::CiscoFtdv => CISCO_FTDV_ZTP_CONFIG.to_string(),
-        data::NodeModel::JuniperVsrxv3
-        | data::NodeModel::JuniperVrouter
-        | data::NodeModel::JuniperVswitch => JUNIPER_ZTP_CONFIG.to_string(),
-        _ => bail!("No ZTP config filename mapping for model: {}", model),
-    };
-    Ok(name)
-}
-
-/// If the node has a custom ZTP config, log and send a progress message, then return the content.
-fn take_custom_ztp_config(
-    node: &mut topology::NodeExpanded,
-    progress: &ProgressSender,
-) -> Result<Option<String>> {
-    match node.ztp_config.take() {
-        Some(config) => {
-            tracing::info!(node_name = %node.name, "Using custom ZTP config for node");
-            let _ = progress.send_status(
-                format!("Using custom ZTP config for node: {}", node.name),
-                StatusKind::Info,
-            );
-            Ok(Some(config))
-        }
-        None => Ok(None),
-    }
-}
-
-fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<data::NodeSetupData> {
-    Ok(data
-        .iter()
-        .find(|x| x.name == node_name)
-        .ok_or_else(|| anyhow!("Node setup data not found for node: {}", node_name))?
-        .clone())
 }
 
 /// Process manifest nodes into expanded format with indices assigned
@@ -374,25 +290,7 @@ pub async fn up_lab(
     tracing::info!(lab_id = %lab_id, "Connected to libvirt/QEMU");
 
     // Connect to database
-    let db_password = std::env::var("SHERPA_DB_PASSWORD").context(format!(
-        "SHERPA_DB_PASSWORD environment variable is not set (check {})",
-        SHERPA_ENV_FILE_PATH
-    ))?;
-
-    let db_port = std::env::var("SHERPA_DB_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(SHERPA_DB_PORT);
-
-    let db = db::connect(
-        SHERPA_DB_SERVER,
-        db_port,
-        SHERPA_DB_NAMESPACE,
-        SHERPA_DB_NAME,
-        &db_password,
-    )
-    .await
-    .context("Failed to connect to database")?;
+    let db = node_ops::connect_db().await?;
     tracing::info!(lab_id = %lab_id, "Connected to SurrealDB database");
 
     tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, user = %current_user, "Lab environment prepared");
@@ -677,7 +575,9 @@ pub async fn up_lab(
                 data::NodeKind::VirtualMachine | data::NodeKind::Container
             ) && has_disabled_interfaces
             {
-                Some(node_isolated_network_data(&node.name, node.index, lab_id))
+                Some(node_ops::node_isolated_network_data(
+                    &node.name, node.index, lab_id,
+                ))
             } else {
                 None
             };
@@ -685,7 +585,9 @@ pub async fn up_lab(
             let node_reserved_network = if matches!(node_image.kind, data::NodeKind::VirtualMachine)
                 && node_image.reserved_interface_count > 0
             {
-                Some(node_reserved_network_data(&node.name, node.index, lab_id))
+                Some(node_ops::node_reserved_network_data(
+                    &node.name, node.index, lab_id,
+                ))
             } else {
                 None
             };
@@ -1169,23 +1071,11 @@ pub async fn up_lab(
                 node.ztp_config = Some(decoded);
             }
 
-            let node_data = get_node_data(&node.name, &node_setup_data)?;
+            let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
             let node_ip_idx = 10 + node_idx as u32;
 
-            let _ = progress.send_status(
-                format!("Creating container config: {}", node.name),
-                StatusKind::Progress,
-            );
-
-            tracing::info!(
-                lab_id = %lab_id,
-                node_name = %node.name,
-                node_model = ?node.model,
-                "Generating container configuration"
-            );
-
-            let dir = format!("{}/{}", lab_dir, node.name);
+            let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
             node.ipv4_address = Some(node_ipv4_address);
 
@@ -1195,106 +1085,18 @@ pub async fn up_lab(
                 db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
             }
 
-            let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+            let ztp_result = node_ops::generate_container_ztp(
+                node,
+                &node_image,
+                &lab_dir,
+                &sherpa_user,
+                &dns,
+                &mgmt_net,
+                node_ipv4_address,
+                &progress,
+            )?;
 
-            // Add to ZTP records for SSH config and DNS resolution
-            ztp_records.push(data::ZtpRecord {
-                node_name: node.name.clone(),
-                config_file: format!("{}.conf", &node.name),
-                ipv4_address: node_ipv4_address,
-                mac_address: String::new(),
-                ztp_method: node_image.ztp_method.clone(),
-                ssh_port: SSH_PORT,
-            });
-
-            let custom_ztp = take_custom_ztp_config(node, &progress)?;
-
-            match node.model {
-                data::NodeModel::AristaCeos => {
-                    let rendered_template = match &custom_ztp {
-                        Some(config) => config.clone(),
-                        None => {
-                            let arista_template = template::AristaCeosZtpTemplate {
-                                hostname: node.name.clone(),
-                                user: sherpa_user.clone(),
-                                dns: dns.clone(),
-                                mgmt_ipv4_address: node.ipv4_address,
-                                mgmt_ipv4: mgmt_net.v4.clone(),
-                            };
-                            arista_template.render()?
-                        }
-                    };
-                    let ztp_config = format!("{dir}/{}.conf", node.name);
-                    let ztp_volume = topology::VolumeMount {
-                        src: ztp_config.clone(),
-                        dst: ARISTA_CEOS_ZTP_VOLUME_MOUNT.to_string(),
-                    };
-                    util::create_dir(&dir)?;
-                    util::create_file(&ztp_config, rendered_template)?;
-
-                    node.image = Some(CONTAINER_ARISTA_CEOS_REPO.to_string());
-                    node.privileged = Some(true);
-                    node.environment_variables = Some(
-                        CONTAINER_ARISTA_CEOS_ENV_VARS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                    node.volumes = Some(vec![ztp_volume]);
-                    node.commands = Some(
-                        CONTAINER_ARISTA_CEOS_COMMANDS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                }
-                data::NodeModel::NokiaSrlinux => {
-                    let srlinux_config = match &custom_ztp {
-                        Some(config) => config.clone(),
-                        None => template::build_srlinux_config(
-                            &node.name,
-                            &sherpa_user,
-                            &dns,
-                            &mgmt_net.v4,
-                            node.ipv4_address,
-                        )?,
-                    };
-                    let ztp_config = format!("{dir}/{}.json", node.name);
-                    let ztp_volume = topology::VolumeMount {
-                        src: ztp_config.clone(),
-                        dst: NOKIA_SRLINUX_ZTP_VOLUME_MOUNT.to_string(),
-                    };
-                    util::create_dir(&dir)?;
-                    util::create_file(&ztp_config, srlinux_config)?;
-
-                    node.image = Some(CONTAINER_NOKIA_SRLINUX_REPO.to_string());
-                    node.privileged = Some(true);
-                    node.user = Some(CONTAINER_NOKIA_SRLINUX_USER.to_string());
-                    node.environment_variables = Some(
-                        CONTAINER_NOKIA_SRLINUX_ENV_VARS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                    node.volumes = Some(vec![ztp_volume]);
-                    node.commands = Some(
-                        CONTAINER_NOKIA_SRLINUX_COMMANDS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                }
-                data::NodeModel::SurrealDb => {
-                    node.image = Some(CONTAINER_SURREAL_DB_REPO.to_string());
-                    node.commands = Some(
-                        CONTAINER_SURREAL_DB_COMMANDS
-                            .iter()
-                            .map(|s| s.to_string())
-                            .collect(),
-                    );
-                }
-                _ => {}
-            }
+            ztp_records.push(ztp_result.ztp_record);
         }
 
         // VM nodes ZTP generation, disk setup, and domain template building
@@ -1313,18 +1115,11 @@ pub async fn up_lab(
                 node.ztp_config = Some(decoded);
             }
 
-            let node_data = get_node_data(&node.name, &node_setup_data)?;
+            let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
             let node_ip_idx = 10 + node_idx as u32;
-            let node_name_with_lab = format!("{}-{}", node.name, lab_id);
 
             let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
-            let mut disks: Vec<data::NodeDisk> = vec![];
-            let hdd_bus = node_image.hdd_bus.clone();
-            let cdrom_bus = node_image.cdrom_bus.clone();
-
-            // Generate MAC address for management interface
-            let mac_address = util::random_mac(KVM_OUI);
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
             node.ipv4_address = Some(node_ipv4_address);
 
@@ -1334,1036 +1129,23 @@ pub async fn up_lab(
                 db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
             }
 
-            // Add to ZTP records
-            ztp_records.push(data::ZtpRecord {
-                node_name: node.name.clone(),
-                config_file: format!("{}.conf", &node.name),
-                ipv4_address: node_ipv4_address,
-                mac_address: mac_address.to_string(),
-                ztp_method: node_image.ztp_method.clone(),
-                ssh_port: SSH_PORT,
-            });
-
-            // Build VM boot disk clone info
-            let src_boot_disk = format!(
-                "{}/{}/{}/virtioa.qcow2",
-                config.images_dir, node_image.model, node_image.version
-            );
-            let dst_boot_disk =
-                format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-hdd.qcow2");
-
-            clone_disks.push(data::CloneDisk {
-                src: src_boot_disk.clone(),
-                dst: dst_boot_disk.clone(),
-                disk_size: node.boot_disk_size,
-            });
-
-            // Handle CDROM ISO (e.g., aboot.iso for Arista vEOS)
-            let (mut src_cdrom_iso, mut dst_cdrom_iso) = match &node_image.cdrom {
-                Some(src_iso) => {
-                    let src = format!(
-                        "{}/{}/{}/{}",
-                        config.images_dir, node_image.model, ARISTA_ABOOT_DIR, src_iso
-                    );
-                    let dst = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso");
-                    (Some(src), Some(dst))
-                }
-                None => (None, None),
-            };
-
-            // Handle config disk for Disk ZTP method (e.g., IOSv config disk)
-            let (mut src_config_disk, mut dst_config_disk): (Option<String>, Option<String>) =
-                (None, None);
-
-            // Handle USB disk for USB ZTP method (e.g., Cumulus Linux, Juniper vEvolved)
-            let (mut src_usb_disk, mut dst_usb_disk): (Option<String>, Option<String>) =
-                (None, None);
-
-            // Handle ignition config for Ignition ZTP method (e.g., Flatcar Linux)
-            let (mut src_ignition_disk, mut dst_ignition_disk): (Option<String>, Option<String>) =
-                (None, None);
-
-            if node_image.ztp_enable {
-                // Validate that custom ZTP config is not used with unsupported methods
-                if node.ztp_config.is_some() {
-                    match node_image.ztp_method {
-                        data::ZtpMethod::CloudInit
-                        | data::ZtpMethod::Ignition
-                        | data::ZtpMethod::Http
-                        | data::ZtpMethod::None => {
-                            bail!(
-                                "Custom ZTP config is not supported for node '{}' with ZTP method '{:?}'. \
-                                 Only Tftp, Cdrom, Disk, Usb, and Volume methods support custom ZTP config files.",
-                                node.name,
-                                node_image.ztp_method
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-
-                let custom_ztp = take_custom_ztp_config(node, &progress)?;
-
-                tracing::info!(
-                    lab_id = %lab_id,
-                    node_name = %node.name,
-                    model = ?node.model,
-                    ztp_method = ?node_image.ztp_method,
-                    ipv4 = %node_ipv4_address,
-                    "Generating VM ZTP configuration"
-                );
-
-                match node_image.ztp_method {
-                    data::ZtpMethod::CloudInit => {
-                        let _ = progress.send_status(
-                            format!("Creating Cloud-Init config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let dir = format!("{lab_dir}/{}", node.name);
-                        let mut cloud_init_user = template::CloudInitUser::sherpa()?;
-
-                        match node.model {
-                            data::NodeModel::CentosLinux
-                            | data::NodeModel::AlmaLinux
-                            | data::NodeModel::RockyLinux
-                            | data::NodeModel::FedoraLinux
-                            | data::NodeModel::OpensuseLinux
-                            | data::NodeModel::RedhatLinux
-                            | data::NodeModel::SuseLinux
-                            | data::NodeModel::UbuntuLinux
-                            | data::NodeModel::FreeBsd
-                            | data::NodeModel::OpenBsd => {
-                                let (admin_group, shell) = match node_image.os_variant {
-                                    data::OsVariant::Bsd => {
-                                        ("wheel".to_string(), "/bin/sh".to_string())
-                                    }
-                                    _ => ("sudo".to_string(), "/bin/bash".to_string()),
-                                };
-                                cloud_init_user.groups = vec![admin_group];
-                                cloud_init_user.shell = shell;
-
-                                let cloud_init_config = template::CloudInitConfig {
-                                    hostname: node.name.clone(),
-                                    fqdn: format!("{}.{}", node.name.clone(), SHERPA_DOMAIN_NAME),
-                                    manage_etc_hosts: true,
-                                    ssh_pwauth: true,
-                                    users: vec![cloud_init_user],
-                                    ..Default::default()
-                                };
-                                let user_data_config = cloud_init_config.to_string()?;
-
-                                let meta_data_obj = template::MetaDataConfig {
-                                    instance_id: format!("iid-{}", node.name.clone()),
-                                    local_hostname: format!(
-                                        "{}.{}",
-                                        node.name.clone(),
-                                        SHERPA_DOMAIN_NAME
-                                    ),
-                                    ..Default::default()
-                                };
-                                let meta_data_config = meta_data_obj.to_string()?;
-
-                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
-                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                                let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
-
-                                util::create_dir(&dir)?;
-                                util::create_file(&user_data, user_data_config)?;
-                                util::create_file(&meta_data, meta_data_config)?;
-
-                                let ztp_interface = template::CloudInitNetwork::ztp_interface(
-                                    node_ipv4_address,
-                                    mac_address.clone(),
-                                    mgmt_net.v4.clone(),
-                                );
-                                let cloud_network_config = ztp_interface.to_string()?;
-                                util::create_file(&network_config, cloud_network_config)?;
-
-                                util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?;
-                            }
-
-                            data::NodeModel::WindowsServer => {
-                                let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
-
-                                let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
-                                let ssh_key_str = format!("{} {}", ssh_key.algorithm, ssh_key.key);
-
-                                let admin_keys_path =
-                                    r"C:\ProgramData\ssh\administrators_authorized_keys";
-
-                                let cloudbase_config = template::CloudbaseInitConfig {
-                                    set_hostname: node.name.clone(),
-                                    users: vec![cloudbase_user],
-                                    write_files: vec![template::CloudbaseWriteFile {
-                                        path: admin_keys_path.to_string(),
-                                        content: ssh_key_str.clone(),
-                                        permissions: "0644".to_string(),
-                                    }],
-                                    runcmd: vec![
-                                        format!(
-                                            "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
-                                            admin_keys_path
-                                        ),
-                                        "powershell -Command \"Restart-Service sshd\"".to_string(),
-                                    ],
-                                };
-                                let user_data_config = cloudbase_config.to_string()?;
-
-                                let meta_data_obj = template::MetaDataConfig {
-                                    instance_id: format!("iid-{}", node.name.clone()),
-                                    local_hostname: format!(
-                                        "{}.{}",
-                                        node.name.clone(),
-                                        SHERPA_DOMAIN_NAME
-                                    ),
-                                    public_keys: vec![ssh_key_str],
-                                };
-                                let meta_data_config = meta_data_obj.to_string()?;
-
-                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
-                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                                let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
-
-                                util::create_dir(&dir)?;
-                                util::create_file(&user_data, user_data_config)?;
-                                util::create_file(&meta_data, meta_data_config)?;
-
-                                let ztp_interface = template::CloudbaseInitNetwork::ztp_interface(
-                                    node_ipv4_address,
-                                    mac_address.clone(),
-                                    mgmt_net.v4.clone(),
-                                );
-                                let cloud_network_config = ztp_interface.to_string()?;
-                                util::create_file(&network_config, cloud_network_config)?;
-
-                                util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?;
-                            }
-
-                            data::NodeModel::AlpineLinux => {
-                                let meta_data = template::MetaDataConfig {
-                                    instance_id: format!("iid-{}", node.name.clone()),
-                                    local_hostname: format!(
-                                        "{}.{}",
-                                        node.name.clone(),
-                                        SHERPA_DOMAIN_NAME
-                                    ),
-                                    ..Default::default()
-                                };
-                                cloud_init_user.shell = "/bin/sh".to_string();
-                                cloud_init_user.groups = vec!["wheel".to_string()];
-                                let cloud_init_config = template::CloudInitConfig {
-                                    hostname: node.name.clone(),
-                                    fqdn: format!("{}.{}", node.name.clone(), SHERPA_DOMAIN_NAME),
-                                    manage_etc_hosts: true,
-                                    ssh_pwauth: true,
-                                    users: vec![cloud_init_user],
-                                    ..Default::default()
-                                };
-                                let meta_data_config = meta_data.to_string()?;
-                                let user_data_config = cloud_init_config.to_string()?;
-
-                                let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
-                                let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
-                                let network_config = format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}");
-
-                                util::create_dir(&dir)?;
-                                util::create_file(&user_data, user_data_config)?;
-                                util::create_file(&meta_data, meta_data_config)?;
-
-                                let ztp_interface = template::CloudInitNetwork::ztp_interface(
-                                    node_ipv4_address,
-                                    mac_address.clone(),
-                                    mgmt_net.v4.clone(),
-                                );
-                                let cloud_network_config = ztp_interface.to_string()?;
-                                util::create_file(&network_config, cloud_network_config)?;
-
-                                util::create_ztp_iso(&format!("{}/{}", dir, ZTP_ISO), dir)?;
-                            }
-                            _ => {
-                                bail!(
-                                    "Cloud-Init ZTP method not supported for {}",
-                                    node_image.model
-                                );
-                            }
-                        }
-                        src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
-                        dst_cdrom_iso = Some(format!(
-                            "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
-                        ));
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            iso_path = %format!("{lab_dir}/{}/{ZTP_ISO}", node.name),
-                            "Created CloudInit ISO"
-                        );
-                    }
-                    data::ZtpMethod::Tftp => {
-                        let _ = progress.send_status(
-                            format!("Creating TFTP ZTP config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        if let Some(ref custom_config) = custom_ztp {
-                            let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                            util::create_file(&ztp_config, custom_config.clone())?;
-                        } else {
-                            match node.model {
-                                data::NodeModel::AristaVeos => {
-                                    let arista_template = template::AristaVeosZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user: sherpa_user.clone(),
-                                        dns: dns.clone(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = arista_template.render()?;
-                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                }
-                                data::NodeModel::ArubaAoscx => {
-                                    let aruba_template = template::ArubaAoscxTemplate {
-                                        hostname: node.name.clone(),
-                                        user: sherpa_user.clone(),
-                                        dns: dns.clone(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = aruba_template.render()?;
-                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                }
-                                data::NodeModel::JuniperVevolved => {
-                                    let juniper_template = template::JunipervJunosZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user: sherpa_user.clone(),
-                                        mgmt_interface: node_image.management_interface.to_string(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let juniper_rendered_template = juniper_template.render()?;
-                                    let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
-                                    util::create_file(&ztp_config, juniper_rendered_template)?;
-                                }
-                                _ => {
-                                    bail!("TFTP ZTP method not supported for {}", node_image.model);
-                                }
-                            }
-                        }
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            config_path = %format!("{tftp_dir}/{}.conf", node.name),
-                            "Created TFTP ZTP configuration"
-                        );
-                    }
-                    data::ZtpMethod::Cdrom => {
-                        let _ = progress.send_status(
-                            format!("Creating CDROM ZTP config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let dir = format!("{lab_dir}/{}", node.name);
-
-                        if let Some(ref custom_config) = custom_ztp {
-                            let config_filename = ztp_config_filename(&node.model)?;
-                            let ztp_config = format!("{dir}/{config_filename}");
-                            util::create_dir(&dir)?;
-                            util::create_file(&ztp_config, custom_config.clone())?;
-                            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                        } else {
-                            let mut user = sherpa_user.clone();
-
-                            match node.model {
-                                data::NodeModel::CiscoCsr1000v
-                                | data::NodeModel::CiscoCat8000v
-                                | data::NodeModel::CiscoCat9000v => {
-                                    let license_boot_command =
-                                        if node.model == data::NodeModel::CiscoCat8000v {
-                                            Some(
-                                            "license boot level network-premier addon dna-premier"
-                                                .to_string(),
-                                        )
-                                        } else if node.model == data::NodeModel::CiscoCat9000v {
-                                            Some(
-                                        "license boot level network-advantage addon dna-advantage"
-                                            .to_string(),
-                                    )
-                                        } else {
-                                            None
-                                        };
-
-                                    let key_hash =
-                                        util::pub_ssh_key_to_md5_hash(&user.ssh_public_key.key)?;
-                                    user.ssh_public_key.key = key_hash;
-                                    let t = template::CiscoIosXeZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user,
-                                        mgmt_interface: node_image.management_interface.to_string(),
-                                        dns: dns.clone(),
-                                        license_boot_command,
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = t.render()?;
-                                    let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
-                                    let ztp_config = format!("{dir}/{c}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                data::NodeModel::CiscoAsav => {
-                                    let key_hash =
-                                        util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
-                                    user.ssh_public_key.key = key_hash;
-                                    let t = template::CiscoAsavZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user,
-                                        dns: dns.clone(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = t.render()?;
-                                    let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                data::NodeModel::CiscoNexus9300v => {
-                                    let t = template::CiscoNxosZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user,
-                                        dns: dns.clone(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = t.render()?;
-                                    let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                data::NodeModel::CiscoIosxrv9000 => {
-                                    let t = template::CiscoIosxrZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user,
-                                        dns: dns.clone(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = t.render()?;
-                                    let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                data::NodeModel::CiscoFtdv => {
-                                    let t = template::CiscoFtdvZtpTemplate {
-                                        eula: "accept".to_string(),
-                                        hostname: node.name.clone(),
-                                        admin_password: SHERPA_PASSWORD.to_string(),
-                                        dns1: Some(mgmt_net.v4.boot_server),
-                                        ipv4_mode: Some(template::CiscoFxosIpMode::Manual),
-                                        ipv4_addr: Some(node_ipv4_address),
-                                        ipv4_gw: Some(mgmt_net.v4.first),
-                                        ipv4_mask: Some(mgmt_net.v4.subnet_mask),
-                                        manage_locally: true,
-                                        ..Default::default()
-                                    };
-                                    let rendered_template = serde_json::to_string(&t)?;
-                                    let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                data::NodeModel::JuniperVsrxv3
-                                | data::NodeModel::JuniperVrouter
-                                | data::NodeModel::JuniperVswitch => {
-                                    let t = template::JunipervJunosZtpTemplate {
-                                        hostname: node.name.clone(),
-                                        user,
-                                        mgmt_interface: node_image.management_interface.to_string(),
-                                        mgmt_ipv4_address: Some(node_ipv4_address),
-                                        mgmt_ipv4: mgmt_net.v4.clone(),
-                                    };
-                                    let rendered_template = t.render()?;
-                                    let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                                    util::create_dir(&dir)?;
-                                    util::create_file(&ztp_config, rendered_template)?;
-                                    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
-                                }
-                                _ => {
-                                    bail!(
-                                        "CDROM ZTP method not supported for {}",
-                                        node_image.model
-                                    );
-                                }
-                            }
-                        }
-                        src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
-                        dst_cdrom_iso = Some(format!(
-                            "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
-                        ));
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            iso_path = %format!("{lab_dir}/{}/{ZTP_ISO}", node.name),
-                            "Created CDROM ZTP ISO"
-                        );
-                    }
-                    data::ZtpMethod::Disk => {
-                        let _ = progress.send_status(
-                            format!("Creating Disk ZTP config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let dir = format!("{lab_dir}/{}", node.name);
-                        let mut user = sherpa_user.clone();
-
-                        match node.model {
-                            data::NodeModel::CiscoIosv => {
-                                let rendered_template = match &custom_ztp {
-                                    Some(config) => config.clone(),
-                                    None => {
-                                        let key_hash = util::pub_ssh_key_to_md5_hash(
-                                            &user.ssh_public_key.key,
-                                        )?;
-                                        user.ssh_public_key.key = key_hash;
-                                        let t = template::CiscoIosvZtpTemplate {
-                                            hostname: node.name.clone(),
-                                            user,
-                                            mgmt_interface: node_image
-                                                .management_interface
-                                                .to_string(),
-                                            dns: dns.clone(),
-                                            mgmt_ipv4_address: Some(node_ipv4_address),
-                                            mgmt_ipv4: mgmt_net.v4.clone(),
-                                        };
-                                        t.render()?
-                                    }
-                                };
-                                let c = CISCO_IOSV_ZTP_CONFIG;
-                                let ztp_config = format!("{dir}/{c}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-
-                                // Clone blank disk image
-                                let src_disk = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir,
-                                    SHERPA_BLANK_DISK_DIR,
-                                    SHERPA_BLANK_DISK_IOSV
-                                );
-                                let dst_disk = format!("{dir}/{}-cfg.img", node.name);
-
-                                // Copy blank disk and inject config
-                                util::copy_file(&src_disk, &dst_disk)?;
-                                util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
-
-                                src_config_disk = Some(dst_disk.clone());
-                                dst_config_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
-                                ));
-                            }
-                            data::NodeModel::CiscoIosvl2 => {
-                                let rendered_template = match &custom_ztp {
-                                    Some(config) => config.clone(),
-                                    None => {
-                                        let key_hash = util::pub_ssh_key_to_md5_hash(
-                                            &user.ssh_public_key.key,
-                                        )?;
-                                        user.ssh_public_key.key = key_hash;
-                                        let t = template::CiscoIosvl2ZtpTemplate {
-                                            hostname: node.name.clone(),
-                                            user,
-                                            mgmt_interface: node_image
-                                                .management_interface
-                                                .to_string(),
-                                            dns: dns.clone(),
-                                            mgmt_ipv4_address: Some(node_ipv4_address),
-                                            mgmt_ipv4: mgmt_net.v4.clone(),
-                                        };
-                                        t.render()?
-                                    }
-                                };
-                                let c = CISCO_IOSV_ZTP_CONFIG;
-                                let ztp_config = format!("{dir}/{c}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-
-                                // Clone blank disk image
-                                let src_disk = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir,
-                                    SHERPA_BLANK_DISK_DIR,
-                                    SHERPA_BLANK_DISK_IOSV
-                                );
-                                let dst_disk = format!("{dir}/{}-cfg.img", node.name);
-
-                                // Copy blank disk and inject config
-                                util::copy_file(&src_disk, &dst_disk)?;
-                                util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
-
-                                src_config_disk = Some(dst_disk.clone());
-                                dst_config_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
-                                ));
-                            }
-                            data::NodeModel::CiscoIse => {
-                                let rendered_template = match &custom_ztp {
-                                    Some(config) => config.clone(),
-                                    None => {
-                                        let t = template::CiscoIseZtpTemplate {
-                                            hostname: node.name.clone(),
-                                            user,
-                                            dns: dns.clone(),
-                                            mgmt_ipv4_address: node_ipv4_address,
-                                            mgmt_ipv4: mgmt_net.v4.clone(),
-                                        };
-                                        t.render()?
-                                    }
-                                };
-                                let ztp_config = format!("{dir}/{CISCO_ISE_ZTP_CONFIG}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-
-                                // Clone blank disk image
-                                let src_disk = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_ISE
-                                );
-                                let dst_disk = format!("{dir}/{node_name_with_lab}-cfg.img");
-
-                                // Copy blank disk and inject config
-                                util::copy_file(&src_disk, &dst_disk)?;
-                                util::copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
-
-                                src_config_disk = Some(dst_disk.clone());
-                                dst_config_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
-                                ));
-                            }
-                            _ => {
-                                bail!("Disk ZTP method not supported for {}", node_image.model);
-                            }
-                        }
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            "Created Disk ZTP configuration"
-                        );
-                    }
-                    data::ZtpMethod::Usb => {
-                        let _ = progress.send_status(
-                            format!("Creating USB ZTP config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let dir = format!("{lab_dir}/{}", node.name);
-                        let user = sherpa_user.clone();
-
-                        match node_image.model {
-                            data::NodeModel::CumulusLinux => {
-                                let rendered_template = match &custom_ztp {
-                                    Some(config) => config.clone(),
-                                    None => {
-                                        let t = template::CumulusLinuxZtpTemplate {
-                                            hostname: node.name.clone(),
-                                            user,
-                                            dns: dns.clone(),
-                                            mgmt_ipv4_address: Some(node_ipv4_address),
-                                            mgmt_ipv4: mgmt_net.v4.clone(),
-                                        };
-                                        t.render()?
-                                    }
-                                };
-                                let ztp_config = format!("{dir}/{CUMULUS_ZTP}");
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-
-                                // Clone USB disk image
-                                let src_usb = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir,
-                                    SHERPA_BLANK_DISK_DIR,
-                                    SHERPA_BLANK_DISK_FAT32
-                                );
-                                let dst_usb = format!("{dir}/cfg.img");
-
-                                // Copy blank USB and inject config
-                                util::copy_file(&src_usb, &dst_usb)?;
-                                util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
-
-                                src_usb_disk = Some(dst_usb.clone());
-                                dst_usb_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
-                                ));
-                            }
-                            data::NodeModel::JuniperVevolved => {
-                                let rendered_template = match &custom_ztp {
-                                    Some(config) => config.clone(),
-                                    None => {
-                                        let t = template::JunipervJunosZtpTemplate {
-                                            hostname: node.name.clone(),
-                                            user,
-                                            mgmt_interface: node_image
-                                                .management_interface
-                                                .to_string(),
-                                            mgmt_ipv4_address: Some(node_ipv4_address),
-                                            mgmt_ipv4: mgmt_net.v4.clone(),
-                                        };
-                                        t.render()?
-                                    }
-                                };
-                                let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
-                                let ztp_config_tgz = format!("{dir}/{JUNIPER_ZTP_CONFIG_TGZ}");
-
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_config, rendered_template)?;
-
-                                // Clone USB disk image
-                                let src_usb = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir,
-                                    SHERPA_BLANK_DISK_DIR,
-                                    SHERPA_BLANK_DISK_JUNOS
-                                );
-                                let dst_usb = format!("{dir}/cfg.img");
-
-                                // Copy blank USB
-                                util::copy_file(&src_usb, &dst_usb)?;
-
-                                // Create tar.gz config file
-                                util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
-
-                                // Copy archive to USB disk
-                                util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
-
-                                src_usb_disk = Some(dst_usb.clone());
-                                dst_usb_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img"
-                                ));
-                            }
-                            _ => {
-                                bail!("USB ZTP method not supported for {}", node_image.model);
-                            }
-                        }
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            "Created USB ZTP configuration"
-                        );
-                    }
-                    data::ZtpMethod::Http => {
-                        let _ = progress.send_status(
-                            format!("Creating HTTP ZTP config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let dir = format!("{lab_dir}/{ZTP_DIR}/{NODE_CONFIGS_DIR}");
-
-                        match node_image.model {
-                            data::NodeModel::SonicLinux => {
-                                let sonic_ztp_file_map = template::SonicLinuxZtp::file_map(
-                                    &node.name,
-                                    &mgmt_net.v4.boot_server,
-                                );
-
-                                let ztp_init = format!("{dir}/{}.conf", &node.name);
-                                let sonic_ztp = template::SonicLinuxZtp {
-                                    hostname: node.name.clone(),
-                                    mgmt_ipv4: mgmt_net.v4.clone(),
-                                    mgmt_ipv4_address: Some(node_ipv4_address),
-                                };
-                                let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
-                                util::create_dir(&dir)?;
-                                util::create_file(&ztp_init, sonic_ztp_file_map)?;
-                                util::create_file(&ztp_config, sonic_ztp.config())?;
-                            }
-                            _ => {
-                                bail!("HTTP ZTP method not supported for {}", node_image.model);
-                            }
-                        }
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            config_dir = %format!("{lab_dir}/{ZTP_DIR}/{NODE_CONFIGS_DIR}"),
-                            "Created HTTP ZTP configuration"
-                        );
-                    }
-                    data::ZtpMethod::Ignition => {
-                        let _ = progress.send_status(
-                            format!("Creating Ignition config for VM: {}", node.name),
-                            StatusKind::Progress,
-                        );
-
-                        let user = sherpa_user.clone();
-                        let dir = format!("{lab_dir}/{}", node.name);
-                        let dev_name = node.name.clone();
-
-                        // Build authorized keys list
-                        let mut authorized_keys = vec![format!(
-                            "{} {} {}",
-                            user.ssh_public_key.algorithm,
-                            user.ssh_public_key.key,
-                            user.ssh_public_key.comment.clone().unwrap_or("".to_owned())
-                        )];
-
-                        let manifest_authorized_keys: Vec<String> =
-                            node.ssh_authorized_keys.clone().unwrap_or(vec![]);
-
-                        let manifest_authorized_key_files: Vec<String> = node
-                            .ssh_authorized_key_files
-                            .iter()
-                            .flatten()
-                            .map(|file| -> Result<String> {
-                                let ssh_key = util::get_ssh_public_key(&file.source)?;
-                                Ok(format!(
-                                    "{} {} {}",
-                                    ssh_key.algorithm,
-                                    ssh_key.key,
-                                    ssh_key.comment.unwrap_or("".to_owned())
-                                ))
-                            })
-                            .collect::<Result<Vec<String>>>()?;
-
-                        authorized_keys.extend(manifest_authorized_keys);
-                        authorized_keys.extend(manifest_authorized_key_files);
-
-                        let ignition_user = template::IgnitionUser {
-                            name: user.username.clone(),
-                            password_hash: SHERPA_PASSWORD_HASH.to_owned(),
-                            ssh_authorized_keys: authorized_keys,
-                            groups: vec!["wheel".to_owned(), "docker".to_owned()],
-                        };
-
-                        let hostname_file = template::IgnitionFile {
-                            path: "/etc/hostname".to_owned(),
-                            mode: 644,
-                            contents: template::IgnitionFileContents::new(&format!(
-                                "data:,{dev_name}"
-                            )),
-                            ..Default::default()
-                        };
-
-                        let disable_update = template::IgnitionFile::disable_updates();
-                        let sudo_config_base64 = util::base64_encode(&format!(
-                            "{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"
-                        ));
-                        let sudo_config_file = template::IgnitionFile {
-                            path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
-                            mode: 440,
-                            contents: template::IgnitionFileContents::new(&format!(
-                                "data:;base64,{sudo_config_base64}"
-                            )),
-                            ..Default::default()
-                        };
-
-                        let manifest_text_files: Vec<template::IgnitionFile> = node
-                            .text_files
-                            .iter()
-                            .flatten()
-                            .map(|file| {
-                                let encoded_file = util::base64_encode_file(&file.source)?;
-
-                                Ok(template::IgnitionFile {
-                                    path: file.destination.clone(),
-                                    mode: file.permissions,
-                                    overwrite: None,
-                                    contents: template::IgnitionFileContents::new(&format!(
-                                        "data:;base64,{encoded_file}"
-                                    )),
-                                    user: Some(template::IgnitionFileParams {
-                                        name: file.user.clone(),
-                                    }),
-                                    group: Some(template::IgnitionFileParams {
-                                        name: file.group.clone(),
-                                    }),
-                                })
-                            })
-                            .collect::<Result<Vec<template::IgnitionFile>>>()?;
-
-                        let manifest_binary_disk_files =
-                            node.binary_files.clone().unwrap_or(vec![]);
-
-                        let manifest_systemd_units: Vec<template::IgnitionUnit> = node
-                            .systemd_units
-                            .iter()
-                            .flatten()
-                            .map(|file| {
-                                let file_contents = util::load_file(file.source.as_str())?;
-                                Ok(template::IgnitionUnit {
-                                    name: file.name.clone(),
-                                    enabled: Some(file.enabled),
-                                    contents: Some(file_contents),
-                                    ..Default::default()
-                                })
-                            })
-                            .collect::<Result<Vec<template::IgnitionUnit>>>()?;
-
-                        match node_image.model {
-                            data::NodeModel::FlatcarLinux => {
-                                let mut units = vec![];
-                                units.push(template::IgnitionUnit::mount_container_disk());
-                                units.extend(manifest_systemd_units);
-
-                                let container_disk = template::IgnitionFileSystem::default();
-
-                                let mut files =
-                                    vec![sudo_config_file, hostname_file, disable_update];
-                                files.extend(manifest_text_files);
-
-                                // Always add interface config (node_ipv4_address is always present in server)
-                                files.push(template::IgnitionFile::ztp_interface(
-                                    node_ipv4_address,
-                                    mgmt_net.v4.clone(),
-                                )?);
-
-                                let ignition_config = template::IgnitionConfig::new(
-                                    vec![ignition_user],
-                                    files,
-                                    vec![],
-                                    units,
-                                    vec![],
-                                    vec![container_disk],
-                                );
-                                let flatcar_config = ignition_config.to_json_pretty()?;
-                                let src_ztp_file = format!("{dir}/{ZTP_JSON}");
-                                let dst_ztp_file = format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.ign"
-                                );
-
-                                util::create_dir(&dir)?;
-                                util::create_file(&src_ztp_file, flatcar_config)?;
-
-                                // Copy blank disk for container data
-                                let src_data_disk = format!(
-                                    "{}/{}/{}",
-                                    config.images_dir,
-                                    SHERPA_BLANK_DISK_DIR,
-                                    SHERPA_BLANK_DISK_EXT4_500MB
-                                );
-                                let dst_disk =
-                                    format!("{dir}/{node_name_with_lab}-{CONTAINER_DISK_NAME}");
-
-                                util::copy_file(&src_data_disk, &dst_disk)?;
-
-                                let disk_files: Vec<&str> = manifest_binary_disk_files
-                                    .iter()
-                                    .map(|x| x.source.as_str())
-                                    .collect();
-
-                                // Copy container images into the container disk
-                                if !disk_files.is_empty() {
-                                    util::copy_to_ext4_image(disk_files, &dst_disk, "/")?;
-                                }
-
-                                src_config_disk = Some(dst_disk.to_owned());
-                                dst_config_disk = Some(format!(
-                                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-{CONTAINER_DISK_NAME}"
-                                ));
-
-                                src_ignition_disk = Some(src_ztp_file.to_owned());
-                                dst_ignition_disk = Some(dst_ztp_file.to_owned());
-                            }
-                            _ => {
-                                bail!("Ignition ZTP method not supported for {}", node_image.model);
-                            }
-                        }
-                        tracing::debug!(
-                            lab_id = %lab_id,
-                            node_name = %node.name,
-                            "Created Ignition ZTP configuration"
-                        );
-                    }
-                    _ => {
-                        // Other ZTP methods not yet implemented
-                        let _ = progress.send_status(
-                            format!(
-                                "ZTP method {:?} not yet implemented for VM: {}",
-                                node_image.ztp_method, node.name
-                            ),
-                            StatusKind::Info,
-                        );
-                    }
-                }
-            }
-
-            // Clone CDROM ISO if present
-            if let (Some(src_iso), Some(dst_iso)) = (src_cdrom_iso.clone(), dst_cdrom_iso.clone()) {
-                clone_disks.push(data::CloneDisk {
-                    src: src_iso,
-                    dst: dst_iso.clone(),
-                    disk_size: None,
-                });
-                disks.push(data::NodeDisk {
-                    disk_device: data::DiskDevices::Cdrom,
-                    driver_name: data::DiskDrivers::Qemu,
-                    driver_format: data::DiskFormats::Raw,
-                    src_file: dst_iso.clone(),
-                    target_dev: data::DiskTargets::target(&cdrom_bus, disks.len() as u8)?,
-                    target_bus: cdrom_bus.clone(),
-                });
-            }
-
-            // Add boot disk (second position to match client order)
-            disks.push(data::NodeDisk {
-                disk_device: data::DiskDevices::File,
-                driver_name: data::DiskDrivers::Qemu,
-                driver_format: data::DiskFormats::Qcow2,
-                src_file: dst_boot_disk.clone(),
-                target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-                target_bus: hdd_bus.clone(),
-            });
-
-            // Clone config disk if present (for Disk ZTP method)
-            if let (Some(src_disk), Some(dst_disk)) =
-                (src_config_disk.clone(), dst_config_disk.clone())
-            {
-                clone_disks.push(data::CloneDisk {
-                    src: src_disk,
-                    dst: dst_disk.clone(),
-                    disk_size: None,
-                });
-                disks.push(data::NodeDisk {
-                    disk_device: data::DiskDevices::File,
-                    driver_name: data::DiskDrivers::Qemu,
-                    driver_format: data::DiskFormats::Raw,
-                    src_file: dst_disk.clone(),
-                    target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-                    target_bus: hdd_bus.clone(),
-                });
-            }
-
-            // Clone USB disk if present (for USB ZTP method)
-            if let (Some(src_disk), Some(dst_disk)) = (src_usb_disk.clone(), dst_usb_disk.clone()) {
-                clone_disks.push(data::CloneDisk {
-                    src: src_disk,
-                    dst: dst_disk.clone(),
-                    disk_size: None,
-                });
-                disks.push(data::NodeDisk {
-                    disk_device: data::DiskDevices::File,
-                    driver_name: data::DiskDrivers::Qemu,
-                    driver_format: data::DiskFormats::Raw,
-                    src_file: dst_disk.clone(),
-                    target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-                    target_bus: hdd_bus.clone(),
-                });
-            }
-
-            // Clone ignition config if present (for Ignition ZTP method)
-            if let (Some(src_ignition), Some(dst_ignition)) =
-                (src_ignition_disk.clone(), dst_ignition_disk.clone())
-            {
-                clone_disks.push(data::CloneDisk {
-                    src: src_ignition,
-                    dst: dst_ignition.clone(),
-                    disk_size: None,
-                });
-                // Note: Ignition config is passed as QEMU command line argument, not as disk
-            }
+            // Generate VM ZTP configuration, disks, and clone list
+            let ztp_result = node_ops::generate_vm_ztp(
+                node,
+                &node_image,
+                lab_id,
+                &lab_dir,
+                &tftp_dir,
+                &config.images_dir,
+                &mgmt_net,
+                node_ipv4_address,
+                &sherpa_user,
+                &dns,
+                &progress,
+            )?;
+
+            ztp_records.push(ztp_result.ztp_record);
+            clone_disks.extend(ztp_result.clone_disks);
 
             // Build interfaces list
             let mut interfaces: Vec<data::Interface> = vec![];
@@ -2374,7 +1156,7 @@ pub async fn up_lab(
                             name: util::dasher(&node_image.management_interface.to_string()),
                             num: interface.index,
                             mtu: node_image.interface_mtu,
-                            mac_address: mac_address.to_string(),
+                            mac_address: ztp_result.mac_address.clone(),
                             connection_type: data::ConnectionTypes::Management,
                             interface_connection: None,
                         });
@@ -2428,7 +1210,6 @@ pub async fn up_lab(
                         });
                     }
                     data::NodeInterface::Disabled => {
-                        // Disabled interfaces are added and connected to isolated network with link state down
                         interfaces.push(data::Interface {
                             name: util::dasher(&util::interface_from_idx(
                                 &node.model,
@@ -2456,44 +1237,20 @@ pub async fn up_lab(
                 .map(|net| net.network_name.clone())
                 .unwrap_or_default();
 
-            // Build QEMU commands if needed
-            let qemu_commands = match node_image.model {
-                data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
-                data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
-                data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
-                data::NodeModel::FlatcarLinux => {
-                    if let Some(dst_ignition) = dst_ignition_disk.clone() {
-                        data::QemuCommand::ignition_config(&dst_ignition)
-                    } else {
-                        vec![]
-                    }
-                }
-                _ => vec![],
-            };
-
-            // Create DomainTemplate
-            let domain = template::DomainTemplate {
-                qemu_bin: config.qemu_bin.clone(),
-                name: node_name_with_lab.clone(),
-                memory: node.memory.unwrap_or(node_image.memory),
-                cpu_architecture: node_image.cpu_architecture.clone(),
-                cpu_model: node_image.cpu_model.clone(),
-                machine_type: node_image.machine_type.clone(),
-                cpu_count: node.cpu_count.unwrap_or(node_image.cpu_count),
-                vmx_enabled: node_image.vmx_enabled,
-                bios: node_image.bios.clone(),
-                disks,
+            // Build domain template
+            let domain = node_ops::build_domain_template(
+                node,
+                &node_image,
+                lab_id,
+                &config.qemu_bin,
+                ztp_result.disks,
                 interfaces,
-                interface_type: node_image.interface_type.clone(),
-                loopback_ipv4: util::get_ip(&loopback_subnet, node_idx as u8).to_string(),
-                telnet_port: TELNET_PORT,
-                qemu_commands,
-                lab_id: lab_id.to_string(),
+                ztp_result.qemu_commands,
+                util::get_ip(&loopback_subnet, node_idx as u8).to_string(),
                 management_network,
-                isolated_network: isolated_network.network_name,
+                isolated_network.network_name,
                 reserved_network,
-                is_windows: node_image.model == data::NodeModel::WindowsServer,
-            };
+            );
             domains.push(domain);
         }
 
@@ -2602,124 +1359,7 @@ pub async fn up_lab(
         // ========================================================================
         let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning VM disks".to_string());
 
-        if !clone_disks.is_empty() {
-            let disk_timer = Instant::now();
-            let disk_count = clone_disks.len();
-
-            tracing::info!(
-                lab_id = %lab_id,
-                disk_count = disk_count,
-                "Starting disk cloning (parallel)"
-            );
-
-            let _ = progress.send_status(
-                format!("Cloning {} disks in parallel", disk_count),
-                StatusKind::Progress,
-            );
-
-            let qemu_conn_arc = Arc::clone(&qemu_conn);
-            let lab_id_clone = lab_id.to_string();
-            let tasks: Vec<_> = clone_disks
-                .into_iter()
-                .map(|disk| {
-                    let conn = Arc::clone(&qemu_conn_arc);
-                    let progress_clone = progress.clone();
-                    let src = disk.src.clone();
-                    let dst = disk.dst.clone();
-                    let disk_size = disk.disk_size;
-                    let lab_id_task = lab_id_clone.clone();
-
-                    tokio::task::spawn(async move {
-                        // Extract node name from disk path (e.g., "router1-abc123-hdd.qcow2" -> "router1-abc123")
-                        let node_name = dst
-                            .split('/')
-                            .next_back()
-                            .and_then(|f| f.strip_suffix("-hdd.qcow2"))
-                            .unwrap_or("unknown");
-
-                        tracing::info!(
-                            lab_id = %lab_id_task,
-                            node_name = %node_name,
-                            src = %src,
-                            "Cloning disk"
-                        );
-
-                        let _ = progress_clone.send_status(
-                            format!("Cloning disk from: {}", src),
-                            StatusKind::Progress,
-                        );
-
-                        // libvirt operations are synchronous, so we need to use spawn_blocking
-                        let conn_for_blocking = conn.clone();
-                        let src_for_blocking = src.clone();
-                        let dst_for_blocking = dst.clone();
-
-                        tokio::task::spawn_blocking(move || -> Result<()> {
-                            libvirt::clone_disk(
-                                &conn_for_blocking,
-                                &src_for_blocking,
-                                &dst_for_blocking,
-                            )
-                            .with_context(|| {
-                                format!(
-                                    "Failed to clone disk from: {} to: {}",
-                                    src_for_blocking, dst_for_blocking
-                                )
-                            })?;
-
-                            if let Some(size_gb) = disk_size {
-                                libvirt::resize_disk(
-                                    &conn_for_blocking,
-                                    &dst_for_blocking,
-                                    size_gb,
-                                )
-                                .with_context(|| {
-                                    format!(
-                                        "Failed to resize disk '{}' to {}G",
-                                        dst_for_blocking, size_gb
-                                    )
-                                })?;
-                            }
-
-                            Ok(())
-                        })
-                        .await
-                        .map_err(|e| anyhow!("Task join error: {:?}", e))??;
-
-                        tracing::info!(
-                            lab_id = %lab_id_task,
-                            node_name = %node_name,
-                            dst = %dst,
-                            "Disk cloned successfully"
-                        );
-
-                        progress_clone
-                            .send_status(format!("Cloned disk to: {}", dst), StatusKind::Done)?;
-                        Ok::<(), anyhow::Error>(())
-                    })
-                })
-                .collect();
-
-            // Wait for all tasks to complete
-            for task in tasks {
-                task.await.context("Disk cloning task failed")??;
-            }
-
-            let elapsed = disk_timer.elapsed().as_secs();
-            tracing::info!(
-                lab_id = %lab_id,
-                disk_count = disk_count,
-                duration_secs = elapsed,
-                "All disks cloned successfully"
-            );
-            let _ = progress.send_status(
-                "All disks cloned successfully".to_string(),
-                StatusKind::Done,
-            );
-        } else {
-            tracing::info!(lab_id = %lab_id, "No disks to clone");
-            let _ = progress.send_status("No disks to clone".to_string(), StatusKind::Info);
-        }
+        node_ops::clone_node_disks(qemu_conn.clone(), clone_disks, lab_id, &progress).await?;
 
         phases_completed.push("DiskCloning".to_string());
 
@@ -2729,95 +1369,30 @@ pub async fn up_lab(
         let _ = progress.send_phase(data::UpPhase::VmCreation, "Creating VMs".to_string());
 
         if !domains.is_empty() {
-            let vm_timer = std::time::Instant::now();
             let vm_count = domains.len();
-
-            tracing::info!(
-                lab_id = %lab_id,
-                vm_count = vm_count,
-                "Starting VM creation in parallel"
-            );
             let _ = progress.send_status(
-                format!("Creating {} VMs in parallel", domains.len()),
+                format!("Creating {} VMs in parallel", vm_count),
                 StatusKind::Progress,
             );
 
-            let qemu_conn_arc = Arc::clone(&qemu_conn);
-            let lab_id_for_tasks = lab_id.clone();
             let tasks: Vec<_> = domains
                 .into_iter()
                 .map(|domain| {
-                    let conn = Arc::clone(&qemu_conn_arc);
+                    let conn = Arc::clone(&qemu_conn);
                     let progress_clone = progress.clone();
-                    let vm_name = domain.name.clone();
-                    let lab_id_clone = lab_id_for_tasks.clone();
-                    let memory_mb = domain.memory;
-                    let vcpus = domain.cpu_count;
-
                     tokio::task::spawn(async move {
-                        tracing::info!(
-                            lab_id = %lab_id_clone,
-                            vm_name = %vm_name,
-                            memory_mb = memory_mb,
-                            vcpus = vcpus,
-                            "Creating VM"
-                        );
-                        let _ = progress_clone
-                            .send_status(format!("Creating VM: {}", vm_name), StatusKind::Progress);
-
-                        // Render the XML template (synchronous operation)
-                        let rendered_xml = domain
-                            .render()
-                            .with_context(|| format!("Failed to render XML for VM: {}", vm_name))?;
-
-                        tracing::debug!(
-                            lab_id = %lab_id_clone,
-                            vm_name = %vm_name,
-                            "Rendered domain XML"
-                        );
-
-                        // libvirt operations are synchronous, so we need to use spawn_blocking
-                        let conn_for_blocking = conn.clone();
-                        let vm_name_for_blocking = vm_name.clone();
-                        let lab_id_for_blocking = lab_id_clone.clone();
-
-                        tokio::task::spawn_blocking(move || -> Result<()> {
-                            libvirt::create_vm(&conn_for_blocking, &rendered_xml).with_context(
-                                || format!("Failed to create VM: {}", vm_name_for_blocking),
-                            )?;
-                            tracing::info!(
-                                lab_id = %lab_id_for_blocking,
-                                vm_name = %vm_name_for_blocking,
-                                "VM created successfully"
-                            );
-                            Ok(())
-                        })
-                        .await
-                        .map_err(|e| anyhow!("Task join error: {:?}", e))??;
-
-                        progress_clone
-                            .send_status(format!("Created VM: {}", vm_name), StatusKind::Done)?;
-                        Ok::<(), anyhow::Error>(())
+                        node_ops::create_vm(conn, domain, &progress_clone).await
                     })
                 })
                 .collect();
 
-            // Wait for all tasks to complete
             for task in tasks {
                 task.await.context("VM creation task failed")??;
             }
 
-            let elapsed = vm_timer.elapsed().as_secs();
-            tracing::info!(
-                lab_id = %lab_id,
-                vm_count = vm_count,
-                duration_secs = elapsed,
-                "All VMs created successfully"
-            );
             let _ =
                 progress.send_status("All VMs created successfully".to_string(), StatusKind::Done);
         } else {
-            tracing::info!(lab_id = %lab_id, "No VMs to create");
             let _ = progress.send_status("No VMs to create".to_string(), StatusKind::Info);
         }
 
@@ -3120,80 +1695,26 @@ pub async fn up_lab(
                     additional_networks.extend_from_slice(link_networks);
                 }
 
-                tracing::info!(
-                    lab_id = %lab_id,
-                    node_name = %container.name,
-                    node_kind = "Container",
-                    image = %container_image,
-                    ipv4 = ?mgmt_ipv4,
-                    privileged = privileged,
-                    "Starting container"
-                );
-
-                tracing::debug!(
-                    lab_id = %lab_id,
-                    node_name = %container.name,
-                    additional_networks = additional_networks.len(),
-                    volumes = volumes.len(),
-                    env_vars = env_vars.len(),
-                    commands = commands.len(),
-                    "Container configuration"
-                );
-
-                let is_running = container::run_container(
+                let is_running = node_ops::start_container_node(
                     &docker_conn,
                     &container_name,
                     &container_image,
                     env_vars,
                     volumes,
-                    vec![],
                     management_network_attachment,
                     additional_networks,
                     commands,
                     privileged,
                     user,
+                    container.model,
+                    &progress,
                 )
                 .await?;
 
                 if !is_running {
-                    tracing::warn!(
-                        lab_id = %lab_id,
-                        node_name = %container.name,
-                        "Container is not in running state after start"
-                    );
                     continue;
                 }
 
-                tracing::info!(
-                    lab_id = %lab_id,
-                    node_name = %container.name,
-                    "Container started and ready"
-                );
-
-                // SR Linux: Docker assigns the mgmt IP to mgmt0 in the default
-                // namespace. SR Linux also assigns it to mgmt0.0 in srbase-mgmt.
-                // Both responding causes DUP pings and SSH resets.
-                // Wait for srbase-mgmt to come up, then flush the default NS IP.
-                if container.model == data::NodeModel::NokiaSrlinux {
-                    let flush_cmd = "for i in $(seq 1 30); do ip netns list 2>/dev/null | grep -q srbase-mgmt && break; sleep 1; done; ip addr flush dev mgmt0";
-                    container::exec_container_detached(
-                        &docker_conn,
-                        &container_name,
-                        vec!["sh", "-c", flush_cmd],
-                    )
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "Failed to flush default namespace IP for {}",
-                            container.name
-                        )
-                    })?;
-                }
-
-                let _ = progress.send_status(
-                    format!("Node {} - Started", container.name),
-                    StatusKind::Done,
-                );
                 connected_nodes.insert(container.name.clone());
 
                 // Update node state in DB to Running
@@ -3219,7 +1740,10 @@ pub async fn up_lab(
                 }
 
                 if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
-                    match validate::tcp_connect(&vm_data.ipv4_address.to_string(), SSH_PORT)? {
+                    match node_ops::check_node_ready_ssh(
+                        &vm_data.ipv4_address.to_string(),
+                        SSH_PORT,
+                    )? {
                         true => {
                             tracing::info!(
                                 lab_id = %lab_id,

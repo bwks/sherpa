@@ -268,7 +268,10 @@ pub async fn up(
 /// For each node with a `ztp_config` field, the value is treated as a file path.
 /// The file is read, base64 encoded, and the value is replaced with the encoded contents.
 /// Relative paths are resolved from the manifest file's parent directory.
-fn resolve_ztp_configs(manifest: &mut topology::Manifest, manifest_path: &str) -> Result<()> {
+pub(crate) fn resolve_ztp_configs(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
 
     for node in &mut manifest.nodes {

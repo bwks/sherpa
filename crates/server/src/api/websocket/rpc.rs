@@ -9,7 +9,7 @@ use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, import, inspect, progress, resume, up,
+    clean, container_pull, delete, destroy, down, import, inspect, progress, redeploy, resume, up,
 };
 use shared::data;
 use shared::error::RpcErrorCode;
@@ -28,11 +28,12 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
     RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMPORT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED,
-    RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED,
-    RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
+    RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
     RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
@@ -97,6 +98,7 @@ pub async fn handle_streaming_rpc_request(
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
+        "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
         "image.download" => handle_image_download_streaming(id, params, state, connection).await,
         _ => {
             // Unknown streaming method
@@ -613,6 +615,195 @@ async fn handle_destroy_streaming(
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_DESTROY_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    };
+
+    // Send final response
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
+    }
+}
+
+/// Handle "redeploy" streaming RPC call
+///
+/// Expected params: {"lab_id": "string", "node_name": "string", "manifest": {...}, "token": "string"}
+async fn handle_redeploy_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    // Helper function to send error and return
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
+    // Authenticate the request
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for redeploy: {}", e);
+            send_error(
+                id,
+                RpcErrorCode::AuthRequired,
+                RPC_MSG_AUTH_REQUIRED.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Parse params
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    let node_name = match params.get("node_name").and_then(|v| v.as_str()) {
+        Some(name) if !name.is_empty() => name.to_string(),
+        _ => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    let manifest = match params.get("manifest") {
+        Some(m) => m.clone(),
+        None => {
+            send_error(
+                id,
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
+    // Check authorization: user must own the lab or be an admin
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to redeploy node '{}' in lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    node_name,
+                    lab_id,
+                    owner_username
+                );
+                send_error(
+                    id,
+                    RpcErrorCode::AccessDenied,
+                    RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                    None,
+                )
+                .await;
+                return;
+            }
+        }
+        Err(e) => {
+            send_error(
+                id,
+                RpcErrorCode::NotFound,
+                format!("Lab not found: {}", lab_id),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
+        }
+    }
+
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    let request = data::RedeployRequest {
+        lab_id,
+        node_name: node_name.clone(),
+        manifest,
+        username: auth_ctx.username.clone(),
+    };
+
+    // Call service with progress sender
+    let result = redeploy::redeploy_node(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
+        Ok(redeploy_response) => match serde_json::to_value(&redeploy_response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' redeployed node '{}' successfully",
+                    auth_ctx.username,
+                    node_name
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_REDEPLOY_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }
