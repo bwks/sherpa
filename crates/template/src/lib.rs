@@ -14,6 +14,7 @@ mod dnsmasq;
 mod domain;
 mod ignition;
 mod juniper_junos;
+mod mikrotik_routeros;
 mod nokia_srlinux;
 mod pyats;
 mod sonic_linux;
@@ -42,6 +43,7 @@ pub use ignition::{
     IgnitionLink, IgnitionUnit, IgnitionUser,
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
+pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};

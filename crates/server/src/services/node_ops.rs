@@ -18,11 +18,12 @@ use shared::konst::{
     CONTAINER_DISK_NAME, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
     CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
-    NODE_CONFIGS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, SHERPA_BLANK_DISK_DIR,
-    SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV,
-    SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
+    MIKROTIK_CHR_ZTP_CONFIG, NODE_CONFIGS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT16,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
     SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -1100,6 +1101,37 @@ fn generate_disk_ztp(
 
             util::copy_file(&src_disk, &dst_disk)?;
             util::copy_to_ext4_image(vec![&ztp_config], &dst_disk, "/")?;
+
+            let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
+            Ok((dst_disk, dst_final))
+        }
+        data::NodeModel::MikrotikChr => {
+            let rendered_template = match custom_ztp {
+                Some(config) => config.clone(),
+                None => {
+                    let t = template::MikrotikRouterosZtpTemplate {
+                        hostname: node.name.clone(),
+                        user: sherpa_user.clone(),
+                        mgmt_interface: node_image.management_interface.to_string(),
+                        dns: dns.clone(),
+                        mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv4_address: Some(node_ipv4_address),
+                    };
+                    t.render()?
+                }
+            };
+            let ztp_config = format!("{dir}/{MIKROTIK_CHR_ZTP_CONFIG}");
+            util::create_dir(&dir)?;
+            util::create_file(&ztp_config, rendered_template)?;
+
+            let src_disk = format!(
+                "{}/{}/{}",
+                images_dir, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_FAT16
+            );
+            let dst_disk = format!("{dir}/{}-cfg.img", node.name);
+
+            util::copy_file(&src_disk, &dst_disk)?;
+            util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_disk, dst_final))

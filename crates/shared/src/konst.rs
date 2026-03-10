@@ -13,7 +13,7 @@ pub const SHERPA_RUN_DIR: &str = "run";
 pub const SHERPA_LOG_DIR: &str = "logs";
 pub const SHERPA_CERTS_DIR: &str = ".certs";
 pub const SHERPA_BLANK_DISK_DIR: &str = "blank_disk";
-pub const _SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
+pub const SHERPA_BLANK_DISK_FAT16: &str = "fat16.img";
 pub const SHERPA_BLANK_DISK_FAT32: &str = "fat32.img";
 pub const SHERPA_BLANK_DISK_IOSV: &str = "iosv.img";
 pub const SHERPA_BLANK_DISK_ISE: &str = "ise.img";
@@ -156,6 +156,7 @@ pub const JUNIPER_ZTP_DIR: &str = "juniper";
 pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
 pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
+pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
 
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;

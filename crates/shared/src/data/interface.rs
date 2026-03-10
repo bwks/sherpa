@@ -132,6 +132,8 @@ pub enum MgmtInterfaces {
     Management1, // Management1 - eos
     #[serde(rename = "MgmtEth0/RP0/CPU0/0")]
     MgmtEth0Rp0Cpu0_0, // MgmtEth0/RP0/CPU0/0 - xr9kv
+    #[serde(rename = "ether1")]
+    Ether1, // ether1 - mikrotik chr
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -147,6 +149,7 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::Management1 => write!(f, "Management1"),
             MgmtInterfaces::Management0_0 => write!(f, "Management0/0"),
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
+            MgmtInterfaces::Ether1 => write!(f, "ether1"),
         }
     }
 }
