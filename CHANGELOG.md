@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.20] - 2026-03-10
+
+### Features
+
+- Add mgmt_mac to node db table by @bwks ([da37ccd](https://github.com/bwks/sherpa/commit/da37ccdc2ae666db15b14a2f63186331141b0812))
+- Redeploy node + refactor up command by @bwks ([7b37dde](https://github.com/bwks/sherpa/commit/7b37dde702541e337fcda83afe44a30e89fe0422))
+- Stop/resume nodes by @bwks ([4447d05](https://github.com/bwks/sherpa/commit/4447d054b6c0d771e9ea64648323b5c955c868f9))
+- Image download by @bwks ([a6a0073](https://github.com/bwks/sherpa/commit/a6a00731e669114bf1b349d87d16c4603e388654))
+- Allow user supplied ZTP configs for some models by @bwks ([1648c12](https://github.com/bwks/sherpa/commit/1648c12407c66a01ef86ab96ca4bfc4b8b395b0a))
+- Skip ready check and adustable ready timeout for lab by @bwks ([eea0dd4](https://github.com/bwks/sherpa/commit/eea0dd435ac38ae90ac557b210b25df2d6ae679f))
+- Pull sherpa-router as part of install script by @bwks ([b9794c4](https://github.com/bwks/sherpa/commit/b9794c4f8e8fde2bd95557fe2bbabc9295937922))
+
+### Miscellaneous
+
+- V0.3.20
+
+V0.3.20 by @bwks in [#126](https://github.com/bwks/sherpa/pull/126) ([feb5feb](https://github.com/bwks/sherpa/commit/feb5feb26e21cd3993d50742eb49e99e1ed46f1e))
+- Version bump by @bwks ([4a3308e](https://github.com/bwks/sherpa/commit/4a3308eba99bfe2b3510f658a521c8430691a71c))
+- Merge pull request #125 from bwks/changelog/v0.3.19
+
+chore(release): update changelog for v0.3.19 by @github-actions[bot] in [#125](https://github.com/bwks/sherpa/pull/125) ([4d501a7](https://github.com/bwks/sherpa/commit/4d501a7f46529ecc006b92036a3f1f2c445fdb91))
 ## [0.3.19] - 2026-03-08
 
 ### Features
