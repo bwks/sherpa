@@ -12,8 +12,10 @@ mod cloudbase_init;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
+mod frr;
 mod ignition;
 mod juniper_junos;
+mod mikrotik_routeros;
 mod nokia_srlinux;
 mod pyats;
 mod sonic_linux;
@@ -37,11 +39,13 @@ pub use cloudbase_init::{
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate};
+pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileParams, IgnitionFileSystem,
     IgnitionLink, IgnitionUnit, IgnitionUser,
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
+pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};

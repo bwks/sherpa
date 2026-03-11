@@ -12,7 +12,8 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT,
+    MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -49,6 +50,12 @@ pub enum NodeModel {
 
     // Nokia
     NokiaSrlinux,
+
+    // Mikrotik
+    MikrotikChr,
+
+    // FRR
+    FrrLinux,
 
     // Linux
     AlmaLinux,
@@ -111,6 +118,12 @@ impl fmt::Display for NodeModel {
 
             // Nokia
             NodeModel::NokiaSrlinux => write!(f, "nokia_srlinux"),
+
+            // Mikrotik
+            NodeModel::MikrotikChr => write!(f, "mikrotik_chr"),
+
+            // FRR
+            NodeModel::FrrLinux => write!(f, "frr_linux"),
 
             // Linux
             NodeModel::AlmaLinux => write!(f, "alma_linux"),
@@ -177,6 +190,12 @@ impl std::str::FromStr for NodeModel {
 
             // Nokia
             "nokia_srlinux" => Ok(NodeModel::NokiaSrlinux),
+
+            // Mikrotik
+            "mikrotik_chr" => Ok(NodeModel::MikrotikChr),
+
+            // FRR
+            "frr_linux" => Ok(NodeModel::FrrLinux),
 
             // Linux
             "alma_linux" => Ok(NodeModel::AlmaLinux),
@@ -261,6 +280,9 @@ pub enum OsVariant {
     // Nokia
     Srlinux,
 
+    // Mikrotik
+    Routeros,
+
     #[default]
     Unknown,
 }
@@ -283,6 +305,7 @@ impl fmt::Display for OsVariant {
             OsVariant::Bsd => write!(f, "bsd"),
             OsVariant::Server => write!(f, "server"),
             OsVariant::Srlinux => write!(f, "srlinux"),
+            OsVariant::Routeros => write!(f, "routeros"),
             OsVariant::Unknown => write!(f, "unknown"),
         }
     }
@@ -666,6 +689,12 @@ impl NodeConfig {
 
             // Nokia
             NodeModel::NokiaSrlinux => NodeConfig::nokia_srlinux(),
+
+            // Mikrotik
+            NodeModel::MikrotikChr => NodeConfig::mikrotik_chr(),
+
+            // FRR
+            NodeModel::FrrLinux => NodeConfig::frr_linux(),
 
             // Linux
             NodeModel::AlmaLinux => NodeConfig::alma_linux(),
@@ -1894,6 +1923,74 @@ impl NodeConfig {
             reserved_interface_count: 0,
             default: true,
             ..Default::default()
+        }
+    }
+    pub fn mikrotik_chr() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::MikrotikChr,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Routeros,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 8,
+            interface_prefix: "ether".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_STD,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Pc,
+            vmx_enabled: false,
+            memory: 1024,
+            hdd_bus: DiskBuses::Ide,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Ide,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::Disk,
+            ztp_password_auth: false,
+            first_interface_index: 1,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Ether1,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn frr_linux() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::FrrLinux,
+            version: "0.0.0".to_owned(),
+            repo: Some(CONTAINER_FRR_REPO.to_string()),
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::Container,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 8,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::default(),
+            interface_mtu: MTU_STD,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 512,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
         }
     }
     pub fn generic_container() -> NodeConfig {

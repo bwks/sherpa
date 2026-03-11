@@ -1,0 +1,13 @@
+/system identity set name={{ hostname }}
+/ip dns set servers={%- for server in dns.name_servers %}{{ server.ipv4_address }}{% if !loop.last %},{% endif %}{%- endfor %}
+/user set 0 password={% if let Some(password) = user.password %}{{ password }}{% endif %}
+:do { /user add name={{ user.username }} password={% if let Some(password) = user.password %}{{ password }}{% endif %} group=full } on-error={}
+{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+/ip address add address={{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }} interface={{ mgmt_interface }}
+{%- endif %}
+/ip route add dst-address=0.0.0.0/0 gateway={{ mgmt_ipv4.first }}
+/ip service set ssh disabled=no
+/ip service set telnet disabled=yes
+/ip service set www disabled=yes
+/ip service set api disabled=yes
+/ip ssh set strong-crypto=yes
