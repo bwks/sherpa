@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.21] - 2026-03-11
+
+### Features
+
+- Add frr support by @bwks ([d9257d7](https://github.com/bwks/sherpa/commit/d9257d7dc1eb47e6b6fd8324adfad51530bdce1d))
+- Mikrotik chr support by @bwks ([d5cf120](https://github.com/bwks/sherpa/commit/d5cf12021051d28ba2e9d3a74be0ad613707493e))
+- Mikrotik CHR as a suppored device by @bwks ([bbcb1fc](https://github.com/bwks/sherpa/commit/bbcb1fc2b424273c7cc9b4a58ebfee7d8d3cf93f))
+- Cisco iol build scripts by @bwks ([bccbb04](https://github.com/bwks/sherpa/commit/bccbb04ca0e7d73e254c5ad15a0610a4af3dfdf2))
+
+### Miscellaneous
+
+- V0.3.21
+
+V0.3.21 by @bwks in [#129](https://github.com/bwks/sherpa/pull/129) ([4ec53ba](https://github.com/bwks/sherpa/commit/4ec53ba28058c77846737980a66cf1cb09353521))
+- Version bump by @bwks ([60fd143](https://github.com/bwks/sherpa/commit/60fd14303e195fd89f794d18145368d39f7868be))
+- Remove iol build scripts by @bwks ([629dad1](https://github.com/bwks/sherpa/commit/629dad1e981af4daab294c362c0edceab4dcd920))
+- Merge pull request #127 from bwks/changelog/v0.3.20
+
+chore(release): update changelog for v0.3.20 by @github-actions[bot] in [#127](https://github.com/bwks/sherpa/pull/127) ([b2ffd5e](https://github.com/bwks/sherpa/commit/b2ffd5e597e0faaec80c0540d1ce464cf1e2c449))
 ## [0.3.20] - 2026-03-10
 
 ### Features
