@@ -1,0 +1,36 @@
+#!/bin/sh
+# Install OpenSSH server and sudo
+apk add --no-cache openssh-server sudo lldpd
+ssh-keygen -A
+
+# Create vtysh config
+touch /etc/frr/vtysh.conf
+chown frr:frr /etc/frr/vtysh.conf
+
+# Create sherpa user with SSH access and FRR group membership
+adduser -D -s /bin/sh {{ user.username }}
+addgroup {{ user.username }} frr
+addgroup {{ user.username }} frrvty
+echo '{{ user.username }}:{% if let Some(password) = user.password %}{{ password }}{% endif %}' | chpasswd
+echo '{{ user.username }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/{{ user.username }}
+mkdir -p /home/{{ user.username }}/.ssh
+echo '{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' > /home/{{ user.username }}/.ssh/authorized_keys
+chmod 700 /home/{{ user.username }}/.ssh
+chmod 600 /home/{{ user.username }}/.ssh/authorized_keys
+chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}/.ssh
+
+# Set container hostname
+hostname {{ hostname }}
+echo '{{ hostname }}' > /etc/hostname
+
+# Start SSH daemon
+/usr/sbin/sshd -D &
+
+# Start LLDP daemon
+lldpd
+
+# Start FRR
+/usr/lib/frr/frrinit.sh start
+
+# Keep container running
+tail -f /dev/null

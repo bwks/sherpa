@@ -12,7 +12,8 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT,
+    MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -52,6 +53,9 @@ pub enum NodeModel {
 
     // Mikrotik
     MikrotikChr,
+
+    // FRR
+    FrrLinux,
 
     // Linux
     AlmaLinux,
@@ -117,6 +121,9 @@ impl fmt::Display for NodeModel {
 
             // Mikrotik
             NodeModel::MikrotikChr => write!(f, "mikrotik_chr"),
+
+            // FRR
+            NodeModel::FrrLinux => write!(f, "frr_linux"),
 
             // Linux
             NodeModel::AlmaLinux => write!(f, "alma_linux"),
@@ -186,6 +193,9 @@ impl std::str::FromStr for NodeModel {
 
             // Mikrotik
             "mikrotik_chr" => Ok(NodeModel::MikrotikChr),
+
+            // FRR
+            "frr_linux" => Ok(NodeModel::FrrLinux),
 
             // Linux
             "alma_linux" => Ok(NodeModel::AlmaLinux),
@@ -682,6 +692,9 @@ impl NodeConfig {
 
             // Mikrotik
             NodeModel::MikrotikChr => NodeConfig::mikrotik_chr(),
+
+            // FRR
+            NodeModel::FrrLinux => NodeConfig::frr_linux(),
 
             // Linux
             NodeModel::AlmaLinux => NodeConfig::alma_linux(),
@@ -1942,6 +1955,40 @@ impl NodeConfig {
             first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Ether1,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn frr_linux() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::FrrLinux,
+            version: "0.0.0".to_owned(),
+            repo: Some(CONTAINER_FRR_REPO.to_string()),
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::Container,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 8,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::default(),
+            interface_mtu: MTU_STD,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 512,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
         }

@@ -1,0 +1,15 @@
+frr version 10
+frr defaults traditional
+hostname {{ hostname }}
+log syslog informational
+service integrated-vtysh-config
+!
+{%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
+interface eth0
+ ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}
+!
+ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
+{%- endif %}
+!
+line vty
+!

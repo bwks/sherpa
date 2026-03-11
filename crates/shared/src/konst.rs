@@ -206,6 +206,13 @@ pub const CONTAINER_ARISTA_CEOS_COMMANDS: &[&str] = &[
     "systemd.setenv=MGMT_INTF=eth0",
 ];
 
+pub const CONTAINER_FRR_REPO: &str = "quay.io/frrouting/frr";
+pub const CONTAINER_FRR_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_FRR_COMMANDS: &[&str] = &[];
+pub const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
+pub const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
+pub const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
+
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
 pub const CONTAINER_SURREAL_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[

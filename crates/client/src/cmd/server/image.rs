@@ -4,7 +4,7 @@ use clap::Subcommand;
 use shared::data::{
     self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
 };
-use shared::konst::CONTAINER_NOKIA_SRLINUX_REPO;
+use shared::konst::{CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO};
 use shared::util::{Emoji, emoji_success, render_images_table, render_scanned_images_table};
 
 use super::OutputFormat;
@@ -427,6 +427,10 @@ async fn pull_container_image(
         let tag =
             version.ok_or_else(|| anyhow::anyhow!("--version is required for Nokia SR Linux"))?;
         (CONTAINER_NOKIA_SRLINUX_REPO.to_string(), tag.to_string())
+    } else if *model == NodeModel::FrrLinux {
+        // Known public repo — use constant, version is the tag
+        let tag = version.ok_or_else(|| anyhow::anyhow!("--version is required for FRR Linux"))?;
+        (CONTAINER_FRR_REPO.to_string(), tag.to_string())
     } else {
         bail!(
             "--repo is required for model '{}'. Provide the full image reference (e.g., registry.io/account/image:version)",

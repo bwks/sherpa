@@ -12,6 +12,7 @@ mod cloudbase_init;
 mod cumulus_linux;
 mod dnsmasq;
 mod domain;
+mod frr;
 mod ignition;
 mod juniper_junos;
 mod mikrotik_routeros;
@@ -38,6 +39,7 @@ pub use cloudbase_init::{
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate};
+pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileParams, IgnitionFileSystem,
     IgnitionLink, IgnitionUnit, IgnitionUser,

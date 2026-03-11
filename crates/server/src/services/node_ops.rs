@@ -15,9 +15,11 @@ use shared::konst::{
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
-    CONTAINER_DISK_NAME, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
+    CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO,
+    CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
     CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
-    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
+    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
+    FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
     MIKROTIK_CHR_ZTP_CONFIG, NODE_CONFIGS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
@@ -237,6 +239,71 @@ pub fn generate_container_ztp(
             node.volumes = Some(vec![ztp_volume]);
             node.commands = Some(commands.clone());
         }
+        data::NodeModel::FrrLinux => {
+            // Render daemons file
+            let daemons_template = template::FrrDaemonsTemplate {};
+            let rendered_daemons = daemons_template.render()?;
+            let daemons_file = format!("{dir}/daemons");
+
+            // Render FRR config
+            let rendered_config = match &custom_ztp {
+                Some(config) => config.clone(),
+                None => {
+                    let frr_template = template::FrrZtpTemplate {
+                        hostname: node.name.clone(),
+                        mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv4_address: Some(node_ipv4_address),
+                    };
+                    frr_template.render()?
+                }
+            };
+            let config_file = format!("{dir}/frr.conf");
+
+            // Render startup script
+            let startup_template = template::FrrStartupTemplate {
+                hostname: node.name.clone(),
+                user: sherpa_user.clone(),
+            };
+            let rendered_startup = startup_template.render()?;
+            let startup_file = format!("{dir}/sherpa-init.sh");
+
+            util::create_dir(&dir)?;
+            util::create_file(&daemons_file, rendered_daemons)?;
+            util::create_file(&config_file, rendered_config)?;
+            util::create_file(&startup_file, rendered_startup)?;
+
+            let daemons_volume = topology::VolumeMount {
+                src: daemons_file,
+                dst: FRR_ZTP_DAEMONS_MOUNT.to_string(),
+            };
+            let config_volume = topology::VolumeMount {
+                src: config_file,
+                dst: FRR_ZTP_CONFIG_MOUNT.to_string(),
+            };
+            let startup_volume = topology::VolumeMount {
+                src: startup_file,
+                dst: FRR_ZTP_STARTUP_MOUNT.to_string(),
+            };
+
+            image = CONTAINER_FRR_REPO.to_string();
+            privileged = true;
+            env_vars = CONTAINER_FRR_ENV_VARS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            volumes = vec![
+                format!("{}:{}", daemons_volume.src, daemons_volume.dst),
+                format!("{}:{}", config_volume.src, config_volume.dst),
+                format!("{}:{}", startup_volume.src, startup_volume.dst),
+            ];
+            commands = vec!["/bin/sh".to_string(), "/tmp/sherpa-init.sh".to_string()];
+
+            node.image = Some(image.clone());
+            node.privileged = Some(privileged);
+            node.environment_variables = Some(env_vars.clone());
+            node.volumes = Some(vec![daemons_volume, config_volume, startup_volume]);
+            node.commands = Some(commands.clone());
+        }
         data::NodeModel::SurrealDb => {
             image = CONTAINER_SURREAL_DB_REPO.to_string();
             commands = CONTAINER_SURREAL_DB_COMMANDS
@@ -261,6 +328,7 @@ pub fn generate_container_ztp(
             node.model,
             data::NodeModel::AristaCeos
                 | data::NodeModel::NokiaSrlinux
+                | data::NodeModel::FrrLinux
                 | data::NodeModel::SurrealDb
         ) {
             volumes = manifest_volumes;
