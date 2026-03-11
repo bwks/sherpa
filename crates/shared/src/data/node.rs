@@ -1939,7 +1939,7 @@ impl NodeConfig {
             ztp_password: None,
             ztp_method: ZtpMethod::Disk,
             ztp_password_auth: false,
-            first_interface_index: 2,
+            first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Ether1,
             reserved_interface_count: 0,

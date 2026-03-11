@@ -830,6 +830,22 @@ interface_enum!(
 );
 
 interface_enum!(
+    MikrotikChrInt,
+    "MikrotikChr",
+    [
+        Eth1 => 0, "eth1",
+        Eth2 => 1, "eth2",
+        Eth3 => 2, "eth3",
+        Eth4 => 3, "eth4",
+        Eth5 => 4, "eth5",
+        Eth6 => 5, "eth6",
+        Eth7 => 6, "eth7",
+        Eth8 => 7, "eth8",
+        Eth9 => 8, "eth9"
+    ]
+);
+
+interface_enum!(
     JuniperVsrxv3Int,
     "JuniperVsrxv3",
     [
