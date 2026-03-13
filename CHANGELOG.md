@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.22] - 2026-03-13
+
+### Features
+
+- TLS certs per lab by @bwks ([6a4c51c](https://github.com/bwks/sherpa/commit/6a4c51c9fd7a95165be3e0c4d3dcfd40900618af))
+
+### Miscellaneous
+
+- V0.3.22
+
+chore: stable toolchain by @bwks in [#132](https://github.com/bwks/sherpa/pull/132) ([a770a08](https://github.com/bwks/sherpa/commit/a770a0899179a60b309166c31f9b0458c2108102))
+- Stable toolchain by @bwks ([26905f3](https://github.com/bwks/sherpa/commit/26905f3b632e07bb0733c04828f03d16ea87a7b1))
+- Merge pull request #131 from bwks/v0.3.22
+
+feat: TLS certs per lab by @bwks in [#131](https://github.com/bwks/sherpa/pull/131) ([8de63f7](https://github.com/bwks/sherpa/commit/8de63f7b1c410f5d410f3ea98fc26b60eb253321))
+- Version bump by @bwks ([30cb249](https://github.com/bwks/sherpa/commit/30cb24901c44dcd3dafeea23fe4ea1e552e47f65))
+- Fix formatting by @bwks ([8f71b87](https://github.com/bwks/sherpa/commit/8f71b8790c1e27e262fcfff6e68fb3cfa567f6f9))
+- Merge pull request #130 from bwks/changelog/v0.3.21
+
+chore(release): update changelog for v0.3.21 by @github-actions[bot] in [#130](https://github.com/bwks/sherpa/pull/130) ([62d6852](https://github.com/bwks/sherpa/commit/62d685217ac8bb13300adb78eebbef8ac55d0266))
 ## [0.3.21] - 2026-03-11
 
 ### Features
