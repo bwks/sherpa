@@ -637,8 +637,8 @@ pub fn generate_vm_ztp(
             driver_name: data::DiskDrivers::Qemu,
             driver_format: data::DiskFormats::Raw,
             src_file: dst_disk,
-            target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-            target_bus: hdd_bus.clone(),
+            target_dev: data::DiskTargets::target(&data::DiskBuses::Usb, 0)?,
+            target_bus: data::DiskBuses::Usb,
         });
     }
 
@@ -1443,6 +1443,7 @@ fn generate_usb_ztp(
             util::copy_file(&src_usb, &dst_usb)?;
             util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
             util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
+            util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_usb, dst_final))

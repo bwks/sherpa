@@ -1263,7 +1263,7 @@ impl NodeConfig {
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethod::Usb,
+            ztp_method: ZtpMethod::Tftp,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: true,

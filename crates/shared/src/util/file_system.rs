@@ -7,7 +7,7 @@ use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
 pub fn path_to_string(path: &Path) -> String {
@@ -203,9 +203,17 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
 /// `mcopy` must be installed on the system.
 #[cfg(unix)]
 pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Result<()> {
-    Command::new("mcopy")
+    let status = Command::new("mcopy")
         .args(["-i", dst_image, src_file, &format!("::{dst_dir}")])
         .status()?;
+    if !status.success() {
+        bail!(
+            "mcopy failed (exit {}): copying {} to image {}",
+            status.code().unwrap_or(-1),
+            src_file,
+            dst_image
+        );
+    }
     tracing::debug!(source = %src_file, image = %dst_image, directory = %dst_dir, "File copied to DOS image");
 
     Ok(())
@@ -219,7 +227,14 @@ pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) 
     let dst = format!("{}:{}", &dst_image, &dst_dir);
     let mut cmd = src_files.clone();
     cmd.push(&dst);
-    Command::new("e2cp").args(cmd).status()?;
+    let status = Command::new("e2cp").args(cmd).status()?;
+    if !status.success() {
+        bail!(
+            "e2cp failed (exit {}): copying to image {}",
+            status.code().unwrap_or(-1),
+            dst_image
+        );
+    }
     tracing::debug!(image = %dst_image, directory = %dst_dir, file_count = src_files.len(), "Files copied to EXT4 image");
 
     Ok(())
@@ -230,9 +245,31 @@ pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) 
 /// `tar` must be installed on the system.
 #[cfg(unix)]
 pub fn create_config_archive(src_path: &str, dst_path: &str) -> Result<()> {
-    Command::new("tar")
-        .args(["cvzf", dst_path, src_path])
+    let path = Path::new(src_path);
+    let dir = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("No parent directory for: {}", src_path))?;
+    let filename = path
+        .file_name()
+        .ok_or_else(|| anyhow::anyhow!("No filename for: {}", src_path))?;
+
+    let status = Command::new("tar")
+        .args([
+            "czf",
+            dst_path,
+            "-C",
+            &dir.to_string_lossy(),
+            &filename.to_string_lossy(),
+        ])
         .status()?;
+    if !status.success() {
+        bail!(
+            "tar failed (exit {}): creating archive {} from {}",
+            status.code().unwrap_or(-1),
+            dst_path,
+            src_path
+        );
+    }
     tracing::debug!(source = %src_path, archive = %dst_path, "Archive created");
     Ok(())
 }
