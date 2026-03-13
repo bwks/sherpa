@@ -1109,8 +1109,7 @@ pub async fn up_lab(
             }
 
             // Generate per-node TLS certificate
-            let node_cert_path =
-                Path::new(&certs_dir).join(format!("{}.crt", node.name));
+            let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
             let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
             tls::generator::generate_node_certificate(
                 &node_cert_path,
@@ -1179,8 +1178,7 @@ pub async fn up_lab(
             }
 
             // Generate per-node TLS certificate
-            let node_cert_path =
-                Path::new(&certs_dir).join(format!("{}.crt", node.name));
+            let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
             let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
             tls::generator::generate_node_certificate(
                 &node_cert_path,
