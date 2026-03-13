@@ -1,9 +1,18 @@
 use anyhow::{Context, Result};
-use rcgen::{CertificateParams, DistinguishedName, DnType, KeyPair, SanType};
+use rcgen::{
+    BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
+    KeyUsagePurpose, SanType,
+};
 use std::fs::{self, File};
 use std::io::Write;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+
+/// Holds the generated lab CA certificate and key pair for signing node certificates
+pub struct LabCa {
+    pub cert: Certificate,
+    pub key_pair: KeyPair,
+}
 
 /// Generate a self-signed certificate with the given parameters
 pub fn generate_self_signed_certificate(
@@ -109,8 +118,134 @@ pub fn generate_self_signed_certificate(
     Ok(())
 }
 
+/// Generate a CA certificate for a lab. Returns the CA cert and key pair
+/// for use when signing node certificates.
+pub fn generate_lab_ca(
+    cert_path: &Path,
+    key_path: &Path,
+    lab_id: &str,
+    validity_days: u32,
+) -> Result<LabCa> {
+    tracing::info!(lab_id = %lab_id, "Generating lab CA certificate");
+
+    let key_pair = KeyPair::generate().context("Failed to generate CA key pair")?;
+
+    let mut params =
+        CertificateParams::new(vec![]).context("Failed to create CA certificate parameters")?;
+
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, format!("Sherpa Lab CA - {}", lab_id));
+    dn.push(DnType::OrganizationName, "Sherpa");
+    params.distinguished_name = dn;
+
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+
+    let now = jiff::Timestamp::now();
+    let validity_hours = (validity_days as i64) * 24;
+    let future = now
+        .checked_add(jiff::Span::new().hours(validity_hours))
+        .context("Failed to calculate CA certificate expiration date")?;
+
+    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
+        .context("Failed to convert start time to OffsetDateTime")?;
+    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
+        .context("Failed to convert end time to OffsetDateTime")?;
+
+    params.not_before = not_before;
+    params.not_after = not_after;
+
+    let cert = params
+        .self_signed(&key_pair)
+        .context("Failed to generate lab CA certificate")?;
+
+    let cert_pem = cert.pem();
+    write_file_with_permissions(cert_path, cert_pem.as_bytes(), 0o644)
+        .context("Failed to write CA certificate file")?;
+
+    let key_pem = key_pair.serialize_pem();
+    write_file_with_permissions(key_path, key_pem.as_bytes(), 0o600)
+        .context("Failed to write CA private key file")?;
+
+    tracing::info!(
+        lab_id = %lab_id,
+        "Lab CA certificate generated: {}",
+        cert_path.display()
+    );
+
+    Ok(LabCa { cert, key_pair })
+}
+
+/// Generate a node certificate signed by the lab CA
+pub fn generate_node_certificate(
+    cert_path: &Path,
+    key_path: &Path,
+    lab_ca: &LabCa,
+    hostname: &str,
+    ip: &str,
+    validity_days: u32,
+) -> Result<()> {
+    tracing::info!(hostname = %hostname, "Generating node certificate");
+
+    let node_key_pair = KeyPair::generate().context("Failed to generate node key pair")?;
+
+    let mut params =
+        CertificateParams::new(vec![]).context("Failed to create node certificate parameters")?;
+
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, hostname);
+    dn.push(DnType::OrganizationName, "Sherpa");
+    params.distinguished_name = dn;
+
+    // Add SANs
+    params.subject_alt_names.push(SanType::DnsName(
+        hostname
+            .to_string()
+            .try_into()
+            .context("Failed to convert hostname to DNS name for SAN")?,
+    ));
+
+    if let Ok(ip_addr) = ip.parse() {
+        params.subject_alt_names.push(SanType::IpAddress(ip_addr));
+    }
+
+    let now = jiff::Timestamp::now();
+    let validity_hours = (validity_days as i64) * 24;
+    let future = now
+        .checked_add(jiff::Span::new().hours(validity_hours))
+        .context("Failed to calculate node certificate expiration date")?;
+
+    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
+        .context("Failed to convert start time to OffsetDateTime")?;
+    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
+        .context("Failed to convert end time to OffsetDateTime")?;
+
+    params.not_before = not_before;
+    params.not_after = not_after;
+
+    let node_cert = params
+        .signed_by(&node_key_pair, &lab_ca.cert, &lab_ca.key_pair)
+        .context("Failed to sign node certificate with lab CA")?;
+
+    let cert_pem = node_cert.pem();
+    write_file_with_permissions(cert_path, cert_pem.as_bytes(), 0o644)
+        .context("Failed to write node certificate file")?;
+
+    let key_pem = node_key_pair.serialize_pem();
+    write_file_with_permissions(key_path, key_pem.as_bytes(), 0o600)
+        .context("Failed to write node private key file")?;
+
+    tracing::info!(
+        hostname = %hostname,
+        "Node certificate generated: {}",
+        cert_path.display()
+    );
+
+    Ok(())
+}
+
 /// Write a file with specific permissions
-fn write_file_with_permissions(path: &Path, content: &[u8], mode: u32) -> Result<()> {
+pub fn write_file_with_permissions(path: &Path, content: &[u8], mode: u32) -> Result<()> {
     // Ensure parent directory exists
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -168,6 +303,67 @@ mod tests {
         #[cfg(unix)]
         {
             let metadata = fs::metadata(&key_path).unwrap();
+            let permissions = metadata.permissions();
+            assert_eq!(permissions.mode() & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn test_generate_lab_ca() {
+        let temp_dir = TempDir::new().unwrap();
+        let cert_path = temp_dir.path().join("ca.crt");
+        let key_path = temp_dir.path().join("ca.key");
+
+        let result = generate_lab_ca(&cert_path, &key_path, "test-lab", 3650);
+        assert!(result.is_ok());
+
+        assert!(cert_path.exists());
+        assert!(key_path.exists());
+
+        let cert_content = fs::read_to_string(&cert_path).unwrap();
+        assert!(cert_content.contains("BEGIN CERTIFICATE"));
+
+        let key_content = fs::read_to_string(&key_path).unwrap();
+        assert!(key_content.contains("BEGIN PRIVATE KEY"));
+
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(&key_path).unwrap();
+            let permissions = metadata.permissions();
+            assert_eq!(permissions.mode() & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn test_generate_node_certificate() {
+        let temp_dir = TempDir::new().unwrap();
+        let ca_cert_path = temp_dir.path().join("ca.crt");
+        let ca_key_path = temp_dir.path().join("ca.key");
+
+        let lab_ca = generate_lab_ca(&ca_cert_path, &ca_key_path, "test-lab", 3650).unwrap();
+
+        let node_cert_path = temp_dir.path().join("node.crt");
+        let node_key_path = temp_dir.path().join("node.key");
+
+        let result = generate_node_certificate(
+            &node_cert_path,
+            &node_key_path,
+            &lab_ca,
+            "node01",
+            "172.31.0.10",
+            3650,
+        );
+        assert!(result.is_ok());
+
+        assert!(node_cert_path.exists());
+        assert!(node_key_path.exists());
+
+        let cert_content = fs::read_to_string(&node_cert_path).unwrap();
+        assert!(cert_content.contains("BEGIN CERTIFICATE"));
+
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(&node_key_path).unwrap();
             let permissions = metadata.permissions();
             assert_eq!(permissions.mode() & 0o777, 0o600);
         }

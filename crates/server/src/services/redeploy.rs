@@ -251,6 +251,7 @@ pub async fn redeploy_node(
                 &mgmt_net,
                 node_ipv4_address,
                 &progress,
+                None,
             )?;
 
             // Update the target_node fields from ZTP result
@@ -411,6 +412,7 @@ pub async fn redeploy_node(
                 &dns,
                 &progress,
                 db_node.mgmt_mac.as_deref(),
+                None,
             )?;
 
             let _ = progress.send_status(
