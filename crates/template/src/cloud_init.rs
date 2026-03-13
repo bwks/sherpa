@@ -99,6 +99,17 @@ pub struct CloudInitResolvConf {
     pub nameservers: Vec<Ipv4Addr>,
 }
 
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CloudInitWriteFile {
+    pub path: String,
+    pub content: String,
+    pub permissions: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct CloudInitConfig {
     pub hostname: String,
@@ -112,6 +123,8 @@ pub struct CloudInitConfig {
     pub resolv_conf: Option<CloudInitResolvConf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub packages: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_files: Option<Vec<CloudInitWriteFile>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runcmd: Option<Vec<String>>,
 }

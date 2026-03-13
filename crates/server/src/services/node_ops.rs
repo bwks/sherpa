@@ -20,11 +20,12 @@ use shared::konst::{
     CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
     CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
     FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
-    MIKROTIK_CHR_ZTP_CONFIG, NODE_CONFIGS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
+    MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
     SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
     ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -51,6 +52,13 @@ pub struct VmZtpResult {
     pub disks: Vec<data::NodeDisk>,
     pub mac_address: String,
     pub qemu_commands: Vec<data::QemuCommand>,
+}
+
+/// Paths to TLS certificate files for a node
+pub struct NodeCertPaths {
+    pub ca_cert: String,
+    pub node_cert: String,
+    pub node_key: String,
 }
 
 // ============================================================================
@@ -145,6 +153,7 @@ pub fn generate_container_ztp(
     mgmt_net: &data::SherpaNetwork,
     node_ipv4_address: Ipv4Addr,
     progress: &ProgressSender,
+    cert_paths: Option<&NodeCertPaths>,
 ) -> Result<ContainerZtpResult> {
     let dir = format!("{}/{}", lab_dir, node.name);
 
@@ -335,6 +344,16 @@ pub fn generate_container_ztp(
         }
     }
 
+    // Add TLS certificate volume mounts if cert paths are provided
+    if let Some(certs) = cert_paths {
+        volumes.push(format!("{}:{}/ca.crt:ro", certs.ca_cert, NODE_CERTS_DIR));
+        volumes.push(format!(
+            "{}:{}/node.crt:ro",
+            certs.node_cert, NODE_CERTS_DIR
+        ));
+        volumes.push(format!("{}:{}/node.key:ro", certs.node_key, NODE_CERTS_DIR));
+    }
+
     let ztp_record = data::ZtpRecord {
         node_name: node.name.clone(),
         config_file: format!("{}.conf", &node.name),
@@ -375,6 +394,7 @@ pub fn generate_vm_ztp(
     dns: &data::Dns,
     progress: &ProgressSender,
     mgmt_mac: Option<&str>,
+    cert_paths: Option<&NodeCertPaths>,
 ) -> Result<VmZtpResult> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let hdd_bus = node_image.hdd_bus.clone();
@@ -450,6 +470,7 @@ pub fn generate_vm_ztp(
                     node_ipv4_address,
                     &mac_address,
                     progress,
+                    cert_paths,
                 )?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
@@ -541,6 +562,7 @@ pub fn generate_vm_ztp(
                     node_ipv4_address,
                     &node_name_with_lab,
                     progress,
+                    cert_paths,
                 )?;
                 src_ignition_disk = Some(src_ign);
                 dst_ignition_disk = Some(dst_ign);
@@ -665,6 +687,116 @@ pub fn generate_vm_ztp(
 }
 
 // ============================================================================
+// TLS Certificate Helpers
+// ============================================================================
+
+/// Build cloud-init write_files entries for TLS certificates
+fn build_cloud_init_cert_files(
+    cert_paths: &NodeCertPaths,
+    target_dir: &str,
+) -> Result<Vec<template::CloudInitWriteFile>> {
+    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+        .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
+    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+        .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
+    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+        .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
+
+    Ok(vec![
+        template::CloudInitWriteFile {
+            path: format!("{target_dir}/ca.crt"),
+            content: ca_cert_content,
+            permissions: "0644".to_string(),
+            owner: Some("root:root".to_string()),
+            encoding: None,
+        },
+        template::CloudInitWriteFile {
+            path: format!("{target_dir}/node.crt"),
+            content: node_cert_content,
+            permissions: "0644".to_string(),
+            owner: Some("root:root".to_string()),
+            encoding: None,
+        },
+        template::CloudInitWriteFile {
+            path: format!("{target_dir}/node.key"),
+            content: node_key_content,
+            permissions: "0600".to_string(),
+            owner: Some("root:root".to_string()),
+            encoding: None,
+        },
+    ])
+}
+
+/// Build cloudbase-init write_files entries for TLS certificates (Windows)
+fn build_cloudbase_cert_files(
+    cert_paths: &NodeCertPaths,
+    target_dir: &str,
+) -> Result<Vec<template::CloudbaseWriteFile>> {
+    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+        .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
+    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+        .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
+    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+        .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
+
+    Ok(vec![
+        template::CloudbaseWriteFile {
+            path: format!(r"{}\ca.crt", target_dir),
+            content: ca_cert_content,
+            permissions: "0644".to_string(),
+        },
+        template::CloudbaseWriteFile {
+            path: format!(r"{}\node.crt", target_dir),
+            content: node_cert_content,
+            permissions: "0644".to_string(),
+        },
+        template::CloudbaseWriteFile {
+            path: format!(r"{}\node.key", target_dir),
+            content: node_key_content,
+            permissions: "0600".to_string(),
+        },
+    ])
+}
+
+/// Build Ignition file entries for TLS certificates
+fn build_ignition_cert_files(
+    cert_paths: &NodeCertPaths,
+    target_dir: &str,
+) -> Result<Vec<template::IgnitionFile>> {
+    let ca_cert_content = std::fs::read_to_string(&cert_paths.ca_cert)
+        .with_context(|| format!("Failed to read CA cert: {}", cert_paths.ca_cert))?;
+    let node_cert_content = std::fs::read_to_string(&cert_paths.node_cert)
+        .with_context(|| format!("Failed to read node cert: {}", cert_paths.node_cert))?;
+    let node_key_content = std::fs::read_to_string(&cert_paths.node_key)
+        .with_context(|| format!("Failed to read node key: {}", cert_paths.node_key))?;
+
+    let ca_b64 = util::base64_encode(&ca_cert_content);
+    let cert_b64 = util::base64_encode(&node_cert_content);
+    let key_b64 = util::base64_encode(&node_key_content);
+
+    Ok(vec![
+        template::IgnitionFile {
+            path: format!("{target_dir}/ca.crt"),
+            mode: 0o644,
+            contents: template::IgnitionFileContents::new(&format!("data:;base64,{ca_b64}")),
+            ..Default::default()
+        },
+        template::IgnitionFile {
+            path: format!("{target_dir}/node.crt"),
+            mode: 0o644,
+            contents: template::IgnitionFileContents::new(&format!("data:;base64,{cert_b64}")),
+            ..Default::default()
+        },
+        template::IgnitionFile {
+            path: format!("{target_dir}/node.key"),
+            mode: 0o600,
+            contents: template::IgnitionFileContents::new(&format!("data:;base64,{key_b64}")),
+            ..Default::default()
+        },
+    ])
+}
+
+// ============================================================================
 // VM ZTP sub-methods
 // ============================================================================
 
@@ -677,6 +809,7 @@ fn generate_cloud_init_ztp(
     node_ipv4_address: Ipv4Addr,
     mac_address: &str,
     progress: &ProgressSender,
+    cert_paths: Option<&NodeCertPaths>,
 ) -> Result<()> {
     let _ = progress.send_status(
         format!("Creating Cloud-Init config for VM: {}", node.name),
@@ -704,12 +837,18 @@ fn generate_cloud_init_ztp(
             cloud_init_user.groups = vec![admin_group];
             cloud_init_user.shell = shell;
 
+            let write_files = match cert_paths {
+                Some(certs) => Some(build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?),
+                None => None,
+            };
+
             let cloud_init_config = template::CloudInitConfig {
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
                 users: vec![cloud_init_user],
+                write_files,
                 ..Default::default()
             };
             let user_data_config = cloud_init_config.to_string()?;
@@ -747,14 +886,19 @@ fn generate_cloud_init_ztp(
 
             let admin_keys_path = r"C:\ProgramData\ssh\administrators_authorized_keys";
 
+            let mut write_files = vec![template::CloudbaseWriteFile {
+                path: admin_keys_path.to_string(),
+                content: ssh_key_str.clone(),
+                permissions: "0644".to_string(),
+            }];
+            if let Some(certs) = cert_paths {
+                write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
+            }
+
             let cloudbase_config = template::CloudbaseInitConfig {
                 set_hostname: node.name.clone(),
                 users: vec![cloudbase_user],
-                write_files: vec![template::CloudbaseWriteFile {
-                    path: admin_keys_path.to_string(),
-                    content: ssh_key_str.clone(),
-                    permissions: "0644".to_string(),
-                }],
+                write_files,
                 runcmd: vec![
                     format!(
                         "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
@@ -798,12 +942,19 @@ fn generate_cloud_init_ztp(
             };
             cloud_init_user.shell = "/bin/sh".to_string();
             cloud_init_user.groups = vec!["wheel".to_string()];
+
+            let write_files = match cert_paths {
+                Some(certs) => Some(build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?),
+                None => None,
+            };
+
             let cloud_init_config = template::CloudInitConfig {
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
                 users: vec![cloud_init_user],
+                write_files,
                 ..Default::default()
             };
             let meta_data_config = meta_data.to_string()?;
@@ -1353,6 +1504,7 @@ fn generate_ignition_ztp(
     node_ipv4_address: Ipv4Addr,
     node_name_with_lab: &str,
     progress: &ProgressSender,
+    cert_paths: Option<&NodeCertPaths>,
 ) -> Result<(String, String, String, String)> {
     let _ = progress.send_status(
         format!("Creating Ignition config for VM: {}", node.name),
@@ -1474,6 +1626,11 @@ fn generate_ignition_ztp(
                 node_ipv4_address,
                 mgmt_net.v4.clone(),
             )?);
+
+            // Add TLS certificate files if cert paths are provided
+            if let Some(certs) = cert_paths {
+                files.extend(build_ignition_cert_files(certs, NODE_CERTS_DIR)?);
+            }
 
             let ignition_config = template::IgnitionConfig::new(
                 vec![ignition_user],

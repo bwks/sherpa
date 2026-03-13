@@ -2,6 +2,7 @@
 // This is a port of the client's up.rs command with streaming progress support
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -13,12 +14,14 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::tls;
 
 use shared::data;
 use shared::data::{NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE,
+    LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME,
     SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
@@ -1061,6 +1064,26 @@ pub async fn up_lab(
         util::create_dir(&ztp_dir)?;
         util::create_dir(&tftp_dir)?;
 
+        // Generate per-lab TLS CA certificate
+        let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
+        util::create_dir(&certs_dir)?;
+
+        let ca_cert_path = Path::new(&certs_dir).join(LAB_CA_CERT_FILE);
+        let ca_key_path = Path::new(&certs_dir).join(LAB_CA_KEY_FILE);
+
+        let lab_ca = tls::generator::generate_lab_ca(
+            &ca_cert_path,
+            &ca_key_path,
+            lab_id,
+            LAB_CERT_VALIDITY_DAYS,
+        )
+        .context("Failed to generate lab CA certificate")?;
+
+        let _ = progress.send_status(
+            format!("Lab CA certificate generated for lab: {}", lab_id),
+            StatusKind::Done,
+        );
+
         // Container nodes ZTP generation
         for node in &mut container_nodes {
             // Decode base64 ztp_config if present
@@ -1085,6 +1108,31 @@ pub async fn up_lab(
                 db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
             }
 
+            // Generate per-node TLS certificate
+            let node_cert_path =
+                Path::new(&certs_dir).join(format!("{}.crt", node.name));
+            let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
+            tls::generator::generate_node_certificate(
+                &node_cert_path,
+                &node_key_path,
+                &lab_ca,
+                &node.name,
+                &node_ipv4_address.to_string(),
+                LAB_CERT_VALIDITY_DAYS,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to generate TLS certificate for node '{}'",
+                    node.name
+                )
+            })?;
+
+            let cert_paths = node_ops::NodeCertPaths {
+                ca_cert: ca_cert_path.to_string_lossy().to_string(),
+                node_cert: node_cert_path.to_string_lossy().to_string(),
+                node_key: node_key_path.to_string_lossy().to_string(),
+            };
+
             let ztp_result = node_ops::generate_container_ztp(
                 node,
                 &node_image,
@@ -1094,6 +1142,7 @@ pub async fn up_lab(
                 &mgmt_net,
                 node_ipv4_address,
                 &progress,
+                Some(&cert_paths),
             )?;
 
             ztp_records.push(ztp_result.ztp_record);
@@ -1129,6 +1178,31 @@ pub async fn up_lab(
                 db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
             }
 
+            // Generate per-node TLS certificate
+            let node_cert_path =
+                Path::new(&certs_dir).join(format!("{}.crt", node.name));
+            let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
+            tls::generator::generate_node_certificate(
+                &node_cert_path,
+                &node_key_path,
+                &lab_ca,
+                &node.name,
+                &node_ipv4_address.to_string(),
+                LAB_CERT_VALIDITY_DAYS,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to generate TLS certificate for node '{}'",
+                    node.name
+                )
+            })?;
+
+            let cert_paths = node_ops::NodeCertPaths {
+                ca_cert: ca_cert_path.to_string_lossy().to_string(),
+                node_cert: node_cert_path.to_string_lossy().to_string(),
+                node_key: node_key_path.to_string_lossy().to_string(),
+            };
+
             // Generate VM ZTP configuration, disks, and clone list
             let ztp_result = node_ops::generate_vm_ztp(
                 node,
@@ -1143,6 +1217,7 @@ pub async fn up_lab(
                 &dns,
                 &progress,
                 None,
+                Some(&cert_paths),
             )?;
 
             // Persist management MAC to the database

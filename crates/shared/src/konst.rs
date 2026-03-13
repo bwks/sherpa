@@ -158,6 +158,15 @@ pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
 
+pub const LAB_CERTS_DIR: &str = "certs";
+pub const LAB_CA_CERT_FILE: &str = "ca.crt";
+pub const LAB_CA_KEY_FILE: &str = "ca.key";
+pub const NODE_CERT_FILE: &str = "node.crt";
+pub const NODE_KEY_FILE: &str = "node.key";
+pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
+pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
+pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
+
 pub const READINESS_TIMEOUT: u64 = 600;
 pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
