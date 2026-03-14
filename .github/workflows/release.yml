@@ -64,6 +64,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libvirt-dev pkg-config
 
+      - name: Build Tailwind CSS
+        if: matrix.package == 'sherpad'
+        run: bash scripts/tailwind-build.sh
+
       - name: Build
         run: cargo build --release -p ${{ matrix.package }} --target ${{ matrix.target }}
 
