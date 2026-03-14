@@ -382,7 +382,7 @@ impl IntoResponse for SshKeyErrorTemplate {
 
 /// Admin dashboard page template
 #[derive(Template)]
-#[template(path = "admin-dashboard.html.jinja")]
+#[template(path = "admin/dashboard.html.jinja")]
 pub struct AdminDashboardTemplate {
     pub username: String,
     pub users: Vec<UserSummary>,
@@ -403,7 +403,7 @@ impl IntoResponse for AdminDashboardTemplate {
 
 /// Admin labs list page template
 #[derive(Template)]
-#[template(path = "admin-labs.html.jinja")]
+#[template(path = "admin/labs.html.jinja")]
 pub struct AdminLabsTemplate {
     pub username: String,
     pub labs: Vec<AdminLabSummary>,
@@ -432,9 +432,9 @@ impl IntoResponse for AdminLabsTemplate {
 
 /// Admin user edit page template
 #[derive(Template)]
-#[template(path = "admin-user-edit.html.jinja")]
+#[template(path = "admin/user-edit.html.jinja")]
 pub struct AdminUserEditTemplate {
-    pub admin_username: String,
+    pub username: String,
     pub target_user: DbUser,
     pub is_self: bool,
     pub ssh_keys_html: String,
@@ -455,7 +455,7 @@ impl IntoResponse for AdminUserEditTemplate {
 
 /// Admin SSH keys list partial template
 #[derive(Template)]
-#[template(path = "partials/admin-ssh-keys-list.html.jinja")]
+#[template(path = "admin/partials/ssh-keys-list.html.jinja")]
 pub struct AdminSshKeysListTemplate {
     pub target_username: String,
     pub ssh_keys: Vec<String>,
@@ -478,7 +478,7 @@ impl IntoResponse for AdminSshKeysListTemplate {
 
 /// Admin password update success message template
 #[derive(Template)]
-#[template(path = "partials/admin-password-success.html.jinja")]
+#[template(path = "admin/partials/password-success.html.jinja")]
 pub struct AdminPasswordSuccessTemplate {
     pub target_username: String,
 }
@@ -498,7 +498,7 @@ impl IntoResponse for AdminPasswordSuccessTemplate {
 
 /// Admin password update error message template
 #[derive(Template)]
-#[template(path = "partials/admin-password-error.html.jinja")]
+#[template(path = "admin/partials/password-error.html.jinja")]
 pub struct AdminPasswordErrorTemplate {
     pub error_message: String,
 }
@@ -522,7 +522,7 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 
 /// Admin node images list page template
 #[derive(Template)]
-#[template(path = "admin-node-images.html.jinja")]
+#[template(path = "admin/node-images.html.jinja")]
 #[allow(dead_code)]
 pub struct AdminNodeImagesListTemplate {
     pub username: String,
@@ -545,7 +545,7 @@ impl IntoResponse for AdminNodeImagesListTemplate {
 
 /// Admin node image detail page template
 #[derive(Template)]
-#[template(path = "admin-node-image-detail.html.jinja")]
+#[template(path = "admin/node-image-detail.html.jinja")]
 #[allow(dead_code)]
 pub struct AdminNodeImageDetailTemplate {
     pub username: String,
@@ -568,7 +568,7 @@ impl IntoResponse for AdminNodeImageDetailTemplate {
 
 /// Admin node image edit page template
 #[derive(Template)]
-#[template(path = "admin-node-image-edit.html.jinja")]
+#[template(path = "admin/node-image-edit.html.jinja")]
 #[allow(dead_code)]
 pub struct AdminNodeImageEditTemplate {
     pub username: String,
@@ -599,7 +599,7 @@ impl IntoResponse for AdminNodeImageEditTemplate {
 
 /// Admin node image versions list page template
 #[derive(Template)]
-#[template(path = "admin-node-image-versions.html.jinja")]
+#[template(path = "admin/node-image-versions.html.jinja")]
 #[allow(dead_code)]
 pub struct AdminNodeImageVersionsTemplate {
     pub username: String,

@@ -3,26 +3,7 @@
 {% block title %}Edit User: {{ target_user.username }} - Sherpa Labs{% endblock %}
 
 {% block header_actions %}
-    <div class="flex items-center space-x-4">
-        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ admin_username }}</span></span>
-        <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Admin
-        </a>
-        <a href="/admin/labs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Labs
-        </a>
-        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Node Images
-        </a>
-        <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-            Profile
-        </a>
-        <form action="/logout" method="post" class="inline">
-            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-                Logout
-            </button>
-        </form>
-    </div>
+    {% include "admin/partials/header-nav.html.jinja" %}
 {% endblock %}
 
 {% block content %}

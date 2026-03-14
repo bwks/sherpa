@@ -1337,7 +1337,7 @@ pub async fn admin_user_edit_handler(
     })?;
 
     Ok(AdminUserEditTemplate {
-        admin_username: admin.username,
+        username: admin.username,
         target_user,
         is_self,
         ssh_keys_html,
