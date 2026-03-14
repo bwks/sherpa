@@ -546,6 +546,7 @@ pub fn generate_vm_ztp(
                     node,
                     node_image,
                     lab_dir,
+                    sherpa_user,
                     mgmt_net,
                     node_ipv4_address,
                     progress,
@@ -1460,6 +1461,7 @@ fn generate_http_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_dir: &str,
+    sherpa_user: &data::User,
     mgmt_net: &data::SherpaNetwork,
     node_ipv4_address: Ipv4Addr,
     progress: &ProgressSender,
@@ -1486,6 +1488,12 @@ fn generate_http_ztp(
             util::create_dir(&dir)?;
             util::create_file(&ztp_init, sonic_ztp_file_map)?;
             util::create_file(&ztp_config, sonic_ztp.config())?;
+
+            let sonic_user_template = template::SonicLinuxUserTemplate {
+                user: sherpa_user.clone(),
+            };
+            let ztp_user_script = format!("{dir}/sonic_ztp_user.sh");
+            util::create_file(&ztp_user_script, sonic_user_template.render()?)?;
         }
         _ => {
             bail!("HTTP ZTP method not supported for {}", node_image.model);
