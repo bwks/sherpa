@@ -305,65 +305,6 @@
     margin-top: 1rem;
 }
 
-/* Admin Dashboard Styles */
-.admin-table {
-    width: 100%;
-    background: white;
-    border-collapse: collapse;
-}
-
-.admin-table thead {
-    background-color: #f9fafb;
-    border-bottom: 1px solid #e5e7eb;
-}
-
-.admin-table th {
-    padding: 0.75rem 1rem;
-    text-align: left;
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.admin-table tbody tr {
-    border-bottom: 1px solid #e5e7eb;
-    transition: background-color 0.15s;
-}
-
-.admin-table tbody tr:last-child {
-    border-bottom: none;
-}
-
-.admin-table tbody tr:hover {
-    background-color: #f9fafb;
-}
-
-.admin-table td {
-    padding: 1rem;
-    font-size: 0.875rem;
-    color: #374151;
-}
-
-.admin-table .username-col {
-    font-family: 'Courier New', monospace;
-    font-weight: 500;
-}
-
-.admin-table .admin-badge {
-    text-align: center;
-}
-
-.admin-table .admin-check {
-    color: #059669;
-    font-size: 1.25rem;
-}
-
-.admin-table .user-dash {
-    color: #9ca3af;
-    font-size: 1.25rem;
-}
 
 .admin-disabled-card {
     position: relative;
@@ -388,62 +329,7 @@
     pointer-events: none;
 }
 
-/* Node Config Kind Badges */
-.kind-badge {
-    display: inline-block;
-    padding: 0.25rem 0.75rem;
-    font-size: 0.75rem;
-    font-weight: 600;
-    border-radius: 9999px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
 
-.kind-vm {
-    background-color: #dbeafe;
-    color: #1e40af;
-}
-
-.kind-container {
-    background-color: #d1fae5;
-    color: #065f46;
-}
-
-.kind-unikernel {
-    background-color: #e9d5ff;
-    color: #6b21a8;
-}
-
-/* Node Config Detail Grid */
-.config-detail-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 1rem;
-}
-
-.config-detail-item {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-}
-
-.config-detail-label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: #6b7280;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-}
-
-.config-detail-value {
-    font-size: 0.875rem;
-    color: #374151;
-    font-weight: 500;
-}
-
-.config-monospace {
-    font-family: 'Courier New', monospace;
-}
 
 /* Lab Destroy Styles */
 .destroy-confirm-panel {

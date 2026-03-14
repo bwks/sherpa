@@ -19,24 +19,24 @@
     <!-- Labs Table -->
     {% if !labs.is_empty() %}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table class="admin-table">
-            <thead>
+        <table class="w-full bg-white border-collapse">
+            <thead class="bg-gray-50 border-b border-gray-200">
                 <tr>
-                    <th style="text-align: left;">Name</th>
-                    <th style="text-align: left;">Lab ID</th>
-                    <th style="text-align: left;">Owner</th>
-                    <th style="text-align: center;">Nodes</th>
-                    <th style="text-align: right;">Actions</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Lab ID</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Owner</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Nodes</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for lab in labs %}
-                <tr>
-                    <td class="username-col">{{ lab.name }}</td>
-                    <td>{{ lab.lab_id }}</td>
-                    <td>{{ lab.owner_username }}</td>
-                    <td style="text-align: center;">{{ lab.node_count }}</td>
-                    <td style="text-align: right;">
+                <tr class="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition-colors">
+                    <td class="p-4 text-sm text-gray-700 font-mono font-medium">{{ lab.name }}</td>
+                    <td class="p-4 text-sm text-gray-700">{{ lab.lab_id }}</td>
+                    <td class="p-4 text-sm text-gray-700">{{ lab.owner_username }}</td>
+                    <td class="p-4 text-sm text-gray-700 text-center">{{ lab.node_count }}</td>
+                    <td class="p-4 text-sm text-gray-700 text-right">
                         <a href="/labs/{{ lab.lab_id }}" class="inline-block px-3 py-1 text-sm font-medium text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded transition-colors">
                             View
                         </a>
