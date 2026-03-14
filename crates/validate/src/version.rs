@@ -34,9 +34,18 @@ pub fn validate_and_resolve_node_versions(
 ) -> Result<Vec<Node>> {
     let mut validated_nodes = Vec::new();
 
-    // Build lookup map for faster access
-    let config_map: HashMap<NodeModel, &NodeConfig> =
-        node_images.iter().map(|c| (c.model, c)).collect();
+    // Build lookup map for faster access, preferring default images per model
+    let mut config_map: HashMap<NodeModel, &NodeConfig> = HashMap::new();
+    for config in node_images {
+        config_map
+            .entry(config.model)
+            .and_modify(|existing| {
+                if config.default && !existing.default {
+                    *existing = config;
+                }
+            })
+            .or_insert(config);
+    }
 
     for node in nodes {
         let mut updated_node = node.clone();

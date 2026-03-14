@@ -67,7 +67,7 @@ pub use config::{
     ClientConfig, Config, ConfigurationManagement, ServerConnection, Sherpa, TlsConfig, ZtpServer,
 };
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
-pub use cpu::CpuModels;
+pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use dhcp::DhcpLease;

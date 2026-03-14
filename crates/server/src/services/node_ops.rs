@@ -546,6 +546,7 @@ pub fn generate_vm_ztp(
                     node,
                     node_image,
                     lab_dir,
+                    sherpa_user,
                     mgmt_net,
                     node_ipv4_address,
                     progress,
@@ -637,8 +638,8 @@ pub fn generate_vm_ztp(
             driver_name: data::DiskDrivers::Qemu,
             driver_format: data::DiskFormats::Raw,
             src_file: dst_disk,
-            target_dev: data::DiskTargets::target(&hdd_bus, disks.len() as u8)?,
-            target_bus: hdd_bus.clone(),
+            target_dev: data::DiskTargets::target(&data::DiskBuses::Usb, 0)?,
+            target_bus: data::DiskBuses::Usb,
         });
     }
 
@@ -657,6 +658,7 @@ pub fn generate_vm_ztp(
     let qemu_commands = match node_image.model {
         data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
         data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
+        data::NodeModel::JuniperVsrxv3 => data::QemuCommand::juniper_vsrxv3(),
         data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
         data::NodeModel::FlatcarLinux => {
             if let Some(ref dst_ignition) = dst_ignition_disk {
@@ -1035,7 +1037,7 @@ fn generate_tftp_ztp(
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
                 util::create_file(&ztp_config, rendered_template)?;
             }
-            data::NodeModel::JuniperVevolved => {
+            data::NodeModel::JuniperVevolved | data::NodeModel::JuniperVsrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
@@ -1443,6 +1445,7 @@ fn generate_usb_ztp(
             util::copy_file(&src_usb, &dst_usb)?;
             util::create_config_archive(&ztp_config, &ztp_config_tgz)?;
             util::copy_to_dos_image(&ztp_config_tgz, &dst_usb, "/")?;
+            util::copy_to_dos_image(&ztp_config, &dst_usb, "/")?;
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_usb, dst_final))
@@ -1458,6 +1461,7 @@ fn generate_http_ztp(
     node: &topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_dir: &str,
+    sherpa_user: &data::User,
     mgmt_net: &data::SherpaNetwork,
     node_ipv4_address: Ipv4Addr,
     progress: &ProgressSender,
@@ -1484,6 +1488,12 @@ fn generate_http_ztp(
             util::create_dir(&dir)?;
             util::create_file(&ztp_init, sonic_ztp_file_map)?;
             util::create_file(&ztp_config, sonic_ztp.config())?;
+
+            let sonic_user_template = template::SonicLinuxUserTemplate {
+                user: sherpa_user.clone(),
+            };
+            let ztp_user_script = format!("{dir}/sonic_ztp_user.sh");
+            util::create_file(&ztp_user_script, sonic_user_template.render()?)?;
         }
         _ => {
             bail!("HTTP ZTP method not supported for {}", node_image.model);
@@ -1710,6 +1720,14 @@ pub fn build_domain_template(
         disks,
         interfaces,
         interface_type: node_image.interface_type.clone(),
+        management_interface_type: management_interface_type_for_model(
+            &node_image.model,
+            &node_image.interface_type,
+        ),
+        reserved_interface_type: reserved_interface_type_for_model(
+            &node_image.model,
+            &node_image.interface_type,
+        ),
         loopback_ipv4,
         telnet_port: TELNET_PORT,
         qemu_commands,
@@ -1718,6 +1736,55 @@ pub fn build_domain_template(
         isolated_network: isolated_network_name,
         reserved_network,
         is_windows: node_image.model == data::NodeModel::WindowsServer,
+        cpu_features: cpu_features_for_model(&node_image.model),
+    }
+}
+
+/// Return the management interface type for a node model.
+/// Some platforms (e.g. IOS-XRv9000) require e1000 for the management NIC
+/// while using virtio for data interfaces.
+fn management_interface_type_for_model(
+    model: &data::NodeModel,
+    default: &data::InterfaceType,
+) -> data::InterfaceType {
+    match model {
+        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        _ => default.clone(),
+    }
+}
+
+/// Return the reserved interface type for a node model.
+/// Some platforms (e.g. IOS-XRv9000) use e1000 for the reserved system NICs
+/// per Cisco documentation.
+fn reserved_interface_type_for_model(
+    model: &data::NodeModel,
+    default: &data::InterfaceType,
+) -> data::InterfaceType {
+    match model {
+        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        _ => default.clone(),
+    }
+}
+
+/// Return CPU feature overrides for specific node models.
+fn cpu_features_for_model(model: &data::NodeModel) -> Vec<data::CpuFeature> {
+    match model {
+        data::NodeModel::JuniperVsrxv3 => {
+            // FreeBSD-based vSRX requires disabling several CPU features that
+            // cause boot hangs on KVM. Matches vrnetlab's working configuration.
+            let disabled = [
+                "xsaveopt", "bmi1", "avx2", "bmi2", "erms", "invpcid", "rdseed", "adx", "smap",
+                "abm",
+            ];
+            disabled
+                .iter()
+                .map(|name| data::CpuFeature {
+                    name: (*name).to_owned(),
+                    policy: data::CpuFeaturePolicy::Disable,
+                })
+                .collect()
+        }
+        _ => vec![],
     }
 }
 

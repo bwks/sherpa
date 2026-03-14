@@ -36,6 +36,9 @@
     {% if vmx_enabled %}
     <feature name="vmx" policy="require"/>
     {% endif %}
+    {% for feat in cpu_features %}
+    <feature name="{{ feat.name }}" policy="{{ feat.policy }}"/>
+    {% endfor %}
   </cpu>
 
   {% if is_windows %}
@@ -58,7 +61,7 @@
   <os>
     <type arch='{{ cpu_architecture }}' machine='{{ machine_type }}'>hvm</type>
     <bootmenu enable='no'/>
-    <smbios mode='host'/>
+    <smbios mode='sysinfo'/>
     <boot dev='cdrom'/>
     <boot dev='hd'/>
     {% match bios %}
@@ -139,7 +142,7 @@
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ management_network }}'/>
-      <model type='{{ interface_type }}'/>
+      <model type='{{ management_interface_type }}'/>
     </interface>
 
     {%     when ConnectionTypes::Reserved %}
@@ -148,7 +151,7 @@
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ reserved_network }}'/>
-      <model type='{{ interface_type }}'/>
+      <model type='{{ reserved_interface_type }}'/>
       <link state='up'/>
     </interface>
 

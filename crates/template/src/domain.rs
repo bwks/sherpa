@@ -1,8 +1,8 @@
 use askama::Template;
 
 use shared::data::{
-    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuModels, DiskBuses, DiskDevices,
-    Interface, InterfaceType, MachineType, NodeDisk, QemuCommand,
+    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, DiskBuses,
+    DiskDevices, Interface, InterfaceType, MachineType, NodeDisk, QemuCommand,
 };
 
 #[derive(Debug, Template)]
@@ -20,6 +20,8 @@ pub struct DomainTemplate {
     pub disks: Vec<NodeDisk>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceType,
+    pub management_interface_type: InterfaceType,
+    pub reserved_interface_type: InterfaceType,
     pub loopback_ipv4: String,
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,
@@ -28,6 +30,7 @@ pub struct DomainTemplate {
     pub isolated_network: String,
     pub reserved_network: String,
     pub is_windows: bool,
+    pub cpu_features: Vec<CpuFeature>,
 }
 
 pub struct BootServer {

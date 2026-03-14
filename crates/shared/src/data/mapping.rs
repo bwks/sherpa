@@ -62,6 +62,12 @@ impl QemuCommand {
             value: "type=1,product=VM-VEX".to_owned(),
         }]
     }
+    pub fn juniper_vsrxv3() -> Vec<Self> {
+        vec![Self {
+            param: "-machine".to_owned(),
+            value: "smbios-entry-point-type=32".to_owned(),
+        }]
+    }
     pub fn juniper_vevolved() -> Vec<Self> {
         vec![
             Self {
