@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.23] - 2026-03-14
+
+### Bug Fixes
+
+- Cisco iosvrv9000 by @bwks ([de32366](https://github.com/bwks/sherpa/commit/de32366c31184e974dcabe3b190ec0eb6f235876))
+- Sonic linux ztp user by @bwks ([4e93268](https://github.com/bwks/sherpa/commit/4e932689b4581d05d59cf725e57a2973381b37e5))
+
+### Miscellaneous
+
+- V0.3.23
+
+chore: version bump by @bwks in [#135](https://github.com/bwks/sherpa/pull/135) ([5646419](https://github.com/bwks/sherpa/commit/564641944b897ef929c1f5837ba91f5cc0fdb291))
+- Version bump by @bwks ([c0da5aa](https://github.com/bwks/sherpa/commit/c0da5aae862ad6c63f3d0c18b87a2765dda606b8))
+- Merge pull request #134 from bwks/v0.3.23
+
+V0.3.23 by @bwks in [#134](https://github.com/bwks/sherpa/pull/134) ([3f89975](https://github.com/bwks/sherpa/commit/3f899755229682eacb01f4f61f410a6b5640610b))
+- Attempted (failed) to fix vsrxv3 by @bwks ([3444e6e](https://github.com/bwks/sherpa/commit/3444e6eef994b54a49a16fa89a6439e5992cdb02))
+- Juniper_vevolved ztp fixes by @bwks ([4829b37](https://github.com/bwks/sherpa/commit/4829b3730921d396d7ffbe11e52048e46e2b203f))
+- Merge pull request #133 from bwks/changelog/v0.3.22
+
+chore(release): update changelog for v0.3.22 by @github-actions[bot] in [#133](https://github.com/bwks/sherpa/pull/133) ([68270bc](https://github.com/bwks/sherpa/commit/68270bc48a32a51dd633323162c7d0d593f0a4dd))
 ## [0.3.22] - 2026-03-13
 
 ### Features
