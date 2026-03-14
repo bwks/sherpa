@@ -657,6 +657,7 @@ pub fn generate_vm_ztp(
     let qemu_commands = match node_image.model {
         data::NodeModel::JuniperVrouter => data::QemuCommand::juniper_vrouter(),
         data::NodeModel::JuniperVswitch => data::QemuCommand::juniper_vswitch(),
+        data::NodeModel::JuniperVsrxv3 => data::QemuCommand::juniper_vsrxv3(),
         data::NodeModel::JuniperVevolved => data::QemuCommand::juniper_vevolved(),
         data::NodeModel::FlatcarLinux => {
             if let Some(ref dst_ignition) = dst_ignition_disk {
@@ -1035,7 +1036,7 @@ fn generate_tftp_ztp(
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
                 util::create_file(&ztp_config, rendered_template)?;
             }
-            data::NodeModel::JuniperVevolved => {
+            data::NodeModel::JuniperVevolved | data::NodeModel::JuniperVsrxv3 => {
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
@@ -1719,6 +1720,29 @@ pub fn build_domain_template(
         isolated_network: isolated_network_name,
         reserved_network,
         is_windows: node_image.model == data::NodeModel::WindowsServer,
+        cpu_features: cpu_features_for_model(&node_image.model),
+    }
+}
+
+/// Return CPU feature overrides for specific node models.
+fn cpu_features_for_model(model: &data::NodeModel) -> Vec<data::CpuFeature> {
+    match model {
+        data::NodeModel::JuniperVsrxv3 => {
+            // FreeBSD-based vSRX requires disabling several CPU features that
+            // cause boot hangs on KVM. Matches vrnetlab's working configuration.
+            let disabled = [
+                "xsaveopt", "bmi1", "avx2", "bmi2", "erms", "invpcid", "rdseed", "adx", "smap",
+                "abm",
+            ];
+            disabled
+                .iter()
+                .map(|name| data::CpuFeature {
+                    name: (*name).to_owned(),
+                    policy: data::CpuFeaturePolicy::Disable,
+                })
+                .collect()
+        }
+        _ => vec![],
     }
 }
 
