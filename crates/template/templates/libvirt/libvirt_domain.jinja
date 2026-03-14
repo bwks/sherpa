@@ -142,7 +142,7 @@
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ management_network }}'/>
-      <model type='{{ interface_type }}'/>
+      <model type='{{ management_interface_type }}'/>
     </interface>
 
     {%     when ConnectionTypes::Reserved %}
@@ -151,7 +151,7 @@
       <mtu size='{{ interface.mtu }}'/>
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ reserved_network }}'/>
-      <model type='{{ interface_type }}'/>
+      <model type='{{ reserved_interface_type }}'/>
       <link state='up'/>
     </interface>
 

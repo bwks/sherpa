@@ -985,7 +985,7 @@ impl NodeConfig {
             machine_type: MachineType::Pc,
             vmx_enabled: false,
             memory: 20480,
-            hdd_bus: DiskBuses::Virtio,
+            hdd_bus: DiskBuses::Sata,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
             ztp_enable: true,

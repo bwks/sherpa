@@ -1720,6 +1720,14 @@ pub fn build_domain_template(
         disks,
         interfaces,
         interface_type: node_image.interface_type.clone(),
+        management_interface_type: management_interface_type_for_model(
+            &node_image.model,
+            &node_image.interface_type,
+        ),
+        reserved_interface_type: reserved_interface_type_for_model(
+            &node_image.model,
+            &node_image.interface_type,
+        ),
         loopback_ipv4,
         telnet_port: TELNET_PORT,
         qemu_commands,
@@ -1729,6 +1737,32 @@ pub fn build_domain_template(
         reserved_network,
         is_windows: node_image.model == data::NodeModel::WindowsServer,
         cpu_features: cpu_features_for_model(&node_image.model),
+    }
+}
+
+/// Return the management interface type for a node model.
+/// Some platforms (e.g. IOS-XRv9000) require e1000 for the management NIC
+/// while using virtio for data interfaces.
+fn management_interface_type_for_model(
+    model: &data::NodeModel,
+    default: &data::InterfaceType,
+) -> data::InterfaceType {
+    match model {
+        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        _ => default.clone(),
+    }
+}
+
+/// Return the reserved interface type for a node model.
+/// Some platforms (e.g. IOS-XRv9000) use e1000 for the reserved system NICs
+/// per Cisco documentation.
+fn reserved_interface_type_for_model(
+    model: &data::NodeModel,
+    default: &data::InterfaceType,
+) -> data::InterfaceType {
+    match model {
+        data::NodeModel::CiscoIosxrv9000 => data::InterfaceType::E1000,
+        _ => default.clone(),
     }
 }
 

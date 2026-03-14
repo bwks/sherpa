@@ -20,6 +20,8 @@ pub struct DomainTemplate {
     pub disks: Vec<NodeDisk>,
     pub interfaces: Vec<Interface>,
     pub interface_type: InterfaceType,
+    pub management_interface_type: InterfaceType,
+    pub reserved_interface_type: InterfaceType,
     pub loopback_ipv4: String,
     pub telnet_port: u16,
     pub qemu_commands: Vec<QemuCommand>,
