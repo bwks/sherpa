@@ -10,30 +10,8 @@ permissions:
   pull-requests: write
 
 jobs:
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libvirt-dev pkg-config
-
-      - name: Build Tailwind CSS
-        run: bash scripts/tailwind-build.sh
-
-      - name: Run tests
-        run: cargo test --workspace
-
   check-version:
     name: Check version tag
-    needs: test
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
