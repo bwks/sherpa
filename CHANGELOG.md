@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.25] - 2026-03-15
+
+### Miscellaneous
+
+- V0.3.25
+
+chore: css styling by @bwks in [#140](https://github.com/bwks/sherpa/pull/140) ([f111f74](https://github.com/bwks/sherpa/commit/f111f7435045505c90ecea4052018b80c3e8497b))
+- Version bump by @bwks ([2ffdb96](https://github.com/bwks/sherpa/commit/2ffdb96a7d92444e8c0dcaf402f56c43c41a2a97))
+- Css styling by @bwks ([7ce70de](https://github.com/bwks/sherpa/commit/7ce70de07840f28f217c790f62246a8d73737fbb))
+- Merge pull request #139 from bwks/changelog/v0.3.24
+
+chore(release): update changelog for v0.3.24 by @github-actions[bot] in [#139](https://github.com/bwks/sherpa/pull/139) ([2d3b38f](https://github.com/bwks/sherpa/commit/2d3b38f2563dad126881012e4bc90082e3c4859c))
 ## [0.3.24] - 2026-03-15
 
 ### Bug Fixes
