@@ -6,6 +6,7 @@ use tokio::sync::mpsc;
 
 use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
+use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
@@ -38,6 +39,104 @@ use shared::konst::{
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
+/// Authenticate request and verify admin privileges.
+///
+/// Returns `Ok(AuthContext)` on success, or `Err(ServerMessage)` with the appropriate
+/// auth-required or access-denied error response.
+async fn require_admin(
+    id: &str,
+    params: &serde_json::Value,
+    state: &AppState,
+    deny_msg: &str,
+) -> Result<AuthContext, ServerMessage> {
+    let auth_ctx = match middleware::authenticate_request(params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed: {}", e);
+            return Err(ServerMessage::RpcResponse {
+                id: id.to_string(),
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            });
+        }
+    };
+
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted admin-only operation without admin privileges",
+            auth_ctx.username
+        );
+        return Err(ServerMessage::RpcResponse {
+            id: id.to_string(),
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::AccessDenied,
+                message: deny_msg.to_string(),
+                context: None,
+            }),
+        });
+    }
+
+    Ok(auth_ctx)
+}
+
+/// Authenticate request and verify admin privileges for streaming handlers.
+///
+/// Returns `Ok(AuthContext)` on success, or sends the error via WebSocket and returns `Err(())`.
+async fn require_admin_streaming(
+    id: &str,
+    params: &serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+    deny_msg: &str,
+) -> Result<AuthContext, ()> {
+    let auth_ctx = match middleware::authenticate_request(params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed: {}", e);
+            let response = ServerMessage::RpcResponse {
+                id: id.to_string(),
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = connection.send(Message::Text(json.into())).await;
+            }
+            return Err(());
+        }
+    };
+
+    if !auth_ctx.is_admin {
+        tracing::warn!(
+            "User '{}' attempted admin-only operation without admin privileges",
+            auth_ctx.username
+        );
+        let response = ServerMessage::RpcResponse {
+            id: id.to_string(),
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::AccessDenied,
+                message: deny_msg.to_string(),
+                context: None,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+        return Err(());
+    }
+
+    Ok(auth_ctx)
+}
+
 /// Handle incoming RPC request and route to appropriate service
 ///
 /// This function:
@@ -57,17 +156,59 @@ pub async fn handle_rpc_request(
         "down" => handle_down(id, params, state).await,
         "resume" => handle_resume(id, params, state).await,
         // Note: "destroy" is handled separately via handle_streaming_rpc_request
-        "clean" => handle_clean(id, params, state).await,
-        "image.import" => handle_image_import(id, params, state).await,
-        "image.delete" => handle_image_delete(id, params, state).await,
-        "image.set_default" => handle_image_set_default(id, params, state).await,
+        "clean" => match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_CLEAN).await {
+            Ok(auth_ctx) => handle_clean(id, params, state, auth_ctx).await,
+            Err(e) => e,
+        },
+        "image.import" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT).await {
+                Ok(auth_ctx) => handle_image_import(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
+        "image.delete" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE).await {
+                Ok(auth_ctx) => handle_image_delete(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
+        "image.set_default" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT).await {
+                Ok(auth_ctx) => handle_image_set_default(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
         "image.list" => handle_image_list(id, params, state).await,
-        "image.scan" => handle_image_scan(id, params, state).await,
-        "image.pull" => handle_image_pull(id, params, state).await,
+        "image.scan" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN).await {
+                Ok(auth_ctx) => handle_image_scan(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
+        "image.pull" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL).await {
+                Ok(auth_ctx) => handle_image_pull(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
         // Note: "image.download" is handled separately via handle_streaming_rpc_request
-        "user.create" => handle_user_create(id, params, state).await,
-        "user.list" => handle_user_list(id, params, state).await,
-        "user.delete" => handle_user_delete(id, params, state).await,
+        "user.create" => {
+            match require_admin(&id, &params, state, RPC_MSG_USER_ADMIN_ONLY_CREATE).await {
+                Ok(auth_ctx) => handle_user_create(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
+        "user.list" => match require_admin(&id, &params, state, RPC_MSG_USER_ADMIN_ONLY_LIST).await
+        {
+            Ok(auth_ctx) => handle_user_list(id, params, state, auth_ctx).await,
+            Err(e) => e,
+        },
+        "user.delete" => {
+            match require_admin(&id, &params, state, RPC_MSG_USER_ADMIN_ONLY_DELETE).await {
+                Ok(auth_ctx) => handle_user_delete(id, params, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
         "user.passwd" => handle_user_passwd(id, params, state).await,
         "user.info" => handle_user_info(id, params, state).await,
         // Note: "up" is handled separately via handle_streaming_rpc_request
@@ -99,7 +240,19 @@ pub async fn handle_streaming_rpc_request(
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
         "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
-        "image.download" => handle_image_download_streaming(id, params, state, connection).await,
+        "image.download" => {
+            if let Ok(auth_ctx) = require_admin_streaming(
+                &id,
+                &params,
+                state,
+                connection,
+                RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD,
+            )
+            .await
+            {
+                handle_image_download_streaming(id, params, state, connection, auth_ctx).await;
+            }
+        }
         _ => {
             // Unknown streaming method
             let response = ServerMessage::RpcResponse {
@@ -819,41 +972,12 @@ async fn handle_redeploy_streaming(
 /// Handle "clean" RPC call (admin-only)
 ///
 /// Expected params: {"lab_id": "string", "token": "string"}
-async fn handle_clean(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for clean: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted clean without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_CLEAN.to_string(),
-                context: None,
-            }),
-        };
-    }
-
+async fn handle_clean(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    auth_ctx: AuthContext,
+) -> ServerMessage {
     // Parse params
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
@@ -917,41 +1041,8 @@ async fn handle_image_import(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.import: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted image import without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into ImportRequest
     let request: data::ImportRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -1016,41 +1107,8 @@ async fn handle_image_delete(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.delete: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted image delete without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_IMAGE_DELETE.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into DeleteImageRequest
     let request: data::DeleteImageRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -1115,41 +1173,8 @@ async fn handle_image_set_default(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.set_default: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted image set-default without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into SetDefaultImageRequest
     let request: data::SetDefaultImageRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -1295,41 +1320,8 @@ async fn handle_image_scan(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.scan: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted image scan without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_IMAGE_SCAN.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into ScanImagesRequest
     let request: data::ScanImagesRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -1394,41 +1386,8 @@ async fn handle_image_pull(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.pull: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted container pull without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ADMIN_ONLY_CONTAINER_PULL.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into ContainerPullRequest
     let request: data::ContainerPullRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -1494,6 +1453,7 @@ async fn handle_image_download_streaming(
     params: serde_json::Value,
     state: &AppState,
     connection: &Arc<Connection>,
+    auth_ctx: AuthContext,
 ) {
     // Helper to send error and return
     let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
@@ -1510,38 +1470,6 @@ async fn handle_image_download_streaming(
             let _ = connection.send(Message::Text(json.into())).await;
         }
     };
-
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for image.download: {}", e);
-            send_error(
-                id,
-                RpcErrorCode::AuthRequired,
-                RPC_MSG_AUTH_REQUIRED.to_string(),
-                Some(format!("{:?}", e)),
-            )
-            .await;
-            return;
-        }
-    };
-
-    // Admin-only check
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted image download without admin privileges",
-            auth_ctx.username
-        );
-        send_error(
-            id,
-            RpcErrorCode::AccessDenied,
-            RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD.to_string(),
-            None,
-        )
-        .await;
-        return;
-    }
 
     // Parse params into DownloadImageRequest
     let request: data::DownloadImageRequest = match serde_json::from_value(params) {
@@ -1927,41 +1855,8 @@ async fn handle_user_create(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for user.create: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Check admin status
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted to create user without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_USER_ADMIN_ONLY_CREATE.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into CreateUserRequest
     let request: data::CreateUserRequest = match serde_json::from_value(params) {
         Ok(req) => req,
@@ -2044,43 +1939,10 @@ async fn handle_user_create(
 /// Expected params: ListUsersRequest {"token": "string"}
 async fn handle_user_list(
     id: String,
-    params: serde_json::Value,
+    _params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for user.list: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Check admin status
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted to list users without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_USER_ADMIN_ONLY_LIST.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // List users
     match db::list_users(&state.db).await {
         Ok(users) => {
@@ -2147,41 +2009,8 @@ async fn handle_user_delete(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    auth_ctx: AuthContext,
 ) -> ServerMessage {
-    // Authenticate the request
-    let auth_ctx = match middleware::authenticate_request(&params, state).await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            tracing::warn!("Authentication failed for user.delete: {}", e);
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::AuthRequired,
-                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    };
-
-    // Check admin status
-    if !auth_ctx.is_admin {
-        tracing::warn!(
-            "User '{}' attempted to delete user without admin privileges",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_USER_ADMIN_ONLY_DELETE.to_string(),
-                context: None,
-            }),
-        };
-    }
-
     // Parse params into DeleteUserRequest
     let request: data::DeleteUserRequest = match serde_json::from_value(params) {
         Ok(req) => req,
