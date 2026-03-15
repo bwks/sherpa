@@ -1,27 +1,9 @@
-{% extends "base.html.jinja" %}
+{% extends "layout/base.html.jinja" %}
 
 {% block title %}{{ lab_info.name }} - Lab Details{% endblock %}
 
 {% block header_actions %}
-<div class="flex items-center space-x-4">
-    <span class="text-gray-700">Welcome, <strong>{{ username }}</strong></span>
-    {% if is_admin %}
-    <a href="/admin" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-        Admin
-    </a>
-    {% endif %}
-    <a href="/profile" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-        Profile
-    </a>
-    <button onclick="location.reload()" class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-        Refresh
-    </button>
-    <form method="POST" action="/logout" class="inline">
-        <button type="submit" class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors">
-            Logout
-        </button>
-    </form>
-</div>
+    {% include "user/partials/header-nav.html.jinja" %}
 {% endblock %}
 
 {% block content %}
@@ -68,7 +50,7 @@
 <!-- Nodes Section -->
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
     <div id="nodes-table" hx-get="/labs/{{ lab_info.id }}/nodes" hx-trigger="every 60s" hx-swap="innerHTML">
-        {% include "partials/nodes-table.html.jinja" %}
+        {% include "user/partials/nodes-table.html.jinja" %}
     </div>
 </div>
 

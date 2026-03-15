@@ -1,12 +1,11 @@
     <div class="flex items-center space-x-4">
+        {% if is_admin %}
         <a href="/admin" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             Admin
         </a>
-        <a href="/admin/labs" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Labs
-        </a>
-        <a href="/admin/node-images" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
-            Node Images
+        {% endif %}
+        <a href="/" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
+            Dashboard
         </a>
         <a href="/profile" class="text-sm font-semibold text-blue-600 hover:text-blue-800 transition-colors">
             {{ username }}

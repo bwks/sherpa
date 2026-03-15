@@ -1,19 +1,9 @@
-{% extends "base.html.jinja" %}
+{% extends "layout/base.html.jinja" %}
 
 {% block title %}Access Denied - Sherpa Labs{% endblock %}
 
 {% block header_actions %}
-    <div class="flex items-center space-x-4">
-        <span class="text-gray-700">Welcome, <span class="font-semibold text-blue-600">{{ username }}</span></span>
-        <a href="/" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-            Dashboard
-        </a>
-        <form action="/logout" method="post" class="inline">
-            <button type="submit" class="text-sm text-gray-600 hover:text-gray-900 transition-colors">
-                Logout
-            </button>
-        </form>
-    </div>
+    {% include "user/partials/header-nav.html.jinja" %}
 {% endblock %}
 
 {% block content %}

@@ -190,6 +190,7 @@ impl IntoResponse for AdminForbidden {
         use crate::templates::Admin403Template;
         Admin403Template {
             username: self.username,
+            is_admin: false,
         }
         .into_response()
     }
