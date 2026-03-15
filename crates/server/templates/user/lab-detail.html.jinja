@@ -20,27 +20,31 @@
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
     <h2 class="text-xl font-semibold text-gray-900 mb-4">Lab Information</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">Name</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.name }}</span>
         </div>
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">ID</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.id }}</span>
         </div>
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-gray-500 mb-1">Owner</span>
+            <span class="block text-base text-gray-900 font-mono">{{ lab_info.user }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">Management Network</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_network }}</span>
         </div>
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Gateway</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_gateway }}</span>
         </div>
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Router</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_router }}</span>
         </div>
-        <div class="metadata-item">
+        <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-gray-500 mb-1">Loopback Network</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.loopback_network }}</span>
         </div>
@@ -170,7 +174,7 @@
             hx-get="/labs/{{ lab_info.id }}/destroy/confirm"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="px-6 py-3 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+            class="px-6 py-3 text-sm font-medium text-red-600 bg-white border border-red-600 rounded-lg hover:text-white hover:bg-red-600 cursor-pointer transition-colors"
         >
             Destroy Lab
         </button>
