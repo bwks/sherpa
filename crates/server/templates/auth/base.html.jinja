@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Sherpa Labs{% endblock %}</title>
-    
+
     <!-- Tailwind CSS -->
     <link rel="stylesheet" href="/css/tailwind.css">
 
@@ -14,10 +14,10 @@
     <!-- Custom Styles -->
     <link rel="stylesheet" href="/css/styles.css">
 </head>
-<body class="auth-page">
-    <div class="auth-container">
+<body class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-white to-sky-300">
+    <div class="w-full max-w-[420px]">
         <!-- Logo -->
-        <div class="auth-logo">
+        <div class="mb-8">
             <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mx-auto mb-4">
                 <span class="text-white font-bold text-3xl">S</span>
             </div>
@@ -26,7 +26,7 @@
         </div>
 
         <!-- Auth Card -->
-        <div class="auth-card">
+        <div class="bg-white rounded-2xl p-8 shadow-xl">
             <!-- Error/Message Display -->
             <div id="auth-message" class="mb-4">
                 {% block messages %}{% endblock %}

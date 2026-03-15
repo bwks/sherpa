@@ -1,15 +1,15 @@
 <div id="ssh-keys-list">
     {% if ssh_keys.is_empty() %}
-    <p class="empty-message">No SSH keys added yet.</p>
+    <p class="text-center text-gray-500 text-sm py-8 bg-gray-50 rounded-md mt-4">No SSH keys added yet.</p>
     {% else %}
-    <div class="ssh-keys-container">
+    <div class="flex flex-col gap-3 mt-6">
         {% for ssh_key in ssh_keys %}
-        <div class="ssh-key-card">
-            <div class="ssh-key-content">
-                <code class="ssh-key-text">{{ ssh_key }}</code>
+        <div class="flex items-center justify-between gap-4 p-4 bg-gray-50 border border-gray-200 rounded-md">
+            <div class="flex-1 overflow-hidden">
+                <code class="block font-mono text-xs text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis bg-white p-2 rounded border border-gray-200">{{ ssh_key }}</code>
             </div>
-            <button 
-                class="btn btn-danger btn-sm"
+            <button
+                class="px-3.5 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 cursor-pointer active:scale-[0.98] transition-all"
                 hx-delete="/profile/ssh-keys/{{ loop.index0 }}"
                 hx-target="#ssh-keys-list"
                 hx-swap="outerHTML"

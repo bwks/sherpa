@@ -1,11 +1,11 @@
-<div class="lab-card bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md">
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
     <!-- Header -->
     <div class="flex items-start justify-between mb-4">
         <div class="flex-1">
             <h3 class="text-lg font-semibold text-gray-900">{{ lab.name }}</h3>
             <p class="text-sm text-gray-500 font-mono">{{ lab.id }}</p>
         </div>
-        <span class="badge badge-gray">{{ lab.status }}</span>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wide bg-slate-100 text-slate-600">{{ lab.status }}</span>
     </div>
 
     <!-- Stats -->
