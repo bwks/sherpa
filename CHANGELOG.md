@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.24] - 2026-03-15
+
+### Bug Fixes
+
+- Inline and custom css styling by @bwks ([723d001](https://github.com/bwks/sherpa/commit/723d001980edd1ea112eb41394b775ac4f585b85))
+
+### Features
+
+- TailwindCSS and HTMx local serve by @bwks ([7c7a8d5](https://github.com/bwks/sherpa/commit/7c7a8d585d46db939b1c017ca0b15445b77b8b3e))
+
+### Miscellaneous
+
+- Merge pull request #138 from bwks/v0.3.24
+
+V0.3.24 by @bwks in [#138](https://github.com/bwks/sherpa/pull/138) ([938d812](https://github.com/bwks/sherpa/commit/938d812a183f7e2d580087071ff6044177af4c2b))
+- Remove test from ci pipeline by @bwks ([9aac9ea](https://github.com/bwks/sherpa/commit/9aac9eaccb2a600e6a16f8291ec9e370c79bfc80))
+- Version bump by @bwks ([4ae0e12](https://github.com/bwks/sherpa/commit/4ae0e12cb5935019179f58dcfb63a19cdfe3968b))
+- V0.3.24
+
+V0.3.24 by @bwks in [#137](https://github.com/bwks/sherpa/pull/137) ([f26aea0](https://github.com/bwks/sherpa/commit/f26aea074b19bbc01005fc4a51f053d9e566de6e))
+- Refactory admin check by @bwks ([6758475](https://github.com/bwks/sherpa/commit/67584758a7e1d0e5a877d99531f4af958419bab3))
+- Stying updates by @bwks ([9c1a2de](https://github.com/bwks/sherpa/commit/9c1a2dea5ededda4640308857d324705de624090))
+- Lab details page styling by @bwks ([aa2ae7a](https://github.com/bwks/sherpa/commit/aa2ae7a0bd9e292ad893025e1d3d71fefb7d50b6))
+- Template organization + some styling changes by @bwks ([7ff85be](https://github.com/bwks/sherpa/commit/7ff85bef2be9fbaf0c58d96ab5c49682866c2dea))
+- Refactor admin templates by @bwks ([bf3cae3](https://github.com/bwks/sherpa/commit/bf3cae3a69e754aca0061f6656645717569b4f4b))
+- Merge pull request #136 from bwks/changelog/v0.3.23
+
+chore(release): update changelog for v0.3.23 by @github-actions[bot] in [#136](https://github.com/bwks/sherpa/pull/136) ([a48e9bc](https://github.com/bwks/sherpa/commit/a48e9bc71bb8772f125d4ed887c411e28a7be9a6))
 ## [0.3.23] - 2026-03-14
 
 ### Bug Fixes
