@@ -2,6 +2,9 @@
 
 set -euo pipefail
 
+# Build Tailwind CSS (embedded into sherpad binary at compile time)
+bash scripts/tailwind-build.sh
+
 cargo build --workspace --all-targets --release
 sudo systemctl stop sherpad
 sudo cp target/release/sherpad /opt/sherpa/bin/

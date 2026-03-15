@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Sherpa Labs{% endblock %}</title>
+
+    <!-- Tailwind CSS -->
+    <link rel="stylesheet" href="/css/tailwind.css">
+
+    <!-- HTMX -->
+    <script src="/js/htmx-2.0.8.min.js"></script>
+
+    <!-- Custom Styles -->
+    <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-white to-sky-300">
+    <div class="w-full max-w-[420px]">
+        <!-- Logo -->
+        <div class="mb-8">
+            <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mx-auto mb-4">
+                <span class="text-white font-bold text-3xl">S</span>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-900 text-center">Sherpa Labs</h1>
+            <p class="text-gray-600 text-center mt-2">{% block subtitle %}{% endblock %}</p>
+        </div>
+
+        <!-- Auth Card -->
+        <div class="bg-white rounded-2xl p-8 shadow-xl">
+            <!-- Error/Message Display -->
+            <div id="auth-message" class="mb-4">
+                {% block messages %}{% endblock %}
+            </div>
+
+            <!-- Form Content -->
+            {% block content %}{% endblock %}
+
+            <!-- Footer Links -->
+            <div class="mt-6 text-center text-sm text-gray-600">
+                {% block footer_links %}{% endblock %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

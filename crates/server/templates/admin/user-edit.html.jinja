@@ -1,0 +1,98 @@
+{% extends "layout/base.html.jinja" %}
+
+{% block title %}Edit User: {{ target_user.username }} - Sherpa Labs{% endblock %}
+
+{% block header_actions %}
+    {% include "admin/partials/header-nav.html.jinja" %}
+{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb Navigation -->
+<nav class="flex items-center mb-6 text-sm text-gray-600">
+    <a href="/admin" class="text-blue-600 hover:text-blue-800 hover:underline">Admin</a>
+    <span class="mx-2">/</span>
+    <a href="/admin" class="text-blue-600 hover:text-blue-800 hover:underline">Users</a>
+    <span class="mx-2">/</span>
+    <span class="text-gray-900 font-medium">{{ target_user.username }}</span>
+</nav>
+
+<div class="max-w-3xl mx-auto">
+    <h1>Edit User: {{ target_user.username }}</h1>
+
+    <!-- Change Password Section -->
+    <div class="bg-white rounded-lg p-8 mb-8 shadow-sm {% if is_self %}relative{% endif %}">
+        {% if is_self %}
+        <div class="absolute top-0 left-0 right-0 p-4 bg-amber-100 border border-amber-300 rounded-md text-sm text-amber-800 z-10">
+            To update your own password, use the <a href="/profile" class="font-semibold text-blue-600 hover:text-blue-800 underline">Profile page</a>.
+        </div>
+        {% endif %}
+
+        {% if is_self %}<div class="opacity-50 pointer-events-none">{% endif %}
+
+        <h2 class="text-2xl font-semibold text-gray-800 mb-6">Update Password</h2>
+        <form hx-post="/admin/users/{{ target_user.username }}/password" hx-target="#password-result" hx-swap="innerHTML">
+            <div id="password-result"></div>
+
+            <div class="mb-5">
+                <label for="new_password" class="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                <input
+                    type="password"
+                    id="new_password"
+                    name="new_password"
+                    required
+                    autocomplete="new-password"
+                    {% if is_self %}disabled{% endif %}
+                    class="w-full px-3.5 py-2.5 border border-gray-300 rounded-md text-sm transition-colors focus:outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-600/10"
+                >
+                <small class="block text-xs text-gray-500 mt-1.5">
+                    Password must be at least 8 characters and contain uppercase, lowercase, and special characters (!@#$%^&*_+-=)
+                </small>
+            </div>
+
+            <div class="mb-5">
+                <label for="confirm_new_password" class="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                <input
+                    type="password"
+                    id="confirm_new_password"
+                    name="confirm_new_password"
+                    required
+                    autocomplete="new-password"
+                    {% if is_self %}disabled{% endif %}
+                    class="w-full px-3.5 py-2.5 border border-gray-300 rounded-md text-sm transition-colors focus:outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-600/10"
+                >
+            </div>
+
+            <button type="submit" class="px-5 py-2.5 text-sm font-medium text-white bg-sky-600 rounded-md hover:bg-sky-700 cursor-pointer active:scale-[0.98] transition-all" {% if is_self %}disabled{% endif %}>Update Password</button>
+        </form>
+
+        {% if is_self %}</div>{% endif %}
+    </div>
+
+    <!-- SSH Keys Section -->
+    <div class="bg-white rounded-lg p-8 mb-8 shadow-sm">
+        <h2 class="text-2xl font-semibold text-gray-800 mb-6">Manage SSH Keys</h2>
+
+        <!-- Add SSH Key Form -->
+        <form hx-post="/admin/users/{{ target_user.username }}/ssh-keys" hx-target="#admin-ssh-keys-list" hx-swap="outerHTML">
+            <div class="mb-5">
+                <label for="ssh_key" class="block text-sm font-medium text-gray-700 mb-2">Add SSH Public Key</label>
+                <textarea
+                    id="ssh_key"
+                    name="ssh_key"
+                    rows="3"
+                    placeholder="ssh-ed25519 AAAAC3Nza... user@host"
+                    required
+                    class="w-full px-3.5 py-2.5 border border-gray-300 rounded-md text-sm transition-colors focus:outline-none focus:border-sky-600 focus:ring-2 focus:ring-sky-600/10"
+                ></textarea>
+                <small class="block text-xs text-gray-500 mt-1.5">
+                    Paste your SSH public key (ssh-rsa, ssh-ed25519, ecdsa-sha2-*)
+                </small>
+            </div>
+            <button type="submit" class="px-5 py-2.5 text-sm font-medium text-white bg-slate-500 rounded-md hover:bg-slate-600 cursor-pointer active:scale-[0.98] transition-all">Add Key</button>
+        </form>
+
+        <!-- SSH Keys List (loaded via partial) -->
+        {{ ssh_keys_html | safe }}
+    </div>
+</div>
+{% endblock %}
