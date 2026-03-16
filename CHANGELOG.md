@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.26] - 2026-03-16
+
+### Features
+
+- Startup scripts by @bwks ([ece9290](https://github.com/bwks/sherpa/commit/ece9290c35caff4bf281dd05c98ee26cdac782d2))
+
+### Miscellaneous
+
+- Merge pull request #142 from bwks/v0.3.26
+
+V0.3.26 by @bwks in [#142](https://github.com/bwks/sherpa/pull/142) ([e36c3d5](https://github.com/bwks/sherpa/commit/e36c3d569a2f99006da9996d2359e8c7224d3535))
+- Obey clippy by @bwks ([1a43a46](https://github.com/bwks/sherpa/commit/1a43a46b9921e4f5007f691b72ff3562b26bc01a))
+- Version bump by @bwks ([ceb22fe](https://github.com/bwks/sherpa/commit/ceb22fe74d29a0ecb2bb39f8e045de8e8fc54f04))
+- Merge pull request #141 from bwks/changelog/v0.3.25
+
+chore(release): update changelog for v0.3.25 by @github-actions[bot] in [#141](https://github.com/bwks/sherpa/pull/141) ([911067e](https://github.com/bwks/sherpa/commit/911067ea021faacf088d5af7b8c0407e5c5312a2))
 ## [0.3.25] - 2026-03-15
 
 ### Miscellaneous
