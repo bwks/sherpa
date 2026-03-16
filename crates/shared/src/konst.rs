@@ -70,6 +70,7 @@ pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
+pub const SHERPA_PASSWORD_HASH_MD5: &str = "$1$xXKaRUnh$v5.fg9lEMWQGAqu4DAgaG0";
 pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
@@ -157,6 +158,8 @@ pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
 pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
+pub const PALOALTO_ZTP_CONFIG: &str = "init-cfg.txt";
+pub const PALOALTO_BOOTSTRAP_CONFIG: &str = "bootstrap.xml";
 
 pub const LAB_CERTS_DIR: &str = "certs";
 pub const LAB_CA_CERT_FILE: &str = "ca.crt";

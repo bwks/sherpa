@@ -7,7 +7,7 @@ use crate::data::{
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperVevolvedInt,
     JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MikrotikChrInt, NodeModel,
-    NokiaSrlinuxInt,
+    NokiaSrlinuxInt, PaloaltoPanosInt,
 };
 
 pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8> {
@@ -31,6 +31,7 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
         NodeModel::CumulusLinux => CumulusLinuxInt::from_str(interface)?.to_idx(),
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::from_str(interface)?.to_idx(),
         NodeModel::MikrotikChr => MikrotikChrInt::from_str(interface)?.to_idx(),
+        NodeModel::PaloaltoPanos => PaloaltoPanosInt::from_str(interface)?.to_idx(),
         _ => EthernetInt::from_str(interface)?.to_idx(),
     };
     Ok(idx)
@@ -57,6 +58,7 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
         NodeModel::CumulusLinux => CumulusLinuxInt::from_idx(idx)?,
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::from_idx(idx)?,
         NodeModel::MikrotikChr => MikrotikChrInt::from_idx(idx)?,
+        NodeModel::PaloaltoPanos => PaloaltoPanosInt::from_idx(idx)?,
         _ => EthernetInt::from_idx(idx)?,
     };
     Ok(iface)
@@ -83,6 +85,7 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
         NodeModel::CumulusLinux => CumulusLinuxInt::all_interfaces(),
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::all_interfaces(),
         NodeModel::MikrotikChr => MikrotikChrInt::all_interfaces(),
+        NodeModel::PaloaltoPanos => PaloaltoPanosInt::all_interfaces(),
         _ => EthernetInt::all_interfaces(),
     }
 }

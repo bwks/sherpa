@@ -17,6 +17,7 @@ mod ignition;
 mod juniper_junos;
 mod mikrotik_routeros;
 mod nokia_srlinux;
+mod paloalto_panos;
 mod pyats;
 mod sonic_linux;
 mod ssh;
@@ -48,6 +49,9 @@ pub use ignition::{
 pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
+pub use paloalto_panos::{
+    PANOS_DEFAULT_VERSION, PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate,
+};
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::SshConfigTemplate;

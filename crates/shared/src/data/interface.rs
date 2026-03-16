@@ -134,6 +134,8 @@ pub enum MgmtInterfaces {
     MgmtEth0Rp0Cpu0_0, // MgmtEth0/RP0/CPU0/0 - xr9kv
     #[serde(rename = "ether1")]
     Ether1, // ether1 - mikrotik chr
+    #[serde(rename = "management")]
+    Management, // management - paloalto panos
 }
 impl fmt::Display for MgmtInterfaces {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -150,6 +152,7 @@ impl fmt::Display for MgmtInterfaces {
             MgmtInterfaces::Management0_0 => write!(f, "Management0/0"),
             MgmtInterfaces::MgmtEth0Rp0Cpu0_0 => write!(f, "MgmtEth0/RP0/CPU0/0"),
             MgmtInterfaces::Ether1 => write!(f, "ether1"),
+            MgmtInterfaces::Management => write!(f, "management"),
         }
     }
 }
@@ -845,6 +848,38 @@ interface_enum!(
         Eth7 => 6, "eth7",
         Eth8 => 7, "eth8",
         Eth9 => 8, "eth9"
+    ]
+);
+
+interface_enum!(
+    PaloaltoPanosInt,
+    "PaloaltoPanos",
+    [
+        Management => 0, "management",
+        Ethernet1_1 => 1, "ethernet1/1",
+        Ethernet1_2 => 2, "ethernet1/2",
+        Ethernet1_3 => 3, "ethernet1/3",
+        Ethernet1_4 => 4, "ethernet1/4",
+        Ethernet1_5 => 5, "ethernet1/5",
+        Ethernet1_6 => 6, "ethernet1/6",
+        Ethernet1_7 => 7, "ethernet1/7",
+        Ethernet1_8 => 8, "ethernet1/8",
+        Ethernet1_9 => 9, "ethernet1/9",
+        Ethernet1_10 => 10, "ethernet1/10",
+        Ethernet1_11 => 11, "ethernet1/11",
+        Ethernet1_12 => 12, "ethernet1/12",
+        Ethernet1_13 => 13, "ethernet1/13",
+        Ethernet1_14 => 14, "ethernet1/14",
+        Ethernet1_15 => 15, "ethernet1/15",
+        Ethernet1_16 => 16, "ethernet1/16",
+        Ethernet1_17 => 17, "ethernet1/17",
+        Ethernet1_18 => 18, "ethernet1/18",
+        Ethernet1_19 => 19, "ethernet1/19",
+        Ethernet1_20 => 20, "ethernet1/20",
+        Ethernet1_21 => 21, "ethernet1/21",
+        Ethernet1_22 => 22, "ethernet1/22",
+        Ethernet1_23 => 23, "ethernet1/23",
+        Ethernet1_24 => 24, "ethernet1/24"
     ]
 );
 

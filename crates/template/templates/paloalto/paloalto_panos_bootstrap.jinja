@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<config version="{{panos_version}}" urldb="paloaltonetworks">
+  <mgt-config>
+    <users>
+      <entry name="admin">
+        <phash>{{password_hash}}</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        <public-key>{{user.ssh_public_key.key}}</public-key>
+      </entry>
+      <entry name="{{user.username}}">
+        <phash>{{password_hash}}</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        <public-key>{{user.ssh_public_key.key}}</public-key>
+      </entry>
+    </users>
+  </mgt-config>
+  <devices>
+    <entry name="localhost.localdomain">
+      <deviceconfig>
+        <system>
+          <type>
+            <static/>
+          </type>
+          <ip-address>{{mgmt_ipv4_address}}</ip-address>
+          <netmask>{{mgmt_netmask}}</netmask>
+          <default-gateway>{{mgmt_gateway}}</default-gateway>
+          <hostname>{{hostname}}</hostname>
+          <dns-setting>
+            <servers>
+              <primary>{{dns_primary}}</primary>
+            </servers>
+          </dns-setting>
+          <service>
+            <disable-telnet>yes</disable-telnet>
+            <disable-http>no</disable-http>
+          </service>
+        </system>
+      </deviceconfig>
+    </entry>
+  </devices>
+</config>
