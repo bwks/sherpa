@@ -839,9 +839,49 @@ fn generate_cloud_init_ztp(
             cloud_init_user.groups = vec![admin_group];
             cloud_init_user.shell = shell;
 
-            let write_files = match cert_paths {
-                Some(certs) => Some(build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?),
-                None => None,
+            let mut write_files = match cert_paths {
+                Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
+                None => vec![],
+            };
+
+            let mut runcmd: Vec<String> = vec![];
+
+            // Inject startup_scripts into write_files and runcmd
+            if let Some(ref scripts) = node.startup_scripts {
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content)
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode startup_script '{}' for node '{}'",
+                                script.filename, node.name
+                            )
+                        })?;
+
+                    let target_path =
+                        format!("/opt/sherpa/startup_scripts/{}", script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: Some("root:root".to_string()),
+                        encoding: None,
+                    });
+
+                    runcmd.push(format!("bash {}", target_path));
+                }
+            }
+
+            let cloud_init_write_files = if write_files.is_empty() {
+                None
+            } else {
+                Some(write_files)
+            };
+
+            let cloud_init_runcmd = if runcmd.is_empty() {
+                None
+            } else {
+                Some(runcmd)
             };
 
             let cloud_init_config = template::CloudInitConfig {
@@ -850,7 +890,8 @@ fn generate_cloud_init_ztp(
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
                 users: vec![cloud_init_user],
-                write_files,
+                write_files: cloud_init_write_files,
+                runcmd: cloud_init_runcmd,
                 ..Default::default()
             };
             let user_data_config = cloud_init_config.to_string()?;
@@ -897,17 +938,46 @@ fn generate_cloud_init_ztp(
                 write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
             }
 
+            // Inject startup_scripts for Windows
+            let mut runcmd = vec![
+                format!(
+                    "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
+                    admin_keys_path
+                ),
+                "powershell -Command \"Restart-Service sshd\"".to_string(),
+            ];
+
+            if let Some(ref scripts) = node.startup_scripts {
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content)
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode startup_script '{}' for node '{}'",
+                                script.filename, node.name
+                            )
+                        })?;
+
+                    let target_path =
+                        format!(r"C:\sherpa\startup_scripts\{}", script.filename);
+
+                    write_files.push(template::CloudbaseWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                    });
+
+                    runcmd.push(format!(
+                        "powershell -ExecutionPolicy Bypass -File \"{}\"",
+                        target_path
+                    ));
+                }
+            }
+
             let cloudbase_config = template::CloudbaseInitConfig {
                 set_hostname: node.name.clone(),
                 users: vec![cloudbase_user],
                 write_files,
-                runcmd: vec![
-                    format!(
-                        "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
-                        admin_keys_path
-                    ),
-                    "powershell -Command \"Restart-Service sshd\"".to_string(),
-                ],
+                runcmd,
             };
             let user_data_config = cloudbase_config.to_string()?;
 
@@ -945,9 +1015,49 @@ fn generate_cloud_init_ztp(
             cloud_init_user.shell = "/bin/sh".to_string();
             cloud_init_user.groups = vec!["wheel".to_string()];
 
-            let write_files = match cert_paths {
-                Some(certs) => Some(build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?),
-                None => None,
+            let mut write_files = match cert_paths {
+                Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
+                None => vec![],
+            };
+
+            let mut runcmd: Vec<String> = vec![];
+
+            // Inject startup_scripts into write_files and runcmd
+            if let Some(ref scripts) = node.startup_scripts {
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content)
+                        .with_context(|| {
+                            format!(
+                                "Failed to decode startup_script '{}' for node '{}'",
+                                script.filename, node.name
+                            )
+                        })?;
+
+                    let target_path =
+                        format!("/opt/sherpa/startup_scripts/{}", script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: Some("root:root".to_string()),
+                        encoding: None,
+                    });
+
+                    runcmd.push(format!("bash {}", target_path));
+                }
+            }
+
+            let cloud_init_write_files = if write_files.is_empty() {
+                None
+            } else {
+                Some(write_files)
+            };
+
+            let cloud_init_runcmd = if runcmd.is_empty() {
+                None
+            } else {
+                Some(runcmd)
             };
 
             let cloud_init_config = template::CloudInitConfig {
@@ -956,7 +1066,8 @@ fn generate_cloud_init_ztp(
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
                 users: vec![cloud_init_user],
-                write_files,
+                write_files: cloud_init_write_files,
+                runcmd: cloud_init_runcmd,
                 ..Default::default()
             };
             let meta_data_config = meta_data.to_string()?;
