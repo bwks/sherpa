@@ -11,9 +11,10 @@ use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, get_cwd, get_username, render_lab_info_table, render_nodes_table, term_msg_surround,
-    term_msg_underline,
+    Emoji, base64_encode, get_cwd, get_username, render_lab_info_table, render_nodes_table,
+    term_msg_surround, term_msg_underline,
 };
+use topology::StartupScript;
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -61,6 +62,9 @@ pub async fn up(
 
     // Read per-node ztp_config file paths and base64 encode their contents
     resolve_ztp_configs(&mut manifest, manifest_path)?;
+
+    // Resolve startup_scripts paths relative to manifest directory
+    resolve_startup_scripts(&mut manifest, manifest_path)?;
 
     // Serialize manifest to JSON for transmission
     let manifest_value =
@@ -303,7 +307,64 @@ pub(crate) fn resolve_ztp_configs(
             );
         }
 
-        node.ztp_config = Some(shared::util::base64_encode(&contents));
+        node.ztp_config = Some(base64_encode(&contents));
+    }
+
+    Ok(())
+}
+
+/// Resolve startup_scripts file paths relative to the manifest directory.
+/// Reads each script file, base64-encodes the contents, and populates
+/// `startup_scripts_data` for transmission to the server.
+pub(crate) fn resolve_startup_scripts(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+
+    for node in &mut manifest.nodes {
+        let scripts = match &node.startup_scripts {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => continue,
+        };
+
+        let mut script_data = Vec::with_capacity(scripts.len());
+        for script_path_str in &scripts {
+            let script_path = Path::new(script_path_str);
+            let resolved_path = if script_path.is_absolute() {
+                script_path.to_path_buf()
+            } else {
+                manifest_dir.join(script_path)
+            };
+
+            let contents = fs::read_to_string(&resolved_path).with_context(|| {
+                format!(
+                    "Failed to read startup_script for node '{}': {}",
+                    node.name,
+                    resolved_path.display()
+                )
+            })?;
+
+            if contents.is_empty() {
+                bail!(
+                    "startup_script for node '{}' is empty: {}",
+                    node.name,
+                    resolved_path.display()
+                );
+            }
+
+            let filename = resolved_path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| script_path_str.clone());
+
+            script_data.push(StartupScript {
+                filename,
+                content: base64_encode(&contents),
+            });
+        }
+
+        node.startup_scripts_data = Some(script_data);
     }
 
     Ok(())
@@ -356,6 +417,7 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
 mod tests {
     use super::*;
     use shared::data::NodeModel;
+    use shared::util::base64_decode;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -394,7 +456,7 @@ mod tests {
             .ztp_config
             .as_ref()
             .expect("should have value");
-        let decoded = shared::util::base64_decode(encoded).expect("should decode");
+        let decoded = base64_decode(encoded).expect("should decode");
         assert_eq!(decoded, "hostname dev01");
 
         // dev02: unchanged, no ztp_config
@@ -423,7 +485,7 @@ mod tests {
             .ztp_config
             .as_ref()
             .expect("should have value");
-        let decoded = shared::util::base64_decode(encoded).expect("should decode");
+        let decoded = base64_decode(encoded).expect("should decode");
         assert_eq!(decoded, "interface eth0");
     }
 

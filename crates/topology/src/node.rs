@@ -26,6 +26,9 @@ pub struct Node {
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
     pub ztp_config: Option<String>,
+    pub startup_scripts: Option<Vec<String>>,
+    #[serde(default)]
+    pub startup_scripts_data: Option<Vec<StartupScript>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -51,6 +54,13 @@ pub struct NodeExpanded {
     pub user: Option<String>,
     pub skip_ready_check: Option<bool>,
     pub ztp_config: Option<String>,
+    pub startup_scripts: Option<Vec<StartupScript>>,
+}
+
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+pub struct StartupScript {
+    pub filename: String,
+    pub content: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

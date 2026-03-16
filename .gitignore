@@ -23,6 +23,7 @@ CLAUDE.md
 lab-info.toml
 *.env
 PROJECT.md
+test-scripts/
 
 # Tailwind CSS
 tailwindcss
