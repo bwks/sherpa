@@ -1,6 +1,6 @@
 [package]
 name = "db"
-version = "0.3.25"
+version = "0.3.26"
 edition = "2024"
 
 [profile.release]
