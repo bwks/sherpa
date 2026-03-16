@@ -849,16 +849,14 @@ fn generate_cloud_init_ztp(
             // Inject startup_scripts into write_files and runcmd
             if let Some(ref scripts) = node.startup_scripts {
                 for script in scripts {
-                    let contents = util::base64_decode(&script.content)
-                        .with_context(|| {
-                            format!(
-                                "Failed to decode startup_script '{}' for node '{}'",
-                                script.filename, node.name
-                            )
-                        })?;
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode startup_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
 
-                    let target_path =
-                        format!("/opt/sherpa/startup_scripts/{}", script.filename);
+                    let target_path = format!("/opt/sherpa/startup_scripts/{}", script.filename);
 
                     write_files.push(template::CloudInitWriteFile {
                         path: target_path.clone(),
@@ -949,16 +947,14 @@ fn generate_cloud_init_ztp(
 
             if let Some(ref scripts) = node.startup_scripts {
                 for script in scripts {
-                    let contents = util::base64_decode(&script.content)
-                        .with_context(|| {
-                            format!(
-                                "Failed to decode startup_script '{}' for node '{}'",
-                                script.filename, node.name
-                            )
-                        })?;
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode startup_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
 
-                    let target_path =
-                        format!(r"C:\sherpa\startup_scripts\{}", script.filename);
+                    let target_path = format!(r"C:\sherpa\startup_scripts\{}", script.filename);
 
                     write_files.push(template::CloudbaseWriteFile {
                         path: target_path.clone(),
@@ -1025,16 +1021,14 @@ fn generate_cloud_init_ztp(
             // Inject startup_scripts into write_files and runcmd
             if let Some(ref scripts) = node.startup_scripts {
                 for script in scripts {
-                    let contents = util::base64_decode(&script.content)
-                        .with_context(|| {
-                            format!(
-                                "Failed to decode startup_script '{}' for node '{}'",
-                                script.filename, node.name
-                            )
-                        })?;
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode startup_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
 
-                    let target_path =
-                        format!("/opt/sherpa/startup_scripts/{}", script.filename);
+                    let target_path = format!("/opt/sherpa/startup_scripts/{}", script.filename);
 
                     write_files.push(template::CloudInitWriteFile {
                         path: target_path.clone(),

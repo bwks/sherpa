@@ -11,8 +11,8 @@ use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, base64_encode, get_cwd, get_username, render_lab_info_table,
-    render_nodes_table, term_msg_surround, term_msg_underline,
+    Emoji, base64_encode, get_cwd, get_username, render_lab_info_table, render_nodes_table,
+    term_msg_surround, term_msg_underline,
 };
 use topology::StartupScript;
 
