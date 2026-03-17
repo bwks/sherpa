@@ -19,19 +19,18 @@ pub struct PaloAltoPanosZtpTemplate {
 }
 
 /// Renders the PAN-OS `bootstrap.xml` configuration file.
-/// Configures the admin user account with password hash and SSH key,
-/// enables SSH on the management interface, and disables telnet/HTTP.
+/// Based on the PA-VM 11.1 running-config structure.
+/// Configures admin and sherpa user accounts with password hash,
+/// enables SSH on the management interface, and disables telnet.
 #[derive(Template)]
 #[template(path = "paloalto/paloalto_panos_bootstrap.jinja", ext = "txt")]
 pub struct PaloAltoPanosBootstrapTemplate {
     pub hostname: String,
     pub user: User,
     pub password_hash: String,
-    pub panos_version: String,
+    pub ssh_public_key_b64: String,
     pub mgmt_ipv4_address: Ipv4Addr,
     pub mgmt_netmask: Ipv4Addr,
     pub mgmt_gateway: Ipv4Addr,
     pub dns_primary: Ipv4Addr,
 }
-
-pub const PANOS_DEFAULT_VERSION: &str = "10.1.0";

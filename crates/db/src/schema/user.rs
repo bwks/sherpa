@@ -51,19 +51,19 @@
 /// ```
 pub(crate) fn generate_user_schema() -> String {
     r#"
-DEFINE TABLE user SCHEMAFULL;
-DEFINE FIELD username ON TABLE user TYPE string
+DEFINE TABLE OVERWRITE user SCHEMAFULL;
+DEFINE FIELD OVERWRITE username ON TABLE user TYPE string
     ASSERT string::len($value) >= 3
     AND $value = /^[a-zA-Z0-9@._-]+$/;
-DEFINE FIELD password_hash ON TABLE user TYPE string;
-DEFINE FIELD is_admin ON TABLE user TYPE bool DEFAULT false;
-DEFINE FIELD ssh_keys ON TABLE user TYPE array<string> DEFAULT [];
-DEFINE FIELD created_at ON TABLE user TYPE datetime;
-DEFINE FIELD updated_at ON TABLE user TYPE datetime;
+DEFINE FIELD OVERWRITE password_hash ON TABLE user TYPE string;
+DEFINE FIELD OVERWRITE is_admin ON TABLE user TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE ssh_keys ON TABLE user TYPE array<string> DEFAULT [];
+DEFINE FIELD OVERWRITE created_at ON TABLE user TYPE datetime;
+DEFINE FIELD OVERWRITE updated_at ON TABLE user TYPE datetime;
 
-DEFINE FIELD labs ON TABLE user COMPUTED <~(lab FIELD user);
+DEFINE FIELD OVERWRITE labs ON TABLE user COMPUTED <~(lab FIELD user);
 
-DEFINE INDEX unique_username
+DEFINE INDEX OVERWRITE unique_username
   ON TABLE user FIELDS username UNIQUE;
 "#
     .to_string()

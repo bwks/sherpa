@@ -75,22 +75,22 @@ pub(crate) fn generate_link_schema() -> String {
 
     format!(
         r#"
-DEFINE TABLE link SCHEMAFULL;
-DEFINE FIELD index ON TABLE link TYPE number
+DEFINE TABLE OVERWRITE link SCHEMAFULL;
+DEFINE FIELD OVERWRITE index ON TABLE link TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
-DEFINE FIELD node_a ON TABLE link TYPE record<node> REFERENCE ON DELETE CASCADE;
-DEFINE FIELD node_b ON TABLE link TYPE record<node> REFERENCE ON DELETE CASCADE;
-DEFINE FIELD int_a ON TABLE link TYPE string;
-DEFINE FIELD int_b ON TABLE link TYPE string;
-DEFINE FIELD bridge_a ON TABLE link TYPE string;
-DEFINE FIELD bridge_b ON TABLE link TYPE string;
-DEFINE FIELD veth_a ON TABLE link TYPE string;
-DEFINE FIELD veth_b ON TABLE link TYPE string;
-DEFINE FIELD kind ON TABLE link TYPE string
+DEFINE FIELD OVERWRITE node_a ON TABLE link TYPE record<node> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE node_b ON TABLE link TYPE record<node> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE int_a ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE int_b ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE bridge_a ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE bridge_b ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE veth_a ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE veth_b ON TABLE link TYPE string;
+DEFINE FIELD OVERWRITE kind ON TABLE link TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD lab ON TABLE link TYPE record<lab> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE lab ON TABLE link TYPE record<lab> REFERENCE ON DELETE CASCADE;
 
-DEFINE INDEX unique_peers_on_link
+DEFINE INDEX OVERWRITE unique_peers_on_link
   ON TABLE link FIELDS node_a, node_b, int_a, int_b UNIQUE;
 "#,
         bridge_kinds

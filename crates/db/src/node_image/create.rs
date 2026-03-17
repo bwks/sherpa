@@ -16,13 +16,13 @@ pub async fn create_node_image(
         .content(config.clone())
         .await
         .context(format!(
-            "Error creating node_image (model, kind, version must be unique):\n model: {}\n kind: {}\n version: {}\n",
+            "Failed to create node_image: model={}, kind={}, version={}",
             config.model, config.kind, config.version
         ))?;
 
     created_config.ok_or_else(|| {
         anyhow!(
-            "Node image was not created:\n model: {}\n kind: {}\n version: {}\n",
+            "Database returned no record after creating node_image: model={}, kind={}, version={}",
             config.model,
             config.kind,
             config.version
@@ -50,7 +50,7 @@ pub async fn upsert_node_image(
         .bind(("version", config.version.clone()))
         .await
         .context(format!(
-            "Error unsetting default flag on other versions:\n model: {}\n kind: {}\n",
+            "Failed to unset default flag on other versions: model={}, kind={}",
             config.model, config.kind
         ))?;
     }
@@ -60,7 +60,7 @@ pub async fn upsert_node_image(
         get_node_image_by_model_kind_version(db, &config.model, &config.kind, &config.version)
             .await
             .context(format!(
-                "Error querying existing node_image:\n model: {}\n kind: {}\n version: {}\n",
+                "Failed to query existing node_image: model={}, kind={}, version={}",
                 config.model, config.kind, config.version
             ))?;
 
@@ -74,13 +74,13 @@ pub async fn upsert_node_image(
             .content(updated_config)
             .await
             .context(format!(
-                "Error updating existing node_image:\n model: {}\n kind: {}\n version: {}\n",
+                "Failed to update node_image: model={}, kind={}, version={}",
                 config.model, config.kind, config.version
             ))?;
 
         updated.ok_or_else(|| {
             anyhow!(
-                "Node image was not updated:\n model: {}\n kind: {}\n version: {}\n",
+                "Database returned no record after updating node_image: model={}, kind={}, version={}",
                 config.model,
                 config.kind,
                 config.version
