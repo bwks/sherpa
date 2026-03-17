@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.27] - 2026-03-17
+
+### Features
+
+- Paloalto pavm support by @bwks ([350014f](https://github.com/bwks/sherpa/commit/350014fe97e666ff9d1a17502e906f58fec224a7))
+- Add support for paloalto_panos by @bwks ([da2123e](https://github.com/bwks/sherpa/commit/da2123e619358c8c854a4cf4f589305e64efa3b3))
+
+### Miscellaneous
+
+- V0.3.27
+
+V0.3.27 by @bwks in [#144](https://github.com/bwks/sherpa/pull/144) ([baa7353](https://github.com/bwks/sherpa/commit/baa7353091e05096c135b803f7fa0984d428c9b6))
+- Version bump by @bwks ([e007d8d](https://github.com/bwks/sherpa/commit/e007d8d1cb8616d5f119cc7713bdb66038ea5ad0))
+- Merge pull request #143 from bwks/changelog/v0.3.26
+
+chore(release): update changelog for v0.3.26 by @github-actions[bot] in [#143](https://github.com/bwks/sherpa/pull/143) ([95dcc60](https://github.com/bwks/sherpa/commit/95dcc609b4f3599443dd7356fcd3ec49f0d284ba))
 ## [0.3.26] - 2026-03-16
 
 ### Features
