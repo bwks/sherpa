@@ -179,7 +179,6 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 /// DOGWATER: Implement this functionality in pure Rust.
 #[cfg(unix)]
 pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
-    // Create ISO using genisoimage
     Command::new("genisoimage")
         .args([
             "-output",
@@ -188,12 +187,50 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
             "cidata",
             "-joliet",
             "-rock",
+            "-l",
+            "-allow-lowercase",
+            "-allow-multidot",
+            "-relaxed-filenames",
             "--input-charset",
             "utf-8",
             &src_dir,
         ])
         .status()?;
     tracing::debug!(path = %iso_dst, source_dir = %src_dir, "ISO created successfully");
+
+    Ok(())
+}
+
+/// Create a PAN-OS bootstrap ISO file.
+///
+/// Uses the volume label `bootstrap` and ISO level 3 as specified by:
+/// https://developers.redhat.com/learning/learn:openshift:deploy-palo-alto-vm-series-firewalls-openshift-virtualization
+///
+/// `genisoimage` must be installed on the system.
+///
+/// DOGWATER: Implement this functionality in pure Rust.
+#[cfg(unix)]
+pub fn create_panos_bootstrap_iso(iso_dst: &str, src_dir: String) -> Result<()> {
+    Command::new("genisoimage")
+        .args([
+            "-output",
+            iso_dst,
+            "-V",
+            "bootstrap",
+            "-l",
+            "-allow-lowercase",
+            "-allow-multidot",
+            "-iso-level",
+            "3",
+            "-D",
+            "-r",
+            "-J",
+            "--input-charset",
+            "utf-8",
+            &src_dir,
+        ])
+        .status()?;
+    tracing::debug!(path = %iso_dst, source_dir = %src_dir, "PAN-OS bootstrap ISO created successfully");
 
     Ok(())
 }

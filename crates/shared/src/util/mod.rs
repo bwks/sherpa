@@ -33,8 +33,8 @@ pub use file_system::{
 };
 #[cfg(unix)]
 pub use file_system::{
-    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_symlink, create_ztp_iso,
-    fix_permissions_recursive,
+    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_panos_bootstrap_iso,
+    create_symlink, create_ztp_iso, fix_permissions_recursive,
 };
 #[cfg(feature = "netinfo")]
 pub use host::get_non_loopback_ipv4_addresses;

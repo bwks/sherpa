@@ -89,66 +89,66 @@ pub(crate) fn generate_node_image_schema() -> String {
 
     format!(
         r#"
-DEFINE TABLE node_image SCHEMAFULL;
+DEFINE TABLE OVERWRITE node_image SCHEMAFULL;
 
-DEFINE FIELD model ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE model ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD version ON TABLE node_image TYPE string;
-DEFINE FIELD repo ON TABLE node_image TYPE option<string>;
+DEFINE FIELD OVERWRITE version ON TABLE node_image TYPE string;
+DEFINE FIELD OVERWRITE repo ON TABLE node_image TYPE option<string>;
 
-DEFINE FIELD os_variant ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE os_variant ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD kind ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE kind ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD bios ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE bios ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
 
-DEFINE FIELD cpu_count ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE cpu_count ON TABLE node_image TYPE number
     ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD cpu_architecture ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE cpu_architecture ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD cpu_model ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE cpu_model ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD machine_type ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE machine_type ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD vmx_enabled ON TABLE node_image TYPE bool;
+DEFINE FIELD OVERWRITE vmx_enabled ON TABLE node_image TYPE bool;
 
-DEFINE FIELD memory ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE memory ON TABLE node_image TYPE number
     ASSERT $value >= 64 AND $value <= 65535 AND $value == math::floor($value);
 
-DEFINE FIELD hdd_bus ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE hdd_bus ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD cdrom ON TABLE node_image TYPE option<string>;
-DEFINE FIELD cdrom_bus ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE cdrom ON TABLE node_image TYPE option<string>;
+DEFINE FIELD OVERWRITE cdrom_bus ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
 
-DEFINE FIELD ztp_enable ON TABLE node_image TYPE bool;
-DEFINE FIELD ztp_method ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE ztp_enable ON TABLE node_image TYPE bool;
+DEFINE FIELD OVERWRITE ztp_method ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD ztp_username ON TABLE node_image TYPE option<string>;
-DEFINE FIELD ztp_password ON TABLE node_image TYPE option<string>;
-DEFINE FIELD ztp_password_auth ON TABLE node_image TYPE bool;
+DEFINE FIELD OVERWRITE ztp_username ON TABLE node_image TYPE option<string>;
+DEFINE FIELD OVERWRITE ztp_password ON TABLE node_image TYPE option<string>;
+DEFINE FIELD OVERWRITE ztp_password_auth ON TABLE node_image TYPE bool;
 
-DEFINE FIELD data_interface_count ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE data_interface_count ON TABLE node_image TYPE number
     ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD interface_prefix ON TABLE node_image TYPE string;
-DEFINE FIELD interface_type ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE interface_prefix ON TABLE node_image TYPE string;
+DEFINE FIELD OVERWRITE interface_type ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD interface_mtu ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE interface_mtu ON TABLE node_image TYPE number
     ASSERT $value >= 576 AND $value <= 9600 AND $value == math::floor($value);
-DEFINE FIELD first_interface_index ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE first_interface_index ON TABLE node_image TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD dedicated_management_interface ON TABLE node_image TYPE bool;
-DEFINE FIELD management_interface ON TABLE node_image TYPE string
+DEFINE FIELD OVERWRITE dedicated_management_interface ON TABLE node_image TYPE bool;
+DEFINE FIELD OVERWRITE management_interface ON TABLE node_image TYPE string
     ASSERT $value IN [{}];
-DEFINE FIELD reserved_interface_count ON TABLE node_image TYPE number
+DEFINE FIELD OVERWRITE reserved_interface_count ON TABLE node_image TYPE number
     ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 
-DEFINE FIELD default ON TABLE node_image TYPE bool;
+DEFINE FIELD OVERWRITE default ON TABLE node_image TYPE bool;
 
-DEFINE FIELD nodes ON TABLE node_image COMPUTED <~(node FIELD image);
+DEFINE FIELD OVERWRITE nodes ON TABLE node_image COMPUTED <~(node FIELD image);
 
-DEFINE INDEX unique_node_image_model_kind_version
+DEFINE INDEX OVERWRITE unique_node_image_model_kind_version
   ON TABLE node_image FIELDS model, kind, version UNIQUE;
 "#,
         models,

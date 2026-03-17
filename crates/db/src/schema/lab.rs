@@ -63,23 +63,23 @@
 /// ```
 pub(crate) fn generate_lab_schema() -> String {
     r#"
-DEFINE TABLE lab SCHEMAFULL;
-DEFINE FIELD lab_id ON TABLE lab TYPE string
+DEFINE TABLE OVERWRITE lab SCHEMAFULL;
+DEFINE FIELD OVERWRITE lab_id ON TABLE lab TYPE string
     ASSERT string::len($value) >= 1;
-DEFINE FIELD name ON TABLE lab TYPE string;
-DEFINE FIELD user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
-DEFINE FIELD loopback_network ON TABLE lab TYPE string;
-DEFINE FIELD management_network ON TABLE lab TYPE string;
-DEFINE FIELD gateway_ipv4 ON TABLE lab TYPE string;
-DEFINE FIELD router_ipv4 ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE name ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE loopback_network ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE management_network ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE gateway_ipv4 ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE router_ipv4 ON TABLE lab TYPE string;
 
-DEFINE FIELD nodes ON TABLE lab COMPUTED <~(node FIELD lab);
-DEFINE FIELD links ON TABLE lab COMPUTED <~(link FIELD lab);
-DEFINE FIELD bridges ON TABLE lab COMPUTED <~(bridge FIELD lab);
+DEFINE FIELD OVERWRITE nodes ON TABLE lab COMPUTED <~(node FIELD lab);
+DEFINE FIELD OVERWRITE links ON TABLE lab COMPUTED <~(link FIELD lab);
+DEFINE FIELD OVERWRITE bridges ON TABLE lab COMPUTED <~(bridge FIELD lab);
 
-DEFINE INDEX unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
+DEFINE INDEX OVERWRITE unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
 
-DEFINE INDEX unique_lab_name_user
+DEFINE INDEX OVERWRITE unique_lab_name_user
   ON TABLE lab FIELDS name, user UNIQUE;
 "#
     .to_string()

@@ -51,6 +51,9 @@ pub enum NodeModel {
     // Nokia
     NokiaSrlinux,
 
+    // Palo Alto
+    PaloaltoPanos,
+
     // Mikrotik
     MikrotikChr,
 
@@ -118,6 +121,9 @@ impl fmt::Display for NodeModel {
 
             // Nokia
             NodeModel::NokiaSrlinux => write!(f, "nokia_srlinux"),
+
+            // Palo Alto
+            NodeModel::PaloaltoPanos => write!(f, "paloalto_panos"),
 
             // Mikrotik
             NodeModel::MikrotikChr => write!(f, "mikrotik_chr"),
@@ -190,6 +196,9 @@ impl std::str::FromStr for NodeModel {
 
             // Nokia
             "nokia_srlinux" => Ok(NodeModel::NokiaSrlinux),
+
+            // Palo Alto
+            "paloalto_panos" => Ok(NodeModel::PaloaltoPanos),
 
             // Mikrotik
             "mikrotik_chr" => Ok(NodeModel::MikrotikChr),
@@ -280,6 +289,9 @@ pub enum OsVariant {
     // Nokia
     Srlinux,
 
+    // Palo Alto
+    Panos,
+
     // Mikrotik
     Routeros,
 
@@ -305,6 +317,7 @@ impl fmt::Display for OsVariant {
             OsVariant::Bsd => write!(f, "bsd"),
             OsVariant::Server => write!(f, "server"),
             OsVariant::Srlinux => write!(f, "srlinux"),
+            OsVariant::Panos => write!(f, "panos"),
             OsVariant::Routeros => write!(f, "routeros"),
             OsVariant::Unknown => write!(f, "unknown"),
         }
@@ -689,6 +702,9 @@ impl NodeConfig {
 
             // Nokia
             NodeModel::NokiaSrlinux => NodeConfig::nokia_srlinux(),
+
+            // Palo Alto
+            NodeModel::PaloaltoPanos => NodeConfig::paloalto_panos(),
 
             // Mikrotik
             NodeModel::MikrotikChr => NodeConfig::mikrotik_chr(),
@@ -1955,6 +1971,40 @@ impl NodeConfig {
             first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Ether1,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn paloalto_panos() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::PaloaltoPanos,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Panos,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 24,
+            interface_prefix: "ethernet1/".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_STD,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 8192,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::Cdrom,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Management,
             reserved_interface_count: 0,
             default: true,
         }

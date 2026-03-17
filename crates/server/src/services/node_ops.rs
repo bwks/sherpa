@@ -21,13 +21,13 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
     FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
     MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, SHERPA_RESERVED_NETWORK_NAME,
-    SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT,
-    ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
+    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
+    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
@@ -106,6 +106,7 @@ pub fn ztp_config_filename(model: &data::NodeModel) -> Result<String> {
         data::NodeModel::JuniperVsrxv3
         | data::NodeModel::JuniperVrouter
         | data::NodeModel::JuniperVswitch => JUNIPER_ZTP_CONFIG.to_string(),
+        data::NodeModel::PaloaltoPanos => PALOALTO_ZTP_CONFIG.to_string(),
         _ => bail!("No ZTP config filename mapping for model: {}", model),
     };
     Ok(name)
@@ -1299,6 +1300,52 @@ fn generate_cdrom_ztp(
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
                 util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+            }
+            data::NodeModel::PaloaltoPanos => {
+                // PA-VM requires config/, content/, license/, software/ directories
+                let config_subdir = format!("{dir}/config");
+                util::create_dir(&config_subdir)?;
+                util::create_dir(&format!("{dir}/content"))?;
+                util::create_dir(&format!("{dir}/license"))?;
+                util::create_dir(&format!("{dir}/software"))?;
+
+                // init-cfg.txt — network and hostname settings
+                let init_cfg = template::PaloAltoPanosZtpTemplate {
+                    hostname: node.name.clone(),
+                    mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_netmask: mgmt_net.v4.subnet_mask,
+                    mgmt_gateway: mgmt_net.v4.first,
+                    dns_primary: mgmt_net.v4.boot_server,
+                    dns_secondary: mgmt_net.v4.boot_server,
+                };
+                util::create_file(
+                    &format!("{config_subdir}/{PALOALTO_ZTP_CONFIG}"),
+                    init_cfg.render()?,
+                )?;
+
+                // bootstrap.xml — full running config with admin + sherpa users
+                // PAN-OS expects the full SSH public key line base64-encoded
+                let ssh_full_key = format!(
+                    "{} {}",
+                    user.ssh_public_key.algorithm, user.ssh_public_key.key
+                );
+                let ssh_public_key_b64 = util::base64_encode(&ssh_full_key);
+                let bootstrap = template::PaloAltoPanosBootstrapTemplate {
+                    hostname: node.name.clone(),
+                    user,
+                    password_hash: SHERPA_PASSWORD_HASH_SHA256.to_string(),
+                    ssh_public_key_b64,
+                    mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_netmask: mgmt_net.v4.subnet_mask,
+                    mgmt_gateway: mgmt_net.v4.first,
+                    dns_primary: mgmt_net.v4.boot_server,
+                };
+                util::create_file(
+                    &format!("{config_subdir}/{PALOALTO_BOOTSTRAP_CONFIG}"),
+                    bootstrap.render()?,
+                )?;
+
+                util::create_panos_bootstrap_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
             }
             _ => {
                 bail!("CDROM ZTP method not supported for {}", node_image.model);

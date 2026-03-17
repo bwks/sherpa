@@ -80,25 +80,25 @@ pub(crate) fn generate_node_schema() -> String {
 
     format!(
         r#"
-DEFINE TABLE node SCHEMAFULL;
-DEFINE FIELD name ON TABLE node TYPE string;
-DEFINE FIELD index ON TABLE node TYPE number
+DEFINE TABLE OVERWRITE node SCHEMAFULL;
+DEFINE FIELD OVERWRITE name ON TABLE node TYPE string;
+DEFINE FIELD OVERWRITE index ON TABLE node TYPE number
     ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
-DEFINE FIELD image ON TABLE node TYPE record<node_image> REFERENCE ON DELETE REJECT;
-DEFINE FIELD lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
-DEFINE FIELD mgmt_ipv4 ON TABLE node TYPE option<string>;
-DEFINE FIELD mgmt_mac ON TABLE node TYPE option<string>;
-DEFINE FIELD state ON TABLE node TYPE string
+DEFINE FIELD OVERWRITE image ON TABLE node TYPE record<node_image> REFERENCE ON DELETE REJECT;
+DEFINE FIELD OVERWRITE lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE mgmt_ipv4 ON TABLE node TYPE option<string>;
+DEFINE FIELD OVERWRITE mgmt_mac ON TABLE node TYPE option<string>;
+DEFINE FIELD OVERWRITE state ON TABLE node TYPE string
     ASSERT $value IN [{node_states}]
     DEFAULT "unknown";
 
-DEFINE FIELD links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
-DEFINE FIELD bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);
+DEFINE FIELD OVERWRITE links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
+DEFINE FIELD OVERWRITE bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);
 
-DEFINE INDEX unique_node_name_per_lab
+DEFINE INDEX OVERWRITE unique_node_name_per_lab
   ON TABLE node FIELDS lab, name UNIQUE;
 
-DEFINE INDEX unique_node_index_per_lab
+DEFINE INDEX OVERWRITE unique_node_index_per_lab
   ON TABLE node FIELDS lab, index UNIQUE;
 "#
     )

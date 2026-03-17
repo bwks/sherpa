@@ -27,15 +27,41 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         anyhow::bail!("Source file does not exist: {}", request.src);
     }
 
+    // If this is the first image for this model+kind, mark it as default
+    let existing_versions = db::get_node_image_versions(&state.db, &request.model, &kind).await?;
+    let make_default = if existing_versions.is_empty() {
+        true
+    } else {
+        request.default
+    };
+
+    // Validate node model is accepted by the database before copying files
+    let mut db_config = config;
+    db_config.version = request.version.clone();
+    db_config.default = make_default;
+    db_config.id = None;
+
+    db::upsert_node_image(&state.db, db_config)
+        .await
+        .context(format!(
+            "Failed to register node model '{}' in database. Ensure the server is up to date.",
+            request.model
+        ))?;
+
+    tracing::info!(
+        "Upserted node_image for model={} version={}",
+        request.model,
+        request.version
+    );
+
+    // Copy image file
     let images_dir = SHERPA_IMAGES_PATH.to_owned();
     let model_dir = format!("{images_dir}/{}", request.model);
     let version_dir = format!("{model_dir}/{}", request.version);
     let version_disk = format!("{version_dir}/virtioa.qcow2");
 
-    // Create version directory
     create_dir(&version_dir).context("Failed to create version directory")?;
 
-    // Copy image file if it doesn't already exist
     if !file_exists(&version_disk) {
         tracing::info!("Copying image from {} to {}", request.src, version_disk);
         copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
@@ -43,39 +69,13 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         tracing::info!("Image already exists at {}, skipping copy", version_disk);
     }
 
-    // Upsert node_image record in the database
-    let mut db_config = config;
-    db_config.version = request.version.clone();
-    db_config.default = request.default;
-    db_config.id = None;
-
-    let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
-        Ok(_) => {
-            tracing::info!(
-                "Upserted node_image for model={} version={}",
-                request.model,
-                request.version
-            );
-            true
-        }
-        Err(e) => {
-            tracing::error!(
-                "Failed to upsert node_image for model={} version={}: {:?}",
-                request.model,
-                request.version,
-                e
-            );
-            false
-        }
-    };
-
     Ok(ImportResponse {
         success: true,
         model: request.model,
         kind,
         version: request.version,
         image_path: version_disk,
-        db_tracked,
+        db_tracked: true,
     })
 }
 
@@ -291,7 +291,7 @@ pub async fn scan_images(
                         version,
                         e
                     );
-                    format!("error: {}", e)
+                    format!("error: {:#}", e)
                 }
             };
 
@@ -416,7 +416,7 @@ pub async fn scan_images(
                             version,
                             e
                         );
-                        format!("error: {}", e)
+                        format!("error: {:#}", e)
                     }
                 };
 
