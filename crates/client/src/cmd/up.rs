@@ -66,6 +66,9 @@ pub async fn up(
     // Resolve startup_scripts paths relative to manifest directory
     resolve_startup_scripts(&mut manifest, manifest_path)?;
 
+    // Resolve $ENV_VAR references in environment_variables
+    resolve_environment_variables(&mut manifest)?;
+
     // Serialize manifest to JSON for transmission
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -370,6 +373,42 @@ pub(crate) fn resolve_startup_scripts(
     Ok(())
 }
 
+/// Resolve `$ENV_VAR` references in environment variable values.
+///
+/// For each node's `environment_variables`, entries of the form `KEY=$VAR`
+/// have the `$VAR` portion resolved from the user's shell environment.
+/// Only exact `$VAR` values are expanded (not partial references like `prefix$VAR`).
+pub(crate) fn resolve_environment_variables(manifest: &mut topology::Manifest) -> Result<()> {
+    for node in &mut manifest.nodes {
+        let env_vars = match &mut node.environment_variables {
+            Some(vars) if !vars.is_empty() => vars,
+            _ => continue,
+        };
+
+        for entry in env_vars.iter_mut() {
+            let Some((key, value)) = entry.split_once('=') else {
+                bail!(
+                    "Invalid environment variable '{}' for node '{}': must be KEY=VALUE format",
+                    entry,
+                    node.name
+                );
+            };
+
+            if let Some(var_name) = value.strip_prefix('$') {
+                let resolved = std::env::var(var_name).with_context(|| {
+                    format!(
+                        "Environment variable '{}' referenced in node '{}' is not set",
+                        var_name, node.name
+                    )
+                })?;
+                *entry = format!("{}={}", key, resolved);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Display lab creation results
 fn display_up_results(response: &UpResponse) -> Result<()> {
     println!();
@@ -518,5 +557,96 @@ mod tests {
 
         let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_environment_variables_literal_values() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            environment_variables: Some(vec![
+                "EDITOR=vim".to_string(),
+                "LANG=en_US.UTF-8".to_string(),
+            ]),
+            ..Default::default()
+        }]);
+
+        resolve_environment_variables(&mut manifest).expect("should succeed");
+
+        let env_vars = manifest.nodes[0]
+            .environment_variables
+            .as_ref()
+            .expect("should have env vars");
+        assert_eq!(env_vars[0], "EDITOR=vim");
+        assert_eq!(env_vars[1], "LANG=en_US.UTF-8");
+    }
+
+    #[test]
+    fn test_resolve_environment_variables_env_ref() {
+        // SAFETY: test-only, run with --test-threads=1
+        unsafe { std::env::set_var("SHERPA_TEST_TOKEN", "secret123") };
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            environment_variables: Some(vec!["MY_TOKEN=$SHERPA_TEST_TOKEN".to_string()]),
+            ..Default::default()
+        }]);
+
+        resolve_environment_variables(&mut manifest).expect("should succeed");
+
+        let env_vars = manifest.nodes[0]
+            .environment_variables
+            .as_ref()
+            .expect("should have env vars");
+        assert_eq!(env_vars[0], "MY_TOKEN=secret123");
+
+        // SAFETY: test-only cleanup
+        unsafe { std::env::remove_var("SHERPA_TEST_TOKEN") };
+    }
+
+    #[test]
+    fn test_resolve_environment_variables_missing_env_var() {
+        // SAFETY: test-only, ensuring var is not set
+        unsafe { std::env::remove_var("SHERPA_NONEXISTENT_VAR_12345") };
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            environment_variables: Some(vec!["MY_VAR=$SHERPA_NONEXISTENT_VAR_12345".to_string()]),
+            ..Default::default()
+        }]);
+
+        let result = resolve_environment_variables(&mut manifest);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("SHERPA_NONEXISTENT_VAR_12345"));
+        assert!(err_msg.contains("dev01"));
+    }
+
+    #[test]
+    fn test_resolve_environment_variables_no_env_vars() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            ..Default::default()
+        }]);
+
+        resolve_environment_variables(&mut manifest).expect("should succeed with no env vars");
+    }
+
+    #[test]
+    fn test_resolve_environment_variables_invalid_format() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            environment_variables: Some(vec!["NO_EQUALS_SIGN".to_string()]),
+            ..Default::default()
+        }]);
+
+        let result = resolve_environment_variables(&mut manifest);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("KEY=VALUE"));
     }
 }

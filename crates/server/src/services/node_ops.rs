@@ -800,6 +800,61 @@ fn build_ignition_cert_files(
 }
 
 // ============================================================================
+// Environment variable helpers
+// ============================================================================
+
+/// Build a shell script for `/etc/profile.d/sherpa-env.sh` that exports
+/// environment variables for login shells.
+fn build_env_profile_script(env_vars: &[String]) -> String {
+    let mut script = "#!/bin/sh\n".to_string();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            // Escape single quotes: ' → '\''
+            let escaped_value = value.replace('\'', "'\\''");
+            script.push_str(&format!("export {}='{}'\n", key, escaped_value));
+        }
+    }
+    script
+}
+
+/// Build entries for `/etc/environment` (KEY=VALUE format, no `export`).
+/// Values containing spaces or special characters are double-quoted.
+fn build_etc_environment_entries(env_vars: &[String]) -> String {
+    let mut entries = String::new();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            if value.contains(' ')
+                || value.contains('\'')
+                || value.contains('"')
+                || value.contains('\\')
+            {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                entries.push_str(&format!("{}=\"{}\"\n", key, escaped));
+            } else {
+                entries.push_str(&format!("{}={}\n", key, value));
+            }
+        }
+    }
+    entries
+}
+
+/// Build PowerShell commands to set machine-level environment variables on Windows.
+fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
+    let mut commands = Vec::new();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            // Escape single quotes for PowerShell: ' → ''
+            let escaped_value = value.replace('\'', "''");
+            commands.push(format!(
+                "powershell -Command \"[System.Environment]::SetEnvironmentVariable('{}', '{}', 'Machine')\"",
+                key, escaped_value
+            ));
+        }
+    }
+    commands
+}
+
+// ============================================================================
 // VM ZTP sub-methods
 // ============================================================================
 
@@ -869,6 +924,25 @@ fn generate_cloud_init_ztp(
 
                     runcmd.push(format!("bash {}", target_path));
                 }
+            }
+
+            // Inject environment_variables into profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                write_files.push(template::CloudInitWriteFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    content: build_env_profile_script(env_vars),
+                    permissions: "0644".to_string(),
+                    owner: Some("root:root".to_string()),
+                    encoding: None,
+                });
+
+                let etc_env_content = build_etc_environment_entries(env_vars);
+                runcmd.push(format!(
+                    "printf '{}' >> /etc/environment",
+                    etc_env_content.replace('\'', "'\\''")
+                ));
             }
 
             let cloud_init_write_files = if write_files.is_empty() {
@@ -970,6 +1044,13 @@ fn generate_cloud_init_ztp(
                 }
             }
 
+            // Inject environment_variables as machine-level env vars
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                runcmd.extend(build_windows_env_commands(env_vars));
+            }
+
             let cloudbase_config = template::CloudbaseInitConfig {
                 set_hostname: node.name.clone(),
                 users: vec![cloudbase_user],
@@ -1041,6 +1122,25 @@ fn generate_cloud_init_ztp(
 
                     runcmd.push(format!("bash {}", target_path));
                 }
+            }
+
+            // Inject environment_variables into profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                write_files.push(template::CloudInitWriteFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    content: build_env_profile_script(env_vars),
+                    permissions: "0644".to_string(),
+                    owner: Some("root:root".to_string()),
+                    encoding: None,
+                });
+
+                let etc_env_content = build_etc_environment_entries(env_vars);
+                runcmd.push(format!(
+                    "printf '{}' >> /etc/environment",
+                    etc_env_content.replace('\'', "'\\''")
+                ));
             }
 
             let cloud_init_write_files = if write_files.is_empty() {
@@ -1794,6 +1894,34 @@ fn generate_ignition_ztp(
                 files.extend(build_ignition_cert_files(certs, NODE_CERTS_DIR)?);
             }
 
+            // Inject environment_variables via profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                let profile_script = build_env_profile_script(env_vars);
+                let profile_b64 = util::base64_encode(&profile_script);
+                files.push(template::IgnitionFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    mode: 0o644,
+                    contents: template::IgnitionFileContents::new(&format!(
+                        "data:;base64,{profile_b64}"
+                    )),
+                    ..Default::default()
+                });
+
+                let etc_env = build_etc_environment_entries(env_vars);
+                let etc_env_b64 = util::base64_encode(&etc_env);
+                files.push(template::IgnitionFile {
+                    path: "/etc/environment".to_string(),
+                    mode: 0o644,
+                    overwrite: Some(true),
+                    contents: template::IgnitionFileContents::new(&format!(
+                        "data:;base64,{etc_env_b64}"
+                    )),
+                    ..Default::default()
+                });
+            }
+
             let ignition_config = template::IgnitionConfig::new(
                 vec![ignition_user],
                 files,
@@ -2285,4 +2413,94 @@ pub async fn destroy_container_node(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_env_profile_script_basic() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "LANG=en_US.UTF-8".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(
+            script,
+            "#!/bin/sh\nexport EDITOR='vim'\nexport LANG='en_US.UTF-8'\n"
+        );
+    }
+
+    #[test]
+    fn test_build_env_profile_script_with_single_quotes() {
+        let env_vars = vec!["MSG=it's a test".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\nexport MSG='it'\\''s a test'\n");
+    }
+
+    #[test]
+    fn test_build_env_profile_script_with_spaces() {
+        let env_vars = vec!["GREETING=hello world".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\nexport GREETING='hello world'\n");
+    }
+
+    #[test]
+    fn test_build_env_profile_script_empty() {
+        let env_vars: Vec<String> = vec![];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_simple() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "TOKEN=abc123".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "EDITOR=vim\nTOKEN=abc123\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_with_spaces() {
+        let env_vars = vec!["MSG=hello world".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "MSG=\"hello world\"\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_with_quotes() {
+        let env_vars = vec!["MSG=say \"hi\"".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "MSG=\"say \\\"hi\\\"\"\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_empty() {
+        let env_vars: Vec<String> = vec![];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "");
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_basic() {
+        let env_vars = vec!["EDITOR=vim".to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0],
+            "powershell -Command \"[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')\""
+        );
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_with_single_quotes() {
+        let env_vars = vec!["MSG=it's here".to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(commands.len(), 1);
+        assert!(commands[0].contains("'it''s here'"));
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_empty() {
+        let env_vars: Vec<String> = vec![];
+        let commands = build_windows_env_commands(&env_vars);
+        assert!(commands.is_empty());
+    }
 }

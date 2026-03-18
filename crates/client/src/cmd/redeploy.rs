@@ -8,7 +8,7 @@ use shared::util::{Emoji, term_msg_surround};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
-use super::up::{resolve_startup_scripts, resolve_ztp_configs};
+use super::up::{resolve_environment_variables, resolve_startup_scripts, resolve_ztp_configs};
 
 /// Redeploy a single node: destroy and recreate with fresh ZTP
 pub async fn redeploy(
@@ -38,6 +38,7 @@ pub async fn redeploy(
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
     resolve_ztp_configs(&mut manifest, manifest_path)?;
     resolve_startup_scripts(&mut manifest, manifest_path)?;
+    resolve_environment_variables(&mut manifest)?;
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;

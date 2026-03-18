@@ -342,6 +342,14 @@ pub async fn up_lab(
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
 
+    // Environment variable validators
+    for node in &manifest.nodes {
+        if let Some(ref env_vars) = node.environment_variables {
+            validate::validate_environment_variables(env_vars, &node.name)
+                .context("Manifest validation failed: environment variables")?;
+        }
+    }
+
     // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
     // Fetch local Docker images for validation
     let docker_images = container::get_local_images(&docker_conn)
