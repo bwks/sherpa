@@ -1,5 +1,7 @@
 #[cfg(feature = "netinfo")]
 use std::net::Ipv4Addr;
+#[cfg(feature = "netinfo")]
+use std::net::Ipv6Addr;
 
 use anyhow::{Context, Result, anyhow};
 
@@ -69,6 +71,29 @@ pub fn get_non_loopback_ipv4_addresses() -> Result<Vec<Ipv4Addr>> {
     Ok(addresses)
 }
 
+/// Returns all non-loopback IPv6 addresses assigned to network interfaces on the host.
+#[cfg(feature = "netinfo")]
+pub fn get_non_loopback_ipv6_addresses() -> Result<Vec<Ipv6Addr>> {
+    let interfaces = getifaddrs()
+        .context("Failed to enumerate network interfaces")?
+        .collect::<Interfaces>();
+
+    let mut addresses = Vec::new();
+    for (_index, interface) in interfaces {
+        for address in interface.address.iter().flatten() {
+            if let Address::V6(..) = address
+                && let Some(ip_addr) = address.ip_addr()
+                && let Ok(ipv6) = ip_addr.to_string().parse::<Ipv6Addr>()
+                && !ipv6.is_loopback()
+            {
+                addresses.push(ipv6);
+            }
+        }
+    }
+
+    Ok(addresses)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +117,15 @@ mod tests {
     #[test]
     fn test_get_non_loopback_ipv4_addresses() {
         let addrs = get_non_loopback_ipv4_addresses().unwrap();
+        for addr in &addrs {
+            assert!(!addr.is_loopback());
+        }
+    }
+
+    #[cfg(feature = "netinfo")]
+    #[test]
+    fn test_get_non_loopback_ipv6_addresses() {
+        let addrs = get_non_loopback_ipv6_addresses().unwrap();
         for addr in &addrs {
             assert!(!addr.is_loopback());
         }

@@ -35,6 +35,10 @@ nv set interface eth0 ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_len
 nv set interface eth0 ip address dhcp
 {%- endif %}
 nv set interface eth0 ip gateway {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+nv set interface eth0 ip address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+nv set interface eth0 ip gateway {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 
 nv config apply --assume-yes --message "ZTP config"
 

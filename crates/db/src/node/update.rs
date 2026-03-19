@@ -106,6 +106,41 @@ pub async fn update_node_mgmt_ipv4(
     updated.ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
 }
 
+/// Update a node's management IPv6 address.
+///
+/// Fetches the existing node, sets the `mgmt_ipv6` field, and writes it back.
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `node_id` - RecordId of the node to update
+/// * `mgmt_ipv6` - The management IPv6 address to set
+///
+/// # Returns
+/// The updated DbNode record
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+pub async fn update_node_mgmt_ipv6(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    mgmt_ipv6: &str,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.mgmt_ipv6 = Some(mgmt_ipv6.to_string());
+
+    let updated: Option<DbNode> = db
+        .update(node_id.clone())
+        .content(node.clone())
+        .await
+        .context(format!(
+            "Failed to update mgmt_ipv6 for node: {}",
+            node.name
+        ))?;
+
+    updated.ok_or_else(|| anyhow!("Node mgmt_ipv6 update failed: {}", node.name))
+}
+
 /// Update a node's management MAC address.
 ///
 /// Fetches the existing node, sets the `mgmt_mac` field, and writes it back.

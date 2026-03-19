@@ -1,9 +1,9 @@
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use serde_derive::{Deserialize, Serialize};
 
 use super::{BridgeKind, DbNode, NodeKind, NodeModel};
@@ -66,6 +66,12 @@ pub struct LabInfo {
     pub ipv4_gateway: Ipv4Addr,
     pub ipv4_router: Ipv4Addr,
     pub loopback_network: Ipv4Net,
+    #[serde(default)]
+    pub ipv6_network: Option<Ipv6Net>,
+    #[serde(default)]
+    pub ipv6_gateway: Option<Ipv6Addr>,
+    #[serde(default)]
+    pub ipv6_router: Option<Ipv6Addr>,
 }
 impl fmt::Display for LabInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

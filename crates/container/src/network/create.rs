@@ -8,16 +8,25 @@ pub async fn create_docker_bridge_network(
     docker: &Docker,
     name: &str,
     ipv4_prefix: Option<String>,
+    ipv6_prefix: Option<String>,
     bridge: &str,
 ) -> Result<()> {
-    let ipam_config = IpamConfig {
+    let mut ipam_configs = vec![IpamConfig {
         subnet: ipv4_prefix,
         ..Default::default()
-    };
+    }];
+
+    let enable_ipv6 = ipv6_prefix.is_some();
+    if let Some(v6_prefix) = ipv6_prefix {
+        ipam_configs.push(IpamConfig {
+            subnet: Some(v6_prefix),
+            ..Default::default()
+        });
+    }
 
     let ipam = Ipam {
         driver: Some("default".to_string()),
-        config: Some(vec![ipam_config]),
+        config: Some(ipam_configs),
         ..Default::default()
     };
 
@@ -32,7 +41,7 @@ pub async fn create_docker_bridge_network(
         options: Some(options),
         ipam: Some(ipam),
         internal: Some(false),
-        enable_ipv6: Some(false),
+        enable_ipv6: Some(enable_ipv6),
         ..Default::default()
     };
 

@@ -27,6 +27,7 @@ pub async fn get_dhcp_leases(config: &Config) -> Result<Vec<DhcpLease>> {
                             expiry: fields[0].parse().unwrap_or(0),
                             mac_address: fields[1].into(),
                             ipv4_address: fields[2].into(),
+                            ipv6_address: None,
                             hostname: fields[3].into(),
                             client_id: fields[4].into(),
                         })

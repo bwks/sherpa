@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use axum::routing::get;
 use std::fs::OpenOptions;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -97,6 +97,22 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         }
     }
 
+    // Allow SHERPA_SERVER_IPV6 env var to override the config file value
+    if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV6") {
+        match ip_str.parse::<Ipv6Addr>() {
+            Ok(ip) => {
+                tracing::info!(
+                    "Overriding server IPv6 from SHERPA_SERVER_IPV6 env var: {}",
+                    ip_str
+                );
+                config.server_ipv6 = Some(ip);
+            }
+            Err(e) => {
+                tracing::warn!("Invalid SHERPA_SERVER_IPV6 '{}': {} — ignoring", ip_str, e,);
+            }
+        }
+    }
+
     // Allow SHERPA_SERVER_WS_PORT env var to override the config file value
     if let Ok(port_str) = std::env::var("SHERPA_SERVER_WS_PORT") {
         match port_str.parse::<u16>() {
@@ -147,6 +163,14 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         config.server_ipv4,
         config.ws_port
     );
+    if let Some(ipv6) = config.server_ipv6 {
+        tracing::info!(
+            "Server will also listen on {}://[{}]:{}",
+            protocol,
+            ipv6,
+            config.ws_port
+        );
+    }
 
     if config.tls.enabled {
         tracing::info!("TLS is enabled for secure WebSocket connections");
@@ -159,8 +183,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .await
         .context("Failed to initialize application state")?;
 
-    // Clone state for HTTP /cert endpoint before moving into main router
+    // Clone state for HTTP /cert endpoints before moving into main router
     let http_state = state.clone();
+    let ipv6_http_state = state.clone();
 
     // Build the router with REST endpoints
     let app = build_router()
@@ -211,9 +236,33 @@ pub async fn run_server(foreground: bool) -> Result<()> {
                 );
             }
 
+            // Add IPv6 SANs if configured
+            if let Some(ipv6) = config.server_ipv6 {
+                if ipv6.is_unspecified() {
+                    // Listening on [::] — add all non-loopback IPv6 interface addresses
+                    match shared::util::get_non_loopback_ipv6_addresses() {
+                        Ok(addrs) => {
+                            for ip in &addrs {
+                                san.push(format!("IP:{ip}"));
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                "Failed to enumerate IPv6 interfaces: {}. Adding [::] SAN",
+                                e
+                            );
+                            san.push(format!("IP:{}", ipv6));
+                        }
+                    }
+                } else {
+                    san.push(format!("IP:{}", ipv6));
+                }
+            }
+
             // Always add localhost and loopback
             san.push("DNS:localhost".to_string());
             san.push("IP:127.0.0.1".to_string());
+            san.push("IP:::1".to_string());
 
             // Add hostname and FQDN
             match shared::util::get_hostname() {
@@ -287,6 +336,52 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             }
         });
 
+        // Spawn IPv6 HTTP cert endpoint if configured
+        if let Some(ipv6) = config.server_ipv6 {
+            let ipv6_http_addr = SocketAddr::new(ipv6.into(), config.http_port);
+            let v6_http_state = ipv6_http_state;
+            tokio::spawn(async move {
+                let http_app = axum::Router::new()
+                    .route("/cert", get(crate::api::handlers::get_certificate_handler))
+                    .with_state(v6_http_state);
+
+                match tokio::net::TcpListener::bind(&ipv6_http_addr).await {
+                    Ok(listener) => {
+                        tracing::info!(
+                            "IPv6 HTTP certificate endpoint available at http://[{}]/cert",
+                            ipv6_http_addr
+                        );
+                        if let Err(e) = axum::serve(listener, http_app).await {
+                            tracing::error!("IPv6 HTTP certificate endpoint error: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to bind IPv6 HTTP listener on [{}]: {}",
+                            ipv6_http_addr,
+                            e
+                        );
+                    }
+                }
+            });
+        }
+
+        // Spawn IPv6 TLS listener if configured
+        if let Some(ipv6) = config.server_ipv6 {
+            let ipv6_addr = SocketAddr::new(ipv6.into(), config.ws_port);
+            let ipv6_tls_config = tls_config.clone();
+            let ipv6_app = app.clone();
+            tokio::spawn(async move {
+                tracing::info!("Starting IPv6 TLS listener on wss://[{}]", ipv6_addr);
+                if let Err(e) = axum_server::bind_rustls(ipv6_addr, ipv6_tls_config)
+                    .serve(ipv6_app.into_make_service())
+                    .await
+                {
+                    tracing::error!("IPv6 TLS listener error: {}", e);
+                }
+            });
+        }
+
         // Use axum-server with TLS for main server
         axum_server::bind_rustls(addr, tls_config)
             .serve(app.into_make_service())
@@ -306,6 +401,25 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             })?;
 
         tracing::info!("sherpad listening on ws://{}", addr);
+
+        // Spawn IPv6 listener if configured
+        if let Some(ipv6) = config.server_ipv6 {
+            let ipv6_addr = SocketAddr::new(ipv6.into(), config.ws_port);
+            let ipv6_app = app.clone();
+            tokio::spawn(async move {
+                match tokio::net::TcpListener::bind(&ipv6_addr).await {
+                    Ok(listener) => {
+                        tracing::info!("sherpad also listening on ws://[{}]", ipv6_addr);
+                        if let Err(e) = axum::serve(listener, ipv6_app).await {
+                            tracing::error!("IPv6 listener error: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to bind IPv6 listener on [{}]: {}", ipv6_addr, e);
+                    }
+                }
+            });
+        }
 
         axum::serve(listener, app)
             .with_graceful_shutdown(shutdown_signal())

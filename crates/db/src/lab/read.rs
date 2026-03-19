@@ -2,7 +2,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow};
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use shared::data::{DbLab, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -297,6 +297,56 @@ pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<V
             )
         })?;
         networks.push(net);
+    }
+    Ok(networks)
+}
+
+/// Get all IPv6 management networks currently allocated to labs.
+///
+/// Returns a vector of `Ipv6Net` representing the IPv6 management subnets
+/// in use by existing labs. Labs without IPv6 are skipped.
+pub async fn get_used_ipv6_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
+    let labs: Vec<DbLab> = db
+        .select("lab")
+        .await
+        .context("Failed to query labs for IPv6 management networks")?;
+
+    let mut networks = Vec::new();
+    for lab in labs {
+        if let Some(ref net_str) = lab.management_network_v6 {
+            let net = Ipv6Net::from_str(net_str).with_context(|| {
+                format!(
+                    "Failed to parse management_network_v6 '{}' for lab '{}'",
+                    net_str, lab.lab_id
+                )
+            })?;
+            networks.push(net);
+        }
+    }
+    Ok(networks)
+}
+
+/// Get all IPv6 loopback networks currently allocated to labs.
+///
+/// Returns a vector of `Ipv6Net` representing the IPv6 loopback subnets
+/// in use by existing labs. Labs without IPv6 are skipped.
+pub async fn get_used_ipv6_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
+    let labs: Vec<DbLab> = db
+        .select("lab")
+        .await
+        .context("Failed to query labs for IPv6 loopback networks")?;
+
+    let mut networks = Vec::new();
+    for lab in labs {
+        if let Some(ref net_str) = lab.loopback_network_v6 {
+            let net = Ipv6Net::from_str(net_str).with_context(|| {
+                format!(
+                    "Failed to parse loopback_network_v6 '{}' for lab '{}'",
+                    net_str, lab.lab_id
+                )
+            })?;
+            networks.push(net);
+        }
     }
     Ok(networks)
 }

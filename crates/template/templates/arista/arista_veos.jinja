@@ -15,6 +15,9 @@ username {{ user.username }} privilege 15{% if let Some(password) = user.passwor
 username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 !
 ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6 route ::/0 {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 !
 interface Management1
    {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
@@ -22,6 +25,9 @@ interface Management1
    {%- else %}
    ip address dhcp
    {%- endif %}
+   {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+   ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+   {%- endif %}{% endif %}
 !
 management api http-commands
    no shutdown

@@ -23,8 +23,9 @@ use shared::konst::{
     DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE,
     LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
 
@@ -145,6 +146,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
             ipv4_address: node.ipv4_address,
+            ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
             text_files: node.text_files.clone(),
@@ -342,6 +344,14 @@ pub async fn up_lab(
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
 
+    // Environment variable validators
+    for node in &manifest.nodes {
+        if let Some(ref env_vars) = node.environment_variables {
+            validate::validate_environment_variables(env_vars, &node.name)
+                .context("Manifest validation failed: environment variables")?;
+        }
+    }
+
     // Version & Image Validators (CRITICAL ERROR - fail fast on validation failure)
     // Fetch local Docker images for validation
     let docker_images = container::get_local_images(&docker_conn)
@@ -463,6 +473,38 @@ pub async fn up_lab(
             "Allocated management subnet for lab"
         );
 
+        // Allocate IPv6 management and loopback subnets
+        let ipv6_mgmt_prefix = config.management_prefix_ipv6.unwrap_or_else(|| {
+            util::get_ipv6_network(SHERPA_MANAGEMENT_NETWORK_IPV6)
+                .expect("Failed to parse default IPv6 management prefix")
+        });
+        let ipv6_loop_prefix = util::get_ipv6_network(SHERPA_LOOPBACK_PREFIX_IPV6)
+            .context("Failed to parse IPv6 loopback prefix")?;
+
+        let used_ipv6_mgmt = db::get_used_ipv6_management_networks(&db)
+            .await
+            .context("Failed to query existing IPv6 management networks")?;
+        let ipv6_management_subnet =
+            util::allocate_ipv6_management_subnet(&ipv6_mgmt_prefix, &used_ipv6_mgmt)
+                .context("Failed to allocate IPv6 management subnet for lab")?;
+
+        let used_ipv6_loop = db::get_used_ipv6_loopback_networks(&db)
+            .await
+            .context("Failed to query existing IPv6 loopback networks")?;
+        let ipv6_loopback_subnet =
+            util::allocate_ipv6_loopback_subnet(&ipv6_loop_prefix, &used_ipv6_loop)
+                .context("Failed to allocate IPv6 loopback subnet for lab")?;
+
+        let gateway_ipv6 = util::get_ipv6_addr(&ipv6_management_subnet, 1)?;
+        let router_ipv6 = util::get_ipv6_addr(&ipv6_management_subnet, 2)?;
+
+        tracing::info!(
+            lab_id = %lab_id,
+            ipv6_management_subnet = %ipv6_management_subnet,
+            ipv6_loopback_subnet = %ipv6_loopback_subnet,
+            "Allocated IPv6 subnets for lab"
+        );
+
         // Compute gateway and router IPs from management subnet
         let gateway_ipv4 = util::get_ipv4_addr(&management_subnet, 1)?;
         let router_ipv4 = util::get_ipv4_addr(&management_subnet, 2)?;
@@ -480,6 +522,17 @@ pub async fn up_lab(
         )
         .await
         .context("Failed to create lab record in database")?;
+
+        // Update lab with IPv6 network data
+        let mut lab_record = lab_record;
+        lab_record.management_network_v6 = Some(ipv6_management_subnet.to_string());
+        lab_record.gateway_ipv6 = Some(gateway_ipv6.to_string());
+        lab_record.router_ipv6 = Some(router_ipv6.to_string());
+        lab_record.loopback_network_v6 = Some(ipv6_loopback_subnet.to_string());
+        let lab_record = db::update_lab(&db, lab_record)
+            .await
+            .context("Failed to update lab with IPv6 network data")?;
+
         let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
 
         tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Created lab database record");
@@ -687,6 +740,9 @@ pub async fn up_lab(
             ipv4_gateway: gateway_ipv4,
             ipv4_router: router_ipv4,
             loopback_network: loopback_subnet,
+            ipv6_network: Some(ipv6_management_subnet),
+            ipv6_gateway: Some(gateway_ipv6),
+            ipv6_router: Some(router_ipv6),
         };
 
         util::create_dir(&lab_dir)?;
@@ -703,8 +759,16 @@ pub async fn up_lab(
                 hostmask: lab_net.hostmask(),
                 prefix_length: lab_net.prefix_len(),
             },
+            v6: Some(data::NetworkV6 {
+                prefix: ipv6_management_subnet,
+                first: gateway_ipv6,
+                last: util::get_ipv6_addr(&ipv6_management_subnet, u32::MAX)?,
+                boot_server: router_ipv6,
+                network: ipv6_management_subnet.network(),
+                prefix_length: ipv6_management_subnet.prefix_len(),
+            }),
         };
-        let dns = util::default_dns(&lab_net)?;
+        let dns = util::default_dns_dual_stack(&lab_net, &ipv6_management_subnet)?;
 
         let _ = progress.send_status(
             format!("Creating management network: {SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
@@ -723,6 +787,8 @@ pub async fn up_lab(
             bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
             ipv4_address: gateway_ipv4,
             ipv4_netmask: lab_net.netmask(),
+            ipv6_address: Some(gateway_ipv6),
+            ipv6_prefix_length: Some(ipv6_management_subnet.prefix_len()),
         };
         management_network_obj.create(&qemu_conn)?;
 
@@ -738,6 +804,7 @@ pub async fn up_lab(
             &docker_conn,
             &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             Some(lab_net.to_string()),
+            Some(ipv6_management_subnet.to_string()),
             &format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
         )
         .await?;
@@ -1103,10 +1170,20 @@ pub async fn up_lab(
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
             node.ipv4_address = Some(node_ipv4_address);
 
-            // Persist management IPv4 to the database
+            // Assign IPv6 management address
+            if let Some(ref v6) = mgmt_net.v6 {
+                let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
+                node.ipv6_address = Some(addr);
+            }
+
+            // Persist management IPs to the database
             if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
                 let record_id = db::get_node_id(&node_data.record)?;
-                db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
+                db::update_node_mgmt_ipv4(&db, record_id.clone(), &node_ipv4_address.to_string())
+                    .await?;
+                if let Some(ipv6) = node.ipv6_address {
+                    db::update_node_mgmt_ipv6(&db, record_id, &ipv6.to_string()).await?;
+                }
             }
 
             // Generate per-node TLS certificate
@@ -1172,10 +1249,20 @@ pub async fn up_lab(
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
             node.ipv4_address = Some(node_ipv4_address);
 
-            // Persist management IPv4 to the database
+            // Assign IPv6 management address
+            if let Some(ref v6) = mgmt_net.v6 {
+                let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
+                node.ipv6_address = Some(addr);
+            }
+
+            // Persist management IPs to the database
             if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
                 let record_id = db::get_node_id(&node_data.record)?;
-                db::update_node_mgmt_ipv4(&db, record_id, &node_ipv4_address.to_string()).await?;
+                db::update_node_mgmt_ipv4(&db, record_id.clone(), &node_ipv4_address.to_string())
+                    .await?;
+                if let Some(ipv6) = node.ipv6_address {
+                    db::update_node_mgmt_ipv6(&db, record_id, &ipv6.to_string()).await?;
+                }
             }
 
             // Generate per-node TLS certificate
@@ -1367,6 +1454,18 @@ pub async fn up_lab(
             gateway_ipv4: mgmt_net.v4.first.to_string(),
             dhcp_start: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10)?.to_string(),
             dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
+            gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
+            dhcp6_start: mgmt_net
+                .v6
+                .as_ref()
+                .map(|v6| util::get_ipv6_addr(&v6.prefix, 10).map(|a| a.to_string()))
+                .transpose()?,
+            dhcp6_end: mgmt_net
+                .v6
+                .as_ref()
+                .map(|v6| util::get_ipv6_addr(&v6.prefix, 254).map(|a| a.to_string()))
+                .transpose()?,
+            dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
             ztp_records: ztp_records.clone(),
         };
         let dnsmasq_rendered_template = dnsmaq_template.render()?;
@@ -1401,6 +1500,7 @@ pub async fn up_lab(
         let management_network_attachment = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             ipv4_address: Some(boot_server_ipv4.clone()),
+            ipv6_address: None,
             linux_interface_name: None,
             admin_down: false,
         };
@@ -1606,6 +1706,7 @@ pub async fn up_lab(
                             Some(data::ContainerNetworkAttachment {
                                 name: docker_net_name.clone(),
                                 ipv4_address: None,
+                                ipv6_address: None,
                                 linux_interface_name,
                                 admin_down: false,
                             })
@@ -1627,6 +1728,7 @@ pub async fn up_lab(
                             Some(data::ContainerNetworkAttachment {
                                 name: docker_net_name,
                                 ipv4_address: None,
+                                ipv6_address: None,
                                 linux_interface_name,
                                 admin_down: true,
                             })
@@ -1767,6 +1869,7 @@ pub async fn up_lab(
                 let management_network_attachment = data::ContainerNetworkAttachment {
                     name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                     ipv4_address: mgmt_ipv4.clone(),
+                    ipv6_address: None,
                     linux_interface_name: None,
                     admin_down: false,
                 };

@@ -5,3 +5,7 @@ netmask={{mgmt_netmask}}
 hostname={{hostname}}
 dns-primary={{dns_primary}}
 dns-secondary={{dns_secondary}}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6-address={{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+ipv6-default-gateway={{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}

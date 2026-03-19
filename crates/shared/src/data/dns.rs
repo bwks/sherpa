@@ -1,10 +1,11 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 #[derive(Clone)]
 pub struct NameServer {
     #[allow(dead_code)]
     pub name: String,
     pub ipv4_address: Ipv4Addr,
+    pub ipv6_address: Option<Ipv6Addr>,
 }
 // impl NameServer {
 //     pub fn default() -> Result<Self> {

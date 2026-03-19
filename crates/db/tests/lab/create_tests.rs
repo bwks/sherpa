@@ -324,6 +324,10 @@ async fn test_upsert_lab_creates_new() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        management_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+        loopback_network_v6: None,
     };
 
     let result = upsert_lab(&db, lab).await?;
@@ -367,6 +371,10 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        management_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+        loopback_network_v6: None,
     };
 
     let result = upsert_lab(&db, updated_lab).await?;

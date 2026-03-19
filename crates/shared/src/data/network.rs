@@ -1,7 +1,7 @@
 use std::fmt;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -43,10 +43,18 @@ pub struct NetworkV4 {
     pub hostmask: Ipv4Addr,
     pub prefix_length: u8,
 }
-// pub struct NetworkV6;
+#[derive(Clone)]
+pub struct NetworkV6 {
+    pub prefix: Ipv6Net,
+    pub first: Ipv6Addr,
+    pub last: Ipv6Addr,
+    pub boot_server: Ipv6Addr,
+    pub network: Ipv6Addr,
+    pub prefix_length: u8,
+}
 
 #[derive(Clone)]
 pub struct SherpaNetwork {
     pub v4: NetworkV4,
-    // v6: SherpaManagementV6,
+    pub v6: Option<NetworkV6>,
 }

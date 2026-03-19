@@ -103,6 +103,10 @@ pub async fn create_lab(
             management_network: management_network.to_string(),
             gateway_ipv4: gateway_ipv4.to_string(),
             router_ipv4: router_ipv4.to_string(),
+            management_network_v6: None,
+            gateway_ipv6: None,
+            router_ipv6: None,
+            loopback_network_v6: None,
         })
         .await
         .context(format!("Failed to create lab: '{}'", name))?;
@@ -146,6 +150,10 @@ pub async fn create_lab(
 ///     management_network: "172.31.1.0/24".to_string(),
 ///     gateway_ipv4: "172.31.1.1".to_string(),
 ///     router_ipv4: "172.31.1.2".to_string(),
+///     management_network_v6: None,
+///     gateway_ipv6: None,
+///     router_ipv6: None,
+///     loopback_network_v6: None,
 /// };
 /// let result = upsert_lab(&db, lab).await?;
 /// # Ok(())

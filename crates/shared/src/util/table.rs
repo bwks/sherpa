@@ -94,8 +94,11 @@ struct DeviceTableRow {
     #[tabled(rename = "State")]
     state: String,
 
-    #[tabled(rename = "Mgmt IP")]
+    #[tabled(rename = "Mgmt IPv4")]
     mgmt_ip: String,
+
+    #[tabled(rename = "Mgmt IPv6")]
+    mgmt_ipv6: String,
 
     #[tabled(rename = "VNC Port")]
     vnc_port: String,
@@ -124,6 +127,7 @@ struct DeviceTableRow {
 ///         kind: NodeKind::VirtualMachine,
 ///         state: NodeState::Running,
 ///         mgmt_ipv4: "172.31.0.11".to_string(),
+///         mgmt_ipv6: None,
 ///         vnc_port: None,
 ///         disks: vec![],
 ///     },
@@ -154,12 +158,15 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
                 None => "-".to_string(),
             };
 
+            let mgmt_ipv6 = device.mgmt_ipv6.as_deref().unwrap_or("-").to_string();
+
             DeviceTableRow {
                 device: device.name.clone(),
                 model: device.model.to_string(),
                 kind: device.kind.to_string(),
                 state: device.state.to_string(),
                 mgmt_ip,
+                mgmt_ipv6,
                 vnc_port,
                 disks,
             }
@@ -279,6 +286,9 @@ struct LabInfoTableRow {
 ///     ipv4_gateway: "172.31.0.1".parse().unwrap(),
 ///     ipv4_router: "172.31.0.2".parse().unwrap(),
 ///     loopback_network: "127.127.1.0/24".parse().unwrap(),
+///     ipv6_network: None,
+///     ipv6_gateway: None,
+///     ipv6_router: None,
 /// };
 ///
 /// let table = render_lab_info_table(&lab_info);
@@ -286,7 +296,7 @@ struct LabInfoTableRow {
 /// assert!(table.contains("simple-ceos-test"));
 /// ```
 pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
-    let rows = vec![
+    let mut rows = vec![
         LabInfoTableRow {
             property: "ID".to_string(),
             value: lab_info.id.clone(),
@@ -316,6 +326,25 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
             value: lab_info.loopback_network.to_string(),
         },
     ];
+
+    if let Some(ref ipv6_net) = lab_info.ipv6_network {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Management Network".to_string(),
+            value: ipv6_net.to_string(),
+        });
+    }
+    if let Some(ref ipv6_gw) = lab_info.ipv6_gateway {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Gateway".to_string(),
+            value: ipv6_gw.to_string(),
+        });
+    }
+    if let Some(ref ipv6_rtr) = lab_info.ipv6_router {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Router".to_string(),
+            value: ipv6_rtr.to_string(),
+        });
+    }
 
     Table::new(rows)
         .with(Style::modern())
@@ -534,6 +563,7 @@ mod tests {
             kind: NodeKind::VirtualMachine,
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
+            mgmt_ipv6: None,
             vnc_port: None,
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
@@ -561,6 +591,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
+                mgmt_ipv6: None,
                 vnc_port: Some(5900),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
@@ -573,6 +604,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.12".to_string(),
+                mgmt_ipv6: None,
                 vnc_port: None,
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
             },
@@ -600,6 +632,7 @@ mod tests {
             kind: NodeKind::Container,
             state: NodeState::Stopped,
             mgmt_ipv4: "".to_string(),
+            mgmt_ipv6: None,
             vnc_port: None,
             disks: vec![],
         }];
@@ -639,6 +672,9 @@ mod tests {
             ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
             ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
             loopback_network: "127.127.1.0/24".parse().unwrap(),
+            ipv6_network: None,
+            ipv6_gateway: None,
+            ipv6_router: None,
         };
 
         let table = render_lab_info_table(&lab_info);

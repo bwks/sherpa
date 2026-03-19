@@ -28,6 +28,13 @@ routing-options {
     static {
         route 0.0.0.0/0 next-hop {{ mgmt_ipv4.first }};
     }
+    {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+    rib inet6.0 {
+        static {
+            route ::/0 next-hop {{ mgmt_ipv6.first }};
+        }
+    }
+    {%- endif %}{% endif %}
 }
 interfaces {
     {{ mgmt_interface }} {
@@ -39,6 +46,11 @@ interfaces {
                 dhcp;
                 {%- endif %}
             }
+            {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+            family inet6 {
+                address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }};
+            }
+            {%- endif %}{% endif %}
         }
     }
 }

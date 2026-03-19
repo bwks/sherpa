@@ -1,10 +1,10 @@
 use anyhow::Result;
 use std::collections::HashMap;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::NetworkV4;
+use shared::data::{NetworkV4, NetworkV6};
 use shared::konst::{
     SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME,
 };
@@ -39,23 +39,37 @@ impl CloudInitNetwork {
         mgmt_ipv4_address: Ipv4Addr,
         mgmt_mac_address: String,
         mgmt_ipv4: NetworkV4,
+        mgmt_ipv6_address: Option<Ipv6Addr>,
+        mgmt_ipv6: Option<&NetworkV6>,
     ) -> Self {
-        let mut ethernets = HashMap::new();
+        let mut addresses = vec![format!("{}/{}", mgmt_ipv4_address, mgmt_ipv4.prefix_length)];
+        let mut routes = vec![Route {
+            to: "0.0.0.0/0".to_string(),
+            via: mgmt_ipv4.first.to_string(),
+        }];
+        let mut dns_addresses = vec![mgmt_ipv4.boot_server.to_string()];
 
+        if let (Some(ipv6_addr), Some(v6)) = (mgmt_ipv6_address, mgmt_ipv6) {
+            addresses.push(format!("{}/{}", ipv6_addr, v6.prefix_length));
+            routes.push(Route {
+                to: "::/0".to_string(),
+                via: v6.first.to_string(),
+            });
+            dns_addresses.push(v6.boot_server.to_string());
+        }
+
+        let mut ethernets = HashMap::new();
         ethernets.insert(
             "id0".to_string(),
             EthernetInterface {
                 match_config: MatchConfig {
                     macaddress: mgmt_mac_address,
                 },
-                addresses: vec![format!("{}/{}", mgmt_ipv4_address, mgmt_ipv4.prefix_length)],
-                routes: vec![Route {
-                    to: "0.0.0.0/0".to_string(),
-                    via: mgmt_ipv4.first.to_string(),
-                }],
+                addresses,
+                routes,
                 nameservers: Nameservers {
                     search: vec![SHERPA_DOMAIN_NAME.to_string()],
-                    addresses: vec![mgmt_ipv4.boot_server.to_string()],
+                    addresses: dns_addresses,
                 },
             },
         );

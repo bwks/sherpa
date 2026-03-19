@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
@@ -14,6 +14,7 @@ pub struct Node {
     pub memory: Option<u16>,
     pub boot_disk_size: Option<u16>,
     pub ipv4_address: Option<Ipv4Addr>,
+    pub ipv6_address: Option<Ipv6Addr>,
     pub text_files: Option<Vec<TextFile>>,
     pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,
@@ -42,6 +43,7 @@ pub struct NodeExpanded {
     pub memory: Option<u16>,
     pub boot_disk_size: Option<u16>,
     pub ipv4_address: Option<Ipv4Addr>,
+    pub ipv6_address: Option<Ipv6Addr>,
     pub text_files: Option<Vec<TextFile>>,
     pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,

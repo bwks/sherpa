@@ -178,6 +178,8 @@ pub fn generate_container_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     arista_template.render()?
                 }
@@ -218,6 +220,8 @@ pub fn generate_container_ztp(
                     dns,
                     &mgmt_net.v4,
                     Some(node_ipv4_address),
+                    node.ipv6_address,
+                    mgmt_net.v6.as_ref(),
                 )?,
             };
             let ztp_config = format!("{dir}/{}.json", node.name);
@@ -263,6 +267,8 @@ pub fn generate_container_ztp(
                         hostname: node.name.clone(),
                         mgmt_ipv4: mgmt_net.v4.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     frr_template.render()?
                 }
@@ -359,6 +365,7 @@ pub fn generate_container_ztp(
         node_name: node.name.clone(),
         config_file: format!("{}.conf", &node.name),
         ipv4_address: node_ipv4_address,
+        ipv6_address: None,
         mac_address: String::new(),
         ztp_method: node_image.ztp_method.clone(),
         ssh_port: SSH_PORT,
@@ -675,6 +682,7 @@ pub fn generate_vm_ztp(
         node_name: node.name.clone(),
         config_file: format!("{}.conf", &node.name),
         ipv4_address: node_ipv4_address,
+        ipv6_address: None,
         mac_address: mac_address.to_string(),
         ztp_method: node_image.ztp_method.clone(),
         ssh_port: SSH_PORT,
@@ -800,6 +808,61 @@ fn build_ignition_cert_files(
 }
 
 // ============================================================================
+// Environment variable helpers
+// ============================================================================
+
+/// Build a shell script for `/etc/profile.d/sherpa-env.sh` that exports
+/// environment variables for login shells.
+fn build_env_profile_script(env_vars: &[String]) -> String {
+    let mut script = "#!/bin/sh\n".to_string();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            // Escape single quotes: ' → '\''
+            let escaped_value = value.replace('\'', "'\\''");
+            script.push_str(&format!("export {}='{}'\n", key, escaped_value));
+        }
+    }
+    script
+}
+
+/// Build entries for `/etc/environment` (KEY=VALUE format, no `export`).
+/// Values containing spaces or special characters are double-quoted.
+fn build_etc_environment_entries(env_vars: &[String]) -> String {
+    let mut entries = String::new();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            if value.contains(' ')
+                || value.contains('\'')
+                || value.contains('"')
+                || value.contains('\\')
+            {
+                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+                entries.push_str(&format!("{}=\"{}\"\n", key, escaped));
+            } else {
+                entries.push_str(&format!("{}={}\n", key, value));
+            }
+        }
+    }
+    entries
+}
+
+/// Build PowerShell commands to set machine-level environment variables on Windows.
+fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
+    let mut commands = Vec::new();
+    for entry in env_vars {
+        if let Some((key, value)) = entry.split_once('=') {
+            // Escape single quotes for PowerShell: ' → ''
+            let escaped_value = value.replace('\'', "''");
+            commands.push(format!(
+                "powershell -Command \"[System.Environment]::SetEnvironmentVariable('{}', '{}', 'Machine')\"",
+                key, escaped_value
+            ));
+        }
+    }
+    commands
+}
+
+// ============================================================================
 // VM ZTP sub-methods
 // ============================================================================
 
@@ -871,6 +934,25 @@ fn generate_cloud_init_ztp(
                 }
             }
 
+            // Inject environment_variables into profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                write_files.push(template::CloudInitWriteFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    content: build_env_profile_script(env_vars),
+                    permissions: "0644".to_string(),
+                    owner: Some("root:root".to_string()),
+                    encoding: None,
+                });
+
+                let etc_env_content = build_etc_environment_entries(env_vars);
+                runcmd.push(format!(
+                    "printf '{}' >> /etc/environment",
+                    etc_env_content.replace('\'', "'\\''")
+                ));
+            }
+
             let cloud_init_write_files = if write_files.is_empty() {
                 None
             } else {
@@ -914,6 +996,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -970,6 +1054,13 @@ fn generate_cloud_init_ztp(
                 }
             }
 
+            // Inject environment_variables as machine-level env vars
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                runcmd.extend(build_windows_env_commands(env_vars));
+            }
+
             let cloudbase_config = template::CloudbaseInitConfig {
                 set_hostname: node.name.clone(),
                 users: vec![cloudbase_user],
@@ -997,6 +1088,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -1043,6 +1136,25 @@ fn generate_cloud_init_ztp(
                 }
             }
 
+            // Inject environment_variables into profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                write_files.push(template::CloudInitWriteFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    content: build_env_profile_script(env_vars),
+                    permissions: "0644".to_string(),
+                    owner: Some("root:root".to_string()),
+                    encoding: None,
+                });
+
+                let etc_env_content = build_etc_environment_entries(env_vars);
+                runcmd.push(format!(
+                    "printf '{}' >> /etc/environment",
+                    etc_env_content.replace('\'', "'\\''")
+                ));
+            }
+
             let cloud_init_write_files = if write_files.is_empty() {
                 None
             } else {
@@ -1080,6 +1192,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -1126,6 +1240,8 @@ fn generate_tftp_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = arista_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1138,6 +1254,8 @@ fn generate_tftp_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = aruba_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1150,6 +1268,8 @@ fn generate_tftp_ztp(
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let juniper_rendered_template = juniper_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1214,6 +1334,8 @@ fn generate_cdrom_ztp(
                     license_boot_command,
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
@@ -1231,6 +1353,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
@@ -1245,6 +1369,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
@@ -1259,6 +1385,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
@@ -1294,6 +1422,8 @@ fn generate_cdrom_ztp(
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
@@ -1313,6 +1443,8 @@ fn generate_cdrom_ztp(
                 let init_cfg = template::PaloAltoPanosZtpTemplate {
                     hostname: node.name.clone(),
                     mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                     mgmt_netmask: mgmt_net.v4.subnet_mask,
                     mgmt_gateway: mgmt_net.v4.first,
                     dns_primary: mgmt_net.v4.boot_server,
@@ -1336,6 +1468,8 @@ fn generate_cdrom_ztp(
                     password_hash: SHERPA_PASSWORD_HASH_SHA256.to_string(),
                     ssh_public_key_b64,
                     mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                     mgmt_netmask: mgmt_net.v4.subnet_mask,
                     mgmt_gateway: mgmt_net.v4.first,
                     dns_primary: mgmt_net.v4.boot_server,
@@ -1392,6 +1526,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1426,6 +1562,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1457,6 +1595,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: node_ipv4_address,
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1488,6 +1628,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4: mgmt_net.v4.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1548,6 +1690,8 @@ fn generate_usb_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1578,6 +1722,8 @@ fn generate_usb_ztp(
                         mgmt_interface: node_image.management_interface.to_string(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1635,6 +1781,8 @@ fn generate_http_ztp(
                 hostname: node.name.clone(),
                 mgmt_ipv4: mgmt_net.v4.clone(),
                 mgmt_ipv4_address: Some(node_ipv4_address),
+                mgmt_ipv6_address: node.ipv6_address,
+                mgmt_ipv6: mgmt_net.v6.clone(),
             };
             let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
             util::create_dir(&dir)?;
@@ -1787,11 +1935,41 @@ fn generate_ignition_ztp(
             files.push(template::IgnitionFile::ztp_interface(
                 node_ipv4_address,
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             )?);
 
             // Add TLS certificate files if cert paths are provided
             if let Some(certs) = cert_paths {
                 files.extend(build_ignition_cert_files(certs, NODE_CERTS_DIR)?);
+            }
+
+            // Inject environment_variables via profile.d and /etc/environment
+            if let Some(ref env_vars) = node.environment_variables
+                && !env_vars.is_empty()
+            {
+                let profile_script = build_env_profile_script(env_vars);
+                let profile_b64 = util::base64_encode(&profile_script);
+                files.push(template::IgnitionFile {
+                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                    mode: 0o644,
+                    contents: template::IgnitionFileContents::new(&format!(
+                        "data:;base64,{profile_b64}"
+                    )),
+                    ..Default::default()
+                });
+
+                let etc_env = build_etc_environment_entries(env_vars);
+                let etc_env_b64 = util::base64_encode(&etc_env);
+                files.push(template::IgnitionFile {
+                    path: "/etc/environment".to_string(),
+                    mode: 0o644,
+                    overwrite: Some(true),
+                    contents: template::IgnitionFileContents::new(&format!(
+                        "data:;base64,{etc_env_b64}"
+                    )),
+                    ..Default::default()
+                });
             }
 
             let ignition_config = template::IgnitionConfig::new(
@@ -2285,4 +2463,94 @@ pub async fn destroy_container_node(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_env_profile_script_basic() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "LANG=en_US.UTF-8".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(
+            script,
+            "#!/bin/sh\nexport EDITOR='vim'\nexport LANG='en_US.UTF-8'\n"
+        );
+    }
+
+    #[test]
+    fn test_build_env_profile_script_with_single_quotes() {
+        let env_vars = vec!["MSG=it's a test".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\nexport MSG='it'\\''s a test'\n");
+    }
+
+    #[test]
+    fn test_build_env_profile_script_with_spaces() {
+        let env_vars = vec!["GREETING=hello world".to_string()];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\nexport GREETING='hello world'\n");
+    }
+
+    #[test]
+    fn test_build_env_profile_script_empty() {
+        let env_vars: Vec<String> = vec![];
+        let script = build_env_profile_script(&env_vars);
+        assert_eq!(script, "#!/bin/sh\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_simple() {
+        let env_vars = vec!["EDITOR=vim".to_string(), "TOKEN=abc123".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "EDITOR=vim\nTOKEN=abc123\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_with_spaces() {
+        let env_vars = vec!["MSG=hello world".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "MSG=\"hello world\"\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_with_quotes() {
+        let env_vars = vec!["MSG=say \"hi\"".to_string()];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "MSG=\"say \\\"hi\\\"\"\n");
+    }
+
+    #[test]
+    fn test_build_etc_environment_entries_empty() {
+        let env_vars: Vec<String> = vec![];
+        let entries = build_etc_environment_entries(&env_vars);
+        assert_eq!(entries, "");
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_basic() {
+        let env_vars = vec!["EDITOR=vim".to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(commands.len(), 1);
+        assert_eq!(
+            commands[0],
+            "powershell -Command \"[System.Environment]::SetEnvironmentVariable('EDITOR', 'vim', 'Machine')\""
+        );
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_with_single_quotes() {
+        let env_vars = vec!["MSG=it's here".to_string()];
+        let commands = build_windows_env_commands(&env_vars);
+        assert_eq!(commands.len(), 1);
+        assert!(commands[0].contains("'it''s here'"));
+    }
+
+    #[test]
+    fn test_build_windows_env_commands_empty() {
+        let env_vars: Vec<String> = vec![];
+        let commands = build_windows_env_commands(&env_vars);
+        assert!(commands.is_empty());
+    }
 }

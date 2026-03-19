@@ -179,6 +179,7 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
             kind: node_image.kind.clone(),
             state: node.state,
             mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
+            mgmt_ipv6: node.mgmt_ipv6.clone(),
             vnc_port: None,
             disks: Vec::new(),
         };

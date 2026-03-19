@@ -6,6 +6,10 @@
 /ip address add address={{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }} interface={{ mgmt_interface }}
 {%- endif %}
 /ip route add dst-address=0.0.0.0/0 gateway={{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+/ipv6 address add address={{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }} interface={{ mgmt_interface }}
+/ipv6 route add dst-address=::/0 gateway={{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 /ip service set ssh disabled=no
 /ip service set telnet disabled=yes
 /ip service set www disabled=yes

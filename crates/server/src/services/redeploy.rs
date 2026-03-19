@@ -59,6 +59,7 @@ pub async fn redeploy_node(
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
             ipv4_address: node.ipv4_address,
+            ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
             text_files: node.text_files.clone(),
@@ -137,12 +138,37 @@ pub async fn redeploy_node(
             hostmask: lab_info.ipv4_network.hostmask(),
             prefix_length: lab_info.ipv4_network.prefix_len(),
         },
+        v6: match (
+            lab_info.ipv6_network,
+            lab_info.ipv6_gateway,
+            lab_info.ipv6_router,
+        ) {
+            (Some(v6_net), Some(v6_gw), Some(v6_rtr)) => Some(data::NetworkV6 {
+                prefix: v6_net,
+                first: v6_gw,
+                last: util::get_ipv6_addr(&v6_net, u32::MAX).unwrap_or(v6_net.network()),
+                boot_server: v6_rtr,
+                network: v6_net.network(),
+                prefix_length: v6_net.prefix_len(),
+            }),
+            _ => None,
+        },
     };
-    let dns = util::default_dns(&lab_info.ipv4_network)?;
+    let dns = if let Some(ref v6) = mgmt_net.v6 {
+        util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
+    } else {
+        util::default_dns(&lab_info.ipv4_network)?
+    };
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let node_idx = db_node.index;
     let node_ip_idx = 10 + node_idx as u32;
     let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
+
+    // Assign IPv6 management address
+    if let Some(ref v6) = mgmt_net.v6 {
+        let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
+        target_node.ipv6_address = Some(addr);
+    }
 
     // Update node state to Starting
     db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
@@ -328,6 +354,7 @@ pub async fn redeploy_node(
                     additional_networks.push(data::ContainerNetworkAttachment {
                         name: docker_net_name.clone(),
                         ipv4_address: None,
+                        ipv6_address: None,
                         linux_interface_name,
                         admin_down: false,
                     });
@@ -353,6 +380,7 @@ pub async fn redeploy_node(
                     additional_networks.push(data::ContainerNetworkAttachment {
                         name: docker_net_name,
                         ipv4_address: None,
+                        ipv6_address: None,
                         linux_interface_name,
                         admin_down: true,
                     });
@@ -362,6 +390,7 @@ pub async fn redeploy_node(
             let mgmt_attachment = data::ContainerNetworkAttachment {
                 name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                 ipv4_address: Some(node_ipv4_address.to_string()),
+                ipv6_address: None,
                 linux_interface_name: None,
                 admin_down: false,
             };

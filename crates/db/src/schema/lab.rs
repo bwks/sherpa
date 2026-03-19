@@ -72,6 +72,10 @@ DEFINE FIELD OVERWRITE loopback_network ON TABLE lab TYPE string;
 DEFINE FIELD OVERWRITE management_network ON TABLE lab TYPE string;
 DEFINE FIELD OVERWRITE gateway_ipv4 ON TABLE lab TYPE string;
 DEFINE FIELD OVERWRITE router_ipv4 ON TABLE lab TYPE string;
+DEFINE FIELD OVERWRITE management_network_v6 ON TABLE lab TYPE option<string>;
+DEFINE FIELD OVERWRITE loopback_network_v6 ON TABLE lab TYPE option<string>;
+DEFINE FIELD OVERWRITE gateway_ipv6 ON TABLE lab TYPE option<string>;
+DEFINE FIELD OVERWRITE router_ipv6 ON TABLE lab TYPE option<string>;
 
 DEFINE FIELD OVERWRITE nodes ON TABLE lab COMPUTED <~(node FIELD lab);
 DEFINE FIELD OVERWRITE links ON TABLE lab COMPUTED <~(link FIELD lab);
