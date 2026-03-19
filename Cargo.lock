@@ -2674,6 +2674,7 @@ name = "libvirt"
 version = "0.3.27"
 dependencies = [
  "anyhow",
+ "askama",
  "shared",
  "tracing",
  "virt",

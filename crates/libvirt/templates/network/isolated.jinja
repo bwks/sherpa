@@ -1,0 +1,7 @@
+<network>
+  <name>{{ network_name }}</name>
+  <mtu size="{{ MTU_JUMBO_NET }}"/>
+  <bridge name='{{ bridge_name }}' stp='on' delay='0'/>
+  <forward mode='none'/>
+  <port isolated='yes'/>
+</network>

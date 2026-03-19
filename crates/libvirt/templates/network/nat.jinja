@@ -1,0 +1,16 @@
+<network connections='1' xmlns:dnsmasq='http://libvirt.org/schemas/network/dnsmasq/1.0'>
+  <name>{{ network_name }}</name>
+  <mtu size="{{ MTU_JUMBO_NET }}"/>
+  <forward mode='nat'>
+    <nat>
+      <port start='1024' end='65535'/>
+    </nat>
+  </forward>
+  <bridge name='{{ bridge_name }}' stp='on' delay='0'/>
+  <domain name='{{ SHERPA_DOMAIN_NAME }}' localOnly='yes'/>
+  <dns enable='yes'/>
+  <ip address='{{ ipv4_address }}' netmask='{{ ipv4_netmask }}'></ip>
+  {% if let Some(addr) = ipv6_address %}{% if let Some(prefix) = ipv6_prefix_length %}
+  <ip family='ipv6' address='{{ addr }}' prefix='{{ prefix }}'></ip>
+  {% endif %}{% endif %}
+</network>

@@ -12,5 +12,9 @@ pub struct DnsmasqTemplate {
     pub gateway_ipv4: String,
     pub dhcp_start: String,
     pub dhcp_end: String,
+    pub gateway_ipv6: Option<String>,
+    pub dhcp6_start: Option<String>,
+    pub dhcp6_end: Option<String>,
+    pub dns_ipv6: Option<String>,
     pub ztp_records: Vec<ZtpRecord>,
 }

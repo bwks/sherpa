@@ -9,6 +9,9 @@ shared = { path = "../shared" }
 # Errors
 anyhow = "1.0.100"
 
+# Templates
+askama = "0.14.0"
+
 # Logging
 tracing = "0.1"
 

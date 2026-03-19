@@ -49,7 +49,7 @@ pub async fn run_container(
         EndpointSettings {
             ipam_config: Some(EndpointIpamConfig {
                 ipv4_address: management_network.ipv4_address.clone(),
-                ipv6_address: None,
+                ipv6_address: management_network.ipv6_address.clone(),
                 link_local_ips: None,
             }),
             ..Default::default()
@@ -108,7 +108,7 @@ pub async fn run_container(
             endpoint_config: Some(EndpointSettings {
                 ipam_config: Some(EndpointIpamConfig {
                     ipv4_address: attachment.ipv4_address.clone(),
-                    ipv6_address: None,
+                    ipv6_address: attachment.ipv6_address.clone(),
                     link_local_ips: None,
                 }),
                 ..Default::default()

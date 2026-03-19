@@ -19,6 +19,13 @@ dhcp-option=6,{{ tftp_server_ipv4 }} # DNS Server
 dhcp-option=15,{{ SHERPA_DOMAIN_NAME }} # Search Domain
 dhcp-option=66,{{ tftp_server_ipv4 }} # TFTP Server
 dhcp-option=150,{{ tftp_server_ipv4 }} # TFTP Server
+{% if let Some(gw6) = gateway_ipv6 %}
+# IPv6 DHCP (SLAAC + stateless DHCPv6)
+dhcp-range=::,constructor:*,ra-stateless
+{% endif %}
+{%- if let Some(dns6) = dns_ipv6 %}
+dhcp-option=option6:23,[{{ dns6 }}] # DHCPv6 DNS Server
+{%- endif %}
 
 # Ignore client identifier
 dhcp-ignore-clid
@@ -32,6 +39,10 @@ tftp-root=/opt/{{ ZTP_DIR }}/{{ TFTP_DIR }}
 # {{ record.node_name }}
 host-record={{ record.node_name }},{{ record.ipv4_address }}
 host-record={{ record.node_name }}.{{ SHERPA_DOMAIN_NAME }},{{ record.ipv4_address }}
+{%-   if let Some(ipv6) = record.ipv6_address %}
+host-record={{ record.node_name }},{{ ipv6 }}
+host-record={{ record.node_name }}.{{ SHERPA_DOMAIN_NAME }},{{ ipv6 }}
+{%-   endif %}
 {%-   if !record.mac_address.is_empty() %}
 dhcp-host={{ record.mac_address }},{{ record.ipv4_address }},{{ record.node_name }},,set:{{ record.node_name }}-tag
 {%-     match record.ztp_method %}

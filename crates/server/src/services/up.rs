@@ -787,6 +787,8 @@ pub async fn up_lab(
             bridge_name: format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
             ipv4_address: gateway_ipv4,
             ipv4_netmask: lab_net.netmask(),
+            ipv6_address: Some(gateway_ipv6),
+            ipv6_prefix_length: Some(ipv6_management_subnet.prefix_len()),
         };
         management_network_obj.create(&qemu_conn)?;
 
@@ -802,6 +804,7 @@ pub async fn up_lab(
             &docker_conn,
             &format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             Some(lab_net.to_string()),
+            Some(ipv6_management_subnet.to_string()),
             &format!("{SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX}-{lab_id}"),
         )
         .await?;
@@ -1451,6 +1454,18 @@ pub async fn up_lab(
             gateway_ipv4: mgmt_net.v4.first.to_string(),
             dhcp_start: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10)?.to_string(),
             dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
+            gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
+            dhcp6_start: mgmt_net
+                .v6
+                .as_ref()
+                .map(|v6| util::get_ipv6_addr(&v6.prefix, 10).map(|a| a.to_string()))
+                .transpose()?,
+            dhcp6_end: mgmt_net
+                .v6
+                .as_ref()
+                .map(|v6| util::get_ipv6_addr(&v6.prefix, 254).map(|a| a.to_string()))
+                .transpose()?,
+            dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
             ztp_records: ztp_records.clone(),
         };
         let dnsmasq_rendered_template = dnsmaq_template.render()?;
