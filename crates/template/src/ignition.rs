@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use serde::Serializer;
@@ -8,7 +8,7 @@ use shared::konst::{DOCKER_COMPOSE_VERSION, IGNITION_VERSION, SHERPA_DOMAIN_NAME
 
 use shared::util::base64_encode;
 
-use shared::data::NetworkV4;
+use shared::data::{NetworkV4, NetworkV6};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionConfig {
@@ -223,8 +223,13 @@ impl IgnitionFile {
             ..Default::default()
         }
     }
-    pub fn ztp_interface(mgmt_ipv4_address: Ipv4Addr, mgmt_ipv4: NetworkV4) -> Result<Self> {
-        let contents = format!(
+    pub fn ztp_interface(
+        mgmt_ipv4_address: Ipv4Addr,
+        mgmt_ipv4: NetworkV4,
+        mgmt_ipv6_address: Option<Ipv6Addr>,
+        mgmt_ipv6: Option<&NetworkV6>,
+    ) -> Result<Self> {
+        let mut contents = format!(
             r#"[Match]
 Name=eth0
 
@@ -240,6 +245,13 @@ Domains={domain}
             dns = mgmt_ipv4.boot_server,
             domain = SHERPA_DOMAIN_NAME,
         );
+
+        if let (Some(ipv6_addr), Some(v6)) = (mgmt_ipv6_address, mgmt_ipv6) {
+            contents.push_str(&format!(
+                "Address={}/{}\nGateway={}\nDNS={}\n",
+                ipv6_addr, v6.prefix_length, v6.first, v6.boot_server,
+            ));
+        }
         let encoded_contents = base64_encode(&contents);
         Ok(Self {
             path: "/etc/systemd/network/00-eth0.network".to_owned(),

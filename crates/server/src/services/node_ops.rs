@@ -990,6 +990,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -1080,6 +1082,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -1182,6 +1186,8 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
@@ -1889,6 +1895,8 @@ fn generate_ignition_ztp(
             files.push(template::IgnitionFile::ztp_interface(
                 node_ipv4_address,
                 mgmt_net.v4.clone(),
+                node.ipv6_address,
+                mgmt_net.v6.as_ref(),
             )?);
 
             // Add TLS certificate files if cert paths are provided
