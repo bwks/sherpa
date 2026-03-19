@@ -7,9 +7,26 @@ use virt::network::Network;
 
 use shared::konst::{MTU_JUMBO_NET, SHERPA_DOMAIN_NAME};
 
-/// Check if a libvirt network already exists (active or defined).
-fn network_exists(qemu_conn: &Connect, name: &str) -> bool {
-    Network::lookup_by_name(qemu_conn, name).is_ok()
+/// Ensure an existing libvirt network is active. Returns true if the network
+/// exists (and is now active), false if it doesn't exist at all.
+fn ensure_network_active(qemu_conn: &Connect, name: &str) -> Result<bool> {
+    let network = match Network::lookup_by_name(qemu_conn, name) {
+        Ok(n) => n,
+        Err(_) => return Ok(false),
+    };
+
+    let active = network
+        .is_active()
+        .with_context(|| format!("Failed to check if network '{name}' is active"))?;
+
+    if !active {
+        tracing::info!(network_name = %name, "Network exists but is inactive, starting it");
+        network
+            .create()
+            .with_context(|| format!("Failed to start existing network '{name}'"))?;
+    }
+
+    Ok(true)
 }
 
 /// Define, start, and autostart a libvirt network from XML.
@@ -34,7 +51,7 @@ pub struct BridgeNetwork {
 
 impl BridgeNetwork {
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if network_exists(qemu_conn, &self.network_name) {
+        if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Bridge network already exists");
             return Ok(());
         }
@@ -60,7 +77,7 @@ impl IsolatedNetwork {
     /// Create an isolated bridge for forwarding disabled and ports
     /// isolated from one another.
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if network_exists(qemu_conn, &self.network_name) {
+        if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Isolated network already exists");
             return Ok(());
         }
@@ -85,7 +102,7 @@ pub struct ReservedNetwork {
 impl ReservedNetwork {
     /// Create a reserved bridge for control traffic in a VM.
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if network_exists(qemu_conn, &self.network_name) {
+        if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Reserved network already exists");
             return Ok(());
         }
@@ -113,7 +130,7 @@ pub struct NatNetwork {
 
 impl NatNetwork {
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
-        if network_exists(qemu_conn, &self.network_name) {
+        if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "NAT network already exists");
             return Ok(());
         }
