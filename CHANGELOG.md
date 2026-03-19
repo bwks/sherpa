@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.28] - 2026-03-19
+
+### Features
+
+- Ipv6 templates and server listener by @bwks ([daae958](https://github.com/bwks/sherpa/commit/daae958b7845753a669e400bb90e4429092a5476))
+- Ipv6 redeploy by @bwks ([7d7e7da](https://github.com/bwks/sherpa/commit/7d7e7da391906a398e55f9769a77030694020620))
+- Ipv6 node configs by @bwks ([baf2457](https://github.com/bwks/sherpa/commit/baf245796c1bdd787d5e245deaa6768d974e4e2b))
+- Ipv6  cloud-init templates by @bwks ([5aa54b0](https://github.com/bwks/sherpa/commit/5aa54b063b2eedf476b15078d871872c854682e8))
+- Ipv6 networks libvirt and docker by @bwks ([7cf7bcc](https://github.com/bwks/sherpa/commit/7cf7bcc0cce96425f692dda9b424e7d8b08e0c85))
+- Ipv6 update schema and helpers by @bwks ([16efc40](https://github.com/bwks/sherpa/commit/16efc406568ac933af3e7baab4e1d88bc5670e2f))
+- IPv6 initial stubs by @bwks ([272b225](https://github.com/bwks/sherpa/commit/272b225ae549dbf6c3745be85b51d37b69893df2))
+- ENV vars for virtual machines by @bwks ([45ed6cf](https://github.com/bwks/sherpa/commit/45ed6cf50f230c482e7724c8c5a7746e63f2389a))
+
+### Miscellaneous
+
+- Merge pull request #153 from bwks/v0.3.28
+
+V0.3.28 by @bwks in [#153](https://github.com/bwks/sherpa/pull/153) ([3b473ca](https://github.com/bwks/sherpa/commit/3b473ca1f614864af8bc0da832da532bca2c0c2f))
+- Obey clippy by @bwks ([63ce8ef](https://github.com/bwks/sherpa/commit/63ce8ef03368379821798453d8f8360fd5c52332))
+- Obey clippy by @bwks ([de9a724](https://github.com/bwks/sherpa/commit/de9a72407d0fdb28cf68f9e6e576d86b21af341f))
+- Version bump by @bwks ([dc2ec60](https://github.com/bwks/sherpa/commit/dc2ec60570da1d8aee44009259472c0ed377fc73))
+- Merge pull request #145 from bwks/changelog/v0.3.27
+
+chore(release): update changelog for v0.3.27 by @github-actions[bot] in [#145](https://github.com/bwks/sherpa/pull/145) ([7fc7606](https://github.com/bwks/sherpa/commit/7fc7606db418af7825e095d07d603b0a84a0088f))
 ## [0.3.27] - 2026-03-17
 
 ### Features
