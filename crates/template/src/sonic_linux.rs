@@ -1,9 +1,9 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 use serde_json::json;
 
-use shared::data::{NetworkV4, User};
+use shared::data::{NetworkV4, NetworkV6, User};
 use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
 
 #[derive(Template)]
@@ -16,6 +16,8 @@ pub struct SonicLinuxZtp {
     pub hostname: String,
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Option<Ipv4Addr>,
+    pub mgmt_ipv6_address: Option<Ipv6Addr>,
+    pub mgmt_ipv6: Option<NetworkV6>,
 }
 
 impl SonicLinuxZtp {

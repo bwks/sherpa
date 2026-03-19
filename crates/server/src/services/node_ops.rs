@@ -178,6 +178,8 @@ pub fn generate_container_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     arista_template.render()?
                 }
@@ -218,6 +220,8 @@ pub fn generate_container_ztp(
                     dns,
                     &mgmt_net.v4,
                     Some(node_ipv4_address),
+                    node.ipv6_address,
+                    mgmt_net.v6.as_ref(),
                 )?,
             };
             let ztp_config = format!("{dir}/{}.json", node.name);
@@ -263,6 +267,8 @@ pub fn generate_container_ztp(
                         hostname: node.name.clone(),
                         mgmt_ipv4: mgmt_net.v4.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     frr_template.render()?
                 }
@@ -1234,6 +1240,8 @@ fn generate_tftp_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = arista_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1246,6 +1254,8 @@ fn generate_tftp_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = aruba_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1258,6 +1268,8 @@ fn generate_tftp_ztp(
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let juniper_rendered_template = juniper_template.render()?;
                 let ztp_config = format!("{tftp_dir}/{}.conf", node.name);
@@ -1322,6 +1334,8 @@ fn generate_cdrom_ztp(
                     license_boot_command,
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let c = CISCO_IOSXE_ZTP_CONFIG.replace("-", "_");
@@ -1339,6 +1353,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
@@ -1353,6 +1369,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
@@ -1367,6 +1385,8 @@ fn generate_cdrom_ztp(
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
@@ -1402,6 +1422,8 @@ fn generate_cdrom_ztp(
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                 };
                 let rendered_template = t.render()?;
                 let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
@@ -1421,6 +1443,8 @@ fn generate_cdrom_ztp(
                 let init_cfg = template::PaloAltoPanosZtpTemplate {
                     hostname: node.name.clone(),
                     mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                     mgmt_netmask: mgmt_net.v4.subnet_mask,
                     mgmt_gateway: mgmt_net.v4.first,
                     dns_primary: mgmt_net.v4.boot_server,
@@ -1444,6 +1468,8 @@ fn generate_cdrom_ztp(
                     password_hash: SHERPA_PASSWORD_HASH_SHA256.to_string(),
                     ssh_public_key_b64,
                     mgmt_ipv4_address: node_ipv4_address,
+                    mgmt_ipv6_address: node.ipv6_address,
+                    mgmt_ipv6: mgmt_net.v6.clone(),
                     mgmt_netmask: mgmt_net.v4.subnet_mask,
                     mgmt_gateway: mgmt_net.v4.first,
                     dns_primary: mgmt_net.v4.boot_server,
@@ -1500,6 +1526,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1534,6 +1562,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1565,6 +1595,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: node_ipv4_address,
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1596,6 +1628,8 @@ fn generate_disk_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4: mgmt_net.v4.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1656,6 +1690,8 @@ fn generate_usb_ztp(
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1686,6 +1722,8 @@ fn generate_usb_ztp(
                         mgmt_interface: node_image.management_interface.to_string(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
                     };
                     t.render()?
                 }
@@ -1743,6 +1781,8 @@ fn generate_http_ztp(
                 hostname: node.name.clone(),
                 mgmt_ipv4: mgmt_net.v4.clone(),
                 mgmt_ipv4_address: Some(node_ipv4_address),
+                mgmt_ipv6_address: node.ipv6_address,
+                mgmt_ipv6: mgmt_net.v6.clone(),
             };
             let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
             util::create_dir(&dir)?;

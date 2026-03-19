@@ -75,6 +75,11 @@ pub async fn init(
         .parse()
         .context("Invalid server IP address. Expected format: x.x.x.x")?;
 
+    let server_ipv6_addr: Option<std::net::Ipv6Addr> =
+        read_env_file_value(env_file, "SHERPA_SERVER_IPV6")
+            .map(|v| v.parse().ok())
+            .flatten();
+
     term_msg_surround("Sherpa Server Initializing");
 
     // Create server directories
@@ -114,6 +119,7 @@ pub async fn init(
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
         config.server_ipv4 = server_ipv4_addr;
+        config.server_ipv6 = server_ipv6_addr;
         config.ws_port = ws_port;
         config.http_port = http_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;

@@ -1,5 +1,5 @@
 use std::io::{self, Write};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result};
 
@@ -23,6 +23,18 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
         .parse()
         .context("Invalid IPv4 address. Expected format: x.x.x.x")?;
 
+    // Prompt for server IPv6 (optional)
+    let server_ipv6_str = prompt_with_default("Server IPv6 address (optional)", "")?;
+    let server_ipv6: Option<Ipv6Addr> = if server_ipv6_str.is_empty() {
+        None
+    } else {
+        Some(
+            server_ipv6_str
+                .parse()
+                .context("Invalid IPv6 address. Expected format: x:x:x:x::x")?,
+        )
+    };
+
     // Prompt for server port
     let port_str = prompt_with_default("Server port", "3030")?;
     let ws_port: u16 = port_str
@@ -35,6 +47,7 @@ pub fn init(sherpa: &Sherpa, force: bool) -> Result<()> {
     // Build and write client config
     let config = ClientConfig {
         server_ipv4: server_ipv4_addr,
+        server_ipv6,
         ws_port,
         ..ClientConfig::default()
     };

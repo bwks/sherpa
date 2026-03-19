@@ -94,8 +94,11 @@ struct DeviceTableRow {
     #[tabled(rename = "State")]
     state: String,
 
-    #[tabled(rename = "Mgmt IP")]
+    #[tabled(rename = "Mgmt IPv4")]
     mgmt_ip: String,
+
+    #[tabled(rename = "Mgmt IPv6")]
+    mgmt_ipv6: String,
 
     #[tabled(rename = "VNC Port")]
     vnc_port: String,
@@ -155,12 +158,15 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
                 None => "-".to_string(),
             };
 
+            let mgmt_ipv6 = device.mgmt_ipv6.as_deref().unwrap_or("-").to_string();
+
             DeviceTableRow {
                 device: device.name.clone(),
                 model: device.model.to_string(),
                 kind: device.kind.to_string(),
                 state: device.state.to_string(),
                 mgmt_ip,
+                mgmt_ipv6,
                 vnc_port,
                 disks,
             }
@@ -290,7 +296,7 @@ struct LabInfoTableRow {
 /// assert!(table.contains("simple-ceos-test"));
 /// ```
 pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
-    let rows = vec![
+    let mut rows = vec![
         LabInfoTableRow {
             property: "ID".to_string(),
             value: lab_info.id.clone(),
@@ -320,6 +326,25 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
             value: lab_info.loopback_network.to_string(),
         },
     ];
+
+    if let Some(ref ipv6_net) = lab_info.ipv6_network {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Management Network".to_string(),
+            value: ipv6_net.to_string(),
+        });
+    }
+    if let Some(ref ipv6_gw) = lab_info.ipv6_gateway {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Gateway".to_string(),
+            value: ipv6_gw.to_string(),
+        });
+    }
+    if let Some(ref ipv6_rtr) = lab_info.ipv6_router {
+        rows.push(LabInfoTableRow {
+            property: "IPv6 Router".to_string(),
+            value: ipv6_rtr.to_string(),
+        });
+    }
 
     Table::new(rows)
         .with(Style::modern())

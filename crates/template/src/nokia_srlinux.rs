@@ -1,10 +1,10 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
-use shared::data::{Dns, NetworkV4, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, User};
 
 /// Factory ACL config extracted from a clean SR Linux v25.10.2 container.
 /// Includes CPM ACL filters (IPv4 + IPv6), policers, and control-plane-traffic
@@ -175,8 +175,13 @@ struct SubinterfaceIpv4 {
 struct SubinterfaceIpv6 {
     #[serde(rename = "admin-state")]
     admin_state: String,
-    #[serde(rename = "srl_nokia-interfaces-ip-dhcp:dhcp-client")]
-    dhcp_client: DhcpClient,
+    #[serde(
+        rename = "srl_nokia-interfaces-ip-dhcp:dhcp-client",
+        skip_serializing_if = "Option::is_none"
+    )]
+    dhcp_client: Option<DhcpClient>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    address: Option<Vec<Ipv6Address>>,
 }
 
 #[derive(Serialize)]
@@ -184,6 +189,12 @@ struct DhcpClient {}
 
 #[derive(Serialize)]
 struct Ipv4Address {
+    #[serde(rename = "ip-prefix")]
+    ip_prefix: String,
+}
+
+#[derive(Serialize)]
+struct Ipv6Address {
     #[serde(rename = "ip-prefix")]
     ip_prefix: String,
 }
@@ -235,6 +246,8 @@ pub fn build_srlinux_config(
     dns: &Dns,
     mgmt_ipv4: &NetworkV4,
     mgmt_ipv4_address: Option<Ipv4Addr>,
+    mgmt_ipv6_address: Option<Ipv6Addr>,
+    mgmt_ipv6: Option<&NetworkV6>,
 ) -> Result<String> {
     let password = user.password.clone().unwrap_or_default();
 
@@ -243,11 +256,16 @@ pub fn build_srlinux_config(
         user.ssh_public_key.algorithm, user.ssh_public_key.key
     );
 
-    let dns_servers: Vec<String> = dns
+    let mut dns_servers: Vec<String> = dns
         .name_servers
         .iter()
         .map(|ns| ns.ipv4_address.to_string())
         .collect();
+    for ns in &dns.name_servers {
+        if let Some(ipv6) = ns.ipv6_address {
+            dns_servers.push(ipv6.to_string());
+        }
+    }
 
     let ipv4 = match mgmt_ipv4_address {
         Some(addr) => SubinterfaceIpv4 {
@@ -258,6 +276,21 @@ pub fn build_srlinux_config(
             }]),
         },
         None => SubinterfaceIpv4 {
+            admin_state: "enable".to_string(),
+            dhcp_client: Some(DhcpClient {}),
+            address: None,
+        },
+    };
+
+    let ipv6 = match (mgmt_ipv6_address, mgmt_ipv6) {
+        (Some(addr), Some(v6)) => SubinterfaceIpv6 {
+            admin_state: "enable".to_string(),
+            dhcp_client: None,
+            address: Some(vec![Ipv6Address {
+                ip_prefix: format!("{}/{}", addr, v6.prefix_length),
+            }]),
+        },
+        _ => SubinterfaceIpv6 {
             admin_state: "enable".to_string(),
             dhcp_client: Some(DhcpClient {}),
             address: None,
@@ -319,10 +352,7 @@ pub fn build_srlinux_config(
                 index: 0,
                 admin_state: "enable".to_string(),
                 ipv4,
-                ipv6: SubinterfaceIpv6 {
-                    admin_state: "enable".to_string(),
-                    dhcp_client: DhcpClient {},
-                },
+                ipv6,
             }],
         }],
         network_instance: vec![NetworkInstance {
@@ -413,7 +443,7 @@ mod tests {
         let network = test_network();
         let addr = Some(Ipv4Addr::new(172, 31, 0, 10));
 
-        let result = build_srlinux_config("srl01", &user, &dns, &network, addr);
+        let result = build_srlinux_config("srl01", &user, &dns, &network, addr, None, None);
         assert!(result.is_ok());
 
         let json = result.expect("valid json");
@@ -465,7 +495,7 @@ mod tests {
         let dns = test_dns();
         let network = test_network();
 
-        let result = build_srlinux_config("srl02", &user, &dns, &network, None);
+        let result = build_srlinux_config("srl02", &user, &dns, &network, None, None, None);
         assert!(result.is_ok());
 
         let json = result.expect("valid json");
