@@ -32,11 +32,18 @@ interface MgmtEth0/RP0/CPU0/0
  {%- else %}
  ipv4 address dhcp
  {%- endif %}
+ {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+ {%- endif %}{% endif %}
  no shutdown
 !
 router static
  address-family ipv4 unicast
   0.0.0.0/0 {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ address-family ipv6 unicast
+  ::/0 {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 !
 !
 netconf agent tty

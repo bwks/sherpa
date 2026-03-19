@@ -20,8 +20,14 @@ interface mgmt
     {%- else %}
     ip dhcp
     {%- endif %}
+    {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+    ipv6 static {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+    {%- endif %}{% endif %}
 !
 ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6 route ::/0 {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 !
 https-server vrf mgmt
 !

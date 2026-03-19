@@ -23,6 +23,9 @@ ip name-server {{ server.ipv4_address }}
 vrf context management
 !
 ip route 0.0.0.0/0 {{ mgmt_ipv4.first }} vrf management
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6 route ::/0 {{ mgmt_ipv6.first }} vrf management
+{%- endif %}{% endif %}
 !
 interface mgmt0
   vrf member management
@@ -31,6 +34,9 @@ interface mgmt0
   {%- else %}
   ip address dhcp
   {%- endif %}
+  {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+  ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+  {%- endif %}{% endif %}
   no shutdown
 !
 line vty

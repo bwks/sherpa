@@ -10,6 +10,9 @@ interface Management0/0
  {%- else %}
  ip address dhcp
  {%- endif %}
+ {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ ipv6 address {{ mgmt_ipv6_address }}/{{ mgmt_ipv6.prefix_length }}
+ {%- endif %}{% endif %}
  no shutdown
 !
 hostname {{ hostname }}
@@ -32,6 +35,9 @@ http server enable
 http 0.0.0.0 0.0.0.0 management
 domain-name {{ dns.domain }}
 route management 0.0.0.0 0.0.0.0 {{ mgmt_ipv4.first }}
+{%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}
+ipv6 route management ::/0 {{ mgmt_ipv6.first }}
+{%- endif %}{% endif %}
 !
 username {{ user.username }} attributes
   ssh authentication publickey {{ user.ssh_public_key.key }} hashed
