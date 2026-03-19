@@ -23,7 +23,7 @@ pub use config::{
     default_config, load_client_config, load_config,
 };
 pub use dhcp::get_dhcp_leases;
-pub use dns::default_dns;
+pub use dns::{default_dns, default_dns_dual_stack};
 pub use emoji::{Emoji, emoji_error, emoji_success, emoji_warning};
 pub use encode::{base64_decode, base64_encode, base64_encode_file};
 pub use env::{get_server_url, read_env_file_value};
@@ -36,14 +36,16 @@ pub use file_system::{
     copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_panos_bootstrap_iso,
     create_symlink, create_ztp_iso, fix_permissions_recursive,
 };
-#[cfg(feature = "netinfo")]
-pub use host::get_non_loopback_ipv4_addresses;
 pub use host::{get_fqdn, get_hostname};
+#[cfg(feature = "netinfo")]
+pub use host::{get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses};
 pub use interface::{
     interface_from_idx, interface_to_idx, node_model_interfaces, srlinux_to_linux_interface,
 };
 pub use ip::{
-    allocate_loopback_subnet, allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network,
+    allocate_ipv6_loopback_subnet, allocate_ipv6_management_subnet, allocate_loopback_subnet,
+    allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network, get_ipv6_addr,
+    get_ipv6_ip, get_ipv6_network,
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks};
