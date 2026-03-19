@@ -77,8 +77,7 @@ pub async fn init(
 
     let server_ipv6_addr: Option<std::net::Ipv6Addr> =
         read_env_file_value(env_file, "SHERPA_SERVER_IPV6")
-            .map(|v| v.parse().ok())
-            .flatten();
+            .and_then(|v| v.parse().ok());
 
     term_msg_surround("Sherpa Server Initializing");
 
