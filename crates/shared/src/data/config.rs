@@ -1,7 +1,7 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
-use ipnet::Ipv4Net;
+use ipnet::{Ipv4Net, Ipv6Net};
 use serde_derive::{Deserialize, Serialize};
 
 use super::container::ContainerImage;
@@ -124,6 +124,8 @@ pub struct ClientConfig {
     pub name: String,
     #[serde(default = "default_server_ipv4")]
     pub server_ipv4: Ipv4Addr,
+    #[serde(default)]
+    pub server_ipv6: Option<Ipv6Addr>,
     #[serde(default = "default_ws_port")]
     pub ws_port: u16,
     #[serde(default = "default_http_port")]
@@ -139,6 +141,7 @@ impl Default for ClientConfig {
         Self {
             name: String::new(),
             server_ipv4: default_server_ipv4(),
+            server_ipv6: None,
             ws_port: default_ws_port(),
             http_port: default_http_port(),
             server_connection: ServerConnection::default(),
@@ -153,6 +156,8 @@ pub struct Config {
     pub name: String,
     #[serde(default = "default_server_ipv4")]
     pub server_ipv4: Ipv4Addr,
+    #[serde(default)]
+    pub server_ipv6: Option<Ipv6Addr>,
     #[serde(default = "default_ws_port")]
     pub ws_port: u16,
     #[serde(default = "default_http_port")]
@@ -161,6 +166,8 @@ pub struct Config {
     pub qemu_bin: String,
     #[serde(default = "default_management_prefix")]
     pub management_prefix_ipv4: Ipv4Net,
+    #[serde(default)]
+    pub management_prefix_ipv6: Option<Ipv6Net>,
     pub images_dir: String,
     pub containers_dir: String,
     pub bins_dir: String,

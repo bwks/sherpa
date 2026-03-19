@@ -19,6 +19,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
             ipv4_address: node.ipv4_address,
+            ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
             text_files: node.text_files.clone(),

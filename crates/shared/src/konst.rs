@@ -92,6 +92,9 @@ pub const SHERPA_SERVER_IPV4: &str = "0.0.0.0";
 
 pub const SHERPA_LOOPBACK_PREFIX: &str = "127.127.0.0/16";
 
+pub const SHERPA_MANAGEMENT_NETWORK_IPV6: &str = "fd00:b00b::/48";
+pub const SHERPA_LOOPBACK_PREFIX_IPV6: &str = "fd00:1001::/48";
+
 pub const QEMU_BIN: &str = "/usr/bin/qemu-system-x86_64";
 pub const QEMU_URI: &str = "qemu:///system";
 pub const _DEFAULT_STORAGE_POOL: &str = "default";

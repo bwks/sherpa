@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
 
 #[cfg(feature = "netinfo")]
@@ -6,9 +6,9 @@ use anyhow::anyhow;
 use anyhow::{Context, Result};
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
-use ipnet::Ipv4Net;
 #[cfg(feature = "netinfo")]
 use ipnet::ipv4_mask_to_prefix;
+use ipnet::{Ipv4Net, Ipv6Net};
 
 /// Get the nth IPv4 addr from a network block given an index
 pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
@@ -141,6 +141,74 @@ pub fn allocate_management_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<
     ))
 }
 
+/// Get the nth IPv6 addr from a network block given an index.
+pub fn get_ipv6_addr(network: &Ipv6Net, nth: u32) -> Result<Ipv6Addr> {
+    let net_bits = network.network().to_bits();
+    Ok(Ipv6Addr::from_bits(net_bits + nth as u128))
+}
+
+/// Parses a CIDR notation string into an `Ipv6Net`.
+pub fn get_ipv6_network(ipv6_net: &str) -> Result<Ipv6Net> {
+    Ipv6Net::from_str(ipv6_net).with_context(|| format!("Failed to parse IPv6 network: {ipv6_net}"))
+}
+
+/// Allocate the next free IPv6 management `/64` subnet from the supernet prefix.
+///
+/// Skips `::0/64` and returns the first `/64` not present in `used`.
+pub fn allocate_ipv6_management_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Result<Ipv6Net> {
+    let subnets: Vec<Ipv6Net> = prefix
+        .subnets(64)
+        .context("Failed to subnet IPv6 management prefix into /64s")?
+        .collect();
+
+    for subnet in subnets {
+        // Skip the first /64 (network zero)
+        if subnet.network() == prefix.network() {
+            continue;
+        }
+        if !used.contains(&subnet) {
+            return Ok(subnet);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No free IPv6 management /64 subnet found in prefix: {}",
+        prefix
+    ))
+}
+
+/// Allocate the next free IPv6 loopback `/64` subnet from the supernet prefix.
+///
+/// Skips the first `/64` and returns the first `/64` not present in `used`.
+pub fn allocate_ipv6_loopback_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Result<Ipv6Net> {
+    let subnets: Vec<Ipv6Net> = prefix
+        .subnets(64)
+        .context("Failed to subnet IPv6 loopback prefix into /64s")?
+        .collect();
+
+    for subnet in subnets {
+        // Skip the first /64 (network zero)
+        if subnet.network() == prefix.network() {
+            continue;
+        }
+        if !used.contains(&subnet) {
+            return Ok(subnet);
+        }
+    }
+    Err(anyhow::anyhow!(
+        "No free IPv6 loopback /64 subnet found in prefix: {}",
+        prefix
+    ))
+}
+
+/// Get an IPv6 address from a subnet and host address offset.
+///
+/// Combines the subnet's network address with the host address offset
+/// to produce a unique IPv6 per lab per node.
+pub fn get_ipv6_ip(subnet: &Ipv6Net, host_addr: u16) -> Ipv6Addr {
+    let net_bits = subnet.network().to_bits();
+    Ipv6Addr::from_bits(net_bits + host_addr as u128)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,5 +315,105 @@ mod tests {
         let used = vec![mgmt_subnet(1), mgmt_subnet(2), mgmt_subnet(3)];
         let result = allocate_management_subnet(&prefix, &used).unwrap();
         assert_eq!(result, mgmt_subnet(4));
+    }
+
+    // ========================================================================
+    // IPv6 tests
+    // ========================================================================
+
+    fn ipv6_mgmt_subnet(index: u16) -> Ipv6Net {
+        let base = Ipv6Addr::from_str("fd00:b00b::").unwrap().to_bits();
+        let addr = Ipv6Addr::from_bits(base + ((index as u128) << 64));
+        Ipv6Net::new(addr, 64).unwrap()
+    }
+
+    fn ipv6_loop_subnet(index: u16) -> Ipv6Net {
+        let base = Ipv6Addr::from_str("fd00:1001::").unwrap().to_bits();
+        let addr = Ipv6Addr::from_bits(base + ((index as u128) << 64));
+        Ipv6Net::new(addr, 64).unwrap()
+    }
+
+    #[test]
+    fn test_get_ipv6_addr() {
+        let net = Ipv6Net::from_str("fd00:b00b:0:1::/64").unwrap();
+        let addr = get_ipv6_addr(&net, 42).unwrap();
+        assert_eq!(addr, Ipv6Addr::from_str("fd00:b00b:0:1::2a").unwrap());
+    }
+
+    #[test]
+    fn test_get_ipv6_network() {
+        let net = get_ipv6_network("fd00:b00b::/48").unwrap();
+        assert_eq!(net.prefix_len(), 48);
+    }
+
+    #[test]
+    fn test_get_ipv6_network_invalid() {
+        assert!(get_ipv6_network("not-a-network").is_err());
+    }
+
+    #[test]
+    fn test_get_ipv6_ip() {
+        let subnet = ipv6_mgmt_subnet(1);
+        let ip = get_ipv6_ip(&subnet, 42);
+        let expected_bits = subnet.network().to_bits() + 42u128;
+        assert_eq!(ip, Ipv6Addr::from_bits(expected_bits));
+    }
+
+    #[test]
+    fn test_get_ipv6_ip_zero() {
+        let subnet = ipv6_mgmt_subnet(1);
+        let ip = get_ipv6_ip(&subnet, 0);
+        assert_eq!(ip, subnet.network());
+    }
+
+    #[test]
+    fn test_get_ipv6_ip_different_subnets() {
+        let subnet1 = ipv6_mgmt_subnet(1);
+        let subnet2 = ipv6_mgmt_subnet(2);
+        let ip1 = get_ipv6_ip(&subnet1, 1);
+        let ip2 = get_ipv6_ip(&subnet2, 1);
+        assert_ne!(ip1, ip2);
+    }
+
+    #[test]
+    fn test_allocate_ipv6_management_subnet_empty() {
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let result = allocate_ipv6_management_subnet(&prefix, &[]).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(1));
+    }
+
+    #[test]
+    fn test_allocate_ipv6_management_subnet_skips_used() {
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let used = vec![ipv6_mgmt_subnet(1)];
+        let result = allocate_ipv6_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(2));
+    }
+
+    #[test]
+    fn test_allocate_ipv6_management_subnet_skips_multiple_used() {
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let used = vec![
+            ipv6_mgmt_subnet(1),
+            ipv6_mgmt_subnet(2),
+            ipv6_mgmt_subnet(3),
+        ];
+        let result = allocate_ipv6_management_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(4));
+    }
+
+    #[test]
+    fn test_allocate_ipv6_loopback_subnet_empty() {
+        let prefix = Ipv6Net::from_str("fd00:1001::/48").unwrap();
+        let result = allocate_ipv6_loopback_subnet(&prefix, &[]).unwrap();
+        assert_eq!(result, ipv6_loop_subnet(1));
+    }
+
+    #[test]
+    fn test_allocate_ipv6_loopback_subnet_skips_used() {
+        let prefix = Ipv6Net::from_str("fd00:1001::/48").unwrap();
+        let used = vec![ipv6_loop_subnet(1)];
+        let result = allocate_ipv6_loopback_subnet(&prefix, &used).unwrap();
+        assert_eq!(result, ipv6_loop_subnet(2));
     }
 }

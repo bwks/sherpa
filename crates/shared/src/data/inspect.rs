@@ -30,6 +30,7 @@ pub struct DeviceInfo {
     pub kind: NodeKind,
     pub state: NodeState,
     pub mgmt_ipv4: String,
+    pub mgmt_ipv6: Option<String>,
     pub vnc_port: Option<i32>,
     pub disks: Vec<String>,
 }

@@ -387,6 +387,7 @@ mod tests {
             name_servers: vec![NameServer {
                 name: "ns1".to_string(),
                 ipv4_address: Ipv4Addr::new(172, 31, 0, 1),
+                ipv6_address: None,
             }],
         }
     }

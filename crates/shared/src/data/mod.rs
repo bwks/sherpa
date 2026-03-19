@@ -93,7 +93,7 @@ pub use lab::{
     ListLabsResponse, NodeInterface, NodeSetupData, PeerInterface, PeerSide,
 };
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
-pub use network::{BridgeKind, NetworkV4, SherpaNetwork};
+pub use network::{BridgeKind, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
     NodeState, OsVariant, ZtpMethod,

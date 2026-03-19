@@ -24,6 +24,10 @@ pub struct DbLab {
     pub management_network: String,
     pub gateway_ipv4: String,
     pub router_ipv4: String,
+    pub management_network_v6: Option<String>,
+    pub gateway_ipv6: Option<String>,
+    pub router_ipv6: Option<String>,
+    pub loopback_network_v6: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
@@ -34,6 +38,7 @@ pub struct DbNode {
     pub index: u16,
     pub lab: RecordId,
     pub mgmt_ipv4: Option<String>,
+    pub mgmt_ipv6: Option<String>,
     pub mgmt_mac: Option<String>,
     pub state: NodeState,
 }

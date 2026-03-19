@@ -50,6 +50,10 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        management_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+        loopback_network_v6: None,
     };
 
     let result = update_lab(&db, lab).await;
@@ -78,6 +82,10 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        management_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+        loopback_network_v6: None,
     };
 
     let result = update_lab(&db, lab).await;

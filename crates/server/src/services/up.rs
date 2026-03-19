@@ -145,6 +145,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
             ipv4_address: node.ipv4_address,
+            ipv6_address: None,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
             text_files: node.text_files.clone(),
@@ -695,6 +696,9 @@ pub async fn up_lab(
             ipv4_gateway: gateway_ipv4,
             ipv4_router: router_ipv4,
             loopback_network: loopback_subnet,
+            ipv6_network: None,
+            ipv6_gateway: None,
+            ipv6_router: None,
         };
 
         util::create_dir(&lab_dir)?;
@@ -711,6 +715,7 @@ pub async fn up_lab(
                 hostmask: lab_net.hostmask(),
                 prefix_length: lab_net.prefix_len(),
             },
+            v6: None,
         };
         let dns = util::default_dns(&lab_net)?;
 
@@ -1409,6 +1414,7 @@ pub async fn up_lab(
         let management_network_attachment = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             ipv4_address: Some(boot_server_ipv4.clone()),
+            ipv6_address: None,
             linux_interface_name: None,
             admin_down: false,
         };
@@ -1614,6 +1620,7 @@ pub async fn up_lab(
                             Some(data::ContainerNetworkAttachment {
                                 name: docker_net_name.clone(),
                                 ipv4_address: None,
+                                ipv6_address: None,
                                 linux_interface_name,
                                 admin_down: false,
                             })
@@ -1635,6 +1642,7 @@ pub async fn up_lab(
                             Some(data::ContainerNetworkAttachment {
                                 name: docker_net_name,
                                 ipv4_address: None,
+                                ipv6_address: None,
                                 linux_interface_name,
                                 admin_down: true,
                             })
@@ -1775,6 +1783,7 @@ pub async fn up_lab(
                 let management_network_attachment = data::ContainerNetworkAttachment {
                     name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
                     ipv4_address: mgmt_ipv4.clone(),
+                    ipv6_address: None,
                     linux_interface_name: None,
                     admin_down: false,
                 };

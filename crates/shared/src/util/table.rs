@@ -124,6 +124,7 @@ struct DeviceTableRow {
 ///         kind: NodeKind::VirtualMachine,
 ///         state: NodeState::Running,
 ///         mgmt_ipv4: "172.31.0.11".to_string(),
+///         mgmt_ipv6: None,
 ///         vnc_port: None,
 ///         disks: vec![],
 ///     },
@@ -279,6 +280,9 @@ struct LabInfoTableRow {
 ///     ipv4_gateway: "172.31.0.1".parse().unwrap(),
 ///     ipv4_router: "172.31.0.2".parse().unwrap(),
 ///     loopback_network: "127.127.1.0/24".parse().unwrap(),
+///     ipv6_network: None,
+///     ipv6_gateway: None,
+///     ipv6_router: None,
 /// };
 ///
 /// let table = render_lab_info_table(&lab_info);
@@ -534,6 +538,7 @@ mod tests {
             kind: NodeKind::VirtualMachine,
             state: NodeState::Running,
             mgmt_ipv4: "172.31.0.11".to_string(),
+            mgmt_ipv6: None,
             vnc_port: None,
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
@@ -561,6 +566,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.11".to_string(),
+                mgmt_ipv6: None,
                 vnc_port: Some(5900),
                 disks: vec![
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
@@ -573,6 +579,7 @@ mod tests {
                 kind: NodeKind::VirtualMachine,
                 state: NodeState::Running,
                 mgmt_ipv4: "172.31.0.12".to_string(),
+                mgmt_ipv6: None,
                 vnc_port: None,
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
             },
@@ -600,6 +607,7 @@ mod tests {
             kind: NodeKind::Container,
             state: NodeState::Stopped,
             mgmt_ipv4: "".to_string(),
+            mgmt_ipv6: None,
             vnc_port: None,
             disks: vec![],
         }];
@@ -639,6 +647,9 @@ mod tests {
             ipv4_gateway: Ipv4Addr::new(172, 31, 0, 1),
             ipv4_router: Ipv4Addr::new(172, 31, 0, 2),
             loopback_network: "127.127.1.0/24".parse().unwrap(),
+            ipv6_network: None,
+            ipv6_gateway: None,
+            ipv6_router: None,
         };
 
         let table = render_lab_info_table(&lab_info);
