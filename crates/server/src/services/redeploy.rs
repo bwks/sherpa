@@ -138,13 +138,37 @@ pub async fn redeploy_node(
             hostmask: lab_info.ipv4_network.hostmask(),
             prefix_length: lab_info.ipv4_network.prefix_len(),
         },
-        v6: None,
+        v6: match (
+            lab_info.ipv6_network,
+            lab_info.ipv6_gateway,
+            lab_info.ipv6_router,
+        ) {
+            (Some(v6_net), Some(v6_gw), Some(v6_rtr)) => Some(data::NetworkV6 {
+                prefix: v6_net,
+                first: v6_gw,
+                last: util::get_ipv6_addr(&v6_net, u32::MAX).unwrap_or(v6_net.network()),
+                boot_server: v6_rtr,
+                network: v6_net.network(),
+                prefix_length: v6_net.prefix_len(),
+            }),
+            _ => None,
+        },
     };
-    let dns = util::default_dns(&lab_info.ipv4_network)?;
+    let dns = if let Some(ref v6) = mgmt_net.v6 {
+        util::default_dns_dual_stack(&lab_info.ipv4_network, &v6.prefix)?
+    } else {
+        util::default_dns(&lab_info.ipv4_network)?
+    };
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let node_idx = db_node.index;
     let node_ip_idx = 10 + node_idx as u32;
     let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
+
+    // Assign IPv6 management address
+    if let Some(ref v6) = mgmt_net.v6 {
+        let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
+        target_node.ipv6_address = Some(addr);
+    }
 
     // Update node state to Starting
     db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
