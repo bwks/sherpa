@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.29] - 2026-03-20
+
+### Bug Fixes
+
+- Libvirt network ensure active by @bwks ([b99a585](https://github.com/bwks/sherpa/commit/b99a58532fadc27b5cae8627ac374e1b8382014f))
+
+### Features
+
+- Jenkins and virt servers by @bwks ([0b6b4b1](https://github.com/bwks/sherpa/commit/0b6b4b10a340ade053e21221a813f00decff7836))
+- Nautobot server support by @bwks ([23955e6](https://github.com/bwks/sherpa/commit/23955e6610e10b78e9a420f8267781d954210b8a))
+- Add netbox server support by @bwks ([065ecb7](https://github.com/bwks/sherpa/commit/065ecb750b22f1d04c5beafa05b0f5dd6f532a4d))
+
+### Miscellaneous
+
+- Merge pull request #155 from bwks/v0.3.29
+
+V0.3.29 by @bwks in [#155](https://github.com/bwks/sherpa/pull/155) ([d51b66b](https://github.com/bwks/sherpa/commit/d51b66bfc6e7f20aec0084eda8e96c85c66c14b3))
+- Version bump by @bwks ([76db777](https://github.com/bwks/sherpa/commit/76db7777fad9e78f6681dbb5ee0a5f045bd0a8a8))
+- Merge pull request #154 from bwks/changelog/v0.3.28
+
+chore(release): update changelog for v0.3.28 by @github-actions[bot] in [#154](https://github.com/bwks/sherpa/pull/154) ([2d9c6c7](https://github.com/bwks/sherpa/commit/2d9c6c749b8e94060583cefdc79c9a1df9d46c32))
 ## [0.3.28] - 2026-03-19
 
 ### Features
