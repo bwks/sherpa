@@ -82,6 +82,7 @@ pub enum NodeModel {
     OpenBsd,
 
     // Application
+    NautobotServer,
     NetboxServer,
 
     // SQL
@@ -152,6 +153,7 @@ impl fmt::Display for NodeModel {
             NodeModel::WindowsServer => write!(f, "windows_server"),
 
             // Application
+            NodeModel::NautobotServer => write!(f, "nautobot_server"),
             NodeModel::NetboxServer => write!(f, "netbox_server"),
 
             // SQL
@@ -230,6 +232,7 @@ impl std::str::FromStr for NodeModel {
             "windows_server" => Ok(NodeModel::WindowsServer),
 
             // Application
+            "nautobot_server" => Ok(NodeModel::NautobotServer),
             "netbox_server" => Ok(NodeModel::NetboxServer),
 
             // SQL
@@ -743,6 +746,7 @@ impl NodeConfig {
             NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // Application
+            NodeModel::NautobotServer => NodeConfig::nautobot_server(),
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
 
             // SQL
@@ -1873,6 +1877,40 @@ impl NodeConfig {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn nautobot_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::NautobotServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,

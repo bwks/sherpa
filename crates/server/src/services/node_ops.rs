@@ -894,6 +894,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::RedhatLinux
         | data::NodeModel::SuseLinux
         | data::NodeModel::UbuntuLinux
+        | data::NodeModel::NautobotServer
         | data::NodeModel::NetboxServer
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => {
