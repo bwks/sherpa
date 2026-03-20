@@ -894,8 +894,10 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::RedhatLinux
         | data::NodeModel::SuseLinux
         | data::NodeModel::UbuntuLinux
+        | data::NodeModel::JenkinsServer
         | data::NodeModel::NautobotServer
         | data::NodeModel::NetboxServer
+        | data::NodeModel::VirtServer
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => {
             let (admin_group, shell) = match node_image.os_variant {
