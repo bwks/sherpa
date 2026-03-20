@@ -154,6 +154,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             systemd_units: node.systemd_units.clone(),
             image: node.image.clone(),
             privileged: node.privileged,
+            shm_size: node.shm_size,
             environment_variables: node.environment_variables.clone(),
             volumes: node.volumes.clone(),
             commands: node.commands.clone(),
@@ -1524,6 +1525,7 @@ pub async fn up_lab(
             vec![],
             false,
             None,
+            None,
         )
         .await?;
 
@@ -1854,6 +1856,7 @@ pub async fn up_lab(
 
                 let container_image = format!("{}:{}", container_image_name, container_version);
                 let privileged = container.privileged.unwrap_or(false);
+                let shm_size = container.shm_size;
                 let env_vars = container.environment_variables.clone().unwrap_or_default();
                 let commands = container.commands.clone().unwrap_or_default();
                 let user = container.user.clone();
@@ -1889,6 +1892,7 @@ pub async fn up_lab(
                     additional_networks,
                     commands,
                     privileged,
+                    shm_size,
                     user,
                     container.model,
                     &progress,

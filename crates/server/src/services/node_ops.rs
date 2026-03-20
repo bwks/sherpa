@@ -15,12 +15,12 @@ use shared::konst::{
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
-    CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO,
-    CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
-    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
-    FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
-    MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
+    CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
+    CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_NOKIA_SRLINUX_COMMANDS,
+    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
+    CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
+    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
+    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
     NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
@@ -42,6 +42,7 @@ pub struct ContainerZtpResult {
     pub volumes: Vec<String>,
     pub commands: Vec<String>,
     pub privileged: bool,
+    pub shm_size: Option<i64>,
     pub user: Option<String>,
     pub ztp_record: data::ZtpRecord,
 }
@@ -165,6 +166,7 @@ pub fn generate_container_ztp(
     let mut volumes: Vec<String> = Vec::new();
     let mut commands: Vec<String> = node.commands.clone().unwrap_or_default();
     let mut privileged = node.privileged.unwrap_or(false);
+    let mut shm_size = node.shm_size;
     let mut user = node.user.clone();
 
     match node.model {
@@ -320,6 +322,21 @@ pub fn generate_container_ztp(
             node.volumes = Some(vec![daemons_volume, config_volume, startup_volume]);
             node.commands = Some(commands.clone());
         }
+        data::NodeModel::GitlabCe => {
+            image = CONTAINER_GITLAB_CE_REPO.to_string();
+            commands = CONTAINER_GITLAB_CE_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            // GitLab CE requires a larger /dev/shm for bundled PostgreSQL
+            if shm_size.is_none() {
+                shm_size = Some(CONTAINER_GITLAB_CE_SHM_SIZE * 1024 * 1024);
+            }
+
+            node.image = Some(image.clone());
+            node.shm_size = shm_size;
+            node.commands = Some(commands.clone());
+        }
         data::NodeModel::SurrealDb => {
             image = CONTAINER_SURREAL_DB_REPO.to_string();
             commands = CONTAINER_SURREAL_DB_COMMANDS
@@ -345,6 +362,7 @@ pub fn generate_container_ztp(
             data::NodeModel::AristaCeos
                 | data::NodeModel::NokiaSrlinux
                 | data::NodeModel::FrrLinux
+                | data::NodeModel::GitlabCe
                 | data::NodeModel::SurrealDb
         ) {
             volumes = manifest_volumes;
@@ -377,6 +395,7 @@ pub fn generate_container_ztp(
         volumes,
         commands,
         privileged,
+        shm_size,
         user,
         ztp_record,
     })
@@ -2268,6 +2287,7 @@ pub async fn start_container_node(
     additional_networks: Vec<data::ContainerNetworkAttachment>,
     commands: Vec<String>,
     privileged: bool,
+    shm_size: Option<i64>,
     user: Option<String>,
     model: data::NodeModel,
     progress: &ProgressSender,
@@ -2283,6 +2303,7 @@ pub async fn start_container_node(
         additional_networks,
         commands,
         privileged,
+        shm_size,
         user,
     )
     .await?;

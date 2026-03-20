@@ -82,6 +82,7 @@ pub enum NodeModel {
     OpenBsd,
 
     // Application
+    GitlabCe,
     JenkinsServer,
     NautobotServer,
     NetboxServer,
@@ -155,6 +156,7 @@ impl fmt::Display for NodeModel {
             NodeModel::WindowsServer => write!(f, "windows_server"),
 
             // Application
+            NodeModel::GitlabCe => write!(f, "gitlab_ce"),
             NodeModel::JenkinsServer => write!(f, "jenkins_server"),
             NodeModel::NautobotServer => write!(f, "nautobot_server"),
             NodeModel::NetboxServer => write!(f, "netbox_server"),
@@ -236,6 +238,7 @@ impl std::str::FromStr for NodeModel {
             "windows_server" => Ok(NodeModel::WindowsServer),
 
             // Application
+            "gitlab_ce" => Ok(NodeModel::GitlabCe),
             "jenkins_server" => Ok(NodeModel::JenkinsServer),
             "nautobot_server" => Ok(NodeModel::NautobotServer),
             "netbox_server" => Ok(NodeModel::NetboxServer),
@@ -752,6 +755,7 @@ impl NodeConfig {
             NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // Application
+            NodeModel::GitlabCe => NodeConfig::gitlab_ce(),
             NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
             NodeModel::NautobotServer => NodeConfig::nautobot_server(),
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
@@ -2024,6 +2028,31 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+        }
+    }
+    pub fn gitlab_ce() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::GitlabCe,
+            repo: None,
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 2,
+            memory: 4096,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
         }
     }
     pub fn surreal_db() -> NodeConfig {

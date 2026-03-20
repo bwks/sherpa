@@ -230,6 +230,11 @@ pub const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
 pub const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
 pub const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 
+pub const CONTAINER_GITLAB_CE_REPO: &str = "gitlab/gitlab-ce";
+pub const CONTAINER_GITLAB_CE_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
+pub const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
+
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
 pub const CONTAINER_SURREAL_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[

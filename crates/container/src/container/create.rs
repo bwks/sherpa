@@ -26,6 +26,7 @@ pub async fn run_container(
     additional_networks: Vec<ContainerNetworkAttachment>,
     commands: Vec<String>,
     privileged: bool,
+    shm_size: Option<i64>,
     user: Option<String>,
 ) -> Result<bool> {
     // Environment variables
@@ -65,6 +66,7 @@ pub async fn run_container(
         cap_add: Some(caps),
         auto_remove: Some(false),
         privileged: Some(privileged),
+        shm_size,
         ..Default::default()
     };
 

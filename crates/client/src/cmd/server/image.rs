@@ -4,7 +4,7 @@ use clap::Subcommand;
 use shared::data::{
     self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
 };
-use shared::konst::{CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO};
+use shared::konst::{CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_NOKIA_SRLINUX_REPO};
 use shared::util::{Emoji, emoji_success, render_images_table, render_scanned_images_table};
 
 use super::OutputFormat;
@@ -172,6 +172,7 @@ pub async fn image_commands(
                         model,
                         version.as_deref(),
                         repo.as_deref(),
+                        *default,
                         server_url,
                         server_connection,
                         output_format,
@@ -409,6 +410,7 @@ async fn pull_container_image(
     model: &NodeModel,
     version: Option<&str>,
     repo: Option<&str>,
+    default: bool,
     server_url: &str,
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
@@ -422,31 +424,55 @@ async fn pull_container_image(
                 "Invalid repo format. Expected format: registry/image:tag (e.g., ghcr.io/nokia/srlinux:1.2.3)"
             )
         }
-    } else if *model == NodeModel::NokiaSrlinux {
-        // Known public repo — use constant, version is the tag
-        let tag =
-            version.ok_or_else(|| anyhow::anyhow!("--version is required for Nokia SR Linux"))?;
-        (CONTAINER_NOKIA_SRLINUX_REPO.to_string(), tag.to_string())
-    } else if *model == NodeModel::FrrLinux {
-        // Known public repo — use constant, version is the tag
-        let tag = version.ok_or_else(|| anyhow::anyhow!("--version is required for FRR Linux"))?;
-        (CONTAINER_FRR_REPO.to_string(), tag.to_string())
     } else {
-        bail!(
-            "--repo is required for model '{}'. Provide the full image reference (e.g., registry.io/account/image:version)",
-            model
-        )
+        // Known public repos — resolve from constants, version is the tag
+        let known_repo = match model {
+            NodeModel::NokiaSrlinux => Some(CONTAINER_NOKIA_SRLINUX_REPO),
+            NodeModel::FrrLinux => Some(CONTAINER_FRR_REPO),
+            NodeModel::GitlabCe => Some(CONTAINER_GITLAB_CE_REPO),
+            _ => None,
+        };
+
+        if let Some(repo) = known_repo {
+            let tag = version
+                .ok_or_else(|| anyhow::anyhow!("--version is required for model '{}'", model))?;
+            (repo.to_string(), tag.to_string())
+        } else {
+            bail!(
+                "--repo is required for model '{}'. Provide the full image reference (e.g., registry.io/account/image:version)",
+                model
+            )
+        }
     };
 
     let request = data::ContainerPullRequest {
+        model: *model,
         repo: pull_repo.clone(),
         tag: pull_tag.clone(),
+        default,
     };
 
-    let response: data::ContainerPullResponse =
-        rpc_call("image.pull", request, server_url, server_connection)
-            .await
-            .context("Failed to pull container image")?;
+    let response: data::ContainerPullResponse = rpc_call_streaming(
+        "image.pull",
+        request,
+        server_url,
+        server_connection,
+        |msg_text| {
+            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
+                && status_msg.r#type == "status"
+            {
+                let emoji = match status_msg.kind {
+                    StatusKind::Progress => Emoji::Progress,
+                    StatusKind::Done => Emoji::Success,
+                    StatusKind::Info => Emoji::Info,
+                    StatusKind::Waiting => Emoji::Hourglass,
+                };
+                println!("{} {}", emoji, status_msg.message);
+            }
+        },
+    )
+    .await
+    .context("Failed to pull container image")?;
 
     match output_format {
         OutputFormat::Json => {
@@ -460,6 +486,10 @@ async fn pull_container_image(
                         "Container image {}:{} pulled successfully",
                         response.repo, response.tag
                     ))
+                );
+                println!(
+                    "   DB Track: {}",
+                    if response.db_tracked { "yes" } else { "no" }
                 );
             } else {
                 eprintln!("Container image pull failed: {}", response.message);

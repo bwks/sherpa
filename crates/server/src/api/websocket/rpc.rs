@@ -185,12 +185,7 @@ pub async fn handle_rpc_request(
                 Err(e) => e,
             }
         }
-        "image.pull" => {
-            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL).await {
-                Ok(auth_ctx) => handle_image_pull(id, params, state, auth_ctx).await,
-                Err(e) => e,
-            }
-        }
+        // Note: "image.pull" is handled separately via handle_streaming_rpc_request
         // Note: "image.download" is handled separately via handle_streaming_rpc_request
         "user.create" => {
             match require_admin(&id, &params, state, RPC_MSG_USER_ADMIN_ONLY_CREATE).await {
@@ -240,6 +235,19 @@ pub async fn handle_streaming_rpc_request(
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
         "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
+        "image.pull" => {
+            if let Ok(auth_ctx) = require_admin_streaming(
+                &id,
+                &params,
+                state,
+                connection,
+                RPC_MSG_ADMIN_ONLY_CONTAINER_PULL,
+            )
+            .await
+            {
+                handle_image_pull_streaming(id, params, state, connection, auth_ctx).await;
+            }
+        }
         "image.download" => {
             if let Ok(auth_ctx) = require_admin_streaming(
                 &id,
@@ -1379,33 +1387,69 @@ async fn handle_image_scan(
     }
 }
 
-/// Handle "image.pull" RPC call
+/// Handle "image.pull" RPC call (streaming)
 ///
-/// Expected params: ContainerPullRequest {"repo": "string", "tag": "string", "token": "string"}
-async fn handle_image_pull(
+/// Expected params: ContainerPullRequest {"model": "string", "repo": "string", "tag": "string", "token": "string"}
+async fn handle_image_pull_streaming(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    connection: &Arc<Connection>,
     auth_ctx: AuthContext,
-) -> ServerMessage {
+) {
+    // Helper to send error
+    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
+        let response = ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code,
+                message,
+                context,
+            }),
+        };
+        if let Ok(json) = serde_json::to_string(&response) {
+            let _ = connection.send(Message::Text(json.into())).await;
+        }
+    };
+
     // Parse params into ContainerPullRequest
     let request: data::ContainerPullRequest = match serde_json::from_value(params) {
         Ok(req) => req,
         Err(e) => {
-            return ServerMessage::RpcResponse {
+            send_error(
                 id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::InvalidParams,
-                    message: RPC_MSG_INVALID_PARAMS_CONTAINER_PULL.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
+                RpcErrorCode::InvalidParams,
+                RPC_MSG_INVALID_PARAMS_CONTAINER_PULL.to_string(),
+                Some(format!("{:?}", e)),
+            )
+            .await;
+            return;
         }
     };
 
-    // Call container pull service
-    match container_pull::pull_container_image(request, state).await {
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    // Call container pull service with progress
+    let result = container_pull::pull_container_image(request, state, progress).await;
+
+    // Wait for forward task to complete
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -1442,6 +1486,10 @@ async fn handle_image_pull(
                 }),
             }
         }
+    };
+
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
     }
 }
 

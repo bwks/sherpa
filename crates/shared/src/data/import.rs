@@ -148,10 +148,15 @@ pub struct SetDefaultImageResponse {
 /// Request type for pulling a container image from an OCI registry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContainerPullRequest {
+    /// Node model this image belongs to
+    pub model: super::NodeModel,
     /// Container image repository (e.g., ghcr.io/nokia/srlinux)
     pub repo: String,
     /// Container image tag (e.g., 1.2.3)
     pub tag: String,
+    /// Set this image as the default version
+    #[serde(default)]
+    pub default: bool,
 }
 
 /// Response from a container image pull operation
@@ -159,10 +164,14 @@ pub struct ContainerPullRequest {
 pub struct ContainerPullResponse {
     /// Whether the pull succeeded
     pub success: bool,
+    /// Node model
+    pub model: String,
     /// Container image repository
     pub repo: String,
     /// Container image tag
     pub tag: String,
+    /// Whether the image was tracked in the database
+    pub db_tracked: bool,
     /// Human-readable status message
     pub message: String,
 }

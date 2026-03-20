@@ -10,12 +10,19 @@ use shared::data::{Config as SherpaConfig, ContainerImage};
 
 /// Pull a container image from an OCI registry and save to local Docker daemon
 /// Similar to `docker pull` command
-pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
+///
+/// The optional `on_progress` callback is invoked with human-readable status
+/// strings as the pull progresses.
+pub async fn pull_image<F>(repo: &str, tag: &str, on_progress: F) -> Result<()>
+where
+    F: Fn(&str),
+{
     let docker = Docker::connect_with_local_defaults()?;
 
     let image_location = format!("{}:{}", repo, tag);
 
     tracing::info!(image = %image_location, "Pulling container image");
+    on_progress(&format!("Pulling {}...", image_location));
 
     // Specify the image details using the builder
     let options = CreateImageOptionsBuilder::default()
@@ -29,11 +36,13 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
     while let Some(pull_result) = pull_stream.next().await {
         match pull_result {
             Ok(info) => {
-                // Log pull progress
-                if let Some(status) = info.status {
-                    if let Some(progress) = info.progress {
+                // Report pull progress
+                if let Some(ref status) = info.status {
+                    if let Some(ref progress) = info.progress {
+                        on_progress(&format!("{}: {}", status, progress));
                         tracing::debug!(status = %status, progress = %progress, "Image pull progress");
                     } else {
+                        on_progress(status);
                         tracing::debug!(status = %status, "Image pull progress");
                     }
                 }
@@ -49,6 +58,7 @@ pub async fn pull_image(repo: &str, tag: &str) -> Result<()> {
     }
 
     tracing::info!(image = %image_location, "Successfully pulled image, now available in local Docker daemon");
+    on_progress(&format!("Successfully pulled {}", image_location));
     Ok(())
 }
 
