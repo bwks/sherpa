@@ -16,7 +16,9 @@ use shared::konst::{
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
     CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
-    CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_NOKIA_SRLINUX_COMMANDS,
+    CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
+    CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
     CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
@@ -27,7 +29,7 @@ use shared::konst::{
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
@@ -41,6 +43,7 @@ pub struct ContainerZtpResult {
     pub env_vars: Vec<String>,
     pub volumes: Vec<String>,
     pub commands: Vec<String>,
+    pub capabilities: Vec<String>,
     pub privileged: bool,
     pub shm_size: Option<i64>,
     pub user: Option<String>,
@@ -143,6 +146,17 @@ pub fn get_node_data(node_name: &str, data: &[data::NodeSetupData]) -> Result<da
 // Container ZTP Generation
 // ============================================================================
 
+/// Return Linux capabilities required by a given container node model.
+pub fn model_capabilities(model: &data::NodeModel) -> Vec<String> {
+    match model {
+        data::NodeModel::HashicorpVault => CONTAINER_HASHICORP_VAULT_CAPABILITIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 /// Generate ZTP configuration for a container node.
 /// Returns the image, env_vars, volumes, commands, privileged flag, user, and ZTP record.
 #[allow(clippy::too_many_arguments)]
@@ -165,6 +179,7 @@ pub fn generate_container_ztp(
     let mut env_vars: Vec<String> = node.environment_variables.clone().unwrap_or_default();
     let mut volumes: Vec<String> = Vec::new();
     let mut commands: Vec<String> = node.commands.clone().unwrap_or_default();
+    let mut capabilities: Vec<String> = Vec::new();
     let mut privileged = node.privileged.unwrap_or(false);
     let mut shm_size = node.shm_size;
     let mut user = node.user.clone();
@@ -347,6 +362,41 @@ pub fn generate_container_ztp(
             node.image = Some(image.clone());
             node.commands = Some(commands.clone());
         }
+        data::NodeModel::HashicorpVault => {
+            let rendered_config = match &custom_ztp {
+                Some(config) => config.clone(),
+                None => {
+                    let vault_template = template::VaultConfigTemplate {
+                        node_name: node.name.clone(),
+                    };
+                    vault_template.render()?
+                }
+            };
+            let config_file = format!("{dir}/config.hcl");
+            let config_volume = topology::VolumeMount {
+                src: config_file.clone(),
+                dst: VAULT_ZTP_CONFIG_MOUNT.to_string(),
+            };
+            util::create_dir(&dir)?;
+            util::create_file(&config_file, rendered_config)?;
+
+            image = CONTAINER_HASHICORP_VAULT_REPO.to_string();
+            env_vars = CONTAINER_HASHICORP_VAULT_ENV_VARS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            volumes = vec![format!("{}:{}", config_volume.src, config_volume.dst)];
+            commands = CONTAINER_HASHICORP_VAULT_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            capabilities = model_capabilities(&node.model);
+
+            node.image = Some(image.clone());
+            node.environment_variables = Some(env_vars.clone());
+            node.volumes = Some(vec![config_volume]);
+            node.commands = Some(commands.clone());
+        }
         _ => {}
     }
 
@@ -364,6 +414,7 @@ pub fn generate_container_ztp(
                 | data::NodeModel::FrrLinux
                 | data::NodeModel::GitlabCe
                 | data::NodeModel::SurrealDb
+                | data::NodeModel::HashicorpVault
         ) {
             volumes = manifest_volumes;
         }
@@ -394,6 +445,7 @@ pub fn generate_container_ztp(
         env_vars,
         volumes,
         commands,
+        capabilities,
         privileged,
         shm_size,
         user,
@@ -2283,6 +2335,7 @@ pub async fn start_container_node(
     image: &str,
     env_vars: Vec<String>,
     volumes: Vec<String>,
+    capabilities: Vec<String>,
     management_network_attachment: data::ContainerNetworkAttachment,
     additional_networks: Vec<data::ContainerNetworkAttachment>,
     commands: Vec<String>,
@@ -2298,7 +2351,7 @@ pub async fn start_container_node(
         image,
         env_vars,
         volumes,
-        vec![],
+        capabilities,
         management_network_attachment,
         additional_networks,
         commands,

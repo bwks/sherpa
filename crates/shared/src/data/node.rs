@@ -93,6 +93,9 @@ pub enum NodeModel {
     MysqlDb,
     PostgresqlDb,
 
+    // HashiCorp
+    HashicorpVault,
+
     // Generic
     GenericContainer,
     GenericUnikernel,
@@ -166,6 +169,9 @@ impl fmt::Display for NodeModel {
             NodeModel::SurrealDb => write!(f, "surreal_db"),
             NodeModel::MysqlDb => write!(f, "mysql_db"),
             NodeModel::PostgresqlDb => write!(f, "postgresql_db"),
+
+            // HashiCorp
+            NodeModel::HashicorpVault => write!(f, "hashicorp_vault"),
 
             // BSD
             NodeModel::FreeBsd => write!(f, "free_bsd"),
@@ -248,6 +254,9 @@ impl std::str::FromStr for NodeModel {
             "surreal_db" => Ok(NodeModel::SurrealDb),
             "mysql_db" => Ok(NodeModel::MysqlDb),
             "postgresql_db" => Ok(NodeModel::PostgresqlDb),
+
+            // HashiCorp
+            "hashicorp_vault" => Ok(NodeModel::HashicorpVault),
 
             // BSD
             "free_bsd" => Ok(NodeModel::FreeBsd),
@@ -765,6 +774,9 @@ impl NodeConfig {
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
             NodeModel::PostgresqlDb => NodeConfig::postgresql_db(),
             NodeModel::SurrealDb => NodeConfig::surreal_db(),
+
+            // HashiCorp
+            NodeModel::HashicorpVault => NodeConfig::hashicorp_vault(),
 
             // Generic
             NodeModel::GenericContainer => NodeConfig::generic_container(),
@@ -2059,6 +2071,31 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::SurrealDb,
+            repo: None,
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
+    pub fn hashicorp_vault() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::HashicorpVault,
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,

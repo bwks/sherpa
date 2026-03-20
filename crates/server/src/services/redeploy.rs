@@ -402,6 +402,7 @@ pub async fn redeploy_node(
                 &container_image,
                 ztp_result.env_vars,
                 ztp_result.volumes,
+                ztp_result.capabilities,
                 mgmt_attachment,
                 additional_networks,
                 ztp_result.commands,

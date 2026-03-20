@@ -19,11 +19,11 @@ use crate::tls;
 use shared::data;
 use shared::data::{NodeState, StatusKind};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE,
-    LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, NODE_CONFIGS_DIR, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
-    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
+    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE,
+    LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, NODE_CONFIGS_DIR,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH,
+    SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
@@ -1496,7 +1496,10 @@ pub async fn up_lab(
             dnsmasq_tftp_volume,
             webdir_config_volume,
         ];
-        let dnsmasq_capabilities = vec!["NET_ADMIN"];
+        let dnsmasq_capabilities: Vec<String> = CONTAINER_DNSMASQ_CAPABILITIES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
 
         let management_network_attachment = data::ContainerNetworkAttachment {
             name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
@@ -1882,12 +1885,14 @@ pub async fn up_lab(
                     additional_networks.extend_from_slice(link_networks);
                 }
 
+                let capabilities = node_ops::model_capabilities(&container.model);
                 let is_running = node_ops::start_container_node(
                     &docker_conn,
                     &container_name,
                     &container_image,
                     env_vars,
                     volumes,
+                    capabilities,
                     management_network_attachment,
                     additional_networks,
                     commands,

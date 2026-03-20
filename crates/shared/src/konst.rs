@@ -194,8 +194,9 @@ pub const CONTAINER_DNSMASQ_NAME: &str = "sherpa-router";
 
 pub const CONTAINER_DNSMASQ_REPO: &str = "ghcr.io/bwks/sherpa-router";
 pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
-pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
+pub const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
+pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
@@ -247,6 +248,13 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
     SHERPA_PASSWORD,
     "memory",
 ];
+
+pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
+pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
+pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] =
+    &["vault", "server", "-config=/vault/config/config.hcl"];
+pub const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
+pub const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 
 // Sherpad daemon constants
 pub const SHERPAD_PID_FILE: &str = "sherpad.pid";

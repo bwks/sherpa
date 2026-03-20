@@ -8,4 +8,5 @@ bash scripts/tailwind-build.sh
 cargo build --workspace --all-targets --release
 sudo systemctl stop sherpad
 sudo cp target/release/sherpad /opt/sherpa/bin/
+sudo cp target/release/sherpa /opt/sherpa/bin/
 sudo systemctl restart sherpad

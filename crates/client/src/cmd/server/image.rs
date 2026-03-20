@@ -4,7 +4,10 @@ use clap::Subcommand;
 use shared::data::{
     self, NodeConfig, NodeKind, NodeModel, ServerConnection, StatusKind, StatusMessage,
 };
-use shared::konst::{CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_NOKIA_SRLINUX_REPO};
+use shared::konst::{
+    CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
+    CONTAINER_NOKIA_SRLINUX_REPO,
+};
 use shared::util::{Emoji, emoji_success, render_images_table, render_scanned_images_table};
 
 use super::OutputFormat;
@@ -430,6 +433,7 @@ async fn pull_container_image(
             NodeModel::NokiaSrlinux => Some(CONTAINER_NOKIA_SRLINUX_REPO),
             NodeModel::FrrLinux => Some(CONTAINER_FRR_REPO),
             NodeModel::GitlabCe => Some(CONTAINER_GITLAB_CE_REPO),
+            NodeModel::HashicorpVault => Some(CONTAINER_HASHICORP_VAULT_REPO),
             _ => None,
         };
 
