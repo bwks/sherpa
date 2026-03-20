@@ -81,6 +81,12 @@ pub enum NodeModel {
     FreeBsd,
     OpenBsd,
 
+    // Application
+    JenkinsServer,
+    NautobotServer,
+    NetboxServer,
+    VirtServer,
+
     // SQL
     SurrealDb,
     MysqlDb,
@@ -147,6 +153,12 @@ impl fmt::Display for NodeModel {
 
             // Windows
             NodeModel::WindowsServer => write!(f, "windows_server"),
+
+            // Application
+            NodeModel::JenkinsServer => write!(f, "jenkins_server"),
+            NodeModel::NautobotServer => write!(f, "nautobot_server"),
+            NodeModel::NetboxServer => write!(f, "netbox_server"),
+            NodeModel::VirtServer => write!(f, "virt_server"),
 
             // SQL
             NodeModel::SurrealDb => write!(f, "surreal_db"),
@@ -222,6 +234,12 @@ impl std::str::FromStr for NodeModel {
 
             // Windows
             "windows_server" => Ok(NodeModel::WindowsServer),
+
+            // Application
+            "jenkins_server" => Ok(NodeModel::JenkinsServer),
+            "nautobot_server" => Ok(NodeModel::NautobotServer),
+            "netbox_server" => Ok(NodeModel::NetboxServer),
+            "virt_server" => Ok(NodeModel::VirtServer),
 
             // SQL
             "surreal_db" => Ok(NodeModel::SurrealDb),
@@ -732,6 +750,12 @@ impl NodeConfig {
 
             // Windows
             NodeModel::WindowsServer => NodeConfig::windows_server(),
+
+            // Application
+            NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
+            NodeModel::NautobotServer => NodeConfig::nautobot_server(),
+            NodeModel::NetboxServer => NodeConfig::netbox_server(),
+            NodeModel::VirtServer => NodeConfig::virt_server(),
 
             // SQL
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
@@ -1861,6 +1885,142 @@ impl NodeConfig {
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn jenkins_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::JenkinsServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn nautobot_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::NautobotServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn virt_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::VirtServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn netbox_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::NetboxServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 2,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,

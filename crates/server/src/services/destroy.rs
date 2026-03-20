@@ -556,7 +556,10 @@ pub(crate) fn destroy_libvirt_networks(
 
         if network_name.contains(lab_id) {
             match (|| -> Result<()> {
-                network.destroy().context("Failed to destroy network")?;
+                let is_active = network.is_active().unwrap_or(false);
+                if is_active {
+                    network.destroy().context("Failed to destroy network")?;
+                }
                 network.undefine().context("Failed to undefine network")?;
                 Ok(())
             })() {
