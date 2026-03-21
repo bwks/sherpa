@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.31] - 2026-03-21
+
+### Documentation
+
+- How to run tests by @bwks ([d2ada77](https://github.com/bwks/sherpa/commit/d2ada77e497b46d52c4bbd0f5b2538a46d442325))
+- Test specs by @bwks ([4367163](https://github.com/bwks/sherpa/commit/43671637fa9d99caa1ef3c91b2f56bdefb461067))
+
+### Features
+
+- Network tests by @claude ([fc39aa0](https://github.com/bwks/sherpa/commit/fc39aa01506fb192ac875159aaaac4e88af42836))
+- Network tests by @claude ([5153850](https://github.com/bwks/sherpa/commit/51538506ca023ed9fee874024b82923cedb0f1f4))
+- Network test cases updates by @bwks ([2a07c9e](https://github.com/bwks/sherpa/commit/2a07c9e6c34ccc8969257b0ca7bc5e99bcbe94c9))
+- Libvirt test cases updates by @bwks ([dee8dd2](https://github.com/bwks/sherpa/commit/dee8dd25d088b1aa9f698452aa79fc42023240e8))
+- Container test cases updates by @bwks ([bb2ec96](https://github.com/bwks/sherpa/commit/bb2ec96a32eaa6aa40898ebbf4cb6bbbdd04cacc))
+- Container test cases updates by @bwks ([941d707](https://github.com/bwks/sherpa/commit/941d707baefd026fa9a9027c0b6892dca4148e1c))
+- Db test cases updates by @bwks ([e0da481](https://github.com/bwks/sherpa/commit/e0da481a3a216a0cbecbfc768e21584409a49ea0))
+- Shared test cases updates by @bwks ([de5195e](https://github.com/bwks/sherpa/commit/de5195ea4c62bca0d4d7b4290b7089647af252a4))
+- Manifest test cases updates by @bwks ([c7a7fc8](https://github.com/bwks/sherpa/commit/c7a7fc86495750c1b32bbcd8bed7f0ddbbfd5e16))
+- Template test cases updates by @bwks ([c6fc694](https://github.com/bwks/sherpa/commit/c6fc6946ca0c32de58818f0c8a7380e933a0723f))
+- Validate test cases updates by @bwks ([58a0093](https://github.com/bwks/sherpa/commit/58a0093980d355500803f1d644511d928b11234e))
+
+### Miscellaneous
+
+- Merge pull request #160 from bwks/v0.3.31
+
+V0.3.31 by @bwks in [#160](https://github.com/bwks/sherpa/pull/160) ([c627582](https://github.com/bwks/sherpa/commit/c6275825420a2091885887303e01098fd3a7207c))
+- Shared test cases updates by @bwks ([0a1f376](https://github.com/bwks/sherpa/commit/0a1f376d0e54e169b0085b276e8cd36ec702b138))
+- Merge pull request #159 from bwks/changelog/v0.3.30
+
+chore(release): update changelog for v0.3.30 by @github-actions[bot] in [#159](https://github.com/bwks/sherpa/pull/159) ([e4eecc4](https://github.com/bwks/sherpa/commit/e4eecc4604ee5334aefa5b34351781ced1e4f726))
 ## [0.3.30] - 2026-03-21
 
 ### Bug Fixes
