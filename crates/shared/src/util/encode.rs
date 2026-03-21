@@ -66,6 +66,17 @@ mod tests {
     }
 
     #[test]
+    fn test_base64_decode_invalid_input() {
+        let result = base64_decode("not-valid-base64!!!");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_base64_decode_empty() {
+        assert_eq!(base64_decode("").unwrap(), "");
+    }
+
+    #[test]
     fn test_base64_encode_long_text() {
         assert_eq!(
             base64_encode(

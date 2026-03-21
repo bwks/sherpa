@@ -112,3 +112,80 @@ pub fn default_config() -> Config {
         tls: TlsConfig::default(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::data::Sherpa;
+
+    #[test]
+    fn test_build_websocket_url_with_tls() {
+        let mut config = default_config();
+        config.tls.enabled = true;
+        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
+        config.ws_port = 3030;
+        config.server_connection.url = None;
+        assert_eq!(build_websocket_url(&config), "wss://10.0.0.1:3030/ws");
+    }
+
+    #[test]
+    fn test_build_websocket_url_without_tls() {
+        let mut config = default_config();
+        config.tls.enabled = false;
+        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
+        config.ws_port = 3030;
+        config.server_connection.url = None;
+        assert_eq!(build_websocket_url(&config), "ws://10.0.0.1:3030/ws");
+    }
+
+    #[test]
+    fn test_build_websocket_url_explicit_url_takes_precedence() {
+        let mut config = default_config();
+        config.server_connection.url = Some("wss://custom.host:9999/ws".to_string());
+        assert_eq!(build_websocket_url(&config), "wss://custom.host:9999/ws");
+    }
+
+    #[test]
+    fn test_build_client_websocket_url_with_tls() {
+        let mut config = ClientConfig::default();
+        config.tls.enabled = true;
+        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
+        config.ws_port = 3030;
+        assert_eq!(
+            build_client_websocket_url(&config),
+            "wss://10.0.0.1:3030/ws"
+        );
+    }
+
+    #[test]
+    fn test_build_client_websocket_url_without_tls() {
+        let mut config = ClientConfig::default();
+        config.tls.enabled = false;
+        config.server_ipv4 = Ipv4Addr::new(10, 0, 0, 1);
+        config.ws_port = 3030;
+        assert_eq!(build_client_websocket_url(&config), "ws://10.0.0.1:3030/ws");
+    }
+
+    #[test]
+    fn test_default_config_has_sensible_values() {
+        let config = default_config();
+        assert_eq!(config.server_ipv4, Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
+        assert_eq!(config.http_port, SHERPA_SERVER_HTTP_PORT);
+        assert!(!config.images_dir.is_empty());
+        assert!(!config.containers_dir.is_empty());
+        assert!(!config.container_images.is_empty());
+    }
+
+    #[test]
+    fn test_sherpa_from_base_dir() {
+        let sherpa = Sherpa::from_base_dir("/opt/sherpa".to_string());
+        assert_eq!(sherpa.base_dir, "/opt/sherpa");
+        assert!(sherpa.config_dir.starts_with("/opt/sherpa"));
+        assert!(sherpa.config_file_path.starts_with("/opt/sherpa"));
+        assert!(sherpa.ssh_dir.starts_with("/opt/sherpa"));
+        assert!(sherpa.images_dir.starts_with("/opt/sherpa"));
+        assert!(sherpa.containers_dir.starts_with("/opt/sherpa"));
+        assert!(sherpa.bins_dir.starts_with("/opt/sherpa"));
+    }
+}

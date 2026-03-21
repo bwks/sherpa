@@ -117,4 +117,42 @@ mod tests {
     fn test_srlinux_to_linux_interface_invalid() {
         assert!(srlinux_to_linux_interface("mgmt0").is_err());
     }
+
+    #[test]
+    fn test_interface_roundtrip_cisco_iosv() {
+        let model = NodeModel::CiscoIosv;
+        let name = interface_from_idx(&model, 0).unwrap();
+        let idx = interface_to_idx(&model, &name).unwrap();
+        assert_eq!(idx, 0);
+
+        let name1 = interface_from_idx(&model, 1).unwrap();
+        let idx1 = interface_to_idx(&model, &name1).unwrap();
+        assert_eq!(idx1, 1);
+    }
+
+    #[test]
+    fn test_interface_roundtrip_arista_veos() {
+        let model = NodeModel::AristaVeos;
+        for idx in 0..5 {
+            let name = interface_from_idx(&model, idx).unwrap();
+            let back = interface_to_idx(&model, &name).unwrap();
+            assert_eq!(back, idx, "round-trip failed for idx {idx}: name={name}");
+        }
+    }
+
+    #[test]
+    fn test_interface_roundtrip_generic_ethernet() {
+        let model = NodeModel::UbuntuLinux;
+        let name = interface_from_idx(&model, 0).unwrap();
+        assert_eq!(interface_to_idx(&model, &name).unwrap(), 0);
+        let name3 = interface_from_idx(&model, 3).unwrap();
+        assert_eq!(interface_to_idx(&model, &name3).unwrap(), 3);
+    }
+
+    #[test]
+    fn test_node_model_interfaces_returns_nonempty() {
+        assert!(!node_model_interfaces(&NodeModel::CiscoIosv).is_empty());
+        assert!(!node_model_interfaces(&NodeModel::NokiaSrlinux).is_empty());
+        assert!(!node_model_interfaces(&NodeModel::UbuntuLinux).is_empty());
+    }
 }

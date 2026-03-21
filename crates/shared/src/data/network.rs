@@ -58,3 +58,37 @@ pub struct SherpaNetwork {
     pub v4: NetworkV4,
     pub v6: Option<NetworkV6>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bridge_kind_display() {
+        assert_eq!(BridgeKind::P2pBridge.to_string(), "p2p_bridge");
+        assert_eq!(BridgeKind::P2pUdp.to_string(), "p2p_udp");
+        assert_eq!(BridgeKind::P2pVeth.to_string(), "p2p_veth");
+        assert_eq!(BridgeKind::SharedBridge.to_string(), "shared_bridge");
+    }
+
+    #[test]
+    fn test_bridge_kind_to_vec() {
+        let kinds = BridgeKind::to_vec();
+        assert_eq!(kinds.len(), 4);
+    }
+
+    #[test]
+    fn test_bridge_kind_serde_roundtrip() {
+        let kind = BridgeKind::P2pVeth;
+        let json = serde_json::to_string(&kind).expect("serializes");
+        assert_eq!(json, "\"p2p_veth\"");
+        let back: BridgeKind = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back, BridgeKind::P2pVeth);
+    }
+
+    #[test]
+    fn test_bridge_kind_default() {
+        let kind = BridgeKind::default();
+        assert_eq!(kind, BridgeKind::P2pBridge);
+    }
+}
