@@ -8,15 +8,15 @@
 ## Run All Tests
 
 ```bash
-sudo -E cargo test -p network -- --ignored --test-threads=1
+sudo -E /home/sherpa/.cargo/bin/cargo test -p network -- --ignored --test-threads=1
 ```
 
-`sudo -E` preserves environment variables. `--test-threads=1` avoids interface name collisions.
+`sudo -E` preserves environment variables. The full cargo path is required because `sudo` does not inherit `$PATH`. `--test-threads=1` avoids interface name collisions.
 
 ## Run a Single Test
 
 ```bash
-sudo -E cargo test -p network test_create_bridge -- --ignored
+sudo -E /home/sherpa/.cargo/bin/cargo test -p network test_create_bridge -- --ignored
 ```
 
 ## Cleanup Stale Interfaces
@@ -33,7 +33,7 @@ Tests auto-clean stale interfaces before each run.
 
 ## Test Location
 
-- `crates/network/tests/integration_tests.rs` (8 tests)
+- `crates/network/tests/integration_tests.rs` (12 tests)
 
 ## Linting
 

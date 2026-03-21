@@ -21,6 +21,34 @@ async fn cleanup_interface(name: &str) {
     let _ = delete_interface(name).await;
 }
 
+/// Returns the raw output of `ip link show <name>`, or empty string on failure.
+fn ip_link_show(name: &str) -> String {
+    std::process::Command::new("ip")
+        .args(["link", "show", name])
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+        .unwrap_or_default()
+}
+
+/// Check whether the UP flag is set on an interface (via ip link show flags field).
+fn interface_is_up(name: &str) -> bool {
+    let out = ip_link_show(name);
+    // Flags appear in angle brackets, e.g. <BROADCAST,MULTICAST,UP>
+    out.contains(",UP") || out.contains("<UP")
+}
+
+/// Return the MTU of an interface, or None if not found.
+fn interface_mtu(name: &str) -> Option<u32> {
+    let out = ip_link_show(name);
+    let parts: Vec<&str> = out.split_whitespace().collect();
+    for window in parts.windows(2) {
+        if window[0] == "mtu" {
+            return window[1].parse().ok();
+        }
+    }
+    None
+}
+
 // ============================================================================
 // Bridge
 // ============================================================================
@@ -57,6 +85,53 @@ async fn test_create_bridge() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+#[ignore]
+async fn test_bridge_mtu_and_up_state() -> Result<()> {
+    let name = "st-br-mtu";
+    let alias = "sherpa-test-mtu";
+
+    cleanup_interface(name).await;
+
+    create_bridge(name, alias).await?;
+
+    assert_eq!(
+        interface_mtu(name),
+        Some(9600),
+        "Bridge MTU should be 9600 (jumbo frames)"
+    );
+
+    assert!(
+        interface_is_up(name),
+        "Bridge should have UP flag set after creation"
+    );
+
+    delete_interface(name).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_bridge_duplicate() -> Result<()> {
+    let name = "st-br-dup";
+    let alias = "sherpa-test-dup";
+
+    cleanup_interface(name).await;
+
+    create_bridge(name, alias).await?;
+
+    let result = create_bridge(name, alias).await;
+    assert!(
+        result.is_err(),
+        "Creating a duplicate bridge should fail with an error"
+    );
+
+    delete_interface(name).await?;
+
+    Ok(())
+}
+
 // ============================================================================
 // Veth pair
 // ============================================================================
@@ -86,6 +161,53 @@ async fn test_create_veth_pair() -> Result<()> {
         !found.iter().any(|n| n == dst),
         "dst should be gone (deleting one end removes both)"
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_veth_pair_up_state() -> Result<()> {
+    let src = "st-veth-up-a";
+    let dst = "st-veth-up-b";
+
+    cleanup_interface(src).await;
+    cleanup_interface(dst).await;
+
+    create_veth_pair(src, dst, "test-up-src", "test-up-dst").await?;
+
+    assert!(
+        interface_is_up(src),
+        "src veth should have UP flag set after creation"
+    );
+    assert!(
+        interface_is_up(dst),
+        "dst veth should have UP flag set after creation"
+    );
+
+    delete_interface(src).await?;
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_pair_duplicate() -> Result<()> {
+    let src = "st-veth-dp-a";
+    let dst = "st-veth-dp-b";
+
+    cleanup_interface(src).await;
+    cleanup_interface(dst).await;
+
+    create_veth_pair(src, dst, "test-dup-src", "test-dup-dst").await?;
+
+    let result = create_veth_pair(src, dst, "test-dup-src", "test-dup-dst").await;
+    assert!(
+        result.is_err(),
+        "Creating a duplicate veth pair should fail with an error"
+    );
+
+    delete_interface(src).await?;
 
     Ok(())
 }
@@ -138,6 +260,29 @@ async fn test_enslave_nonexistent_interface_fails() -> Result<()> {
     );
 
     delete_interface(br).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_enslave_to_nonexistent_bridge() -> Result<()> {
+    let src = "st-veth3a";
+    let dst = "st-veth3b";
+
+    cleanup_interface(src).await;
+    cleanup_interface(dst).await;
+
+    create_veth_pair(src, dst, "test-enslv-src", "test-enslv-dst").await?;
+
+    // Try to enslave to a bridge that doesn't exist
+    let result = enslave_to_bridge(src, "st-nobridge").await;
+    assert!(
+        result.is_err(),
+        "Enslaving to a nonexistent bridge should fail"
+    );
+
+    delete_interface(src).await?;
+
     Ok(())
 }
 
