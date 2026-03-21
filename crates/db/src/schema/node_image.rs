@@ -130,7 +130,7 @@ DEFINE FIELD OVERWRITE ztp_password ON TABLE node_image TYPE option<string>;
 DEFINE FIELD OVERWRITE ztp_password_auth ON TABLE node_image TYPE bool;
 
 DEFINE FIELD OVERWRITE data_interface_count ON TABLE node_image TYPE number
-    ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
+    ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
 DEFINE FIELD OVERWRITE interface_prefix ON TABLE node_image TYPE string;
 DEFINE FIELD OVERWRITE interface_type ON TABLE node_image TYPE string
     ASSERT $value IN [{}];

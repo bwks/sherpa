@@ -21,6 +21,7 @@ mod paloalto_panos;
 mod pyats;
 mod sonic_linux;
 mod ssh;
+mod vault;
 
 pub use arista_eos::{AristaCeosZtpTemplate, AristaVeosZtpTemplate};
 pub use aruba_aos::ArubaAoscxTemplate;
@@ -53,3 +54,4 @@ pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplat
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::SshConfigTemplate;
+pub use vault::VaultConfigTemplate;

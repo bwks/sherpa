@@ -21,11 +21,12 @@ pub async fn run_container(
     image: &str,
     env_vars: Vec<String>,
     volumes: Vec<String>,
-    capabilities: Vec<&str>,
+    capabilities: Vec<String>,
     management_network: ContainerNetworkAttachment,
     additional_networks: Vec<ContainerNetworkAttachment>,
     commands: Vec<String>,
     privileged: bool,
+    shm_size: Option<i64>,
     user: Option<String>,
 ) -> Result<bool> {
     // Environment variables
@@ -34,9 +35,6 @@ pub async fn run_container(
 
     // Volume bindings
     // let binds = volumes;
-
-    // Capabilities
-    let caps = capabilities.iter().map(|s| s.to_string()).collect();
 
     // Commands
     let cmds = commands.iter().map(|s| s.to_string()).collect();
@@ -62,9 +60,10 @@ pub async fn run_container(
 
     let host_config = HostConfig {
         binds: Some(volumes),
-        cap_add: Some(caps),
+        cap_add: Some(capabilities),
         auto_remove: Some(false),
         privileged: Some(privileged),
+        shm_size,
         ..Default::default()
     };
 

@@ -12,8 +12,9 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT,
-    MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO,
+    MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -82,6 +83,7 @@ pub enum NodeModel {
     OpenBsd,
 
     // Application
+    GitlabCe,
     JenkinsServer,
     NautobotServer,
     NetboxServer,
@@ -91,6 +93,9 @@ pub enum NodeModel {
     SurrealDb,
     MysqlDb,
     PostgresqlDb,
+
+    // HashiCorp
+    HashicorpVault,
 
     // Generic
     GenericContainer,
@@ -155,6 +160,7 @@ impl fmt::Display for NodeModel {
             NodeModel::WindowsServer => write!(f, "windows_server"),
 
             // Application
+            NodeModel::GitlabCe => write!(f, "gitlab_ce"),
             NodeModel::JenkinsServer => write!(f, "jenkins_server"),
             NodeModel::NautobotServer => write!(f, "nautobot_server"),
             NodeModel::NetboxServer => write!(f, "netbox_server"),
@@ -164,6 +170,9 @@ impl fmt::Display for NodeModel {
             NodeModel::SurrealDb => write!(f, "surreal_db"),
             NodeModel::MysqlDb => write!(f, "mysql_db"),
             NodeModel::PostgresqlDb => write!(f, "postgresql_db"),
+
+            // HashiCorp
+            NodeModel::HashicorpVault => write!(f, "hashicorp_vault"),
 
             // BSD
             NodeModel::FreeBsd => write!(f, "free_bsd"),
@@ -236,6 +245,7 @@ impl std::str::FromStr for NodeModel {
             "windows_server" => Ok(NodeModel::WindowsServer),
 
             // Application
+            "gitlab_ce" => Ok(NodeModel::GitlabCe),
             "jenkins_server" => Ok(NodeModel::JenkinsServer),
             "nautobot_server" => Ok(NodeModel::NautobotServer),
             "netbox_server" => Ok(NodeModel::NetboxServer),
@@ -245,6 +255,9 @@ impl std::str::FromStr for NodeModel {
             "surreal_db" => Ok(NodeModel::SurrealDb),
             "mysql_db" => Ok(NodeModel::MysqlDb),
             "postgresql_db" => Ok(NodeModel::PostgresqlDb),
+
+            // HashiCorp
+            "hashicorp_vault" => Ok(NodeModel::HashicorpVault),
 
             // BSD
             "free_bsd" => Ok(NodeModel::FreeBsd),
@@ -752,6 +765,7 @@ impl NodeConfig {
             NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // Application
+            NodeModel::GitlabCe => NodeConfig::gitlab_ce(),
             NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
             NodeModel::NautobotServer => NodeConfig::nautobot_server(),
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
@@ -761,6 +775,9 @@ impl NodeConfig {
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
             NodeModel::PostgresqlDb => NodeConfig::postgresql_db(),
             NodeModel::SurrealDb => NodeConfig::surreal_db(),
+
+            // HashiCorp
+            NodeModel::HashicorpVault => NodeConfig::hashicorp_vault(),
 
             // Generic
             NodeModel::GenericContainer => NodeConfig::generic_container(),
@@ -2026,14 +2043,64 @@ impl NodeConfig {
             default: true,
         }
     }
+    pub fn gitlab_ce() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::GitlabCe,
+            repo: Some(CONTAINER_GITLAB_CE_REPO.to_string()),
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 2,
+            memory: 4096,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
     pub fn surreal_db() -> NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::SurrealDb,
-            repo: None,
+            repo: Some(CONTAINER_SURREAL_DB_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
+    pub fn hashicorp_vault() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::HashicorpVault,
+            repo: Some(CONTAINER_HASHICORP_VAULT_REPO.to_string()),
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,

@@ -157,6 +157,7 @@ async fn handle_client_message(
             if method == "up"
                 || method == "destroy"
                 || method == "redeploy"
+                || method == "image.pull"
                 || method == "image.download"
             {
                 // Handle streaming RPC (sends multiple messages during execution)

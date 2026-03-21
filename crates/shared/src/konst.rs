@@ -194,8 +194,9 @@ pub const CONTAINER_DNSMASQ_NAME: &str = "sherpa-router";
 
 pub const CONTAINER_DNSMASQ_REPO: &str = "ghcr.io/bwks/sherpa-router";
 pub const CONTAINER_DNSMASQ_VERSION: &str = "latest";
-pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
+pub const CONTAINER_DNSMASQ_CAPABILITIES: &[&str] = &["NET_ADMIN"];
 
+pub const CONTAINER_SRLINUX_NAME: &str = "srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_REPO: &str = "ghcr.io/nokia/srlinux";
 pub const CONTAINER_NOKIA_SRLINUX_ENV_VARS: &[&str] = &["SRLINUX=1"];
 pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
@@ -230,6 +231,11 @@ pub const FRR_ZTP_DAEMONS_MOUNT: &str = "/etc/frr/daemons";
 pub const FRR_ZTP_CONFIG_MOUNT: &str = "/etc/frr/frr.conf";
 pub const FRR_ZTP_STARTUP_MOUNT: &str = "/tmp/sherpa-init.sh";
 
+pub const CONTAINER_GITLAB_CE_REPO: &str = "gitlab/gitlab-ce";
+pub const CONTAINER_GITLAB_CE_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_GITLAB_CE_COMMANDS: &[&str] = &[];
+pub const CONTAINER_GITLAB_CE_SHM_SIZE: i64 = 256;
+
 pub const CONTAINER_SURREAL_DB_REPO: &str = "surrealdb/surrealdb";
 pub const CONTAINER_SURREAL_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
@@ -242,6 +248,16 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
     SHERPA_PASSWORD,
     "memory",
 ];
+
+pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
+pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
+pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
+    "sh",
+    "-c",
+    "mkdir -p /vault/data && exec vault server -config=/vault/config/config.hcl",
+];
+pub const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
+pub const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 
 // Sherpad daemon constants
 pub const SHERPAD_PID_FILE: &str = "sherpad.pid";
