@@ -154,7 +154,10 @@ async fn test_stop_and_start_container() -> Result<()> {
 
     // Verify running
     let info = docker
-        .inspect_container(name, None::<bollard::query_parameters::InspectContainerOptions>)
+        .inspect_container(
+            name,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
         .await?;
     let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
     assert!(running, "Container should be running after start");
@@ -175,7 +178,10 @@ async fn test_pause_and_unpause_container() -> Result<()> {
     // Pause
     pause_container(&docker, name).await?;
     let info = docker
-        .inspect_container(name, None::<bollard::query_parameters::InspectContainerOptions>)
+        .inspect_container(
+            name,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
         .await?;
     let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
     assert!(paused, "Container should be paused");
@@ -183,7 +189,10 @@ async fn test_pause_and_unpause_container() -> Result<()> {
     // Unpause
     unpause_container(&docker, name).await?;
     let info = docker
-        .inspect_container(name, None::<bollard::query_parameters::InspectContainerOptions>)
+        .inspect_container(
+            name,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
         .await?;
     let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
     assert!(!paused, "Container should not be paused after unpause");
@@ -396,7 +405,10 @@ async fn test_run_container_with_env_vars() -> Result<()> {
     // exec "env" and check output would be ideal, but exec_container doesn't return output.
     // Instead verify the container was created with the env vars via inspect.
     let info = docker
-        .inspect_container(name, None::<bollard::query_parameters::InspectContainerOptions>)
+        .inspect_container(
+            name,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
         .await?;
     let env = info
         .config
@@ -444,7 +456,10 @@ async fn test_run_container_privileged() -> Result<()> {
     .await?;
 
     let info = docker
-        .inspect_container(name, None::<bollard::query_parameters::InspectContainerOptions>)
+        .inspect_container(
+            name,
+            None::<bollard::query_parameters::InspectContainerOptions>,
+        )
         .await?;
     let privileged = info
         .host_config
