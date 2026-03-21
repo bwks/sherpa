@@ -87,6 +87,13 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_interface_count() {
+        assert!(validate_interface_count(1).is_ok());
+        assert!(validate_interface_count(255).is_ok());
+        assert!(validate_interface_count(0).is_err());
+    }
+
+    #[test]
     fn test_validate_interface_mtu() {
         assert!(validate_interface_mtu(576).is_ok());
         assert!(validate_interface_mtu(1500).is_ok());
@@ -105,5 +112,73 @@ mod tests {
         assert!(validate_version("1.0").is_err()); // 3 chars
         assert!(validate_version("abcd").is_err()); // 4 chars
         assert!(validate_version("abcde").is_ok()); // 5 chars (> 4)
+    }
+
+    #[test]
+    fn test_validate_interface_prefix() {
+        assert!(validate_interface_prefix("eth").is_ok());
+        assert!(validate_interface_prefix("ge-0/0/").is_ok());
+        assert!(validate_interface_prefix("").is_err());
+        assert!(validate_interface_prefix("   ").is_err());
+    }
+
+    #[test]
+    fn test_validate_node_image_update_all_valid() {
+        let result = validate_node_image_update(2, 1024, 4, 1500, "1.0.0", "eth");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_node_image_update_cpu_zero() {
+        let result = validate_node_image_update(0, 1024, 4, 1500, "1.0.0", "eth");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("CPU count"));
+    }
+
+    #[test]
+    fn test_validate_node_image_update_memory_too_low() {
+        let result = validate_node_image_update(1, 32, 4, 1500, "1.0.0", "eth");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Memory"));
+    }
+
+    #[test]
+    fn test_validate_node_image_update_interface_count_zero() {
+        let result = validate_node_image_update(1, 1024, 0, 1500, "1.0.0", "eth");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Data interface count")
+        );
+    }
+
+    #[test]
+    fn test_validate_node_image_update_mtu_out_of_range() {
+        let result = validate_node_image_update(1, 1024, 4, 100, "1.0.0", "eth");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("MTU"));
+    }
+
+    #[test]
+    fn test_validate_node_image_update_empty_version() {
+        let result = validate_node_image_update(1, 1024, 4, 1500, "", "eth");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Version"));
+    }
+
+    #[test]
+    fn test_validate_node_image_update_empty_prefix() {
+        let result = validate_node_image_update(1, 1024, 4, 1500, "1.0.0", "");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Interface prefix"));
+    }
+
+    #[test]
+    fn test_validate_node_image_update_boundary_values() {
+        // All fields at minimum valid values
+        let result = validate_node_image_update(1, 64, 1, 576, "abcde", "e");
+        assert!(result.is_ok());
     }
 }

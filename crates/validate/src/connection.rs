@@ -11,3 +11,22 @@ pub fn tcp_connect(address: &str, port: u16) -> Result<bool> {
         Err(_) => Ok(false),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tcp_connect_invalid_address_returns_error() {
+        let result = tcp_connect("not_an_ip", 8080);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tcp_connect_closed_port_returns_false() {
+        // Port 1 is almost certainly not listening
+        let result = tcp_connect("127.0.0.1", 1);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
+    }
+}
