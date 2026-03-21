@@ -88,3 +88,59 @@ impl DestroyError {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_destroy_request_serde_roundtrip() {
+        let req = DestroyRequest {
+            lab_id: "abc12345".to_string(),
+            username: "admin".to_string(),
+        };
+        let json = serde_json::to_string(&req).expect("serializes");
+        let back: DestroyRequest = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.lab_id, "abc12345");
+        assert_eq!(back.username, "admin");
+    }
+
+    #[test]
+    fn test_destroy_response_serde_roundtrip() {
+        let resp = DestroyResponse {
+            success: true,
+            lab_id: "abc12345".to_string(),
+            lab_name: "test-lab".to_string(),
+            summary: DestroySummary {
+                containers_destroyed: vec!["c1".to_string()],
+                vms_destroyed: vec!["vm1".to_string()],
+                ..Default::default()
+            },
+            errors: vec![],
+        };
+        let json = serde_json::to_string(&resp).expect("serializes");
+        let back: DestroyResponse = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.success, true);
+        assert_eq!(back.lab_id, "abc12345");
+        assert_eq!(back.summary.containers_destroyed, vec!["c1"]);
+        assert_eq!(back.summary.vms_destroyed, vec!["vm1"]);
+        assert!(back.errors.is_empty());
+    }
+
+    #[test]
+    fn test_destroy_error_new() {
+        let err = DestroyError::new("vm", "vm01", "domain not found");
+        assert_eq!(err.resource_type, "vm");
+        assert_eq!(err.resource_name, "vm01");
+        assert_eq!(err.error_message, "domain not found");
+    }
+
+    #[test]
+    fn test_destroy_summary_default() {
+        let summary = DestroySummary::default();
+        assert!(summary.containers_destroyed.is_empty());
+        assert!(summary.vms_destroyed.is_empty());
+        assert!(!summary.lab_directory_deleted);
+        assert!(!summary.database_records_deleted);
+    }
+}

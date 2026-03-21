@@ -98,4 +98,63 @@ mod tests {
         let err = validate_manifest_ipv6_addresses(&nodes).unwrap_err();
         assert!(err.to_string().contains("multicast"));
     }
+
+    #[test]
+    fn test_multi_node_first_invalid_triggers_error() {
+        let nodes = vec![
+            Node {
+                name: "good1".to_string(),
+                ipv6_address: Some("fd00::1".parse().unwrap()),
+                ..Default::default()
+            },
+            Node {
+                name: "bad1".to_string(),
+                ipv6_address: Some("::1".parse().unwrap()),
+                ..Default::default()
+            },
+            Node {
+                name: "good2".to_string(),
+                ipv6_address: Some("fd00::2".parse().unwrap()),
+                ..Default::default()
+            },
+        ];
+        let err = validate_manifest_ipv6_addresses(&nodes).unwrap_err();
+        assert!(err.to_string().contains("bad1"));
+        assert!(err.to_string().contains("loopback"));
+    }
+
+    #[test]
+    fn test_error_message_contains_node_name_and_address() {
+        let nodes = vec![Node {
+            name: "switch42".to_string(),
+            ipv6_address: Some("::".parse().unwrap()),
+            ..Default::default()
+        }];
+        let err = validate_manifest_ipv6_addresses(&nodes).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("switch42"));
+        assert!(msg.contains("::"));
+    }
+
+    #[test]
+    fn test_multiple_nodes_all_valid() {
+        let nodes = vec![
+            Node {
+                name: "r1".to_string(),
+                ipv6_address: Some("fd00::1".parse().unwrap()),
+                ..Default::default()
+            },
+            Node {
+                name: "r2".to_string(),
+                ipv6_address: None,
+                ..Default::default()
+            },
+            Node {
+                name: "r3".to_string(),
+                ipv6_address: Some("2001:db8::1".parse().unwrap()),
+                ..Default::default()
+            },
+        ];
+        assert!(validate_manifest_ipv6_addresses(&nodes).is_ok());
+    }
 }

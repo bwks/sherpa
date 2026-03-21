@@ -701,4 +701,55 @@ mod tests {
 
         check_bridge_device(&devices, &bridges)
     }
+
+    // ============================================================================
+    // check_link_device tests
+    // ============================================================================
+
+    #[test]
+    fn test_check_link_device_valid() -> Result<()> {
+        let devices = vec![
+            Node {
+                name: "rocky1".to_string(),
+                model: NodeModel::RockyLinux,
+                ..Default::default()
+            },
+            Node {
+                name: "rocky2".to_string(),
+                model: NodeModel::RockyLinux,
+                ..Default::default()
+            },
+        ];
+        let links = vec![create_link("rocky1", 1, "rocky2", 1)];
+
+        check_link_device(&devices, &links)
+    }
+
+    #[test]
+    fn test_check_link_device_undefined() {
+        let devices = vec![Node {
+            name: "rocky1".to_string(),
+            model: NodeModel::RockyLinux,
+            ..Default::default()
+        }];
+        let links = vec![create_link("rocky1", 1, "rocky99", 1)];
+
+        let result = check_link_device(&devices, &links);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("rocky99"));
+        assert!(err_msg.contains("not defined in devices"));
+    }
+
+    #[test]
+    fn test_check_link_device_empty_links() -> Result<()> {
+        let devices = vec![Node {
+            name: "rocky1".to_string(),
+            model: NodeModel::RockyLinux,
+            ..Default::default()
+        }];
+        let links = vec![];
+
+        check_link_device(&devices, &links)
+    }
 }

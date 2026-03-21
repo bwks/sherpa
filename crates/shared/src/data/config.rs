@@ -229,3 +229,78 @@ impl Sherpa {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_ztp_server_default() {
+        let ztp = ZtpServer::default();
+        assert_eq!(ztp.enable, true);
+        assert_eq!(ztp.username, Some(SHERPA_USERNAME.to_owned()));
+        assert_eq!(ztp.password, Some(SHERPA_PASSWORD.to_owned()));
+    }
+
+    #[test]
+    fn test_ztp_server_serde_roundtrip() {
+        let ztp = ZtpServer {
+            enable: false,
+            username: Some("test".to_string()),
+            password: None,
+        };
+        let json = serde_json::to_string(&ztp).expect("serializes");
+        let back: ZtpServer = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(back.enable, false);
+        assert_eq!(back.username, Some("test".to_string()));
+        assert!(back.password.is_none());
+    }
+
+    #[test]
+    fn test_configuration_management_default() {
+        let cm = ConfigurationManagement::default();
+        assert_eq!(cm.ansible, false);
+        assert_eq!(cm.pyats, false);
+        assert_eq!(cm.nornir, false);
+    }
+
+    #[test]
+    fn test_server_connection_default() {
+        let sc = ServerConnection::default();
+        assert!(sc.url.is_none());
+        assert_eq!(sc.timeout_secs, 3);
+        assert_eq!(sc.validate_certs, true);
+        assert!(sc.ca_cert_path.is_none());
+        assert_eq!(sc.insecure, false);
+    }
+
+    #[test]
+    fn test_tls_config_default() {
+        let tls = TlsConfig::default();
+        assert_eq!(tls.enabled, true);
+        assert!(tls.cert_path.is_none());
+        assert!(tls.key_path.is_none());
+        assert_eq!(tls.auto_generate_cert, true);
+        assert_eq!(tls.cert_validity_days, 365);
+        assert!(tls.san.is_empty());
+    }
+
+    #[test]
+    fn test_client_config_default() {
+        let config = ClientConfig::default();
+        assert_eq!(config.server_ipv4, Ipv4Addr::new(127, 0, 0, 1));
+        assert_eq!(config.ws_port, SHERPA_SERVER_WS_PORT);
+        assert_eq!(config.http_port, SHERPA_SERVER_HTTP_PORT);
+        assert!(config.server_ipv6.is_none());
+    }
+
+    #[test]
+    fn test_client_config_serde_roundtrip() {
+        let config = ClientConfig::default();
+        let toml_str = toml::to_string_pretty(&config).expect("serializes");
+        let back: ClientConfig = toml::from_str(&toml_str).expect("deserializes");
+        assert_eq!(back.server_ipv4, config.server_ipv4);
+        assert_eq!(back.ws_port, config.ws_port);
+        assert_eq!(back.http_port, config.http_port);
+    }
+}

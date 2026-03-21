@@ -346,4 +346,190 @@ mod tests {
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("no repo configured"));
     }
+
+    // ============================================================================
+    // validate_vm_disk tests
+    // ============================================================================
+
+    #[test]
+    fn test_validate_vm_disk_not_found() {
+        let result = validate_vm_disk(
+            "vm1",
+            &NodeModel::AristaVeos,
+            "4.28.0F",
+            "/tmp/nonexistent_sherpa_images",
+        );
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("VM disk image not found"));
+        assert!(error_msg.contains("vm1"));
+        assert!(error_msg.contains("virtioa.qcow2"));
+    }
+
+    #[test]
+    fn test_validate_vm_disk_path_format() {
+        // Verify the expected path format appears in the error
+        let result = validate_vm_disk("vm1", &NodeModel::RockyLinux, "9.3", "/opt/images");
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("/opt/images/rocky_linux/9.3/virtioa.qcow2"));
+    }
+
+    // ============================================================================
+    // validate_and_resolve_node_versions tests (public entry point)
+    // ============================================================================
+
+    fn create_test_node(name: &str, model: NodeModel, version: Option<&str>) -> Node {
+        Node {
+            name: name.to_string(),
+            model,
+            version: version.map(|v| v.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_version_from_node_image_when_not_set() {
+        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let mut config =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        config.default = true;
+
+        let docker_images = vec!["test-repo:4.32.0F".to_string()];
+        let result =
+            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &docker_images);
+
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_explicit_version_takes_precedence() {
+        let nodes = vec![create_test_node(
+            "ceos1",
+            NodeModel::AristaCeos,
+            Some("4.31.0F"),
+        )];
+        let mut default_config =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        default_config.default = true;
+        let explicit_config =
+            create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
+
+        let docker_images = vec![
+            "test-repo:4.32.0F".to_string(),
+            "test-repo:4.31.0F".to_string(),
+        ];
+        let result = validate_and_resolve_node_versions(
+            &nodes,
+            &[default_config, explicit_config],
+            "/tmp/images",
+            &docker_images,
+        );
+
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved[0].version, Some("4.31.0F".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_prefers_default_node_image() {
+        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let non_default =
+            create_test_node_image(NodeModel::AristaCeos, "4.30.0F", NodeKind::Container);
+        let mut default =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        default.default = true;
+
+        let docker_images = vec![
+            "test-repo:4.30.0F".to_string(),
+            "test-repo:4.32.0F".to_string(),
+        ];
+        let result = validate_and_resolve_node_versions(
+            &nodes,
+            &[non_default, default],
+            "/tmp/images",
+            &docker_images,
+        );
+
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_no_config_for_model_fails() {
+        let nodes = vec![create_test_node("vm1", NodeModel::AristaVeos, None)];
+        // Provide configs for a different model
+        let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+
+        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &[]);
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("Node config not found"));
+        assert!(error_msg.contains("vm1"));
+    }
+
+    #[test]
+    fn test_resolve_version_not_in_db_fails() {
+        let nodes = vec![create_test_node(
+            "ceos1",
+            NodeModel::AristaCeos,
+            Some("9.99.0F"),
+        )];
+        let config = create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+
+        let docker_images = vec!["test-repo:4.32.0F".to_string()];
+        let result =
+            validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &docker_images);
+
+        assert!(result.is_err());
+        let error_msg = format!("{:#}", result.unwrap_err());
+        assert!(error_msg.contains("9.99.0F"));
+    }
+
+    #[test]
+    fn test_resolve_container_image_missing_from_docker_fails() {
+        let nodes = vec![create_test_node("ceos1", NodeModel::AristaCeos, None)];
+        let mut config =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        config.default = true;
+
+        // Empty docker images list
+        let result = validate_and_resolve_node_versions(&nodes, &[config], "/tmp/images", &[]);
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("not found in local Docker"));
+    }
+
+    #[test]
+    fn test_resolve_multiple_nodes_mixed_types() {
+        let nodes = vec![
+            create_test_node("ceos1", NodeModel::AristaCeos, None),
+            create_test_node("ceos2", NodeModel::AristaCeos, Some("4.31.0F")),
+        ];
+        let mut default =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        default.default = true;
+        let other = create_test_node_image(NodeModel::AristaCeos, "4.31.0F", NodeKind::Container);
+
+        let docker_images = vec![
+            "test-repo:4.32.0F".to_string(),
+            "test-repo:4.31.0F".to_string(),
+        ];
+        let result = validate_and_resolve_node_versions(
+            &nodes,
+            &[default, other],
+            "/tmp/images",
+            &docker_images,
+        );
+
+        assert!(result.is_ok());
+        let resolved = result.unwrap();
+        assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
+        assert_eq!(resolved[1].version, Some("4.31.0F".to_string()));
+    }
 }

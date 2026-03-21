@@ -93,4 +93,19 @@ mod tests {
         };
         assert_eq!(claims.is_expired(), true);
     }
+
+    #[test]
+    fn test_claims_serde_roundtrip() {
+        let claims = Claims::new("testuser".to_string(), true, 604800);
+        let json = serde_json::to_string(&claims).expect("serializes");
+        let deserialized: Claims = serde_json::from_str(&json).expect("deserializes");
+        assert_eq!(claims, deserialized);
+    }
+
+    #[test]
+    fn test_claims_exp_minus_iat_equals_expiry() {
+        let expiry = 604800; // 7 days
+        let claims = Claims::new("user".to_string(), false, expiry);
+        assert_eq!(claims.exp - claims.iat, expiry);
+    }
 }

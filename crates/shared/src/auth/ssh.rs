@@ -131,4 +131,22 @@ mod tests {
         let key = "ssh-ed25519 ABC123";
         assert!(validate_ssh_key(key).is_err());
     }
+
+    #[test]
+    fn test_valid_ssh_dss_key() {
+        let key = "ssh-dss AAAAB3NzaC1kc3MAAACBALpFt4hEbJFEKIr3V3GRjYmU7nSeNOwYhMp9zy9SEUA5byhQGUwHT1g3AiN9W7rsGYdVAEYG6fMEVAouS5A4DKEb";
+        assert!(validate_ssh_key(key).is_ok());
+    }
+
+    #[test]
+    fn test_valid_ecdsa_nistp384_key() {
+        let key = "ecdsa-sha2-nistp384 AAAAE2VjZHNhLXNoYTItbmlzdHAzODQAAAAIbmlzdHAzODQAAABhBMA22V0e4D9MJbLi8kWq1ItX1P5DNYtLsFXMp5v/hOiL9W5GNfaRNm6z8E/VLq0M";
+        assert!(validate_ssh_key(key).is_ok());
+    }
+
+    #[test]
+    fn test_valid_ecdsa_nistp521_key() {
+        let key = "ecdsa-sha2-nistp521 AAAAE2VjZHNhLXNoYTItbmlzdHA1MjEAAAAIbmlzdHA1MjEAAACFBAF6WmKEO1FzRjQmJ4gBYa2UEZjBYqB8dOJ1iQmCB5ak2CkDmAklqnJbk3N";
+        assert!(validate_ssh_key(key).is_ok());
+    }
 }

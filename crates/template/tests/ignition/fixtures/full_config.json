@@ -1,0 +1,67 @@
+{
+  "ignition": {
+    "config": {},
+    "security": {
+      "tls": {}
+    },
+    "timeouts": {},
+    "version": "3.3.0"
+  },
+  "passwd": {
+    "users": [
+      {
+        "name": "core",
+        "passwordHash": "$6$abc$xyz",
+        "sshAuthorizedKeys": [
+          "ssh-rsa AAAA..."
+        ],
+        "groups": [
+          "sudo",
+          "docker"
+        ]
+      }
+    ]
+  },
+  "storage": {
+    "files": [
+      {
+        "path": "/etc/systemd/resolved.conf.d/no-stub.conf",
+        "mode": 420,
+        "overwrite": true,
+        "contents": {
+          "source": "data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg==",
+          "compression": null,
+          "verification": {}
+        }
+      }
+    ],
+    "links": [
+      {
+        "path": "/etc/extensions/docker-compose.raw",
+        "target": "/opt/extensions/docker-compose/docker-compose-2.34.0-x86-64.raw",
+        "hard": false,
+        "overwrite": true
+      }
+    ],
+    "directories": [
+      {
+        "path": "/opt/ztp",
+        "mode": 755,
+        "overwrite": false
+      }
+    ],
+    "filesystems": []
+  },
+  "systemd": {
+    "units": [
+      {
+        "name": "systemd-resolved.service",
+        "enabled": false,
+        "mask": true
+      }
+    ]
+  },
+  "networkd": {
+    "units": []
+  }
+}

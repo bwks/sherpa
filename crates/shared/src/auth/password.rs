@@ -187,4 +187,23 @@ mod tests {
         let result = verify_password("password", "invalid_hash_format");
         assert!(result.is_err(), "Invalid hash format should return error");
     }
+
+    #[test]
+    fn test_validate_password_strength_error_lists_all_failures() {
+        // "a" fails: too short, no uppercase, no special
+        let err = validate_password_strength("a").unwrap_err().to_string();
+        assert!(err.contains("Minimum 8 characters"));
+        assert!(err.contains("uppercase"));
+        assert!(err.contains("special character"));
+        // Should NOT complain about lowercase since "a" has lowercase
+        assert!(!err.contains("lowercase"));
+    }
+
+    #[test]
+    fn test_validate_password_strength_boundary_length() {
+        // Exactly 8 characters with all requirements met
+        assert!(validate_password_strength("Abcdef1!").is_ok());
+        // 7 characters — one too short
+        assert!(validate_password_strength("Abcde1!").is_err());
+    }
 }

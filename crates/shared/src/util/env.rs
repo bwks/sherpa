@@ -37,3 +37,57 @@ pub fn read_env_file_value(path: &Path, key: &str) -> Option<String> {
     tracing::debug!(key, path = %path.display(), "Key not found in env file");
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp_env(content: &str) -> tempfile::TempPath {
+        let mut tmp = tempfile::NamedTempFile::new().expect("creates temp file");
+        tmp.write_all(content.as_bytes()).expect("writes content");
+        tmp.into_temp_path()
+    }
+
+    #[test]
+    fn test_read_env_file_value_found() {
+        let path = write_temp_env("DB_HOST=localhost\nDB_PORT=5432\n");
+        assert_eq!(
+            read_env_file_value(&path, "DB_PORT"),
+            Some("5432".to_string())
+        );
+    }
+
+    #[test]
+    fn test_read_env_file_value_not_found() {
+        let path = write_temp_env("DB_HOST=localhost\n");
+        assert_eq!(read_env_file_value(&path, "MISSING_KEY"), None);
+    }
+
+    #[test]
+    fn test_read_env_file_value_skips_comments() {
+        let path = write_temp_env("# DB_PORT=9999\nDB_PORT=5432\n");
+        assert_eq!(
+            read_env_file_value(&path, "DB_PORT"),
+            Some("5432".to_string())
+        );
+    }
+
+    #[test]
+    fn test_read_env_file_value_skips_blank_lines() {
+        let path = write_temp_env("\n\nKEY=value\n\n");
+        assert_eq!(read_env_file_value(&path, "KEY"), Some("value".to_string()));
+    }
+
+    #[test]
+    fn test_read_env_file_value_missing_file() {
+        let path = Path::new("/tmp/nonexistent_sherpa_env_file_test");
+        assert_eq!(read_env_file_value(path, "KEY"), None);
+    }
+
+    #[test]
+    fn test_read_env_file_value_trims_whitespace() {
+        let path = write_temp_env("  KEY  =  value  \n");
+        assert_eq!(read_env_file_value(&path, "KEY"), Some("value".to_string()));
+    }
+}
