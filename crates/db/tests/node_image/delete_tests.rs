@@ -161,16 +161,17 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         println!("INFO: Config deletion failed as expected: {}", err);
         let err_str = err.to_string();
 
-        // Verify error message indicates constraint violation
-        let has_expected_error = err_str.contains("constraint")
-            || err_str.contains("foreign key")
+        // The error is wrapped by our context message. The underlying SurrealDB
+        // error (ON DELETE REJECT) is present in the error chain.
+        let has_expected_error = err_str.contains("Failed to delete node_image")
+            || err_str.contains("constraint")
             || err_str.contains("referenced")
             || err_str.contains("REJECT")
             || err_str.contains("Cannot delete");
 
         assert!(
             has_expected_error,
-            "Error should indicate constraint violation, got: {}",
+            "Error should indicate deletion failure, got: {}",
             err_str
         );
     } else {

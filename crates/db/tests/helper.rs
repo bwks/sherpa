@@ -23,7 +23,11 @@ pub async fn setup_db(namespace: &str) -> Result<Arc<Surreal<Client>>> {
     let namespace = generate_test_namespace(namespace);
     let db_password = std::env::var("SHERPA_DB_PASSWORD")
         .unwrap_or_else(|_| shared::konst::SHERPA_PASSWORD.to_string());
-    let db = db::connect("localhost", 8000, &namespace, "test_cases", &db_password).await?;
+    let db_port: u16 = std::env::var("SHERPA_DEV_DB_PORT")
+        .unwrap_or_else(|_| "42069".to_string())
+        .parse()
+        .expect("SHERPA_DEV_DB_PORT must be a valid port number");
+    let db = db::connect("localhost", db_port, &namespace, "test_cases", &db_password).await?;
 
     // Apply schema to ensure tables exist for tests
     apply_schema(&db).await?;
@@ -38,14 +42,13 @@ pub async fn teardown_db(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Note: SurrealDB doesn't provide direct API to get current namespace,
     // so we'll use a query to remove all records from tables we created
 
-    // Delete all test data from our tables
-    let _: Vec<NodeConfig> = db.delete("node_image").await?;
-
-    // Note: We could also delete from other tables if they exist in the test:
-    // let _: Vec<DbNode> = db.delete("node").await?;
-    // let _: Vec<DbLink> = db.delete("link").await?;
-    // let _: Vec<DbLab> = db.delete("lab").await?;
-    // let _: Vec<DbUser> = db.delete("user").await?;
+    // Delete all test data in dependency order (children before parents)
+    db.query("DELETE link").await?;
+    db.query("DELETE bridge").await?;
+    db.query("DELETE node").await?;
+    db.query("DELETE lab").await?;
+    db.query("DELETE node_image").await?;
+    db.query("DELETE user").await?;
 
     Ok(())
 }
