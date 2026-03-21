@@ -251,8 +251,11 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
 
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
 pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
-pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] =
-    &["vault", "server", "-config=/vault/config/config.hcl"];
+pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
+    "sh",
+    "-c",
+    "mkdir -p /vault/data && exec vault server -config=/vault/config/config.hcl",
+];
 pub const CONTAINER_HASHICORP_VAULT_CAPABILITIES: &[&str] = &["IPC_LOCK"];
 pub const VAULT_ZTP_CONFIG_MOUNT: &str = "/vault/config/config.hcl";
 

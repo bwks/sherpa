@@ -12,8 +12,9 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_NOKIA_SRLINUX_REPO, MTU_JUMBO_INT,
-    MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO,
+    MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -2046,10 +2047,10 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::GitlabCe,
-            repo: None,
+            repo: Some(CONTAINER_GITLAB_CE_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::MacVlan,
             cpu_count: 2,
@@ -2071,10 +2072,10 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::SurrealDb,
-            repo: None,
+            repo: Some(CONTAINER_SURREAL_DB_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
@@ -2096,10 +2097,10 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::HashicorpVault,
-            repo: None,
+            repo: Some(CONTAINER_HASHICORP_VAULT_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
-            data_interface_count: 1,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
