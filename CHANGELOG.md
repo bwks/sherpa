@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.30] - 2026-03-21
+
+### Bug Fixes
+
+- Container run fixes by @bwks ([beefafb](https://github.com/bwks/sherpa/commit/beefafb1aafc551f3e4eea60c385465e9ad107d4))
+
+### Features
+
+- Hashicorp Vault Container support by @bwks ([68a2acc](https://github.com/bwks/sherpa/commit/68a2acc84483262c7b5ec2408c42d43b1b3ceb7f))
+- Gitlab-cd image support by @bwks ([01ab60b](https://github.com/bwks/sherpa/commit/01ab60b8efd8a3aecfdc23d82ac6a2f6c0afdd3f))
+
+### Miscellaneous
+
+- Merge pull request #158 from bwks/v0.3.30
+
+V0.3.30 by @bwks in [#158](https://github.com/bwks/sherpa/pull/158) ([b485638](https://github.com/bwks/sherpa/commit/b485638fe5ac12b26c069cd52374c6573820faa7))
+- Version bump by @bwks ([593f6b0](https://github.com/bwks/sherpa/commit/593f6b07340799d2e1c8cddb0451d1c0475ab638))
+- Merge pull request #156 from bwks/changelog/v0.3.29
+
+chore(release): update changelog for v0.3.29 by @github-actions[bot] in [#156](https://github.com/bwks/sherpa/pull/156) ([37f546c](https://github.com/bwks/sherpa/commit/37f546ce94264c7b7c6d70e010159effe5fc10ff))
 ## [0.3.29] - 2026-03-20
 
 ### Bug Fixes
