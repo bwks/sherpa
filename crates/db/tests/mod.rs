@@ -65,4 +65,14 @@ mod node;
 /// - Only DELETE tests: cargo test --package db link::delete_tests -- --ignored --test-threads=1
 mod link;
 
+/// Schema and seeding tests
+///
+/// To run: cargo test --package db schema -- --ignored
+mod schema;
+
+/// Cross-table relationship tests (cascade deletes, query isolation)
+///
+/// To run: cargo test --package db relationships -- --ignored --test-threads=1
+mod relationships;
+
 use helper::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
