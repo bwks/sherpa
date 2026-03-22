@@ -959,6 +959,7 @@ fn generate_cloud_init_ztp(
     match node.model {
         data::NodeModel::CentosLinux
         | data::NodeModel::AlmaLinux
+        | data::NodeModel::DevboxLinux
         | data::NodeModel::RockyLinux
         | data::NodeModel::FedoraLinux
         | data::NodeModel::OpensuseLinux

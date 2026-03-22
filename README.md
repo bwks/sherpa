@@ -4,7 +4,7 @@ Sherpa is a lab management platform for building and managing virtual network to
 
 Interact with Sherpa via the `sherpa` CLI or the built-in web UI.
 
-For installation, usage, and configuration see the [documentation](https://docs.sherpalabs.net/).
+For installation, usage, and configuration see the [documentation](https://docs.sherpalabs.net/about/).
 
 ## Development
 
