@@ -1080,7 +1080,7 @@ fn generate_cloud_init_ztp(
 
             util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
         }
-        data::NodeModel::WindowsServer => {
+        data::NodeModel::DevboxWindows | data::NodeModel::WindowsServer => {
             let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
 
             let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
@@ -2141,7 +2141,10 @@ pub fn build_domain_template(
         management_network,
         isolated_network: isolated_network_name,
         reserved_network,
-        is_windows: node_image.model == data::NodeModel::WindowsServer,
+        is_windows: matches!(
+            node_image.model,
+            data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
+        ),
         cpu_features: cpu_features_for_model(&node_image.model),
     }
 }
