@@ -66,6 +66,9 @@ pub async fn up(
     // Resolve startup_scripts paths relative to manifest directory
     resolve_startup_scripts(&mut manifest, manifest_path)?;
 
+    // Resolve user_scripts paths relative to manifest directory
+    resolve_user_scripts(&mut manifest, manifest_path)?;
+
     // Resolve $ENV_VAR references in environment_variables
     resolve_environment_variables(&mut manifest)?;
 
@@ -368,6 +371,63 @@ pub(crate) fn resolve_startup_scripts(
         }
 
         node.startup_scripts_data = Some(script_data);
+    }
+
+    Ok(())
+}
+
+/// Resolve user_scripts file paths relative to the manifest directory.
+/// Reads each script file, base64-encodes the contents, and populates
+/// `user_scripts_data` for transmission to the server.
+pub(crate) fn resolve_user_scripts(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+
+    for node in &mut manifest.nodes {
+        let scripts = match &node.user_scripts {
+            Some(s) if !s.is_empty() => s.clone(),
+            _ => continue,
+        };
+
+        let mut script_data = Vec::with_capacity(scripts.len());
+        for script_path_str in &scripts {
+            let script_path = Path::new(script_path_str);
+            let resolved_path = if script_path.is_absolute() {
+                script_path.to_path_buf()
+            } else {
+                manifest_dir.join(script_path)
+            };
+
+            let contents = fs::read_to_string(&resolved_path).with_context(|| {
+                format!(
+                    "Failed to read user_script for node '{}': {}",
+                    node.name,
+                    resolved_path.display()
+                )
+            })?;
+
+            if contents.is_empty() {
+                bail!(
+                    "user_script for node '{}' is empty: {}",
+                    node.name,
+                    resolved_path.display()
+                );
+            }
+
+            let filename = resolved_path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_else(|| script_path_str.clone());
+
+            script_data.push(StartupScript {
+                filename,
+                content: base64_encode(&contents),
+            });
+        }
+
+        node.user_scripts_data = Some(script_data);
     }
 
     Ok(())

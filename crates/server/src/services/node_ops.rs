@@ -23,6 +23,7 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
     KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
+    NODE_USER_SCRIPTS_DIR,
     NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
@@ -1010,6 +1011,39 @@ fn generate_cloud_init_ztp(
                 }
             }
 
+            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Files are written as root (write_files runs before users are created)
+            // then chowned via runcmd after the user exists.
+            if let Some(ref scripts) = node.user_scripts {
+                let user = SHERPA_USERNAME;
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode user_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
+
+                    let target_path =
+                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: None,
+                        encoding: None,
+                    });
+                }
+
+                runcmd.push(format!("chown -R {}:{} {}", user, user, NODE_USER_SCRIPTS_DIR));
+                for script in scripts {
+                    let target_path =
+                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
+                }
+            }
+
             // Inject environment_variables into profile.d and /etc/environment
             if let Some(ref env_vars) = node.environment_variables
                 && !env_vars.is_empty()
@@ -1209,6 +1243,39 @@ fn generate_cloud_init_ztp(
                     });
 
                     runcmd.push(format!("bash {}", target_path));
+                }
+            }
+
+            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Files are written as root (write_files runs before users are created)
+            // then chowned via runcmd after the user exists.
+            if let Some(ref scripts) = node.user_scripts {
+                let user = SHERPA_USERNAME;
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode user_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
+
+                    let target_path =
+                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: None,
+                        encoding: None,
+                    });
+                }
+
+                runcmd.push(format!("chown -R {}:{} {}", user, user, NODE_USER_SCRIPTS_DIR));
+                for script in scripts {
+                    let target_path =
+                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
                 }
             }
 

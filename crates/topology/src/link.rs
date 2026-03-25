@@ -42,6 +42,7 @@ pub struct LinkDetailed {
 /// {src = "<src_node_name>::<src_int_name>", dst = "<dst_node_name>::<dst_int_name>" }
 /// {src = "dev01::eth1", dst = "dev02::eth0" }
 #[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Link2 {
     pub src: String,
     pub dst: String,

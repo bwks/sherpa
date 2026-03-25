@@ -173,6 +173,7 @@ pub const NODE_CERT_FILE: &str = "node.crt";
 pub const NODE_KEY_FILE: &str = "node.key";
 pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
 pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
+pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;

@@ -1,7 +1,7 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use shared::data::NodeModel;
-use topology::{Bridge, Link2, Manifest, Node, VolumeMount};
+use topology::{Bridge, Link2, Manifest, Node};
 
 // ============================================================================
 // Expected TOML manifests

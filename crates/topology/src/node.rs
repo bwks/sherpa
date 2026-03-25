@@ -5,6 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use shared::data::NodeModel;
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Node {
     pub name: String,
     pub model: NodeModel,
@@ -31,6 +32,9 @@ pub struct Node {
     pub startup_scripts: Option<Vec<String>>,
     #[serde(default)]
     pub startup_scripts_data: Option<Vec<StartupScript>>,
+    pub user_scripts: Option<Vec<String>>,
+    #[serde(default)]
+    pub user_scripts_data: Option<Vec<StartupScript>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -59,6 +63,7 @@ pub struct NodeExpanded {
     pub skip_ready_check: Option<bool>,
     pub ztp_config: Option<String>,
     pub startup_scripts: Option<Vec<StartupScript>>,
+    pub user_scripts: Option<Vec<StartupScript>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -68,12 +73,14 @@ pub struct StartupScript {
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct VolumeMount {
     pub src: String,
     pub dst: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct TextFile {
     pub source: String,
     pub destination: String,
@@ -83,11 +90,13 @@ pub struct TextFile {
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct BinaryFile {
     pub source: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct SystemdUnit {
     pub name: String,
     pub source: String,
@@ -95,6 +104,7 @@ pub struct SystemdUnit {
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct AuthorizedKeyFile {
     pub source: String,
 }
