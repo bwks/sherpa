@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.32] - 2026-03-26
+
+### Features
+
+- User defined scripts by @bwks ([4627796](https://github.com/bwks/sherpa/commit/46277963cdede9f87ec4fe8e045166a7260e5b9d))
+- Install test specs by @bwks ([4330ba4](https://github.com/bwks/sherpa/commit/4330ba48548b68b4a0e234fe5d032b5070aa40e7))
+- Install test specs by @bwks ([a459331](https://github.com/bwks/sherpa/commit/a459331a2082b313e5bf71f79e2e4f638411fa02))
+- Windows devbox node support by @bwks ([7816406](https://github.com/bwks/sherpa/commit/7816406849cd749a0bb33050d5fe4b2af0fb66a5))
+- Devbox linux by @bwks ([0d42ebd](https://github.com/bwks/sherpa/commit/0d42ebd4e66e91c94102ad1f0e043995ed9648bf))
+
+### Miscellaneous
+
+- Merge pull request #164 from bwks/v0.3.32
+
+V0.3.32 by @bwks in [#164](https://github.com/bwks/sherpa/pull/164) ([1089d1c](https://github.com/bwks/sherpa/commit/1089d1c5632f5e73293c89fd32624ad3d5353649))
+- Formattging by @bwks ([a909c4c](https://github.com/bwks/sherpa/commit/a909c4c653cefeb3a85e06cee9365f40e7ab31dd))
+- Version bump by @bwks ([f4ea130](https://github.com/bwks/sherpa/commit/f4ea130455310e3b07e3e45fc04bd2c5e04037ff))
+- Delete makefile by @bwks ([c69c4d6](https://github.com/bwks/sherpa/commit/c69c4d64fe14a9d8d65f7a190a2f7c19a1198724))
+- Merge pull request #162 from bwks/changelog/v0.3.31
+
+chore(release): update changelog for v0.3.31 by @github-actions[bot] in [#162](https://github.com/bwks/sherpa/pull/162) ([9ff27ca](https://github.com/bwks/sherpa/commit/9ff27cae8f19edf925b807b05f9165c5381ac92b))
 ## [0.3.31] - 2026-03-21
 
 ### Documentation
