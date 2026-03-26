@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.33] - 2026-03-26
+
+### Bug Fixes
+
+- Container cleanup by @bwks ([89ff831](https://github.com/bwks/sherpa/commit/89ff83142afc543f45cd27cf24b33c6fdd6789d6))
+
+### Features
+
+- CLI image show command by @bwks ([127866b](https://github.com/bwks/sherpa/commit/127866b6d827ef661aaa44e3cd288df894d0189b))
+
+### Miscellaneous
+
+- Merge pull request #166 from bwks/v0.3.33
+
+V0.3.33 by @bwks in [#166](https://github.com/bwks/sherpa/pull/166) ([949f3b1](https://github.com/bwks/sherpa/commit/949f3b1197f121e661940b149b19ac28384d0ccd))
+- Version bump by @bwks ([2790887](https://github.com/bwks/sherpa/commit/2790887a4018aed25572aa4f76969eb163402a7d))
+- Merge branch 'v0.3.33' by @bwks ([d6bf101](https://github.com/bwks/sherpa/commit/d6bf101e72ab2875ad7bba351c6a10b09097b7dd))
+- USB disk ordering by @bwks ([9543d77](https://github.com/bwks/sherpa/commit/9543d77d51c76928875805e5d5fe5614ca014946))
+- Merge pull request #165 from bwks/changelog/v0.3.32
+
+chore(release): update changelog for v0.3.32 by @github-actions[bot] in [#165](https://github.com/bwks/sherpa/pull/165) ([8326bb8](https://github.com/bwks/sherpa/commit/8326bb84ae9ec4414b2f83fedc7aff1dda5ba0f1))
 ## [0.3.32] - 2026-03-26
 
 ### Features
