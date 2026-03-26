@@ -713,12 +713,20 @@ pub fn generate_vm_ztp(
             dst: dst_disk.clone(),
             disk_size: None,
         });
+        // USB and SATA share the sd* target namespace, so count existing sd* targets
+        // to avoid duplicate target device names.
+        let usb_target_index = disks
+            .iter()
+            .filter(|d| matches!(d.target_bus, data::DiskBuses::Sata | data::DiskBuses::Usb))
+            .count() as u8;
+        let usb_target_dev = data::DiskTargets::target(&data::DiskBuses::Usb, usb_target_index)?;
+
         disks.push(data::NodeDisk {
             disk_device: data::DiskDevices::File,
             driver_name: data::DiskDrivers::Qemu,
             driver_format: data::DiskFormats::Raw,
             src_file: dst_disk,
-            target_dev: data::DiskTargets::target(&data::DiskBuses::Usb, 0)?,
+            target_dev: usb_target_dev,
             target_bus: data::DiskBuses::Usb,
         });
     }
