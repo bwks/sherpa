@@ -350,16 +350,19 @@ pub(crate) async fn destroy_containers(
                                 container_name = %name,
                                 "Destroying container"
                             );
-                            match kill_container(docker, name).await {
+                            // Best-effort kill — container may not be running
+                            // (e.g. created but never started during a partial failure).
+                            if let Err(e) = kill_container(docker, name).await {
+                                tracing::debug!(
+                                    lab_id = %lab_id,
+                                    container_name = %name,
+                                    error = ?e,
+                                    "Kill container failed (may not be running), proceeding to remove"
+                                );
+                            }
+
+                            match remove_container(docker, name).await {
                                 Ok(_) => {
-                                    if let Err(e) = remove_container(docker, name).await {
-                                        tracing::warn!(
-                                            lab_id = %lab_id,
-                                            container_name = %name,
-                                            error = ?e,
-                                            "Failed to remove container after kill"
-                                        );
-                                    }
                                     summary.containers_destroyed.push(name.to_string());
                                     tracing::info!(
                                         lab_id = %lab_id,
@@ -378,7 +381,7 @@ pub(crate) async fn destroy_containers(
                                         lab_id = %lab_id,
                                         container_name = %name,
                                         error = ?e,
-                                        "Failed to destroy container"
+                                        "Failed to remove container"
                                     );
                                 }
                             }
