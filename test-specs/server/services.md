@@ -99,6 +99,10 @@
 - Delete: removes DB record and disk files `[integration]` **P0**
 - Delete: blocked if nodes reference the image `[integration]` **P0**
 - List: filtered by model/kind `[integration]` **P0**
+- Show: returns full NodeConfig for default version when no version specified `[integration]` **P0**
+- Show: returns full NodeConfig for specific version when version specified `[integration]` **P1**
+- Show: returns error when no image found for model `[integration]` **P0**
+- Show: returns error when specified version not found `[integration]` **P1**
 - Pull container: Docker pull with progress, DB upsert `[integration]` **P0**
 
 ---
