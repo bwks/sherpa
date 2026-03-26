@@ -23,12 +23,12 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
     KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
-    NODE_USER_SCRIPTS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
+    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
     SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -1024,8 +1024,7 @@ fn generate_cloud_init_ztp(
                         )
                     })?;
 
-                    let target_path =
-                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
 
                     write_files.push(template::CloudInitWriteFile {
                         path: target_path.clone(),
@@ -1036,10 +1035,12 @@ fn generate_cloud_init_ztp(
                     });
                 }
 
-                runcmd.push(format!("chown -R {}:{} {}", user, user, NODE_USER_SCRIPTS_DIR));
+                runcmd.push(format!(
+                    "chown -R {}:{} {}",
+                    user, user, NODE_USER_SCRIPTS_DIR
+                ));
                 for script in scripts {
-                    let target_path =
-                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
                     runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
                 }
             }
@@ -1259,8 +1260,7 @@ fn generate_cloud_init_ztp(
                         )
                     })?;
 
-                    let target_path =
-                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
 
                     write_files.push(template::CloudInitWriteFile {
                         path: target_path.clone(),
@@ -1271,10 +1271,12 @@ fn generate_cloud_init_ztp(
                     });
                 }
 
-                runcmd.push(format!("chown -R {}:{} {}", user, user, NODE_USER_SCRIPTS_DIR));
+                runcmd.push(format!(
+                    "chown -R {}:{} {}",
+                    user, user, NODE_USER_SCRIPTS_DIR
+                ));
                 for script in scripts {
-                    let target_path =
-                        format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
                     runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
                 }
             }
