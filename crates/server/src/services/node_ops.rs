@@ -23,11 +23,12 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
     KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
+    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
     SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
@@ -959,6 +960,7 @@ fn generate_cloud_init_ztp(
     match node.model {
         data::NodeModel::CentosLinux
         | data::NodeModel::AlmaLinux
+        | data::NodeModel::DevboxLinux
         | data::NodeModel::RockyLinux
         | data::NodeModel::FedoraLinux
         | data::NodeModel::OpensuseLinux
@@ -1006,6 +1008,40 @@ fn generate_cloud_init_ztp(
                     });
 
                     runcmd.push(format!("bash {}", target_path));
+                }
+            }
+
+            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Files are written as root (write_files runs before users are created)
+            // then chowned via runcmd after the user exists.
+            if let Some(ref scripts) = node.user_scripts {
+                let user = SHERPA_USERNAME;
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode user_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
+
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: None,
+                        encoding: None,
+                    });
+                }
+
+                runcmd.push(format!(
+                    "chown -R {}:{} {}",
+                    user, user, NODE_USER_SCRIPTS_DIR
+                ));
+                for script in scripts {
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
                 }
             }
 
@@ -1079,7 +1115,7 @@ fn generate_cloud_init_ztp(
 
             util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
         }
-        data::NodeModel::WindowsServer => {
+        data::NodeModel::DevboxWindows | data::NodeModel::WindowsServer => {
             let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
 
             let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
@@ -1208,6 +1244,40 @@ fn generate_cloud_init_ztp(
                     });
 
                     runcmd.push(format!("bash {}", target_path));
+                }
+            }
+
+            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Files are written as root (write_files runs before users are created)
+            // then chowned via runcmd after the user exists.
+            if let Some(ref scripts) = node.user_scripts {
+                let user = SHERPA_USERNAME;
+                for script in scripts {
+                    let contents = util::base64_decode(&script.content).with_context(|| {
+                        format!(
+                            "Failed to decode user_script '{}' for node '{}'",
+                            script.filename, node.name
+                        )
+                    })?;
+
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+
+                    write_files.push(template::CloudInitWriteFile {
+                        path: target_path.clone(),
+                        content: contents,
+                        permissions: "0755".to_string(),
+                        owner: None,
+                        encoding: None,
+                    });
+                }
+
+                runcmd.push(format!(
+                    "chown -R {}:{} {}",
+                    user, user, NODE_USER_SCRIPTS_DIR
+                ));
+                for script in scripts {
+                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
                 }
             }
 
@@ -2140,7 +2210,10 @@ pub fn build_domain_template(
         management_network,
         isolated_network: isolated_network_name,
         reserved_network,
-        is_windows: node_image.model == data::NodeModel::WindowsServer,
+        is_windows: matches!(
+            node_image.model,
+            data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
+        ),
         cpu_features: cpu_features_for_model(&node_image.model),
     }
 }

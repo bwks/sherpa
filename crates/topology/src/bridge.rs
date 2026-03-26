@@ -22,6 +22,7 @@ impl BridgeLink {
 
 /// Bridge with parsed connections
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Bridge {
     pub name: String,
     pub links: Vec<String>,

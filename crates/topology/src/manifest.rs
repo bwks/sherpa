@@ -11,6 +11,7 @@ use shared::data::{ConfigurationManagement, NodeModel, ZtpServer};
 use shared::util::load_file as load_file_util;
 
 #[derive(Debug, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct Manifest {
     pub name: String,
     #[serde(default)]

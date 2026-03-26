@@ -91,6 +91,8 @@ test-specs/
     manifest-parsing.md
   validate/
     validation-rules.md
+  install/
+    sherpa-install.md
   integration/
     lab-lifecycle-e2e.md
     image-management-e2e.md
@@ -199,6 +201,14 @@ Input validation for user-supplied manifests and configuration data.
 | File | Purpose |
 |------|---------|
 | `validation-rules.md` | What to test for all validation functions: duplicate device name detection, management interface protection (index 0 not used in data links), duplicate interface usage across links and bridges, interface index bounds checking per device model, link device existence validation, node image field validation (CPU count, memory, interface count, MTU, version string, interface prefix), version resolution against database, container image existence verification, VM disk file existence verification, TCP connectivity checks, environment variable validation, and IPv6 address validation. |
+
+### `install/` — Install Script
+
+The main installation script that deploys Sherpa on Ubuntu 24.04+ systems.
+
+| File | Purpose |
+|------|---------|
+| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, port, virtualization), password and IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, SurrealDB container management, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
 
 ### `integration/` — Cross-Crate End-to-End Tests
 

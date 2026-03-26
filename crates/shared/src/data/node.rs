@@ -67,6 +67,7 @@ pub enum NodeModel {
     AlpineLinux,
     CumulusLinux,
     CentosLinux,
+    DevboxLinux,
     FedoraLinux,
     RedhatLinux,
     OpensuseLinux,
@@ -76,6 +77,7 @@ pub enum NodeModel {
     SonicLinux,
 
     // Windows
+    DevboxWindows,
     WindowsServer,
 
     // BSD
@@ -148,6 +150,7 @@ impl fmt::Display for NodeModel {
             NodeModel::AlpineLinux => write!(f, "alpine_linux"),
             NodeModel::CumulusLinux => write!(f, "cumulus_linux"),
             NodeModel::CentosLinux => write!(f, "centos_linux"),
+            NodeModel::DevboxLinux => write!(f, "devbox_linux"),
             NodeModel::FedoraLinux => write!(f, "fedora_linux"),
             NodeModel::RedhatLinux => write!(f, "redhat_linux"),
             NodeModel::OpensuseLinux => write!(f, "opensuse_linux"),
@@ -157,6 +160,7 @@ impl fmt::Display for NodeModel {
             NodeModel::SonicLinux => write!(f, "sonic_linux"),
 
             // Windows
+            NodeModel::DevboxWindows => write!(f, "devbox_windows"),
             NodeModel::WindowsServer => write!(f, "windows_server"),
 
             // Application
@@ -240,6 +244,10 @@ impl std::str::FromStr for NodeModel {
             "ubuntu_linux" => Ok(NodeModel::UbuntuLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
             "sonic_linux" => Ok(NodeModel::SonicLinux),
+
+            // Devboxes
+            "devbox_linux" => Ok(NodeModel::DevboxLinux),
+            "devbox_windows" => Ok(NodeModel::DevboxWindows),
 
             // Windows
             "windows_server" => Ok(NodeModel::WindowsServer),
@@ -749,6 +757,7 @@ impl NodeConfig {
             NodeModel::AlpineLinux => NodeConfig::alpine_linux(),
             NodeModel::CumulusLinux => NodeConfig::cumulus_linux(),
             NodeModel::CentosLinux => NodeConfig::centos_linux(),
+            NodeModel::DevboxLinux => NodeConfig::devbox_linux(),
             NodeModel::FedoraLinux => NodeConfig::fedora_linux(),
             NodeModel::RedhatLinux => NodeConfig::redhat_linux(),
             NodeModel::OpensuseLinux => NodeConfig::opensuse_linux(),
@@ -762,6 +771,7 @@ impl NodeConfig {
             NodeModel::OpenBsd => NodeConfig::open_bsd(),
 
             // Windows
+            NodeModel::DevboxWindows => NodeConfig::devbox_windows(),
             NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // Application
@@ -1567,6 +1577,40 @@ impl NodeConfig {
             default: true,
         }
     }
+    pub fn devbox_linux() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::DevboxLinux,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 1024,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
     pub fn fedora_linux() -> NodeConfig {
         NodeConfig {
             id: None,
@@ -1858,6 +1902,40 @@ impl NodeConfig {
             machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 1024,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn devbox_windows() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::DevboxWindows,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Server,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 4,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Pc,
+            vmx_enabled: false,
+            memory: 8192,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,

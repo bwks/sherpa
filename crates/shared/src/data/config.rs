@@ -14,6 +14,7 @@ use crate::konst::{
 use crate::util::path_to_string;
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(deny_unknown_fields)]
 pub struct ZtpServer {
     pub enable: bool,
     pub username: Option<String>,
@@ -30,6 +31,7 @@ impl Default for ZtpServer {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigurationManagement {
     #[serde(default)]
     pub ansible: bool,
