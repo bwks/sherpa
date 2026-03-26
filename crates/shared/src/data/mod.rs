@@ -77,7 +77,7 @@ pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
     ListImagesResponse, ScanImagesRequest, ScanImagesResponse, ScannedImage,
-    SetDefaultImageRequest, SetDefaultImageResponse,
+    SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest, ShowImageResponse,
 };
 pub use inspect::{BridgeInfo, DeviceInfo, InspectRequest, InspectResponse, LinkInfo};
 pub use interface::{

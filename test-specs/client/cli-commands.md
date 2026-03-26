@@ -130,6 +130,12 @@
 - Filter by model `[integration]` **P1**
 - Filter by kind (container, VM, unikernel) `[integration]` **P1**
 - Empty result set produces warning message `[integration]` **P2**
+- Show default image details for a model `[integration]` **P0**
+- Show specific version image details with `--version` flag `[integration]` **P1**
+- Show image for nonexistent model produces error `[integration]` **P0**
+- Show image when no default version exists produces error `[integration]` **P1**
+- Show image with nonexistent version produces error `[integration]` **P1**
+- Show image displays all NodeConfig fields in key-value table `[integration]` **P1**
 
 **Existing coverage:** None
 
@@ -176,7 +182,7 @@
 - `server status` shows daemon state `[integration]` **P1**
 - `server clean` sends admin cleanup request `[integration]` **P1**
 - `server user` subcommands (create, list, delete) `[integration]` **P1**
-- `server image` subcommands (import, scan, delete) `[integration]` **P1**
+- `server image` subcommands (show, import, scan, delete) `[integration]` **P1**
 - Admin-only commands fail for non-admin users `[integration]` **P0**
 
 **Existing coverage:** None

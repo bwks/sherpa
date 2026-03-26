@@ -4,7 +4,8 @@ use tokio::io::AsyncWriteExt;
 use shared::data::{
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
     ListImagesResponse, NodeConfig, NodeKind, NodeModel, ScanImagesRequest, ScanImagesResponse,
-    ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, StatusKind,
+    ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
+    ShowImageResponse, StatusKind,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{copy_file, create_dir, file_exists};
@@ -114,6 +115,33 @@ pub async fn list_images(
 
     let total = images.len();
     Ok(ListImagesResponse { images, total })
+}
+
+/// Show detailed information about a specific node image
+pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<ShowImageResponse> {
+    let config = NodeConfig::get_model(request.model);
+    let kind = config.kind.clone();
+
+    let image = match request.version {
+        Some(version) => {
+            db::get_node_image_by_model_kind_version(&state.db, &request.model, &kind, &version)
+                .await
+                .context("Failed to query node image by model, kind and version")?
+        }
+        None => db::get_default_node_image(&state.db, &request.model, &kind)
+            .await
+            .context("Failed to query default node image")?,
+    };
+
+    let image = image.ok_or_else(|| {
+        anyhow::anyhow!(
+            "No image found for model '{}' (kind: {})",
+            request.model,
+            kind
+        )
+    })?;
+
+    Ok(ShowImageResponse { image })
 }
 
 /// Scan the images directory for on-disk VM images and import them into the database

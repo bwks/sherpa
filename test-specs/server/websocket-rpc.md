@@ -54,6 +54,10 @@
 
 **What to test:**
 - `image.list` returns images (with optional filters) `[integration]` **P0**
+- `image.show` returns full NodeConfig for default version of a model `[integration]` **P0**
+- `image.show` with version param returns specific version details `[integration]` **P1**
+- `image.show` returns error when model has no images `[integration]` **P0**
+- `image.show` returns error when specified version not found `[integration]` **P1**
 - `image.import` registers image and tracks in DB `[integration]` **P1**
 - `image.scan` discovers images on disk/Docker `[integration]` **P1**
 - `image.delete` removes image (blocked if in use) `[integration]` **P0**

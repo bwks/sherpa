@@ -64,6 +64,17 @@
 
 ---
 
+## Image Show
+
+**What to test:**
+- Show default image returns full NodeConfig with all fields `[e2e]` **P0**
+- Show with `--version` returns details for that specific version `[e2e]` **P1**
+- Show for model with no images in DB returns error `[e2e]` **P0**
+- Show with nonexistent version returns error `[e2e]` **P1**
+- Show available via both `sherpa image show` and `sherpa server image show` `[e2e]` **P1**
+
+---
+
 ## Image Listing
 
 **What to test:**

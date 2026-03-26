@@ -8,13 +8,26 @@ use shared::konst::{
     CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
     CONTAINER_NOKIA_SRLINUX_REPO,
 };
-use shared::util::{Emoji, emoji_success, render_images_table, render_scanned_images_table};
+use shared::util::{
+    Emoji, emoji_success, render_image_detail_table, render_images_table,
+    render_scanned_images_table,
+};
 
 use super::OutputFormat;
 use super::{rpc_call, rpc_call_streaming};
 
 #[derive(Debug, Subcommand)]
 pub enum ServerImageCommands {
+    /// Show detailed information about an image
+    Show {
+        /// Model of the device image
+        #[arg(value_enum)]
+        model: NodeModel,
+        /// Optional: show a specific version (defaults to the default version)
+        #[arg(long)]
+        version: Option<String>,
+    },
+
     /// List all images
     List {
         /// Optional: List images for a specific model
@@ -110,6 +123,16 @@ pub async fn image_commands(
     output_format: &OutputFormat,
 ) -> Result<()> {
     match command {
+        ServerImageCommands::Show { model, version } => {
+            show_image(
+                *model,
+                version.clone(),
+                server_url,
+                server_connection,
+                output_format,
+            )
+            .await
+        }
         ServerImageCommands::List {
             model,
             container,
@@ -235,6 +258,32 @@ async fn list_images(
             } else {
                 println!("\n{}", render_images_table(&response.images));
             }
+        }
+    }
+
+    Ok(())
+}
+
+async fn show_image(
+    model: NodeModel,
+    version: Option<String>,
+    server_url: &str,
+    server_connection: &ServerConnection,
+    output_format: &OutputFormat,
+) -> Result<()> {
+    let request = data::ShowImageRequest { model, version };
+
+    let response: data::ShowImageResponse =
+        rpc_call("image.show", request, server_url, server_connection)
+            .await
+            .context("Failed to show image")?;
+
+    match output_format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
+        OutputFormat::Text => {
+            println!("\n{}", render_image_detail_table(&response.image));
         }
     }
 

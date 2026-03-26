@@ -4,7 +4,7 @@ use tabled::{
 };
 
 use crate::data::{
-    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeInfo, ScannedImage,
+    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ScannedImage,
 };
 
 /// Represents a row in the nodes table
@@ -388,6 +388,132 @@ pub fn render_scanned_images_table(images: &[ScannedImage]) -> String {
         .to_string()
 }
 
+/// Renders a two-column key-value table with all NodeConfig fields for an image
+pub fn render_image_detail_table(image: &NodeConfig) -> String {
+    let rows = vec![
+        LabInfoTableRow {
+            property: "Model".to_string(),
+            value: image.model.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Kind".to_string(),
+            value: image.kind.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Version".to_string(),
+            value: image.version.clone(),
+        },
+        LabInfoTableRow {
+            property: "Default".to_string(),
+            value: image.default.to_string(),
+        },
+        LabInfoTableRow {
+            property: "OS Variant".to_string(),
+            value: image.os_variant.to_string(),
+        },
+        LabInfoTableRow {
+            property: "BIOS".to_string(),
+            value: image.bios.to_string(),
+        },
+        LabInfoTableRow {
+            property: "CPU Architecture".to_string(),
+            value: image.cpu_architecture.to_string(),
+        },
+        LabInfoTableRow {
+            property: "CPU Model".to_string(),
+            value: image.cpu_model.to_string(),
+        },
+        LabInfoTableRow {
+            property: "CPU Count".to_string(),
+            value: image.cpu_count.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Memory (MB)".to_string(),
+            value: image.memory.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Machine Type".to_string(),
+            value: image.machine_type.to_string(),
+        },
+        LabInfoTableRow {
+            property: "VMX Enabled".to_string(),
+            value: image.vmx_enabled.to_string(),
+        },
+        LabInfoTableRow {
+            property: "HDD Bus".to_string(),
+            value: image.hdd_bus.to_string(),
+        },
+        LabInfoTableRow {
+            property: "CDROM".to_string(),
+            value: image.cdrom.as_deref().unwrap_or("none").to_string(),
+        },
+        LabInfoTableRow {
+            property: "CDROM Bus".to_string(),
+            value: image.cdrom_bus.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Interface Type".to_string(),
+            value: image.interface_type.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Interface Prefix".to_string(),
+            value: image.interface_prefix.clone(),
+        },
+        LabInfoTableRow {
+            property: "Interface MTU".to_string(),
+            value: image.interface_mtu.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Data Interface Count".to_string(),
+            value: image.data_interface_count.to_string(),
+        },
+        LabInfoTableRow {
+            property: "First Interface Index".to_string(),
+            value: image.first_interface_index.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Management Interface".to_string(),
+            value: image.management_interface.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Dedicated Mgmt Interface".to_string(),
+            value: image.dedicated_management_interface.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Reserved Interface Count".to_string(),
+            value: image.reserved_interface_count.to_string(),
+        },
+        LabInfoTableRow {
+            property: "Repo".to_string(),
+            value: image.repo.as_deref().unwrap_or("none").to_string(),
+        },
+        LabInfoTableRow {
+            property: "ZTP Enabled".to_string(),
+            value: image.ztp_enable.to_string(),
+        },
+        LabInfoTableRow {
+            property: "ZTP Method".to_string(),
+            value: image.ztp_method.to_string(),
+        },
+        LabInfoTableRow {
+            property: "ZTP Username".to_string(),
+            value: image.ztp_username.as_deref().unwrap_or("none").to_string(),
+        },
+        LabInfoTableRow {
+            property: "ZTP Password Auth".to_string(),
+            value: image.ztp_password_auth.to_string(),
+        },
+    ];
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Remove::row(Rows::first()))
+        .with(Panel::header("Image Detail"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
 /// Certificate information for table display
 pub struct CertificateTableInfo {
     pub server: String,
@@ -699,6 +825,83 @@ mod tests {
         assert!(table.contains("┌") || table.contains("│"));
 
         // Print the table for visual verification
+        println!("\n{}", table);
+    }
+
+    #[test]
+    fn test_render_image_detail_table() {
+        let image = NodeConfig::get_model(NodeModel::CiscoCat8000v);
+
+        let table = render_image_detail_table(&image);
+
+        // Check that all property labels are present
+        assert!(table.contains("Model"));
+        assert!(table.contains("Kind"));
+        assert!(table.contains("Version"));
+        assert!(table.contains("Default"));
+        assert!(table.contains("OS Variant"));
+        assert!(table.contains("BIOS"));
+        assert!(table.contains("CPU Architecture"));
+        assert!(table.contains("CPU Model"));
+        assert!(table.contains("CPU Count"));
+        assert!(table.contains("Memory (MB)"));
+        assert!(table.contains("Machine Type"));
+        assert!(table.contains("VMX Enabled"));
+        assert!(table.contains("HDD Bus"));
+        assert!(table.contains("CDROM"));
+        assert!(table.contains("CDROM Bus"));
+        assert!(table.contains("Interface Type"));
+        assert!(table.contains("Interface Prefix"));
+        assert!(table.contains("Interface MTU"));
+        assert!(table.contains("Data Interface Count"));
+        assert!(table.contains("First Interface Index"));
+        assert!(table.contains("Management Interface"));
+        assert!(table.contains("Dedicated Mgmt Interface"));
+        assert!(table.contains("Reserved Interface Count"));
+        assert!(table.contains("Repo"));
+        assert!(table.contains("ZTP Enabled"));
+        assert!(table.contains("ZTP Method"));
+        assert!(table.contains("ZTP Username"));
+        assert!(table.contains("ZTP Password Auth"));
+
+        // Check that model-specific values are present
+        assert!(table.contains("cisco_cat8000v"));
+        assert!(table.contains("virtual_machine"));
+
+        // Check for header panel
+        assert!(table.contains("Image Detail"));
+
+        // Check for modern style box-drawing characters
+        assert!(table.contains("┌") || table.contains("│"));
+
+        println!("\n{}", table);
+    }
+
+    #[test]
+    fn test_render_image_detail_table_container_model() {
+        let image = NodeConfig::get_model(NodeModel::NokiaSrlinux);
+
+        let table = render_image_detail_table(&image);
+
+        // Check container-specific values
+        assert!(table.contains("nokia_srlinux"));
+        assert!(table.contains("container"));
+
+        // Repo should be populated for container models
+        assert!(!table.contains("Repo") || !table.contains("none") || table.contains("ghcr.io"));
+
+        println!("\n{}", table);
+    }
+
+    #[test]
+    fn test_render_image_detail_table_optional_fields() {
+        let image = NodeConfig::default();
+
+        let table = render_image_detail_table(&image);
+
+        // Optional fields should show "none" when not set
+        assert!(table.contains("none")); // repo, cdrom, ztp_username are None by default
+
         println!("\n{}", table);
     }
 }

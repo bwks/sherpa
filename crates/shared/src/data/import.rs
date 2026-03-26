@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
-use super::node::{NodeKind, NodeModel};
+use super::node::{NodeConfig, NodeKind, NodeModel};
 
 /// Request type for listing images with optional filters
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,6 +32,22 @@ pub struct ListImagesResponse {
     pub images: Vec<ImageSummary>,
     /// Total number of images returned
     pub total: usize,
+}
+
+/// Request type for showing image details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShowImageRequest {
+    /// The node model to show details for
+    pub model: NodeModel,
+    /// Optional version filter (if omitted, shows the default version)
+    pub version: Option<String>,
+}
+
+/// Response from showing image details
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShowImageResponse {
+    /// Full image configuration
+    pub image: NodeConfig,
 }
 
 /// Request type for importing a disk image
