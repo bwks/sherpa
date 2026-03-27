@@ -31,7 +31,8 @@ srl-config.json
 test_*.toml
 sherpa_ssh_*
 CLAUDE.md
-.claude/
+.claude/*
+!.claude/skills/
 .ruff_cache
 lab-info.toml
 *.env
