@@ -24,6 +24,8 @@
 - Fails on non-Ubuntu (ID != "ubuntu") `[unit]` **P0**
 - Fails on Ubuntu < 24.04 `[unit]` **P0**
 - Succeeds on Ubuntu 24.04+ `[unit]` **P0**
+- Error message includes the detected version number `[unit]` **P1**
+- Fails when `/etc/os-release` is absent `[unit]` **P0**
 
 ### Root Privileges (`check_root_privileges`)
 
@@ -58,7 +60,9 @@
 - Accepts password from `SHERPA_DB_PASSWORD` env var (via `DB_PASSWORD`) `[unit]` **P0**
 - Rejects empty password `[unit]` **P0**
 - Rejects password shorter than 8 chars `[unit]` **P0**
+- Rejects password of exactly 7 chars (boundary) `[unit]` **P0**
 - Accepts password of exactly 8 chars `[unit]` **P0**
+- Accepts password longer than 8 chars `[unit]` **P1**
 - Interactive prompt requires confirmation match `[manual]` **P1**
 
 ---
@@ -67,8 +71,12 @@
 
 **What to test:**
 - Accepts valid IPv4 from `SHERPA_SERVER_IPV4` env var `[unit]` **P0**
+- Accepts `0.0.0.0` (all interfaces) `[unit]` **P0**
 - Rejects non-IPv4 string (e.g., "notanip") `[unit]` **P0**
+- Rejects a hostname (e.g., "myserver.example.com") `[unit]` **P0**
+- Rejects an empty / whitespace-only string `[unit]` **P1**
 - Defaults to 0.0.0.0 when no input provided `[manual]` **P1**
+- Known gap: accepts out-of-range octets (e.g. `999.999.999.999`) `[unit]` **P1** *(documents existing behaviour — should fail once fixed)*
 
 **Known issue:** Regex `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` accepts invalid octets like `999.999.999.999`. Consider adding octet range validation.
 
@@ -199,3 +207,6 @@ These are not test cases but issues found during review:
 2. **Weak IPv4 validation**: Regex `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` accepts `999.999.999.999`. Should validate each octet is 0-255.
 3. **Password complexity gap**: Script only checks length (>= 8 chars). The Rust-side `validate_password_strength()` requires uppercase, lowercase, and special characters. Consider aligning the two.
 4. **Port check ordering**: `check_port_available` runs after `install_system_packages` and `install_docker`. If Docker or another package binds the target port, the user has already waited through a long apt install before being told the port is in use. Consider moving the port check to pre-flight.
+5. **`cleanup_on_error` calls `docker` without a guard**: When the install fails before Docker is installed (e.g., at the Ubuntu version check), `cleanup_on_error` runs `docker ps -a ...` which prints `docker: command not found` to stderr. The `2>/dev/null` on the pipe only silences `grep`'s stderr, not `docker`'s. Fix: add `2>/dev/null` to the `docker ps` call itself, or guard with `command -v docker >/dev/null 2>&1`.
+6. **`check_port_available` breaks idempotent re-runs**: When sherpa-db is already running and bound to `DB_PORT`, a second invocation of the installer fails at `check_port_available` before it can reach `stop_existing_container`. The fix is to check whether the port is held by the sherpa-db container itself and skip the error in that case (or move `stop_existing_container` before the port check).
+7. **`setup_sherpa_user` does not enforce shell on existing user**: If a user named `sherpa` already exists (e.g., as a regular login user with `/bin/bash`), the script detects the existing account and skips user creation, leaving the shell unchanged. On a fresh install the system user is created with `/usr/sbin/nologin`. Consider adding a check to update the shell if the existing account has an interactive shell.
