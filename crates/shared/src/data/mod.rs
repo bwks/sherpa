@@ -88,9 +88,9 @@ pub use interface::{
     MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,
 };
 pub use lab::{
-    BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabInfo,
-    LabIsolatedNetwork, LabLinkData, LabNodeData, LabReservedNetwork, LabStatus, LabSummary,
-    ListLabsResponse, NodeInterface, NodeSetupData, PeerInterface, PeerSide,
+    BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabIdentity,
+    LabInfo, LabIsolatedNetwork, LabLinkData, LabNodeData, LabReservedNetwork, LabStatus,
+    LabSummary, ListLabsResponse, NodeInterface, NodeSetupData, PeerInterface, PeerSide,
 };
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, NetworkV4, NetworkV6, SherpaNetwork};
