@@ -1,3 +1,8 @@
+---
+name: test-installer
+description: Run the full sherpa install script test suite in a fresh Ubuntu 24.04 KVM VM
+---
+
 # Test Installer
 
 Run the full sherpa install script test suite in a fresh Ubuntu 24.04 KVM VM.
