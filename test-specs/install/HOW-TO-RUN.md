@@ -20,18 +20,30 @@ sudo apt-get install bats
 ### Run Tests
 
 ```bash
+# Unit tests only (no root required, works on any Linux host)
 bats test-scripts/install_tests.bats
+
+# Integration tests (run as root on a host where the install has completed)
+sudo bats test-scripts/install_tests.bats
 ```
+
+The integration tests auto-skip when `/opt/sherpa` is absent, so the same
+command works in both contexts.
 
 ## Manual End-to-End Verification
 
-Run a full install on a clean Ubuntu 24.04+ VM (e.g., the test-runner VM):
+> **Requires Ubuntu 24.04+.** The install script explicitly rejects older releases.
+
+Run a full install on a clean Ubuntu 24.04+ VM:
 
 ```bash
-# Non-interactive install
+# Non-interactive install (latest release)
 export SHERPA_DB_PASSWORD="TestPassword123!"
 export SHERPA_SERVER_IPV4="0.0.0.0"
-sudo -E ./scripts/sherpa_install.sh --version v0.3.31
+sudo -E ./scripts/sherpa_install.sh
+
+# Or pin to a specific version
+sudo -E ./scripts/sherpa_install.sh --version v0.3.33
 ```
 
 ### Post-install Checklist
@@ -69,8 +81,14 @@ stat /opt/sherpa/env/sherpa.env
 Run the installer a second time and verify it completes without errors:
 
 ```bash
-sudo -E ./scripts/sherpa_install.sh --version v0.3.31
+export SHERPA_DB_PASSWORD="TestPassword123!"
+export SHERPA_SERVER_IPV4="0.0.0.0"
+sudo -E ./scripts/sherpa_install.sh
 ```
+
+The BATS integration test `idempotent re-run completes without error` automates
+this when `SHERPA_DB_PASSWORD` and `SHERPA_SERVER_IPV4` are exported before
+running `sudo bats`.
 
 ## Cleanup
 
@@ -98,4 +116,5 @@ sudo rm -f /usr/local/bin/sherpad /usr/local/bin/sherpa
 ## Test Location
 
 - Spec: `test-specs/install/sherpa-install.md`
+- Test file: `test-scripts/install_tests.bats`
 - Script under test: `scripts/sherpa_install.sh`

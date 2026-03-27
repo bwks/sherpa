@@ -36,7 +36,7 @@ CLAUDE.md
 lab-info.toml
 *.env
 PROJECT.md
-test-scripts/
+# test-scripts/ — tracked in repo
 manifest*.toml*
 
 # Tailwind CSS
