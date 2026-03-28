@@ -1397,10 +1397,11 @@ pub async fn up_lab(
 
             // Get network names
             let management_network = node_data.management_network.clone();
-            let isolated_network = node_data
+            let isolated_network_name = node_data
                 .isolated_network
-                .clone()
-                .ok_or_else(|| anyhow!("Isolated network not found for VM node: {}", node.name))?;
+                .as_ref()
+                .map(|net| net.network_name.clone())
+                .unwrap_or_default();
             let reserved_network = node_data
                 .reserved_network
                 .as_ref()
@@ -1418,7 +1419,7 @@ pub async fn up_lab(
                 ztp_result.qemu_commands,
                 util::get_ip(&loopback_subnet, node_idx as u8).to_string(),
                 management_network,
-                isolated_network.network_name,
+                isolated_network_name,
                 reserved_network,
             );
             domains.push(domain);

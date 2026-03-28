@@ -334,7 +334,8 @@ impl Cli {
                 console(name, &manifest_obj)?;
             }
             Commands::Ssh { name } => {
-                ssh(name).await?;
+                let lab = resolve_lab_identity()?;
+                ssh(name, &lab.id).await?;
             }
             Commands::Image { commands } => {
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);

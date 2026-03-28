@@ -1,6 +1,7 @@
 use anyhow::{Context, Result, bail};
 use std::fs;
 use std::io::{self, Write};
+use std::path::Path;
 use std::time::Duration;
 
 use shared::data::{
@@ -199,7 +200,10 @@ pub async fn destroy(
     // Clean up local SSH config
     match get_cwd() {
         Ok(cwd) => {
-            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            let local_ssh_config_path = Path::new(&cwd)
+                .join(SHERPA_SSH_CONFIG_FILE)
+                .to_string_lossy()
+                .to_string();
             if file_exists(&local_ssh_config_path) {
                 match fs::remove_file(&local_ssh_config_path) {
                     Ok(_) => {
@@ -232,7 +236,10 @@ pub async fn destroy(
     // Clean up local SSH private key
     match get_cwd() {
         Ok(cwd) => {
-            let local_ssh_key_path = format!("{}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE);
+            let local_ssh_key_path = Path::new(&cwd)
+                .join(SHERPA_SSH_PRIVATE_KEY_FILE)
+                .to_string_lossy()
+                .to_string();
             if file_exists(&local_ssh_key_path) {
                 match fs::remove_file(&local_ssh_key_path) {
                     Ok(_) => {
@@ -265,7 +272,10 @@ pub async fn destroy(
     // Remove this lab's Include from ~/.ssh/sherpa_lab_hosts
     match get_cwd() {
         Ok(cwd) => {
-            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            let local_ssh_config_path = Path::new(&cwd)
+                .join(SHERPA_SSH_CONFIG_FILE)
+                .to_string_lossy()
+                .to_string();
             match remove_lab_ssh_include(&local_ssh_config_path) {
                 Ok(_) => {
                     println!(
