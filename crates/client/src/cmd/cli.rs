@@ -28,20 +28,9 @@ use topology::Manifest;
 /// Resolve lab identity (name + id) from the best available source.
 ///
 /// Priority:
-/// 1. If `--manifest` is provided, load that manifest file
-/// 2. Try `lab-info.toml` in the current directory (written by `sherpa up`)
-/// 3. Fall back to `manifest.toml` in the current directory
-fn resolve_lab_identity(manifest_path: Option<&str>) -> anyhow::Result<LabIdentity> {
-    // Explicit --manifest flag takes priority
-    if let Some(path) = manifest_path {
-        let manifest = Manifest::load_file(path)?;
-        let id = get_id(&manifest.name)?;
-        return Ok(LabIdentity {
-            name: manifest.name,
-            id,
-        });
-    }
-
+/// 1. Try `lab-info.toml` in the current directory (written by `sherpa up`)
+/// 2. Fall back to `manifest.toml` in the current directory
+fn resolve_lab_identity() -> anyhow::Result<LabIdentity> {
     // Try lab-info.toml first (already has id and name)
     if let Ok(cwd) = get_cwd() {
         let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
@@ -102,7 +91,7 @@ pub struct Cli {
     commands: Commands,
 }
 
-#[derive(Debug, Subcommand)]
+#[derive(Default, Debug, Subcommand)]
 enum Commands {
     /// Login to Sherpa server
     Login,
@@ -124,69 +113,41 @@ enum Commands {
         force: bool,
     },
     /// Build environment
-    Up {
-        /// Path to manifest file (defaults to manifest.toml)
-        #[arg(long, default_value = SHERPA_MANIFEST_FILE)]
-        manifest: String,
-    },
+    Up,
 
     /// Stop environment
     Down {
         /// Target a specific node (omit for all nodes)
         #[arg(short, long)]
         node: Option<String>,
-        /// Path to manifest file (overrides lab-info.toml and default manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
     },
     /// Resume environment
     Resume {
         /// Target a specific node (omit for all nodes)
         #[arg(short, long)]
         node: Option<String>,
-        /// Path to manifest file (overrides lab-info.toml and default manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
     },
     /// Redeploy a single node (destroy and recreate with fresh ZTP)
     Redeploy {
         /// Target node to redeploy
         #[arg(short, long)]
         node: String,
-        /// Path to manifest file (defaults to manifest.toml)
-        #[arg(long, default_value = SHERPA_MANIFEST_FILE)]
-        manifest: String,
     },
     /// Destroy environment
     Destroy {
         /// Skip confirmation prompt
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         yes: bool,
-        /// Path to manifest file (overrides lab-info.toml and default manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
     },
     /// Inspect environment
-    Inspect {
-        /// Path to manifest file (overrides lab-info.toml and default manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
-    },
+    #[default]
+    Inspect,
 
     /// Validate configurations
-    Validate {
-        /// Path to manifest file to validate (defaults to manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
-    },
+    Validate,
 
     /// Connect to a device via serial console over Telnet
-    Console {
-        name: String,
-        /// Path to manifest file (defaults to manifest.toml)
-        #[arg(long)]
-        manifest: Option<String>,
-    },
+    Console { name: String },
 
     /// SSH to a device.
     Ssh { name: String },
@@ -216,12 +177,6 @@ enum Commands {
         #[command(subcommand)]
         commands: ServerCommands,
     },
-}
-
-impl Default for Commands {
-    fn default() -> Self {
-        Commands::Inspect { manifest: None }
-    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -280,24 +235,29 @@ impl Cli {
                 init(&sherpa, *force)?;
             }
 
-            Commands::Up { manifest } => {
-                // Load manifest to get lab name
-                let manifest_obj = Manifest::load_file(manifest)?;
+            Commands::Up => {
+                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest_obj.name)?;
                 let lab_name = manifest_obj.name.clone();
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
 
-                // Apply --insecure flag if set
                 if cli.insecure {
                     config.server_connection.insecure = true;
                     eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                up(&lab_name, &lab_id, manifest, &server_url, &config).await?;
+                up(
+                    &lab_name,
+                    &lab_id,
+                    SHERPA_MANIFEST_FILE,
+                    &server_url,
+                    &config,
+                )
+                .await?;
             }
-            Commands::Down { node, manifest } => {
-                let lab = resolve_lab_identity(manifest.as_deref())?;
+            Commands::Down { node } => {
+                let lab = resolve_lab_identity()?;
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
 
                 if cli.insecure {
@@ -308,8 +268,8 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 down(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
             }
-            Commands::Resume { node, manifest } => {
-                let lab = resolve_lab_identity(manifest.as_deref())?;
+            Commands::Resume { node } => {
+                let lab = resolve_lab_identity()?;
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
 
                 if cli.insecure {
@@ -320,8 +280,8 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 resume(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
             }
-            Commands::Redeploy { node, manifest } => {
-                let manifest_obj = Manifest::load_file(manifest)?;
+            Commands::Redeploy { node } => {
+                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest_obj.name)?;
                 let lab_name = manifest_obj.name.clone();
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
@@ -332,10 +292,18 @@ impl Cli {
                 }
 
                 let server_url = resolve_server_url(cli.server_url, &config);
-                redeploy(&lab_name, &lab_id, node, manifest, &server_url, &config).await?;
+                redeploy(
+                    &lab_name,
+                    &lab_id,
+                    node,
+                    SHERPA_MANIFEST_FILE,
+                    &server_url,
+                    &config,
+                )
+                .await?;
             }
-            Commands::Destroy { yes, manifest } => {
-                let lab = resolve_lab_identity(manifest.as_deref())?;
+            Commands::Destroy { yes } => {
+                let lab = resolve_lab_identity()?;
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
 
                 if cli.insecure {
@@ -346,8 +314,8 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 destroy(&lab.name, &lab.id, &server_url, &config, *yes).await?;
             }
-            Commands::Inspect { manifest } => {
-                let lab = resolve_lab_identity(manifest.as_deref())?;
+            Commands::Inspect => {
+                let lab = resolve_lab_identity()?;
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);
 
                 if cli.insecure {
@@ -358,18 +326,16 @@ impl Cli {
                 let server_url = resolve_server_url(cli.server_url, &config);
                 inspect(&lab.name, &lab.id, &server_url, &config).await?;
             }
-            Commands::Validate { manifest } => {
-                // Default to manifest.toml if no specific flag provided
-                let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
-                validate_manifest(manifest_path)?;
+            Commands::Validate => {
+                validate_manifest(SHERPA_MANIFEST_FILE)?;
             }
-            Commands::Console { name, manifest } => {
-                let manifest_path = manifest.as_deref().unwrap_or(SHERPA_MANIFEST_FILE);
-                let manifest_obj = Manifest::load_file(manifest_path)?;
+            Commands::Console { name } => {
+                let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 console(name, &manifest_obj)?;
             }
             Commands::Ssh { name } => {
-                ssh(name).await?;
+                let lab = resolve_lab_identity()?;
+                ssh(name, &lab.id).await?;
             }
             Commands::Image { commands } => {
                 let mut config = load_client_config_or_default(&sherpa.config_file_path);

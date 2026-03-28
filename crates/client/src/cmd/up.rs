@@ -26,6 +26,27 @@ struct LogMessage {
     message: String,
 }
 
+/// Rewrite server-generated SSH config for client-side use.
+///
+/// - Replaces relative `IdentityFile sherpa_ssh_key` with absolute path using the working directory
+/// - On Windows, replaces `UserKnownHostsFile /dev/null` with `UserKnownHostsFile NUL`
+fn rewrite_ssh_config_for_client(ssh_config: &str, cwd: &str) -> String {
+    let abs_key_path = Path::new(cwd)
+        .join(SHERPA_SSH_PRIVATE_KEY_FILE)
+        .to_string_lossy()
+        .to_string();
+
+    let result = ssh_config.replace(
+        &format!("IdentityFile {}", SHERPA_SSH_PRIVATE_KEY_FILE),
+        &format!("IdentityFile {}", abs_key_path),
+    );
+
+    #[cfg(windows)]
+    let result = result.replace("UserKnownHostsFile /dev/null", "UserKnownHostsFile NUL");
+
+    result
+}
+
 /// Start lab  to sherpad server with streaming progress updates
 ///
 /// Flow:
@@ -166,11 +187,12 @@ pub async fn up(
     // Write SSH config to local directory with absolute IdentityFile path
     match get_cwd() {
         Ok(cwd) => {
-            let ssh_config_with_abs_path = up_data.ssh_config.replace(
-                &format!("IdentityFile {}", SHERPA_SSH_PRIVATE_KEY_FILE),
-                &format!("IdentityFile {}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE),
-            );
-            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            let ssh_config_with_abs_path = rewrite_ssh_config_for_client(&up_data.ssh_config, &cwd);
+
+            let local_ssh_config_path = Path::new(&cwd)
+                .join(SHERPA_SSH_CONFIG_FILE)
+                .to_string_lossy()
+                .to_string();
             match fs::write(&local_ssh_config_path, &ssh_config_with_abs_path) {
                 Ok(_) => {
                     println!(
@@ -216,7 +238,10 @@ pub async fn up(
     // Write SSH private key to local directory with 0600 permissions
     match get_cwd() {
         Ok(cwd) => {
-            let local_ssh_key_path = format!("{}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE);
+            let local_ssh_key_path = Path::new(&cwd)
+                .join(SHERPA_SSH_PRIVATE_KEY_FILE)
+                .to_string_lossy()
+                .to_string();
             match fs::write(&local_ssh_key_path, &up_data.ssh_private_key) {
                 Ok(_) => {
                     // Set Unix permissions to 0600 (owner read/write only)
@@ -713,6 +738,72 @@ mod tests {
         }]);
 
         resolve_environment_variables(&mut manifest).expect("should succeed with no env vars");
+    }
+
+    #[test]
+    fn test_rewrite_ssh_config_absolute_identity_file() {
+        let server_config = "\
+Host 172.31.1.11 dev01.abc123 dev01.abc123.sherpa.lab.local
+    HostName 172.31.1.11
+    Port 22
+    User sherpa
+    IdentityFile sherpa_ssh_key
+    UserKnownHostsFile /dev/null";
+
+        let result = rewrite_ssh_config_for_client(server_config, "/home/user/lab");
+
+        // IdentityFile should use platform-native path joining
+        let expected_path = Path::new("/home/user/lab")
+            .join(SHERPA_SSH_PRIVATE_KEY_FILE)
+            .to_string_lossy()
+            .to_string();
+        assert!(
+            result.contains(&format!("IdentityFile {}", expected_path)),
+            "Expected absolute path, got: {}",
+            result
+        );
+        // Original relative path should be gone
+        assert!(!result.contains("IdentityFile sherpa_ssh_key\n"));
+    }
+
+    #[test]
+    fn test_rewrite_ssh_config_preserves_other_content() {
+        let server_config = "\
+Host 172.31.1.11 dev01.abc123
+    HostName 172.31.1.11
+    Port 22
+    User sherpa
+    IdentityFile sherpa_ssh_key
+    StrictHostKeyChecking no";
+
+        let result = rewrite_ssh_config_for_client(server_config, "/tmp/lab");
+        assert!(result.contains("HostName 172.31.1.11"));
+        assert!(result.contains("Port 22"));
+        assert!(result.contains("User sherpa"));
+        assert!(result.contains("StrictHostKeyChecking no"));
+    }
+
+    #[test]
+    fn test_rewrite_ssh_config_multiple_hosts() {
+        let server_config = "\
+Host 172.31.1.11 dev01.abc123
+    IdentityFile sherpa_ssh_key
+Host 172.31.1.12 dev02.abc123
+    IdentityFile sherpa_ssh_key";
+
+        let result = rewrite_ssh_config_for_client(server_config, "/home/user/lab");
+
+        let expected_path = Path::new("/home/user/lab")
+            .join(SHERPA_SSH_PRIVATE_KEY_FILE)
+            .to_string_lossy()
+            .to_string();
+        let count = result
+            .matches(&format!("IdentityFile {}", expected_path))
+            .count();
+        assert_eq!(
+            count, 2,
+            "Both hosts should have absolute IdentityFile paths"
+        );
     }
 
     #[test]

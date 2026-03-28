@@ -34,6 +34,38 @@ sudo -E ./scripts/sherpa_install.sh
 - Port 8000 available
 - Password at least 8 characters
 
+### `sherpa_client_install.ps1`
+Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
+
+**One-liner install (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_install.ps1 -OutFile "$env:TEMP\sherpa_install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\sherpa_install.ps1"; Remove-Item "$env:TEMP\sherpa_install.ps1"
+```
+
+**Usage (local):**
+```powershell
+# Install latest version
+.\scripts\sherpa_client_install.ps1
+
+# Install specific version
+.\scripts\sherpa_client_install.ps1 -Version v0.3.35
+
+# Update existing installation to latest
+.\scripts\sherpa_client_install.ps1 -Update
+
+# Update to specific version
+.\scripts\sherpa_client_install.ps1 -Update -Version v0.3.35
+```
+
+**What it does:**
+- Downloads `sherpa.exe` from GitHub Releases
+- Installs to `$HOME\.sherpa\bin\`
+- Adds install directory to user PATH (no admin required)
+
+**Requirements:**
+- PowerShell 5.1+ (built into Windows 10+)
+- Internet access to GitHub
+
 ### `sherpa_uninstall.sh`
 Removes the SurrealDB container and optionally cleans up data.
 
@@ -163,8 +195,9 @@ docker restart sherpa-db
 
 ## Files
 
-- `sherpa_install.sh` - Installation script
-- `sherpa_uninstall.sh` - Uninstallation script  
+- `sherpa_install.sh` - Server installation script (Linux)
+- `sherpa_client_install.ps1` - Client installation script (Windows)
+- `sherpa_uninstall.sh` - Uninstallation script
 - `test_install.sh` - Automated test suite
 - `TESTING.md` - Test documentation
 - `create_blank_disks.sh` - Disk creation utility
