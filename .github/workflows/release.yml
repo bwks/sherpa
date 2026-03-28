@@ -126,7 +126,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build, build-vscode]
+    needs: [build-app, build-vscode]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
