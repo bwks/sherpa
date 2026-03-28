@@ -250,7 +250,7 @@ finally {
 }
 
 # ============================================================================
-# PATH setup (skip in update mode — already done)
+# PATH setup (skip in update mode, already done)
 # ============================================================================
 
 if (-not $Update) {
@@ -266,7 +266,7 @@ try {
     Write-Success "Verified: $versionOutput"
 }
 catch {
-    Write-Failure "Verification failed — could not run $INSTALL_PATH"
+    Write-Failure "Verification failed: could not run $INSTALL_PATH"
     exit 1
 }
 

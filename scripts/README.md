@@ -37,7 +37,12 @@ sudo -E ./scripts/sherpa_install.sh
 ### `sherpa_client_install.ps1`
 Installs or updates the Sherpa CLI client on Windows. No administrator privileges required.
 
-**Usage:**
+**One-liner install (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_install.ps1 -OutFile "$env:TEMP\sherpa_install.ps1"; & "$env:TEMP\sherpa_install.ps1"; Remove-Item "$env:TEMP\sherpa_install.ps1"
+```
+
+**Usage (local):**
 ```powershell
 # Install latest version
 .\scripts\sherpa_client_install.ps1
