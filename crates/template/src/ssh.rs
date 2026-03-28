@@ -9,4 +9,5 @@ pub struct SshConfigTemplate {
     pub ztp_records: Vec<ZtpRecord>,
     pub proxy_user: String,
     pub server_ipv4: String,
+    pub lab_id: String,
 }

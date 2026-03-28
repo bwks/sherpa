@@ -10,7 +10,7 @@ use template::SshConfigTemplate;
 // ============================================================================
 
 const EXPECTED_SSH_CONFIG: &str = "
-Host 172.20.0.10 router1 router1.sherpa.lab.local
+Host 172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local
     HostName 172.20.0.10
     Port 22
     User sherpa
@@ -41,6 +41,7 @@ fn test_ssh_config() {
         }],
         proxy_user: "sherpa".to_string(),
         server_ipv4: "10.0.0.1".to_string(),
+        lab_id: "abcd1234".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG);

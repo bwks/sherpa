@@ -12,7 +12,7 @@ permissions:
   pull-requests: write
 
 jobs:
-  build:
+  build-app:
     name: Build ${{ matrix.binary }} (${{ matrix.target }})
     runs-on: ${{ matrix.runner }}
     strategy:
@@ -90,9 +90,43 @@ jobs:
           name: ${{ matrix.binary }}-${{ matrix.target }}
           path: ${{ matrix.binary }}-${{ matrix.target }}.${{ matrix.archive }}
 
+  build-vscode:
+    name: Build VS Code Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Run tests
+        working-directory: editors/vscode
+        run: npm test
+
+      - name: Package VSIX
+        working-directory: editors/vscode
+        run: npx @vscode/vsce package --out sherpa-remote-${{ inputs.version }}.vsix
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sherpa-remote-vsix
+          path: editors/vscode/sherpa-remote-${{ inputs.version }}.vsix
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, build-vscode]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

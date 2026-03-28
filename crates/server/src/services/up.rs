@@ -1616,6 +1616,7 @@ pub async fn up_lab(
             ztp_records: ztp_records.clone(),
             proxy_user: proxy_user.to_string(),
             server_ipv4: config.server_ipv4.to_string(),
+            lab_id: lab_id.to_string(),
         };
         let ssh_config_content = ssh_config_template.render()?;
         let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");

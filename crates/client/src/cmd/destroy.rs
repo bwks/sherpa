@@ -9,8 +9,8 @@ use shared::data::{
 use shared::error::RpcErrorCode;
 use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, display_destroy_results, file_exists, get_cwd, get_username, render_lab_info_table,
-    render_nodes_table, term_msg_surround,
+    Emoji, display_destroy_results, file_exists, get_cwd, get_username, remove_lab_ssh_include,
+    render_lab_info_table, render_nodes_table, term_msg_surround,
 };
 
 use crate::token::load_token;
@@ -252,6 +252,35 @@ pub async fn destroy(
                 }
             }
             // Silent success if file doesn't exist - idempotent
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                Emoji::Warning,
+                e
+            );
+        }
+    }
+
+    // Remove this lab's Include from ~/.ssh/sherpa_lab_hosts
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
+            match remove_lab_ssh_include(&local_ssh_config_path) {
+                Ok(_) => {
+                    println!(
+                        "{} SSH config removed from ~/.ssh/sherpa_lab_hosts",
+                        Emoji::Success
+                    );
+                }
+                Err(e) => {
+                    println!(
+                        "\n{} Warning: Failed to clean up ~/.ssh/sherpa_lab_hosts: {}",
+                        Emoji::Warning,
+                        e
+                    );
+                }
+            }
         }
         Err(e) => {
             println!(

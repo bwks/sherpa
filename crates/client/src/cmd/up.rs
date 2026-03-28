@@ -11,8 +11,8 @@ use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, base64_encode, get_cwd, get_username, render_lab_info_table, render_nodes_table,
-    term_msg_surround, term_msg_underline,
+    Emoji, add_lab_ssh_include, base64_encode, get_cwd, get_username, render_lab_info_table,
+    render_nodes_table, term_msg_surround, term_msg_underline,
 };
 use topology::StartupScript;
 
@@ -163,17 +163,37 @@ pub async fn up(
     let up_data: UpResponse =
         serde_json::from_value(up_result).context("Failed to parse up response")?;
 
-    // Write SSH config to local directory
+    // Write SSH config to local directory with absolute IdentityFile path
     match get_cwd() {
         Ok(cwd) => {
+            let ssh_config_with_abs_path = up_data.ssh_config.replace(
+                &format!("IdentityFile {}", SHERPA_SSH_PRIVATE_KEY_FILE),
+                &format!("IdentityFile {}/{}", cwd, SHERPA_SSH_PRIVATE_KEY_FILE),
+            );
             let local_ssh_config_path = format!("{}/{}", cwd, SHERPA_SSH_CONFIG_FILE);
-            match fs::write(&local_ssh_config_path, &up_data.ssh_config) {
+            match fs::write(&local_ssh_config_path, &ssh_config_with_abs_path) {
                 Ok(_) => {
                     println!(
                         "\n{} SSH config created: {}",
                         Emoji::Success,
                         local_ssh_config_path
                     );
+                    // Register this lab's SSH config in ~/.ssh/sherpa_lab_hosts
+                    match add_lab_ssh_include(&local_ssh_config_path) {
+                        Ok(_) => {
+                            println!(
+                                "{} SSH config registered in ~/.ssh/sherpa_lab_hosts",
+                                Emoji::Success,
+                            );
+                        }
+                        Err(e) => {
+                            println!(
+                                "\n{} Warning: Failed to register SSH config in ~/.ssh/sherpa_lab_hosts: {}",
+                                Emoji::Warning,
+                                e
+                            );
+                        }
+                    }
                 }
                 Err(e) => {
                     println!(

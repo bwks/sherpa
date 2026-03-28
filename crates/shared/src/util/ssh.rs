@@ -11,6 +11,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use super::file_system::{create_file, expand_path};
 use crate::data::{SshKeyAlgorithms, SshPublicKey};
+use crate::konst::{SHERPA_SSH_INDEX_FILE, SHERPA_SSH_INDEX_HEADER};
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
@@ -167,6 +168,109 @@ pub fn find_user_ssh_keys() -> Vec<String> {
     }
 
     keys
+}
+
+/// Ensure ~/.ssh/config has a permanent Include line for ~/.ssh/sherpa_lab_hosts.
+/// Creates ~/.ssh/config and ~/.ssh/sherpa_lab_hosts if they don't exist.
+/// This is called once during `sherpa up`.
+fn ensure_sherpa_include_in_ssh_config() -> Result<std::path::PathBuf> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
+    let ssh_dir = home.join(".ssh");
+    let ssh_config_path = ssh_dir.join("config");
+    let sherpa_configs_path = ssh_dir.join(SHERPA_SSH_INDEX_FILE);
+
+    // Ensure ~/.ssh exists
+    if !ssh_dir.exists() {
+        std::fs::create_dir_all(&ssh_dir)
+            .with_context(|| format!("Failed to create {}", ssh_dir.display()))?;
+        #[cfg(unix)]
+        {
+            std::fs::set_permissions(&ssh_dir, PermissionsExt::from_mode(0o700))
+                .with_context(|| format!("Failed to set permissions on {}", ssh_dir.display()))?;
+        }
+    }
+
+    // Ensure ~/.ssh/sherpa_lab_hosts exists
+    if !sherpa_configs_path.exists() {
+        std::fs::write(&sherpa_configs_path, format!("{}\n", SHERPA_SSH_INDEX_HEADER))
+            .with_context(|| {
+                format!("Failed to create {}", sherpa_configs_path.display())
+            })?;
+    }
+
+    let include_line = format!("Include {}", sherpa_configs_path.display());
+
+    // Read existing ~/.ssh/config or start fresh
+    let existing = if ssh_config_path.exists() {
+        std::fs::read_to_string(&ssh_config_path)
+            .with_context(|| format!("Failed to read {}", ssh_config_path.display()))?
+    } else {
+        String::new()
+    };
+
+    // Already has the Include — done
+    if existing.contains(&include_line) {
+        return Ok(sherpa_configs_path);
+    }
+
+    // Prepend the Include line (must come before Host blocks)
+    let new_content = format!("{}\n{}", include_line, existing);
+    std::fs::write(&ssh_config_path, new_content)
+        .with_context(|| format!("Failed to write {}", ssh_config_path.display()))?;
+
+    Ok(sherpa_configs_path)
+}
+
+/// Add an Include line for a lab's sherpa_ssh_config to ~/.ssh/sherpa_lab_hosts.
+/// Also ensures the permanent Include in ~/.ssh/config exists.
+pub fn add_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
+    let sherpa_configs_path = ensure_sherpa_include_in_ssh_config()?;
+
+    let existing = std::fs::read_to_string(&sherpa_configs_path)
+        .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
+
+    let include_line = format!("Include {}", lab_ssh_config_path);
+
+    // Already present — idempotent
+    if existing.contains(&include_line) {
+        return Ok(());
+    }
+
+    let new_content = format!("{}{}\n", existing, include_line);
+    std::fs::write(&sherpa_configs_path, new_content)
+        .with_context(|| format!("Failed to write {}", sherpa_configs_path.display()))?;
+
+    Ok(())
+}
+
+/// Remove an Include line for a lab's sherpa_ssh_config from ~/.ssh/sherpa_lab_hosts.
+pub fn remove_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
+    let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
+    let sherpa_configs_path = home.join(".ssh").join(SHERPA_SSH_INDEX_FILE);
+
+    if !sherpa_configs_path.exists() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&sherpa_configs_path)
+        .with_context(|| format!("Failed to read {}", sherpa_configs_path.display()))?;
+
+    let include_line = format!("Include {}", lab_ssh_config_path);
+
+    if !content.contains(&include_line) {
+        return Ok(());
+    }
+
+    let new_content: String = content
+        .lines()
+        .filter(|line| line.trim() != include_line)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::fs::write(&sherpa_configs_path, format!("{}\n", new_content))
+        .with_context(|| format!("Failed to write {}", sherpa_configs_path.display()))?;
+
+    Ok(())
 }
 
 #[cfg(test)]

@@ -42,3 +42,8 @@ manifest*.toml*
 
 # Tailwind CSS
 tailwindcss
+
+# VS Code Extension
+editors/vscode/node_modules/
+editors/vscode/out/
+editors/vscode/*.vsix
