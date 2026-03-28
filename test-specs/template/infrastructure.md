@@ -44,8 +44,13 @@
 **What to test:**
 - Template renders valid SSH config file `[unit]` **P0**
 - Host entries generated from ZTP records `[unit]` **P0**
+- Host line uses scoped `<node>.<lab-id>` naming format `[unit]` **P0**
+- Host FQDN uses `<node>.<lab-id>.<domain>` format `[unit]` **P0**
 - Proxy settings (user, server IP) configured `[unit]` **P0**
 - Each node gets a Host block with correct hostname `[unit]` **P1**
+- Multiple ZTP records produce multiple Host blocks `[unit]` **P1**
+
+**Existing coverage:** 1 test in `crates/template/tests/ssh/mod.rs`
 
 ---
 

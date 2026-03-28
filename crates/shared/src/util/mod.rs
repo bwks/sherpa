@@ -57,8 +57,8 @@ pub use port::id_to_port;
 pub use random::get_id;
 pub use sanitizers::dasher;
 pub use ssh::{
-    find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key, pub_ssh_key_to_md5_hash,
-    pub_ssh_key_to_sha256_hash,
+    add_lab_ssh_include, find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key,
+    pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
 };
 pub use table::{
     CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,

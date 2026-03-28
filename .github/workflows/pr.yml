@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  test:
+  test-app:
     name: Test
     runs-on: ubuntu-latest
     steps:
@@ -37,3 +37,27 @@ jobs:
 
       - name: Run tests
         run: cargo test --workspace
+
+  test-vscode:
+    name: Test VS Code Extension
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Run tests
+        working-directory: editors/vscode
+        run: npm test
