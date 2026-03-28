@@ -52,8 +52,7 @@ ssh server username sherpa
 !
 ssh server v2
 ssh server vrf default
-ssh server netconf vrf default
-ssh server scp";
+ssh server netconf vrf default";
 
 // ============================================================================
 // Tests
