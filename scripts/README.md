@@ -39,7 +39,7 @@ Installs or updates the Sherpa CLI client on Windows. No administrator privilege
 
 **One-liner install (PowerShell):**
 ```powershell
-irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_install.ps1 -OutFile "$env:TEMP\sherpa_install.ps1"; & "$env:TEMP\sherpa_install.ps1"; Remove-Item "$env:TEMP\sherpa_install.ps1"
+irm https://raw.githubusercontent.com/bwks/sherpa/main/scripts/sherpa_client_install.ps1 -OutFile "$env:TEMP\sherpa_install.ps1"; powershell -ExecutionPolicy Bypass -File "$env:TEMP\sherpa_install.ps1"; Remove-Item "$env:TEMP\sherpa_install.ps1"
 ```
 
 **Usage (local):**

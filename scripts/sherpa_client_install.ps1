@@ -41,7 +41,7 @@ $REPO = "bwks/sherpa"
 $BINARY_NAME = "sherpa.exe"
 $TARGET = "x86_64-pc-windows-msvc"
 $ARCHIVE_NAME = "sherpa-${TARGET}.zip"
-$INSTALL_DIR = Join-Path $HOME ".sherpa" "bin"
+$INSTALL_DIR = Join-Path (Join-Path $HOME ".sherpa") "bin"
 $INSTALL_PATH = Join-Path $INSTALL_DIR $BINARY_NAME
 $GITHUB_API_URL = "https://api.github.com/repos/${REPO}/releases/latest"
 
