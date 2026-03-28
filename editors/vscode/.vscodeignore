@@ -1,8 +1,0 @@
-.vscode/**
-.vscode-test/**
-src/**
-test/**
-tsconfig.json
-**/*.map
-**/*.ts
-!node_modules/@iarna/toml/**
