@@ -2,6 +2,44 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.34] - 2026-03-28
+
+### Bug Fixes
+
+- Select lab manifest file by @bwks ([8b02f3e](https://github.com/bwks/sherpa/commit/8b02f3e02866a4ab683edd57d346c5cc82728372))
+- Restructure test-installer into correct SKILL.md layout ([c00451b](https://github.com/bwks/sherpa/commit/c00451b665933897ea5bcfbfb59d829e4bb2f5f6))
+
+### Documentation
+
+- Add VM-based test run instructions to HOW-TO-RUN.md ([19b3f6c](https://github.com/bwks/sherpa/commit/19b3f6c41542a04937f93fa2531ba1b775198077))
+
+### Features
+
+- Sftp/scp server by @bwks ([9d1c0ca](https://github.com/bwks/sherpa/commit/9d1c0ca27853228708c737eff4912434c13a4c1b))
+
+### Miscellaneous
+
+- Merge pull request #169 from bwks/v0.3.34
+
+test scripts by @bwks in [#169](https://github.com/bwks/sherpa/pull/169) ([dd5fb1c](https://github.com/bwks/sherpa/commit/dd5fb1c9958c2853b346fd29cb4e4a90ad632aac))
+- Pipelines by @bwks ([375a0c3](https://github.com/bwks/sherpa/commit/375a0c32af9692e7ab9f4c7ae4bdc7b66bdee288))
+- Version bump by @bwks ([b90fe4b](https://github.com/bwks/sherpa/commit/b90fe4b28f09b4bdd6bd3f977909e89f53e97f07))
+- Pipelines by @bwks ([b9e8719](https://github.com/bwks/sherpa/commit/b9e87198bd64a597ab949d93f00b8a2bea8166c3))
+- Merge pull request #168 from bwks/test/install-script-bats
+
+test(install): add BATS test suite for sherpa_install.sh by @bwks in [#168](https://github.com/bwks/sherpa/pull/168) ([7090774](https://github.com/bwks/sherpa/commit/709077458e5a03809380f936239e820c3d2bd0fe))
+- [ci skip] merge BATS install test suite ([8f06b59](https://github.com/bwks/sherpa/commit/8f06b599b812f73ad8246d2c71b21a51ea9dd089))
+- Add /test-installer slash command ([a84dcac](https://github.com/bwks/sherpa/commit/a84dcac11568edde5a7950e79f9d8984e2836991))
+- Merge pull request #167 from bwks/changelog/v0.3.33
+
+chore(release): update changelog for v0.3.33 by @github-actions[bot] in [#167](https://github.com/bwks/sherpa/pull/167) ([be1964d](https://github.com/bwks/sherpa/commit/be1964d5eafae99ea331cf47f24c78aefecc6cab))
+
+### Testing
+
+- Ssh test specs by @bwks ([9039ba0](https://github.com/bwks/sherpa/commit/9039ba0eac33cc2fb9bb7af3942423f3fa4eb81e))
+- Test scripts by @bwks ([e30d3ac](https://github.com/bwks/sherpa/commit/e30d3acb98b2271ff67ef58c1ddbcc550caded44))
+- Fix and expand BATS tests after dev02 end-to-end run ([4559c1d](https://github.com/bwks/sherpa/commit/4559c1db246106f81be6e6fec9e397fa39c87d84))
+- Add BATS test suite for sherpa_install.sh ([41d04f8](https://github.com/bwks/sherpa/commit/41d04f8b656c3237007d2a9f14ea53fda6f7b160))
 ## [0.3.33] - 2026-03-26
 
 ### Bug Fixes
