@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.36] - 2026-03-28
+
+### Bug Fixes
+
+- Ssh config and isolated network by @bwks ([a4e91da](https://github.com/bwks/sherpa/commit/a4e91da9fb814d84d6e683103a0bcc9a41bea2ed))
+
+### Features
+
+- Powershell installer by @bwks ([add815f](https://github.com/bwks/sherpa/commit/add815f4764df9419b7cc74093ba87eefca409dc))
+- Powershell installer by @bwks ([1eb1b1d](https://github.com/bwks/sherpa/commit/1eb1b1d1e5864fcde6d71e94438565b023854a1a))
+- Powershell installer by @bwks ([35462f8](https://github.com/bwks/sherpa/commit/35462f8c6e101ef6f047c90cbea42ff6232e1d1b))
+
+### Miscellaneous
+
+- Merge pull request #173 from bwks/v0.3.35
+
+V0.3.35 by @bwks in [#173](https://github.com/bwks/sherpa/pull/173) ([1c8963e](https://github.com/bwks/sherpa/commit/1c8963e5ba72c3389438c46187b39f118d84bb4b))
+- Version bump by @bwks ([f91b3ad](https://github.com/bwks/sherpa/commit/f91b3ad193f7546ce003850daf0186923a0680c9))
+- Version bump by @bwks ([799d616](https://github.com/bwks/sherpa/commit/799d616a6cf3370883a4653c7636289746da171b))
+- Remove custom manifest definition by @bwks ([8cdfda2](https://github.com/bwks/sherpa/commit/8cdfda254d1629057e2a2e0497fc49df21e2d902))
+- Remove the vscode extension by @bwks ([909167e](https://github.com/bwks/sherpa/commit/909167e5f88cef02e3b6bd8652a42f0a8f5fbbb2))
+- Merge pull request #171 from bwks/changelog/v0.3.34
+
+chore(release): update changelog for v0.3.34 by @github-actions[bot] in [#171](https://github.com/bwks/sherpa/pull/171) ([10e85b4](https://github.com/bwks/sherpa/commit/10e85b42c46863107271e06f678cf7af644b1686))
 ## [0.3.34] - 2026-03-28
 
 ### Bug Fixes
