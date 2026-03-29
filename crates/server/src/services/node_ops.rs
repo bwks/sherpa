@@ -2515,37 +2515,6 @@ pub fn check_node_ready_ssh(ip: &str, port: u16) -> Result<bool> {
 }
 
 // ============================================================================
-// Database Connection
-// ============================================================================
-
-/// Connect to the SurrealDB database using environment variables for credentials.
-pub async fn connect_db()
--> Result<std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::ws::Client>>> {
-    use shared::konst::{
-        SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
-    };
-
-    let db_password = std::env::var("SHERPA_DB_PASSWORD").context(format!(
-        "SHERPA_DB_PASSWORD environment variable is not set (check {})",
-        SHERPA_ENV_FILE_PATH
-    ))?;
-
-    let db_port = std::env::var("SHERPA_DB_PORT")
-        .ok()
-        .and_then(|v| v.parse::<u16>().ok())
-        .unwrap_or(SHERPA_DB_PORT);
-
-    db::connect(
-        SHERPA_DB_SERVER,
-        db_port,
-        SHERPA_DB_NAMESPACE,
-        SHERPA_DB_NAME,
-        &db_password,
-    )
-    .await
-    .context("Failed to connect to database")
-}
-
 // ============================================================================
 // Node Destruction
 // ============================================================================
