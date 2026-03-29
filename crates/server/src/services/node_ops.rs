@@ -849,6 +849,38 @@ fn build_cloudbase_cert_files(
     ])
 }
 
+/// Build cloud-init write_files entries from pre-encoded text_files
+fn build_cloud_init_text_files(
+    text_files: &Option<Vec<topology::TextFileData>>,
+) -> Vec<template::CloudInitWriteFile> {
+    text_files
+        .iter()
+        .flatten()
+        .map(|file| template::CloudInitWriteFile {
+            path: file.dst.clone(),
+            content: file.content.clone(),
+            permissions: format!("0{}", file.permissions),
+            owner: Some(format!("{}:{}", file.user, file.group)),
+            encoding: Some("b64".to_string()),
+        })
+        .collect()
+}
+
+/// Build cloudbase-init write_files entries from pre-encoded text_files
+fn build_cloudbase_text_files(
+    text_files: &Option<Vec<topology::TextFileData>>,
+) -> Vec<template::CloudbaseWriteFile> {
+    text_files
+        .iter()
+        .flatten()
+        .map(|file| template::CloudbaseWriteFile {
+            path: file.dst.clone(),
+            content: file.content.clone(),
+            permissions: format!("0{}", file.permissions),
+        })
+        .collect()
+}
+
 /// Build Ignition file entries for TLS certificates
 fn build_ignition_cert_files(
     cert_paths: &NodeCertPaths,
@@ -992,6 +1024,9 @@ fn generate_cloud_init_ztp(
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
                 None => vec![],
             };
+
+            // Inject text_files into write_files
+            write_files.extend(build_cloud_init_text_files(&node.text_files));
 
             let mut runcmd: Vec<String> = vec![];
 
@@ -1140,6 +1175,9 @@ fn generate_cloud_init_ztp(
                 write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
             }
 
+            // Inject text_files into write_files
+            write_files.extend(build_cloudbase_text_files(&node.text_files));
+
             // Inject startup_scripts for Windows
             let mut runcmd = vec![
                 format!(
@@ -1228,6 +1266,9 @@ fn generate_cloud_init_ztp(
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
                 None => vec![],
             };
+
+            // Inject text_files into write_files
+            write_files.extend(build_cloud_init_text_files(&node.text_files));
 
             let mut runcmd: Vec<String> = vec![];
 
@@ -2037,25 +2078,22 @@ fn generate_ignition_ztp(
         .text_files
         .iter()
         .flatten()
-        .map(|file| {
-            let encoded_file = util::base64_encode_file(&file.source)?;
-
-            Ok(template::IgnitionFile {
-                path: file.destination.clone(),
-                mode: file.permissions,
-                overwrite: None,
-                contents: template::IgnitionFileContents::new(&format!(
-                    "data:;base64,{encoded_file}"
-                )),
-                user: Some(template::IgnitionFileParams {
-                    name: file.user.clone(),
-                }),
-                group: Some(template::IgnitionFileParams {
-                    name: file.group.clone(),
-                }),
-            })
+        .map(|file| template::IgnitionFile {
+            path: file.dst.clone(),
+            mode: file.permissions,
+            overwrite: None,
+            contents: template::IgnitionFileContents::new(&format!(
+                "data:;base64,{}",
+                file.content
+            )),
+            user: Some(template::IgnitionFileParams {
+                name: file.user.clone(),
+            }),
+            group: Some(template::IgnitionFileParams {
+                name: file.group.clone(),
+            }),
         })
-        .collect::<Result<Vec<template::IgnitionFile>>>()?;
+        .collect();
 
     let manifest_binary_disk_files = node.binary_files.clone().unwrap_or_default();
 
@@ -2711,5 +2749,81 @@ mod tests {
         let env_vars: Vec<String> = vec![];
         let commands = build_windows_env_commands(&env_vars);
         assert!(commands.is_empty());
+    }
+
+    #[test]
+    fn test_build_cloud_init_text_files_basic() {
+        let text_files = Some(vec![topology::TextFileData {
+            content: "aGVsbG8=".to_string(),
+            dst: "/etc/app/config.json".to_string(),
+            user: "root".to_string(),
+            group: "root".to_string(),
+            permissions: 644,
+        }]);
+
+        let result = build_cloud_init_text_files(&text_files);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, "/etc/app/config.json");
+        assert_eq!(result[0].content, "aGVsbG8=");
+        assert_eq!(result[0].permissions, "0644");
+        assert_eq!(result[0].owner, Some("root:root".to_string()));
+        assert_eq!(result[0].encoding, Some("b64".to_string()));
+    }
+
+    #[test]
+    fn test_build_cloud_init_text_files_none() {
+        let result = build_cloud_init_text_files(&None);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_build_cloud_init_text_files_multiple() {
+        let text_files = Some(vec![
+            topology::TextFileData {
+                content: "Zmls".to_string(),
+                dst: "/etc/file1".to_string(),
+                user: "root".to_string(),
+                group: "root".to_string(),
+                permissions: 644,
+            },
+            topology::TextFileData {
+                content: "c2NyaXB0".to_string(),
+                dst: "/opt/file2".to_string(),
+                user: "sherpa".to_string(),
+                group: "sherpa".to_string(),
+                permissions: 755,
+            },
+        ]);
+
+        let result = build_cloud_init_text_files(&text_files);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].path, "/etc/file1");
+        assert_eq!(result[0].owner, Some("root:root".to_string()));
+        assert_eq!(result[1].path, "/opt/file2");
+        assert_eq!(result[1].permissions, "0755");
+        assert_eq!(result[1].owner, Some("sherpa:sherpa".to_string()));
+    }
+
+    #[test]
+    fn test_build_cloudbase_text_files_basic() {
+        let text_files = Some(vec![topology::TextFileData {
+            content: "aGVsbG8=".to_string(),
+            dst: r"C:\app\config.json".to_string(),
+            user: "Administrator".to_string(),
+            group: "Administrators".to_string(),
+            permissions: 644,
+        }]);
+
+        let result = build_cloudbase_text_files(&text_files);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].path, r"C:\app\config.json");
+        assert_eq!(result[0].content, "aGVsbG8=");
+        assert_eq!(result[0].permissions, "0644");
+    }
+
+    #[test]
+    fn test_build_cloudbase_text_files_none() {
+        let result = build_cloudbase_text_files(&None);
+        assert!(result.is_empty());
     }
 }

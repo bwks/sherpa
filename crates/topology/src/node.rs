@@ -35,6 +35,8 @@ pub struct Node {
     pub user_scripts: Option<Vec<String>>,
     #[serde(default)]
     pub user_scripts_data: Option<Vec<StartupScript>>,
+    #[serde(default)]
+    pub text_files_data: Option<Vec<TextFileData>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -49,7 +51,7 @@ pub struct NodeExpanded {
     pub boot_disk_size: Option<u16>,
     pub ipv4_address: Option<Ipv4Addr>,
     pub ipv6_address: Option<Ipv6Addr>,
-    pub text_files: Option<Vec<TextFile>>,
+    pub text_files: Option<Vec<TextFileData>>,
     pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,
     pub ssh_authorized_keys: Option<Vec<String>>,
@@ -82,8 +84,17 @@ pub struct VolumeMount {
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextFile {
-    pub source: String,
-    pub destination: String,
+    pub src: String,
+    pub dst: String,
+    pub user: String,
+    pub group: String,
+    pub permissions: u32,
+}
+
+#[derive(Clone, Debug, Deserialize, Default, Serialize)]
+pub struct TextFileData {
+    pub content: String,
+    pub dst: String,
     pub user: String,
     pub group: String,
     pub permissions: u32,
