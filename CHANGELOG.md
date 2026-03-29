@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.37] - 2026-03-29
+
+### Features
+
+- User text_files by @bwks ([a3dd94b](https://github.com/bwks/sherpa/commit/a3dd94b4f156b270eea6f2963165a078c5d63409))
+- User text_files by @bwks ([ed0cfd9](https://github.com/bwks/sherpa/commit/ed0cfd9d440b64fa21fcd67493e126ba6fa59904))
+
+### Miscellaneous
+
+- Merge pull request #175 from bwks/v0.3.37
+
+feat: user text_files by @bwks in [#175](https://github.com/bwks/sherpa/pull/175) ([1db3657](https://github.com/bwks/sherpa/commit/1db365742769390debac64119b37d0755495cdae))
+- Version bump by @bwks ([992d74b](https://github.com/bwks/sherpa/commit/992d74b9ff660c57f1123a72c717925843bdc574))
+- Merge pull request #174 from bwks/changelog/v0.3.36
+
+chore(release): update changelog for v0.3.36 by @github-actions[bot] in [#174](https://github.com/bwks/sherpa/pull/174) ([f8a1a1b](https://github.com/bwks/sherpa/commit/f8a1a1bc96def46d9d392606510549f8ac6f943f))
+
+### Testing
+
+- Manifest tests by @bwks ([ab4d215](https://github.com/bwks/sherpa/commit/ab4d2152335adf2d0ed83188c39ed4f091a3c7fc))
 ## [0.3.36] - 2026-03-28
 
 ### Bug Fixes
