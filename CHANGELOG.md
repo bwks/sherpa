@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.38] - 2026-03-29
+
+### Bug Fixes
+
+- Use shared DB connection by @bwks ([2f21e0e](https://github.com/bwks/sherpa/commit/2f21e0ed3549fb5ea60f7dd03db3f23dca8cdde4))
+
+### Documentation
+
+- Comment by @bwks ([427ea96](https://github.com/bwks/sherpa/commit/427ea968bcf6ec634621397c4c9a754947b6b085))
+
+### Miscellaneous
+
+- Merge pull request #177 from bwks/v0.3.38
+
+V0.3.38 by @bwks in [#177](https://github.com/bwks/sherpa/pull/177) ([c4390a7](https://github.com/bwks/sherpa/commit/c4390a769eaa5b0412c86b648bbefd908102b24d))
+- Version bump by @bwks ([f9d245a](https://github.com/bwks/sherpa/commit/f9d245a93c4148308f5d9ef7180f8b2b4a47c216))
+- Merge pull request #176 from bwks/changelog/v0.3.37
+
+chore(release): update changelog for v0.3.37 by @github-actions[bot] in [#176](https://github.com/bwks/sherpa/pull/176) ([d790694](https://github.com/bwks/sherpa/commit/d7906948801f0a8f6d0d0dcfc83c4fbbbaf8e3cc))
+
+### Testing
+
+- Server test specs by @bwks ([a35247c](https://github.com/bwks/sherpa/commit/a35247c25d6f9ae44a13f580a9115cebbdc9881c))
 ## [0.3.37] - 2026-03-29
 
 ### Features
