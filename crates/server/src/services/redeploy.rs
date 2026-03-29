@@ -92,8 +92,8 @@ pub async fn redeploy_node(
         target_node.ztp_config = Some(decoded);
     }
 
-    // Connect to database
-    let db = node_ops::connect_db().await?;
+    // Use the shared database connection from AppState
+    let db = state.db.clone();
 
     // Get lab info
     let db_lab = db::get_lab(&db, lab_id)
