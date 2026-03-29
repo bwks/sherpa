@@ -849,6 +849,38 @@ fn build_cloudbase_cert_files(
     ])
 }
 
+/// Build cloud-init write_files entries from pre-encoded text_files
+fn build_cloud_init_text_files(
+    text_files: &Option<Vec<topology::TextFileData>>,
+) -> Vec<template::CloudInitWriteFile> {
+    text_files
+        .iter()
+        .flatten()
+        .map(|file| template::CloudInitWriteFile {
+            path: file.destination.clone(),
+            content: file.content.clone(),
+            permissions: format!("0{}", file.permissions),
+            owner: Some(format!("{}:{}", file.user, file.group)),
+            encoding: Some("b64".to_string()),
+        })
+        .collect()
+}
+
+/// Build cloudbase-init write_files entries from pre-encoded text_files
+fn build_cloudbase_text_files(
+    text_files: &Option<Vec<topology::TextFileData>>,
+) -> Vec<template::CloudbaseWriteFile> {
+    text_files
+        .iter()
+        .flatten()
+        .map(|file| template::CloudbaseWriteFile {
+            path: file.destination.clone(),
+            content: file.content.clone(),
+            permissions: format!("0{}", file.permissions),
+        })
+        .collect()
+}
+
 /// Build Ignition file entries for TLS certificates
 fn build_ignition_cert_files(
     cert_paths: &NodeCertPaths,
@@ -992,6 +1024,9 @@ fn generate_cloud_init_ztp(
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
                 None => vec![],
             };
+
+            // Inject text_files into write_files
+            write_files.extend(build_cloud_init_text_files(&node.text_files));
 
             let mut runcmd: Vec<String> = vec![];
 
@@ -1140,6 +1175,9 @@ fn generate_cloud_init_ztp(
                 write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
             }
 
+            // Inject text_files into write_files
+            write_files.extend(build_cloudbase_text_files(&node.text_files));
+
             // Inject startup_scripts for Windows
             let mut runcmd = vec![
                 format!(
@@ -1228,6 +1266,9 @@ fn generate_cloud_init_ztp(
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
                 None => vec![],
             };
+
+            // Inject text_files into write_files
+            write_files.extend(build_cloud_init_text_files(&node.text_files));
 
             let mut runcmd: Vec<String> = vec![];
 
@@ -2037,25 +2078,22 @@ fn generate_ignition_ztp(
         .text_files
         .iter()
         .flatten()
-        .map(|file| {
-            let encoded_file = util::base64_encode_file(&file.source)?;
-
-            Ok(template::IgnitionFile {
-                path: file.destination.clone(),
-                mode: file.permissions,
-                overwrite: None,
-                contents: template::IgnitionFileContents::new(&format!(
-                    "data:;base64,{encoded_file}"
-                )),
-                user: Some(template::IgnitionFileParams {
-                    name: file.user.clone(),
-                }),
-                group: Some(template::IgnitionFileParams {
-                    name: file.group.clone(),
-                }),
-            })
+        .map(|file| template::IgnitionFile {
+            path: file.destination.clone(),
+            mode: file.permissions,
+            overwrite: None,
+            contents: template::IgnitionFileContents::new(&format!(
+                "data:;base64,{}",
+                file.content
+            )),
+            user: Some(template::IgnitionFileParams {
+                name: file.user.clone(),
+            }),
+            group: Some(template::IgnitionFileParams {
+                name: file.group.clone(),
+            }),
         })
-        .collect::<Result<Vec<template::IgnitionFile>>>()?;
+        .collect();
 
     let manifest_binary_disk_files = node.binary_files.clone().unwrap_or_default();
 

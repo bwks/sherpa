@@ -11,8 +11,8 @@ use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
-    Emoji, add_lab_ssh_include, base64_encode, get_cwd, get_username, render_lab_info_table,
-    render_nodes_table, term_msg_surround, term_msg_underline,
+    Emoji, add_lab_ssh_include, base64_encode, expand_path, get_cwd, get_username, load_file,
+    render_lab_info_table, render_nodes_table, term_msg_surround, term_msg_underline,
 };
 use topology::StartupScript;
 
@@ -83,6 +83,9 @@ pub async fn up(
 
     // Read per-node ztp_config file paths and base64 encode their contents
     resolve_ztp_configs(&mut manifest, manifest_path)?;
+
+    // Resolve text_files paths relative to manifest directory
+    resolve_text_files(&mut manifest, manifest_path)?;
 
     // Resolve startup_scripts paths relative to manifest directory
     resolve_startup_scripts(&mut manifest, manifest_path)?;
@@ -473,6 +476,51 @@ pub(crate) fn resolve_user_scripts(
         }
 
         node.user_scripts_data = Some(script_data);
+    }
+
+    Ok(())
+}
+
+/// Resolve text_files file paths relative to the manifest directory.
+/// Reads each file, base64-encodes the contents, and populates
+/// `text_files_data` for transmission to the server.
+pub(crate) fn resolve_text_files(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+
+    for node in &mut manifest.nodes {
+        let text_files = match &node.text_files {
+            Some(f) if !f.is_empty() => f.clone(),
+            _ => continue,
+        };
+
+        let mut file_data = Vec::with_capacity(text_files.len());
+        for file in &text_files {
+            let expanded = expand_path(&file.source);
+            let expanded_path = Path::new(&expanded);
+            let resolved_path = if expanded_path.is_absolute() {
+                expanded_path.to_path_buf()
+            } else {
+                manifest_dir.join(expanded_path)
+            };
+
+            let contents = load_file(&resolved_path.to_string_lossy())
+                .with_context(|| {
+                    format!("Failed to read text_file for node '{}'", node.name)
+                })?;
+
+            file_data.push(topology::TextFileData {
+                content: base64_encode(&contents),
+                destination: file.destination.clone(),
+                user: file.user.clone(),
+                group: file.group.clone(),
+                permissions: file.permissions,
+            });
+        }
+
+        node.text_files_data = Some(file_data);
     }
 
     Ok(())

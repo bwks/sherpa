@@ -16,8 +16,9 @@ pub fn path_to_string(path: &Path) -> String {
 
 // Load a file
 pub fn load_file(file_path: &str) -> Result<String> {
-    let file_contents = fs::read_to_string(file_path)
-        .with_context(|| format!("Error loading file: {file_path}"))?;
+    let path = expand_path(file_path);
+    let file_contents =
+        fs::read_to_string(&path).with_context(|| format!("Error loading file: {file_path}"))?;
     Ok(file_contents)
 }
 

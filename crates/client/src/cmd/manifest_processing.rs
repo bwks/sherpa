@@ -22,7 +22,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
             ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
-            text_files: node.text_files.clone(),
+            text_files: node.text_files_data.clone(),
             binary_files: node.binary_files.clone(),
             systemd_units: node.systemd_units.clone(),
             image: node.image.clone(),
