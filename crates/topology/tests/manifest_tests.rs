@@ -70,6 +70,44 @@ pyats = true
 nornir = false
 "#;
 
+const MANIFEST_WITH_TEXT_FILES: &str = r#"
+name = "text-files-lab"
+
+[[nodes]]
+name = "dev01"
+model = "ubuntu_linux"
+
+[[nodes.text_files]]
+src = "/home/user/.config/app.json"
+dst = "/etc/app/config.json"
+user = "root"
+group = "root"
+permissions = 644
+
+[[nodes.text_files]]
+src = "relative/path.txt"
+dst = "/opt/data/path.txt"
+user = "sherpa"
+group = "sherpa"
+permissions = 755
+"#;
+
+const MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD: &str = r#"
+name = "bad-lab"
+
+[[nodes]]
+name = "dev01"
+model = "ubuntu_linux"
+
+[[nodes.text_files]]
+src = "/tmp/file.txt"
+dst = "/etc/file.txt"
+user = "root"
+group = "root"
+permissions = 644
+unknown_field = "bad"
+"#;
+
 const MANIFEST_WITH_VOLUMES: &str = r#"
 name = "vol-lab"
 
@@ -392,4 +430,35 @@ fn test_node_defaults() {
     assert!(node.skip_ready_check.is_none());
     assert!(node.ztp_config.is_none());
     assert!(node.startup_scripts.is_none());
+    assert!(node.text_files.is_none());
+}
+
+// ============================================================================
+// Tests — text_files parsing
+// ============================================================================
+
+#[test]
+fn test_parse_text_files() {
+    let manifest: Manifest = toml::from_str(MANIFEST_WITH_TEXT_FILES).expect("parses");
+    let node = &manifest.nodes[0];
+    let text_files = node.text_files.as_ref().expect("has text_files");
+    assert_eq!(text_files.len(), 2);
+
+    assert_eq!(text_files[0].src, "/home/user/.config/app.json");
+    assert_eq!(text_files[0].dst, "/etc/app/config.json");
+    assert_eq!(text_files[0].user, "root");
+    assert_eq!(text_files[0].group, "root");
+    assert_eq!(text_files[0].permissions, 644);
+
+    assert_eq!(text_files[1].src, "relative/path.txt");
+    assert_eq!(text_files[1].dst, "/opt/data/path.txt");
+    assert_eq!(text_files[1].user, "sherpa");
+    assert_eq!(text_files[1].group, "sherpa");
+    assert_eq!(text_files[1].permissions, 755);
+}
+
+#[test]
+fn test_parse_text_files_rejects_unknown_fields() {
+    let result = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD);
+    assert!(result.is_err());
 }

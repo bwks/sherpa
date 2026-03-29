@@ -507,9 +507,7 @@ pub(crate) fn resolve_text_files(
             };
 
             let contents = load_file(&resolved_path.to_string_lossy())
-                .with_context(|| {
-                    format!("Failed to read text_file for node '{}'", node.name)
-                })?;
+                .with_context(|| format!("Failed to read text_file for node '{}'", node.name))?;
 
             file_data.push(topology::TextFileData {
                 content: base64_encode(&contents),
@@ -852,6 +850,108 @@ Host 172.31.1.12 dev02.abc123
             count, 2,
             "Both hosts should have absolute IdentityFile paths"
         );
+    }
+
+    #[test]
+    fn test_resolve_text_files_base64_encodes_content() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = dir.path().join("config.json");
+        std::fs::write(&file_path, r#"{"key": "value"}"#).expect("write file");
+
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            text_files: Some(vec![topology::TextFile {
+                src: file_path.to_str().expect("path").to_string(),
+                dst: "/etc/app/config.json".to_string(),
+                user: "root".to_string(),
+                group: "root".to_string(),
+                permissions: 644,
+            }]),
+            ..Default::default()
+        }]);
+
+        resolve_text_files(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect("resolve should succeed");
+
+        let data = manifest.nodes[0]
+            .text_files_data
+            .as_ref()
+            .expect("should have text_files_data");
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].dst, "/etc/app/config.json");
+        assert_eq!(data[0].user, "root");
+        assert_eq!(data[0].group, "root");
+        assert_eq!(data[0].permissions, 644);
+
+        let decoded = base64_decode(&data[0].content).expect("should decode");
+        assert_eq!(decoded, r#"{"key": "value"}"#);
+    }
+
+    #[test]
+    fn test_resolve_text_files_relative_path() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        let file_path = dir.path().join("my_file.txt");
+        std::fs::write(&file_path, "hello world").expect("write file");
+
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            text_files: Some(vec![topology::TextFile {
+                src: "my_file.txt".to_string(),
+                dst: "/opt/data/my_file.txt".to_string(),
+                user: "sherpa".to_string(),
+                group: "sherpa".to_string(),
+                permissions: 755,
+            }]),
+            ..Default::default()
+        }]);
+
+        resolve_text_files(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect("resolve should succeed");
+
+        let data = manifest.nodes[0]
+            .text_files_data
+            .as_ref()
+            .expect("should have text_files_data");
+        let decoded = base64_decode(&data[0].content).expect("should decode");
+        assert_eq!(decoded, "hello world");
+    }
+
+    #[test]
+    fn test_resolve_text_files_missing_file_error() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            text_files: Some(vec![topology::TextFile {
+                src: "/nonexistent/path/file.txt".to_string(),
+                dst: "/etc/file.txt".to_string(),
+                user: "root".to_string(),
+                group: "root".to_string(),
+                permissions: 644,
+            }]),
+            ..Default::default()
+        }]);
+
+        let result = resolve_text_files(&mut manifest, "/tmp/manifest.toml");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_resolve_text_files_skips_nodes_without_text_files() {
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            ..Default::default()
+        }]);
+
+        resolve_text_files(&mut manifest, "/tmp/manifest.toml").expect("resolve should succeed");
+
+        assert!(manifest.nodes[0].text_files_data.is_none());
     }
 
     #[test]
