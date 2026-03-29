@@ -857,7 +857,7 @@ fn build_cloud_init_text_files(
         .iter()
         .flatten()
         .map(|file| template::CloudInitWriteFile {
-            path: file.destination.clone(),
+            path: file.dst.clone(),
             content: file.content.clone(),
             permissions: format!("0{}", file.permissions),
             owner: Some(format!("{}:{}", file.user, file.group)),
@@ -874,7 +874,7 @@ fn build_cloudbase_text_files(
         .iter()
         .flatten()
         .map(|file| template::CloudbaseWriteFile {
-            path: file.destination.clone(),
+            path: file.dst.clone(),
             content: file.content.clone(),
             permissions: format!("0{}", file.permissions),
         })
@@ -2079,7 +2079,7 @@ fn generate_ignition_ztp(
         .iter()
         .flatten()
         .map(|file| template::IgnitionFile {
-            path: file.destination.clone(),
+            path: file.dst.clone(),
             mode: file.permissions,
             overwrite: None,
             contents: template::IgnitionFileContents::new(&format!(

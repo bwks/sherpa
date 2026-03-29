@@ -84,8 +84,8 @@ pub struct VolumeMount {
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct TextFile {
-    pub source: String,
-    pub destination: String,
+    pub src: String,
+    pub dst: String,
     pub user: String,
     pub group: String,
     pub permissions: u32,
@@ -94,7 +94,7 @@ pub struct TextFile {
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 pub struct TextFileData {
     pub content: String,
-    pub destination: String,
+    pub dst: String,
     pub user: String,
     pub group: String,
     pub permissions: u32,

@@ -498,7 +498,7 @@ pub(crate) fn resolve_text_files(
 
         let mut file_data = Vec::with_capacity(text_files.len());
         for file in &text_files {
-            let expanded = expand_path(&file.source);
+            let expanded = expand_path(&file.src);
             let expanded_path = Path::new(&expanded);
             let resolved_path = if expanded_path.is_absolute() {
                 expanded_path.to_path_buf()
@@ -513,7 +513,7 @@ pub(crate) fn resolve_text_files(
 
             file_data.push(topology::TextFileData {
                 content: base64_encode(&contents),
-                destination: file.destination.clone(),
+                dst: file.dst.clone(),
                 user: file.user.clone(),
                 group: file.group.clone(),
                 permissions: file.permissions,
