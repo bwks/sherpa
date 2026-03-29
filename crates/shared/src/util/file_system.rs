@@ -14,7 +14,7 @@ pub fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
-// Load a file
+/// Load a file
 pub fn load_file(file_path: &str) -> Result<String> {
     let path = expand_path(file_path);
     let file_contents =
