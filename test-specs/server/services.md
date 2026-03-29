@@ -21,6 +21,7 @@
 - SSH readiness wait with timeout `[integration]` **P1**
 - Lab already exists produces error `[integration]` **P0**
 - Partial failure triggers cleanup/rollback `[integration]` **P0**
+- DB operations use shared AppState connection, not ephemeral connections `[unit]` **P0**
 - Image not found in DB or filesystem produces error `[integration]` **P0**
 
 ---
@@ -67,6 +68,7 @@
 ## Node Redeploy
 
 **What to test:**
+- DB operations use shared AppState connection, not ephemeral connections `[unit]` **P0**
 - Node destroyed and recreated with fresh ZTP config `[integration]` **P0**
 - Old node config directory cleaned up `[integration]` **P1**
 - Networks recreated for VMs `[integration]` **P1**
