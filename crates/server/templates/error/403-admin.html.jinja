@@ -7,13 +7,13 @@
 {% endblock %}
 
 {% block content %}
-<div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-red-100 to-red-200">
+<div class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-red-100 to-red-200 dark:from-red-900/30 dark:to-red-800/30">
     <div class="w-full max-w-[420px]">
-        <div class="bg-white rounded-2xl p-8 shadow-xl">
+        <div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-xl">
             <div class="text-center">
                 <div class="text-6xl mb-4">🚫</div>
-                <h1 class="text-3xl font-bold text-gray-900 mb-4">Access Denied</h1>
-                <p class="text-gray-600 mb-6">
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100 mb-4">Access Denied</h1>
+                <p class="text-gray-600 dark:text-gray-400 mb-6">
                     You don't have permission to access this page. Admin privileges are required.
                 </p>
                 <a href="/" class="inline-block px-6 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 transition-colors">

@@ -8,69 +8,69 @@
 
 {% block content %}
 <!-- Breadcrumb Navigation -->
-<nav class="flex items-center mb-6 text-sm text-gray-600">
-    <a href="/" class="text-blue-600 hover:text-blue-800 hover:underline">Dashboard</a>
+<nav class="flex items-center mb-6 text-sm text-gray-600 dark:text-gray-400">
+    <a href="/" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline">Dashboard</a>
     <span class="mx-2">/</span>
-    <a href="/" class="text-blue-600 hover:text-blue-800 hover:underline">Labs</a>
+    <a href="/" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 hover:underline">Labs</a>
     <span class="mx-2">/</span>
-    <span class="text-gray-900 font-medium">{{ lab_info.name }}</span>
+    <span class="text-gray-900 dark:text-gray-100 font-medium">{{ lab_info.name }}</span>
 </nav>
 
 <!-- Lab Metadata Card -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-    <h2 class="text-xl font-semibold text-gray-900 mb-4">Lab Information</h2>
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mb-6">
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">Lab Information</h2>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">Name</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.name }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Name</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.name }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">ID</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.id }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">ID</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.id }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">Owner</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.user }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Owner</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.user }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">Management Network</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_network }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Management Network</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.ipv4_network }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Gateway</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_gateway }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">IPv4 Gateway</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.ipv4_gateway }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">IPv4 Router</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.ipv4_router }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">IPv4 Router</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.ipv4_router }}</span>
         </div>
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">Loopback Network</span>
-            <span class="block text-base text-gray-900 font-mono">{{ lab_info.loopback_network }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">Loopback Network</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ lab_info.loopback_network }}</span>
         </div>
         {% if let Some(ipv6_network) = lab_info.ipv6_network %}
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Management Network</span>
-            <span class="block text-base text-gray-900 font-mono">{{ ipv6_network }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">IPv6 Management Network</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ ipv6_network }}</span>
         </div>
         {% endif %}
         {% if let Some(ipv6_gateway) = lab_info.ipv6_gateway %}
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Gateway</span>
-            <span class="block text-base text-gray-900 font-mono">{{ ipv6_gateway }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">IPv6 Gateway</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ ipv6_gateway }}</span>
         </div>
         {% endif %}
         {% if let Some(ipv6_router) = lab_info.ipv6_router %}
         <div class="flex flex-col gap-1">
-            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Router</span>
-            <span class="block text-base text-gray-900 font-mono">{{ ipv6_router }}</span>
+            <span class="block text-sm font-medium text-gray-500 dark:text-gray-400 mb-1">IPv6 Router</span>
+            <span class="block text-base text-gray-900 dark:text-gray-100 font-mono">{{ ipv6_router }}</span>
         </div>
         {% endif %}
     </div>
 </div>
 
 <!-- Nodes Section -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
     <div id="nodes-table" hx-get="/labs/{{ lab_info.id }}/nodes" hx-trigger="every 60s" hx-swap="innerHTML">
         {% include "user/partials/nodes-table.html.jinja" %}
     </div>
@@ -78,16 +78,16 @@
 
 <!-- Inactive Nodes Section -->
 {% if inactive_device_count > 0 %}
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-    <h2 class="text-xl font-semibold text-gray-900 mb-4">
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Inactive Nodes
-        <span class="text-base font-normal text-gray-500">
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">
             ({{ inactive_device_count }} total)
         </span>
     </h2>
     <div class="flex flex-wrap gap-2">
         {% for device_name in inactive_devices %}
-        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 font-mono">
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-mono">
             {{ device_name }}
         </span>
         {% endfor %}
@@ -96,52 +96,52 @@
 {% endif %}
 
 <!-- Links Section -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-    <h2 class="text-xl font-semibold text-gray-900 mb-4">
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Links
-        <span class="text-base font-normal text-gray-500">
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">
             ({{ link_count }} total)
         </span>
     </h2>
 
     {% if link_count > 0 %}
     <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Node A
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Interface A
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Node B
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Interface B
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Type
                     </th>
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {% for link in links %}
-                <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                         {{ link.node_a_name }}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
                         {{ link.int_a }}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
                         {{ link.node_b_name }}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
                         {{ link.int_b }}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
                         {{ link.kind }}
                     </td>
                 </tr>
@@ -150,45 +150,45 @@
         </table>
     </div>
     {% else %}
-    <p class="text-center text-gray-500 py-8 italic">No links configured in this lab.</p>
+    <p class="text-center text-gray-500 dark:text-gray-400 py-8 italic">No links configured in this lab.</p>
     {% endif %}
 </div>
 
 <!-- Bridges Section -->
-<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
-    <h2 class="text-xl font-semibold text-gray-900 mb-4">
+<div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 mt-6">
+    <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-4">
         Bridges
-        <span class="text-base font-normal text-gray-500">
+        <span class="text-base font-normal text-gray-500 dark:text-gray-400">
             ({{ bridge_count }} total)
         </span>
     </h2>
 
     {% if bridge_count > 0 %}
     <div class="overflow-x-auto">
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
+        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+            <thead class="bg-gray-50 dark:bg-gray-900">
                 <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Bridge Name
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Network Name
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
                         Connected Nodes
                     </th>
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {% for bridge in bridges %}
-                <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 font-mono">
+                <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100 font-mono">
                         {{ bridge.bridge_name }}
                     </td>
-                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300 font-mono">
                         {{ bridge.network_name }}
                     </td>
-                    <td class="px-6 py-4 text-sm text-gray-700">
+                    <td class="px-6 py-4 text-sm text-gray-700 dark:text-gray-300">
                         {{ bridge.connected_nodes.join(", ") }}
                     </td>
                 </tr>
@@ -197,13 +197,13 @@
         </table>
     </div>
     {% else %}
-    <p class="text-center text-gray-500 py-8 italic">No bridges configured in this lab.</p>
+    <p class="text-center text-gray-500 dark:text-gray-400 py-8 italic">No bridges configured in this lab.</p>
     {% endif %}
 </div>
 
 <!-- Actions -->
 <div class="mt-6 flex items-start space-x-4">
-    <a href="/" class="px-6 py-3 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+    <a href="/" class="px-6 py-3 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
         Back to Dashboard
     </a>
     <div id="destroy-action">
@@ -211,7 +211,7 @@
             hx-get="/labs/{{ lab_info.id }}/destroy/confirm"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="px-6 py-3 text-sm font-medium text-red-600 bg-white border border-red-600 rounded-lg hover:text-white hover:bg-red-600 cursor-pointer transition-colors"
+            class="px-6 py-3 text-sm font-medium text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 border border-red-600 dark:border-red-400 rounded-lg hover:text-white hover:bg-red-600 cursor-pointer transition-colors"
         >
             Destroy Lab
         </button>

@@ -11,72 +11,72 @@
     <!-- Page Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-3xl font-bold text-gray-900">{{ config.model }}</h2>
-            <p class="mt-1 text-sm text-gray-600">Device template configuration details</p>
+            <h2 class="text-3xl font-bold text-gray-900 dark:text-gray-100">{{ config.model }}</h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">Device template configuration details</p>
         </div>
         <div class="flex items-center space-x-3">
             <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" class="inline-block px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
                 Edit Configuration
             </a>
-            <a href="/admin/node-images/{{ config.model }}/versions" class="inline-block px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-800 border border-blue-600 hover:border-blue-800 rounded transition-colors">
+            <a href="/admin/node-images/{{ config.model }}/versions" class="inline-block px-4 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 border border-blue-600 hover:border-blue-800 rounded transition-colors">
                 View All Versions
             </a>
-            <a href="/admin/node-images" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded transition-colors">
+            <a href="/admin/node-images" class="inline-block px-4 py-2 text-sm font-medium text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-700 rounded transition-colors">
                 ← Back to List
             </a>
         </div>
     </div>
 
     <!-- Basic Info Card -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Basic Information</h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Basic Information</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Model:</span>
-                <span class="text-sm text-gray-700 font-medium font-mono">{{ config.model }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Model:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium font-mono">{{ config.model }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Kind:</span>
-                <span class="text-sm text-gray-700 font-medium">
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Kind:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">
                     {% let kind_str = config.kind.to_string() %}
                     {% if kind_str == "virtual_machine" %}
-                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-blue-100 text-blue-800">Virtual Machine</span>
+                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300">Virtual Machine</span>
                     {% else if kind_str == "container" %}
-                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-green-100 text-green-800">Container</span>
+                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">Container</span>
                     {% else if kind_str == "unikernel" %}
-                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-purple-100 text-purple-800">Unikernel</span>
+                        <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-300">Unikernel</span>
                     {% else %}
                         <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide">{{ config.kind }}</span>
                     {% endif %}
                 </span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Version:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.version }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Version:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.version }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Default:</span>
-                <span class="text-sm text-gray-700 font-medium">
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Default:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">
                     {% if config.default %}
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">
                             Yes
                         </span>
                     {% else %}
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200">
                             No
                         </span>
                     {% endif %}
                 </span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">OS Variant:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.os_variant }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">OS Variant:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.os_variant }}</span>
             </div>
             {% match config.repo %}
             {% when Some with (repo_value) %}
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Repository:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ repo_value }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Repository:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ repo_value }}</span>
             </div>
             {% when None %}
             {% endmatch %}
@@ -84,57 +84,57 @@
     </div>
 
     <!-- Hardware Card -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Hardware Configuration</h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Hardware Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">CPU Count:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.cpu_count }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">CPU Count:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.cpu_count }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">CPU Architecture:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.cpu_architecture }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">CPU Architecture:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.cpu_architecture }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">CPU Model:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.cpu_model }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">CPU Model:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.cpu_model }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Memory:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.memory }} MB</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Memory:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.memory }} MB</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Machine Type:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.machine_type }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Machine Type:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.machine_type }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">BIOS:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.bios }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">BIOS:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.bios }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">VMX Enabled:</span>
-                <span class="text-sm text-gray-700 font-medium">{% if config.vmx_enabled %}Yes{% else %}No{% endif %}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">VMX Enabled:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{% if config.vmx_enabled %}Yes{% else %}No{% endif %}</span>
             </div>
         </div>
     </div>
 
     <!-- Storage Card -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Storage Configuration</h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Storage Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">HDD Bus:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.hdd_bus }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">HDD Bus:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.hdd_bus }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">CD-ROM Bus:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.cdrom_bus }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">CD-ROM Bus:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.cdrom_bus }}</span>
             </div>
             {% match config.cdrom %}
             {% when Some with (cdrom_value) %}
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">CD-ROM:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ cdrom_value }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">CD-ROM:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ cdrom_value }}</span>
             </div>
             {% when None %}
             {% endmatch %}
@@ -142,34 +142,34 @@
     </div>
 
     <!-- ZTP Configuration Card -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">ZTP Configuration</h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">ZTP Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">ZTP Enabled:</span>
-                <span class="text-sm text-gray-700 font-medium">{% if config.ztp_enable %}Yes{% else %}No{% endif %}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">ZTP Enabled:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{% if config.ztp_enable %}Yes{% else %}No{% endif %}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">ZTP Method:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.ztp_method }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">ZTP Method:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.ztp_method }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Password Auth:</span>
-                <span class="text-sm text-gray-700 font-medium">{% if config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Password Auth:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{% if config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
             </div>
             {% match config.ztp_username %}
             {% when Some with (username_value) %}
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">ZTP Username:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ username_value }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">ZTP Username:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ username_value }}</span>
             </div>
             {% when None %}
             {% endmatch %}
             {% match config.ztp_password %}
             {% when Some with (password_value) %}
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">ZTP Password:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ password_value }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">ZTP Password:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ password_value }}</span>
             </div>
             {% when None %}
             {% endmatch %}
@@ -177,40 +177,40 @@
     </div>
 
     <!-- Network Configuration Card -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <h3 class="text-lg font-semibold text-gray-900 mb-4">Network Configuration</h3>
+    <div class="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+        <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-4">Network Configuration</h3>
         <div class="grid grid-cols-2 gap-4">
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Data Interfaces:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.data_interface_count }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Data Interfaces:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.data_interface_count }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Interface Prefix:</span>
-                <span class="text-sm text-gray-700 font-medium font-mono">{{ config.interface_prefix }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Interface Prefix:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium font-mono">{{ config.interface_prefix }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Interface Type:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.interface_type }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Interface Type:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.interface_type }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Interface MTU:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.interface_mtu }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Interface MTU:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.interface_mtu }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">First Interface Index:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.first_interface_index }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">First Interface Index:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.first_interface_index }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Dedicated Management:</span>
-                <span class="text-sm text-gray-700 font-medium">{% if config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Dedicated Management:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{% if config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Management Interface:</span>
-                <span class="text-sm text-gray-700 font-medium font-mono">{{ config.management_interface }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Management Interface:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium font-mono">{{ config.management_interface }}</span>
             </div>
             <div class="flex flex-col gap-1">
-                <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide">Reserved Interfaces:</span>
-                <span class="text-sm text-gray-700 font-medium">{{ config.reserved_interface_count }}</span>
+                <span class="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Reserved Interfaces:</span>
+                <span class="text-sm text-gray-700 dark:text-gray-300 font-medium">{{ config.reserved_interface_count }}</span>
             </div>
         </div>
     </div>
