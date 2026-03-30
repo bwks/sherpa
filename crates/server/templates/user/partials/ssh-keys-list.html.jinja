@@ -1,15 +1,15 @@
 <div id="ssh-keys-list">
     {% if ssh_keys.is_empty() %}
-    <p class="text-center text-gray-500 dark:text-gray-400 text-sm py-8 bg-gray-50 dark:bg-gray-700 rounded-md mt-4">No SSH keys added yet.</p>
+    <p class="text-center text-muted text-sm py-8 bg-surface rounded-md mt-4">No SSH keys added yet.</p>
     {% else %}
     <div class="flex flex-col gap-3 mt-6">
         {% for ssh_key in ssh_keys %}
-        <div class="flex items-center justify-between gap-4 p-4 bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md">
+        <div class="flex items-center justify-between gap-4 p-4 bg-surface border border-border rounded-md">
             <div class="flex-1 overflow-hidden">
-                <code class="block font-mono text-xs text-gray-700 dark:text-gray-300 whitespace-nowrap overflow-hidden text-ellipsis bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600">{{ ssh_key }}</code>
+                <code class="block font-mono text-xs text-body whitespace-nowrap overflow-hidden text-ellipsis bg-card p-2 rounded border border-border">{{ ssh_key }}</code>
             </div>
             <button
-                class="px-3.5 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700 cursor-pointer active:scale-[0.98] transition-all"
+                class="px-3.5 py-1.5 text-xs font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover cursor-pointer active:scale-[0.98] transition-all"
                 hx-delete="/profile/ssh-keys/{{ loop.index0 }}"
                 hx-target="#ssh-keys-list"
                 hx-swap="outerHTML"

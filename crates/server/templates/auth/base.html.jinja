@@ -17,19 +17,19 @@
     <!-- Custom Styles -->
     <link rel="stylesheet" href="/css/styles.css">
 </head>
-<body class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-white to-sky-300 dark:from-gray-900 dark:to-sky-900">
+<body class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-page to-accent-light">
     <div class="w-full max-w-[420px]">
         <!-- Logo -->
         <div class="mb-8">
-            <div class="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center mx-auto mb-4">
+            <div class="w-16 h-16 bg-gradient-to-br from-logo-from to-logo-to rounded-lg flex items-center justify-center mx-auto mb-4">
                 <span class="text-white font-bold text-3xl">S</span>
             </div>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-gray-100 text-center">Sherpa Labs</h1>
-            <p class="text-gray-600 dark:text-gray-400 text-center mt-2">{% block subtitle %}{% endblock %}</p>
+            <h1 class="text-3xl font-bold text-heading text-center">Sherpa Labs</h1>
+            <p class="text-muted text-center mt-2">{% block subtitle %}{% endblock %}</p>
         </div>
 
         <!-- Auth Card -->
-        <div class="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-xl">
+        <div class="bg-card rounded-2xl p-8 shadow-xl">
             <!-- Error/Message Display -->
             <div id="auth-message" class="mb-4">
                 {% block messages %}{% endblock %}
@@ -39,7 +39,7 @@
             {% block content %}{% endblock %}
 
             <!-- Footer Links -->
-            <div class="mt-6 text-center text-sm text-gray-600 dark:text-gray-400">
+            <div class="mt-6 text-center text-sm text-muted">
                 {% block footer_links %}{% endblock %}
             </div>
         </div>

@@ -1,5 +1,5 @@
-<div class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-6 max-h-[400px] overflow-y-auto" hx-ext="sse" sse-connect="/labs/{{ lab_id }}/destroy/stream">
-    <h3 class="text-lg font-semibold text-gray-900 dark:text-gray-100 mb-3">Destroying Lab...</h3>
+<div class="bg-surface border border-border rounded-lg p-6 max-h-[400px] overflow-y-auto" hx-ext="sse" sse-connect="/labs/{{ lab_id }}/destroy/stream">
+    <h3 class="text-lg font-semibold text-heading mb-3">Destroying Lab...</h3>
     <div id="destroy-progress-lines" sse-swap="progress" hx-swap="beforeend"></div>
     <div sse-swap="complete" hx-swap="innerHTML"></div>
 </div>

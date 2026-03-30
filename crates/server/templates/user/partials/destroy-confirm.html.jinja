@@ -1,13 +1,13 @@
-<div class="bg-red-50 dark:bg-red-900/40 border border-red-200 dark:border-red-700 rounded-lg p-6">
+<div class="bg-alert-error border border-alert-error-border rounded-lg p-6">
     <div class="flex items-start space-x-3 mb-4">
         <span class="text-2xl">&#9888;&#65039;</span>
         <div>
-            <h3 class="text-lg font-semibold text-red-700 dark:text-red-300">Destroy Lab "{{ lab_name }}"?</h3>
-            <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <h3 class="text-lg font-semibold text-alert-error-text">Destroy Lab "{{ lab_name }}"?</h3>
+            <p class="text-sm text-muted mt-1">
                 This will permanently destroy <strong>{{ device_count }}</strong> device(s) and all associated resources
                 (networks, disks, interfaces, database records, and lab files).
             </p>
-            <p class="text-sm text-red-600 dark:text-red-400 font-medium mt-2">This action cannot be undone.</p>
+            <p class="text-sm text-danger-text font-medium mt-2">This action cannot be undone.</p>
         </div>
     </div>
     <div class="flex space-x-3">
@@ -15,7 +15,7 @@
             hx-post="/labs/{{ lab_id }}/destroy"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-lg hover:bg-red-700 transition-colors"
+            class="px-4 py-2 text-sm font-medium text-white bg-danger-solid rounded-lg hover:bg-danger-solid-hover transition-colors"
         >
             Confirm Destroy
         </button>
@@ -23,7 +23,7 @@
             hx-get="/labs/{{ lab_id }}/destroy/button"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+            class="px-4 py-2 text-sm font-medium text-body bg-card border border-border-strong rounded-lg hover:bg-hover transition-colors"
         >
             Cancel
         </button>

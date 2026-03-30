@@ -3,3 +3,718 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @source "../../templates/**/*.jinja";
+
+/* ============================================================================
+   Semantic colour tokens — templates use these as utilities:
+   bg-page, text-heading, border-border, bg-accent, etc.
+   ============================================================================ */
+@theme {
+  --color-page: var(--t-page);
+  --color-card: var(--t-card);
+  --color-surface: var(--t-surface);
+  --color-hover: var(--t-hover);
+
+  --color-heading: var(--t-heading);
+  --color-body: var(--t-body);
+  --color-body-secondary: var(--t-body-secondary);
+  --color-muted: var(--t-muted);
+  --color-subtle: var(--t-subtle);
+
+  --color-border: var(--t-border);
+  --color-border-strong: var(--t-border-strong);
+
+  --color-accent: var(--t-accent);
+  --color-accent-hover: var(--t-accent-hover);
+  --color-accent-light: var(--t-accent-light);
+  --color-accent-lt-txt: var(--t-accent-lt-txt);
+
+  --color-header: var(--t-header);
+  --color-header-border: var(--t-header-border);
+  --color-header-text: var(--t-header-text);
+  --color-header-link: var(--t-header-link);
+  --color-header-link-hover: var(--t-header-link-hover);
+
+  --color-logo-from: var(--t-logo-from);
+  --color-logo-to: var(--t-logo-to);
+
+  --color-success: var(--t-success);
+  --color-success-text: var(--t-success-text);
+  --color-warning: var(--t-warning);
+  --color-warning-text: var(--t-warning-text);
+  --color-danger: var(--t-danger);
+  --color-danger-text: var(--t-danger-text);
+  --color-danger-solid: var(--t-danger-solid);
+  --color-danger-solid-hover: var(--t-danger-solid-hover);
+  --color-neutral-badge: var(--t-neutral-badge);
+  --color-neutral-badge-text: var(--t-neutral-badge-text);
+
+  --color-kind-vm: var(--t-kind-vm);
+  --color-kind-vm-text: var(--t-kind-vm-text);
+  --color-kind-container: var(--t-kind-container);
+  --color-kind-ctr-text: var(--t-kind-ctr-text);
+  --color-kind-unikernel: var(--t-kind-unikernel);
+  --color-kind-uni-text: var(--t-kind-uni-text);
+
+  --color-info: var(--t-info);
+  --color-info-text: var(--t-info-text);
+  --color-info-border: var(--t-info-border);
+  --color-alert-success: var(--t-alert-success);
+  --color-alert-success-text: var(--t-alert-success-text);
+  --color-alert-success-border: var(--t-alert-success-border);
+  --color-alert-error: var(--t-alert-error);
+  --color-alert-error-text: var(--t-alert-error-text);
+  --color-alert-error-border: var(--t-alert-error-border);
+
+  --color-auth-from: var(--t-auth-from);
+  --color-auth-to: var(--t-auth-to);
+}
+
+/* ============================================================================
+   Theme 1: Zinc + Emerald (DEFAULT)
+   Clean and technical. Pure grays with green accents.
+   ============================================================================ */
+:root,
+:root.theme-zinc-emerald {
+  --t-page: #fafafa;
+  --t-card: #ffffff;
+  --t-surface: #f4f4f5;
+  --t-hover: #f4f4f5;
+  --t-heading: #18181b;
+  --t-body: #3f3f46;
+  --t-body-secondary: #52525b;
+  --t-muted: #71717a;
+  --t-subtle: #a1a1aa;
+  --t-border: #e4e4e7;
+  --t-border-strong: #d4d4d8;
+  --t-accent: #059669;
+  --t-accent-hover: #047857;
+  --t-accent-light: #d1fae5;
+  --t-accent-lt-txt: #065f46;
+  --t-header: #27272a;
+  --t-header-border: #3f3f46;
+  --t-header-text: #f4f4f5;
+  --t-header-link: #a1a1aa;
+  --t-header-link-hover: #f4f4f5;
+  --t-logo-from: #10b981;
+  --t-logo-to: #059669;
+  --t-success: #d1fae5;
+  --t-success-text: #065f46;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #b91c1c;
+  --t-neutral-badge: #f4f4f5;
+  --t-neutral-badge-text: #52525b;
+  --t-kind-vm: #dbeafe;
+  --t-kind-vm-text: #1e40af;
+  --t-kind-container: #d1fae5;
+  --t-kind-ctr-text: #065f46;
+  --t-kind-unikernel: #f3e8ff;
+  --t-kind-uni-text: #6b21a8;
+  --t-info: #eff6ff;
+  --t-info-text: #1d4ed8;
+  --t-info-border: #bfdbfe;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fef2f2;
+  --t-alert-error-text: #b91c1c;
+  --t-alert-error-border: #fecaca;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #a7f3d0;
+}
+
+:root.dark,
+:root.dark.theme-zinc-emerald {
+  --t-page: #18181b;
+  --t-card: #27272a;
+  --t-surface: #18181b;
+  --t-hover: #3f3f46;
+  --t-heading: #f4f4f5;
+  --t-body: #d4d4d8;
+  --t-body-secondary: #a1a1aa;
+  --t-muted: #a1a1aa;
+  --t-subtle: #71717a;
+  --t-border: #3f3f46;
+  --t-border-strong: #52525b;
+  --t-accent: #34d399;
+  --t-accent-hover: #6ee7b7;
+  --t-accent-light: rgba(5, 150, 105, 0.2);
+  --t-accent-lt-txt: #6ee7b7;
+  --t-header: #18181b;
+  --t-header-border: #3f3f46;
+  --t-header-text: #f4f4f5;
+  --t-header-link: #a1a1aa;
+  --t-header-link-hover: #f4f4f5;
+  --t-logo-from: #34d399;
+  --t-logo-to: #10b981;
+  --t-success: rgba(5, 150, 105, 0.25);
+  --t-success-text: #6ee7b7;
+  --t-warning: rgba(202, 138, 4, 0.25);
+  --t-warning-text: #fde047;
+  --t-danger: rgba(220, 38, 38, 0.25);
+  --t-danger-text: #fca5a5;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #ef4444;
+  --t-neutral-badge: #3f3f46;
+  --t-neutral-badge-text: #a1a1aa;
+  --t-kind-vm: rgba(59, 130, 246, 0.2);
+  --t-kind-vm-text: #93c5fd;
+  --t-kind-container: rgba(5, 150, 105, 0.2);
+  --t-kind-ctr-text: #6ee7b7;
+  --t-kind-unikernel: rgba(168, 85, 247, 0.2);
+  --t-kind-uni-text: #d8b4fe;
+  --t-info: rgba(59, 130, 246, 0.15);
+  --t-info-text: #93c5fd;
+  --t-info-border: rgba(59, 130, 246, 0.3);
+  --t-alert-success: rgba(5, 150, 105, 0.15);
+  --t-alert-success-text: #6ee7b7;
+  --t-alert-success-border: rgba(5, 150, 105, 0.3);
+  --t-alert-error: rgba(220, 38, 38, 0.15);
+  --t-alert-error-text: #fca5a5;
+  --t-alert-error-border: rgba(220, 38, 38, 0.3);
+  --t-auth-from: #18181b;
+  --t-auth-to: #064e3b;
+}
+
+/* ============================================================================
+   Theme 2: Slate + Indigo
+   Cool, professional. Blue-tinted grays with rich indigo accents.
+   ============================================================================ */
+:root.theme-slate-indigo {
+  --t-page: #f8fafc;
+  --t-card: #ffffff;
+  --t-surface: #f1f5f9;
+  --t-hover: #f1f5f9;
+  --t-heading: #0f172a;
+  --t-body: #334155;
+  --t-body-secondary: #475569;
+  --t-muted: #64748b;
+  --t-subtle: #94a3b8;
+  --t-border: #e2e8f0;
+  --t-border-strong: #cbd5e1;
+  --t-accent: #4f46e5;
+  --t-accent-hover: #4338ca;
+  --t-accent-light: #e0e7ff;
+  --t-accent-lt-txt: #3730a3;
+  --t-header: #1e293b;
+  --t-header-border: #334155;
+  --t-header-text: #f1f5f9;
+  --t-header-link: #94a3b8;
+  --t-header-link-hover: #f1f5f9;
+  --t-logo-from: #6366f1;
+  --t-logo-to: #4f46e5;
+  --t-success: #d1fae5;
+  --t-success-text: #065f46;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #b91c1c;
+  --t-neutral-badge: #f1f5f9;
+  --t-neutral-badge-text: #475569;
+  --t-kind-vm: #dbeafe;
+  --t-kind-vm-text: #1e40af;
+  --t-kind-container: #d1fae5;
+  --t-kind-ctr-text: #065f46;
+  --t-kind-unikernel: #f3e8ff;
+  --t-kind-uni-text: #6b21a8;
+  --t-info: #eff6ff;
+  --t-info-text: #1d4ed8;
+  --t-info-border: #bfdbfe;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fef2f2;
+  --t-alert-error-text: #b91c1c;
+  --t-alert-error-border: #fecaca;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #c7d2fe;
+}
+
+:root.dark.theme-slate-indigo {
+  --t-page: #0f172a;
+  --t-card: #1e293b;
+  --t-surface: #0f172a;
+  --t-hover: #334155;
+  --t-heading: #f1f5f9;
+  --t-body: #cbd5e1;
+  --t-body-secondary: #94a3b8;
+  --t-muted: #94a3b8;
+  --t-subtle: #64748b;
+  --t-border: #334155;
+  --t-border-strong: #475569;
+  --t-accent: #818cf8;
+  --t-accent-hover: #a5b4fc;
+  --t-accent-light: rgba(79, 70, 229, 0.2);
+  --t-accent-lt-txt: #a5b4fc;
+  --t-header: #0f172a;
+  --t-header-border: #334155;
+  --t-header-text: #f1f5f9;
+  --t-header-link: #94a3b8;
+  --t-header-link-hover: #f1f5f9;
+  --t-logo-from: #818cf8;
+  --t-logo-to: #6366f1;
+  --t-success: rgba(5, 150, 105, 0.25);
+  --t-success-text: #6ee7b7;
+  --t-warning: rgba(202, 138, 4, 0.25);
+  --t-warning-text: #fde047;
+  --t-danger: rgba(220, 38, 38, 0.25);
+  --t-danger-text: #fca5a5;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #ef4444;
+  --t-neutral-badge: #334155;
+  --t-neutral-badge-text: #94a3b8;
+  --t-kind-vm: rgba(59, 130, 246, 0.2);
+  --t-kind-vm-text: #93c5fd;
+  --t-kind-container: rgba(5, 150, 105, 0.2);
+  --t-kind-ctr-text: #6ee7b7;
+  --t-kind-unikernel: rgba(168, 85, 247, 0.2);
+  --t-kind-uni-text: #d8b4fe;
+  --t-info: rgba(59, 130, 246, 0.15);
+  --t-info-text: #93c5fd;
+  --t-info-border: rgba(59, 130, 246, 0.3);
+  --t-alert-success: rgba(5, 150, 105, 0.15);
+  --t-alert-success-text: #6ee7b7;
+  --t-alert-success-border: rgba(5, 150, 105, 0.3);
+  --t-alert-error: rgba(220, 38, 38, 0.15);
+  --t-alert-error-text: #fca5a5;
+  --t-alert-error-border: rgba(220, 38, 38, 0.3);
+  --t-auth-from: #0f172a;
+  --t-auth-to: #312e81;
+}
+
+/* ============================================================================
+   Theme 3: Slate + Sky (Refined)
+   Familiar blue accent with polished slate grays.
+   ============================================================================ */
+:root.theme-slate-sky {
+  --t-page: #f8fafc;
+  --t-card: #ffffff;
+  --t-surface: #f1f5f9;
+  --t-hover: #f1f5f9;
+  --t-heading: #0f172a;
+  --t-body: #334155;
+  --t-body-secondary: #475569;
+  --t-muted: #64748b;
+  --t-subtle: #94a3b8;
+  --t-border: #e2e8f0;
+  --t-border-strong: #cbd5e1;
+  --t-accent: #0284c7;
+  --t-accent-hover: #0369a1;
+  --t-accent-light: #e0f2fe;
+  --t-accent-lt-txt: #075985;
+  --t-header: #1e293b;
+  --t-header-border: #334155;
+  --t-header-text: #f1f5f9;
+  --t-header-link: #94a3b8;
+  --t-header-link-hover: #f1f5f9;
+  --t-logo-from: #0ea5e9;
+  --t-logo-to: #0284c7;
+  --t-success: #d1fae5;
+  --t-success-text: #065f46;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #b91c1c;
+  --t-neutral-badge: #f1f5f9;
+  --t-neutral-badge-text: #475569;
+  --t-kind-vm: #dbeafe;
+  --t-kind-vm-text: #1e40af;
+  --t-kind-container: #d1fae5;
+  --t-kind-ctr-text: #065f46;
+  --t-kind-unikernel: #f3e8ff;
+  --t-kind-uni-text: #6b21a8;
+  --t-info: #eff6ff;
+  --t-info-text: #1d4ed8;
+  --t-info-border: #bfdbfe;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fef2f2;
+  --t-alert-error-text: #b91c1c;
+  --t-alert-error-border: #fecaca;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #bae6fd;
+}
+
+:root.dark.theme-slate-sky {
+  --t-page: #0f172a;
+  --t-card: #1e293b;
+  --t-surface: #0f172a;
+  --t-hover: #334155;
+  --t-heading: #f1f5f9;
+  --t-body: #cbd5e1;
+  --t-body-secondary: #94a3b8;
+  --t-muted: #94a3b8;
+  --t-subtle: #64748b;
+  --t-border: #334155;
+  --t-border-strong: #475569;
+  --t-accent: #38bdf8;
+  --t-accent-hover: #7dd3fc;
+  --t-accent-light: rgba(2, 132, 199, 0.2);
+  --t-accent-lt-txt: #7dd3fc;
+  --t-header: #0f172a;
+  --t-header-border: #334155;
+  --t-header-text: #f1f5f9;
+  --t-header-link: #94a3b8;
+  --t-header-link-hover: #f1f5f9;
+  --t-logo-from: #38bdf8;
+  --t-logo-to: #0ea5e9;
+  --t-success: rgba(5, 150, 105, 0.25);
+  --t-success-text: #6ee7b7;
+  --t-warning: rgba(202, 138, 4, 0.25);
+  --t-warning-text: #fde047;
+  --t-danger: rgba(220, 38, 38, 0.25);
+  --t-danger-text: #fca5a5;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #ef4444;
+  --t-neutral-badge: #334155;
+  --t-neutral-badge-text: #94a3b8;
+  --t-kind-vm: rgba(59, 130, 246, 0.2);
+  --t-kind-vm-text: #93c5fd;
+  --t-kind-container: rgba(5, 150, 105, 0.2);
+  --t-kind-ctr-text: #6ee7b7;
+  --t-kind-unikernel: rgba(168, 85, 247, 0.2);
+  --t-kind-uni-text: #d8b4fe;
+  --t-info: rgba(59, 130, 246, 0.15);
+  --t-info-text: #93c5fd;
+  --t-info-border: rgba(59, 130, 246, 0.3);
+  --t-alert-success: rgba(5, 150, 105, 0.15);
+  --t-alert-success-text: #6ee7b7;
+  --t-alert-success-border: rgba(5, 150, 105, 0.3);
+  --t-alert-error: rgba(220, 38, 38, 0.15);
+  --t-alert-error-text: #fca5a5;
+  --t-alert-error-border: rgba(220, 38, 38, 0.3);
+  --t-auth-from: #0f172a;
+  --t-auth-to: #0c4a6e;
+}
+
+/* ============================================================================
+   Theme 4: Stone + Amber
+   Warm and approachable. Earthy grays with amber/gold accents.
+   ============================================================================ */
+:root.theme-stone-amber {
+  --t-page: #fafaf9;
+  --t-card: #ffffff;
+  --t-surface: #f5f5f4;
+  --t-hover: #f5f5f4;
+  --t-heading: #1c1917;
+  --t-body: #44403c;
+  --t-body-secondary: #57534e;
+  --t-muted: #78716c;
+  --t-subtle: #a8a29e;
+  --t-border: #e7e5e4;
+  --t-border-strong: #d6d3d1;
+  --t-accent: #d97706;
+  --t-accent-hover: #b45309;
+  --t-accent-light: #fef3c7;
+  --t-accent-lt-txt: #92400e;
+  --t-header: #292524;
+  --t-header-border: #44403c;
+  --t-header-text: #f5f5f4;
+  --t-header-link: #a8a29e;
+  --t-header-link-hover: #f5f5f4;
+  --t-logo-from: #f59e0b;
+  --t-logo-to: #d97706;
+  --t-success: #d1fae5;
+  --t-success-text: #065f46;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #b91c1c;
+  --t-neutral-badge: #f5f5f4;
+  --t-neutral-badge-text: #57534e;
+  --t-kind-vm: #dbeafe;
+  --t-kind-vm-text: #1e40af;
+  --t-kind-container: #d1fae5;
+  --t-kind-ctr-text: #065f46;
+  --t-kind-unikernel: #f3e8ff;
+  --t-kind-uni-text: #6b21a8;
+  --t-info: #eff6ff;
+  --t-info-text: #1d4ed8;
+  --t-info-border: #bfdbfe;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fef2f2;
+  --t-alert-error-text: #b91c1c;
+  --t-alert-error-border: #fecaca;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #fde68a;
+}
+
+:root.dark.theme-stone-amber {
+  --t-page: #1c1917;
+  --t-card: #292524;
+  --t-surface: #1c1917;
+  --t-hover: #44403c;
+  --t-heading: #f5f5f4;
+  --t-body: #d6d3d1;
+  --t-body-secondary: #a8a29e;
+  --t-muted: #a8a29e;
+  --t-subtle: #78716c;
+  --t-border: #44403c;
+  --t-border-strong: #57534e;
+  --t-accent: #fbbf24;
+  --t-accent-hover: #fde047;
+  --t-accent-light: rgba(217, 119, 6, 0.2);
+  --t-accent-lt-txt: #fde047;
+  --t-header: #1c1917;
+  --t-header-border: #44403c;
+  --t-header-text: #f5f5f4;
+  --t-header-link: #a8a29e;
+  --t-header-link-hover: #f5f5f4;
+  --t-logo-from: #fbbf24;
+  --t-logo-to: #f59e0b;
+  --t-success: rgba(5, 150, 105, 0.25);
+  --t-success-text: #6ee7b7;
+  --t-warning: rgba(202, 138, 4, 0.25);
+  --t-warning-text: #fde047;
+  --t-danger: rgba(220, 38, 38, 0.25);
+  --t-danger-text: #fca5a5;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #ef4444;
+  --t-neutral-badge: #44403c;
+  --t-neutral-badge-text: #a8a29e;
+  --t-kind-vm: rgba(59, 130, 246, 0.2);
+  --t-kind-vm-text: #93c5fd;
+  --t-kind-container: rgba(5, 150, 105, 0.2);
+  --t-kind-ctr-text: #6ee7b7;
+  --t-kind-unikernel: rgba(168, 85, 247, 0.2);
+  --t-kind-uni-text: #d8b4fe;
+  --t-info: rgba(59, 130, 246, 0.15);
+  --t-info-text: #93c5fd;
+  --t-info-border: rgba(59, 130, 246, 0.3);
+  --t-alert-success: rgba(5, 150, 105, 0.15);
+  --t-alert-success-text: #6ee7b7;
+  --t-alert-success-border: rgba(5, 150, 105, 0.3);
+  --t-alert-error: rgba(220, 38, 38, 0.15);
+  --t-alert-error-text: #fca5a5;
+  --t-alert-error-border: rgba(220, 38, 38, 0.3);
+  --t-auth-from: #1c1917;
+  --t-auth-to: #78350f;
+}
+
+/* ============================================================================
+   Theme 5: Neon Cyber (Zinc + Cyan/Fuchsia)
+   Dark-first cyberpunk aesthetic. Electric neon accents.
+   ============================================================================ */
+:root.theme-neon-cyber {
+  --t-page: #fafafa;
+  --t-card: #ffffff;
+  --t-surface: #f4f4f5;
+  --t-hover: #f4f4f5;
+  --t-heading: #18181b;
+  --t-body: #3f3f46;
+  --t-body-secondary: #52525b;
+  --t-muted: #71717a;
+  --t-subtle: #a1a1aa;
+  --t-border: #e4e4e7;
+  --t-border-strong: #d4d4d8;
+  --t-accent: #0891b2;
+  --t-accent-hover: #0e7490;
+  --t-accent-light: #cffafe;
+  --t-accent-lt-txt: #155e75;
+  --t-header: #18181b;
+  --t-header-border: #3f3f46;
+  --t-header-text: #22d3ee;
+  --t-header-link: #a1a1aa;
+  --t-header-link-hover: #22d3ee;
+  --t-logo-from: #22d3ee;
+  --t-logo-to: #d946ef;
+  --t-success: #d1fae5;
+  --t-success-text: #065f46;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #e11d48;
+  --t-danger-solid-hover: #be123c;
+  --t-neutral-badge: #f4f4f5;
+  --t-neutral-badge-text: #52525b;
+  --t-kind-vm: #cffafe;
+  --t-kind-vm-text: #155e75;
+  --t-kind-container: #d1fae5;
+  --t-kind-ctr-text: #065f46;
+  --t-kind-unikernel: #fae8ff;
+  --t-kind-uni-text: #86198f;
+  --t-info: #ecfeff;
+  --t-info-text: #0e7490;
+  --t-info-border: #a5f3fc;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fff1f2;
+  --t-alert-error-text: #be123c;
+  --t-alert-error-border: #fecdd3;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #a5f3fc;
+}
+
+:root.dark.theme-neon-cyber {
+  --t-page: #09090b;
+  --t-card: #18181b;
+  --t-surface: #09090b;
+  --t-hover: #27272a;
+  --t-heading: #fafafa;
+  --t-body: #d4d4d8;
+  --t-body-secondary: #a1a1aa;
+  --t-muted: #71717a;
+  --t-subtle: #52525b;
+  --t-border: #27272a;
+  --t-border-strong: #3f3f46;
+  --t-accent: #22d3ee;
+  --t-accent-hover: #67e8f9;
+  --t-accent-light: rgba(6, 182, 212, 0.15);
+  --t-accent-lt-txt: #67e8f9;
+  --t-header: #09090b;
+  --t-header-border: rgba(6, 182, 212, 0.3);
+  --t-header-text: #22d3ee;
+  --t-header-link: #71717a;
+  --t-header-link-hover: #22d3ee;
+  --t-logo-from: #22d3ee;
+  --t-logo-to: #d946ef;
+  --t-success: rgba(16, 185, 129, 0.2);
+  --t-success-text: #34d399;
+  --t-warning: rgba(245, 158, 11, 0.2);
+  --t-warning-text: #fbbf24;
+  --t-danger: rgba(225, 29, 72, 0.2);
+  --t-danger-text: #fb7185;
+  --t-danger-solid: #e11d48;
+  --t-danger-solid-hover: #f43f5e;
+  --t-neutral-badge: #27272a;
+  --t-neutral-badge-text: #71717a;
+  --t-kind-vm: rgba(6, 182, 212, 0.15);
+  --t-kind-vm-text: #22d3ee;
+  --t-kind-container: rgba(16, 185, 129, 0.15);
+  --t-kind-ctr-text: #34d399;
+  --t-kind-unikernel: rgba(217, 70, 239, 0.15);
+  --t-kind-uni-text: #e879f9;
+  --t-info: rgba(6, 182, 212, 0.1);
+  --t-info-text: #22d3ee;
+  --t-info-border: rgba(6, 182, 212, 0.3);
+  --t-alert-success: rgba(16, 185, 129, 0.1);
+  --t-alert-success-text: #34d399;
+  --t-alert-success-border: rgba(16, 185, 129, 0.3);
+  --t-alert-error: rgba(225, 29, 72, 0.1);
+  --t-alert-error-text: #fb7185;
+  --t-alert-error-border: rgba(225, 29, 72, 0.3);
+  --t-auth-from: #09090b;
+  --t-auth-to: #164e63;
+}
+
+/* ============================================================================
+   Theme 6: Neon Matrix (Zinc + Lime/Green)
+   Hacker-terminal energy. Deep blacks with electric green.
+   ============================================================================ */
+:root.theme-neon-matrix {
+  --t-page: #fafafa;
+  --t-card: #ffffff;
+  --t-surface: #f4f4f5;
+  --t-hover: #f4f4f5;
+  --t-heading: #18181b;
+  --t-body: #3f3f46;
+  --t-body-secondary: #52525b;
+  --t-muted: #71717a;
+  --t-subtle: #a1a1aa;
+  --t-border: #e4e4e7;
+  --t-border-strong: #d4d4d8;
+  --t-accent: #16a34a;
+  --t-accent-hover: #15803d;
+  --t-accent-light: #dcfce7;
+  --t-accent-lt-txt: #166534;
+  --t-header: #18181b;
+  --t-header-border: #3f3f46;
+  --t-header-text: #a3e635;
+  --t-header-link: #a1a1aa;
+  --t-header-link-hover: #a3e635;
+  --t-logo-from: #a3e635;
+  --t-logo-to: #22c55e;
+  --t-success: #dcfce7;
+  --t-success-text: #166534;
+  --t-warning: #fef9c3;
+  --t-warning-text: #854d0e;
+  --t-danger: #fee2e2;
+  --t-danger-text: #991b1b;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #b91c1c;
+  --t-neutral-badge: #f4f4f5;
+  --t-neutral-badge-text: #52525b;
+  --t-kind-vm: #dbeafe;
+  --t-kind-vm-text: #1e40af;
+  --t-kind-container: #dcfce7;
+  --t-kind-ctr-text: #166534;
+  --t-kind-unikernel: #f3e8ff;
+  --t-kind-uni-text: #6b21a8;
+  --t-info: #f0fdf4;
+  --t-info-text: #15803d;
+  --t-info-border: #bbf7d0;
+  --t-alert-success: #f0fdf4;
+  --t-alert-success-text: #166534;
+  --t-alert-success-border: #bbf7d0;
+  --t-alert-error: #fef2f2;
+  --t-alert-error-text: #b91c1c;
+  --t-alert-error-border: #fecaca;
+  --t-auth-from: #ffffff;
+  --t-auth-to: #bbf7d0;
+}
+
+:root.dark.theme-neon-matrix {
+  --t-page: #09090b;
+  --t-card: #18181b;
+  --t-surface: #09090b;
+  --t-hover: #27272a;
+  --t-heading: #fafafa;
+  --t-body: #d4d4d8;
+  --t-body-secondary: #a1a1aa;
+  --t-muted: #71717a;
+  --t-subtle: #52525b;
+  --t-border: #27272a;
+  --t-border-strong: #3f3f46;
+  --t-accent: #a3e635;
+  --t-accent-hover: #bef264;
+  --t-accent-light: rgba(34, 197, 94, 0.15);
+  --t-accent-lt-txt: #86efac;
+  --t-header: #09090b;
+  --t-header-border: rgba(34, 197, 94, 0.3);
+  --t-header-text: #a3e635;
+  --t-header-link: #71717a;
+  --t-header-link-hover: #a3e635;
+  --t-logo-from: #a3e635;
+  --t-logo-to: #22c55e;
+  --t-success: rgba(34, 197, 94, 0.2);
+  --t-success-text: #4ade80;
+  --t-warning: rgba(234, 179, 8, 0.2);
+  --t-warning-text: #facc15;
+  --t-danger: rgba(220, 38, 38, 0.2);
+  --t-danger-text: #fca5a5;
+  --t-danger-solid: #dc2626;
+  --t-danger-solid-hover: #ef4444;
+  --t-neutral-badge: #27272a;
+  --t-neutral-badge-text: #71717a;
+  --t-kind-vm: rgba(59, 130, 246, 0.15);
+  --t-kind-vm-text: #93c5fd;
+  --t-kind-container: rgba(34, 197, 94, 0.15);
+  --t-kind-ctr-text: #4ade80;
+  --t-kind-unikernel: rgba(168, 85, 247, 0.15);
+  --t-kind-uni-text: #d8b4fe;
+  --t-info: rgba(34, 197, 94, 0.1);
+  --t-info-text: #4ade80;
+  --t-info-border: rgba(34, 197, 94, 0.3);
+  --t-alert-success: rgba(34, 197, 94, 0.1);
+  --t-alert-success-text: #4ade80;
+  --t-alert-success-border: rgba(34, 197, 94, 0.3);
+  --t-alert-error: rgba(220, 38, 38, 0.1);
+  --t-alert-error-text: #fca5a5;
+  --t-alert-error-border: rgba(220, 38, 38, 0.3);
+  --t-auth-from: #09090b;
+  --t-auth-to: #14532d;
+}
