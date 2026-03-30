@@ -48,6 +48,24 @@
             <span class="block text-sm font-medium text-gray-500 mb-1">Loopback Network</span>
             <span class="block text-base text-gray-900 font-mono">{{ lab_info.loopback_network }}</span>
         </div>
+        {% if let Some(ipv6_network) = lab_info.ipv6_network %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Management Network</span>
+            <span class="block text-base text-gray-900 font-mono">{{ ipv6_network }}</span>
+        </div>
+        {% endif %}
+        {% if let Some(ipv6_gateway) = lab_info.ipv6_gateway %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Gateway</span>
+            <span class="block text-base text-gray-900 font-mono">{{ ipv6_gateway }}</span>
+        </div>
+        {% endif %}
+        {% if let Some(ipv6_router) = lab_info.ipv6_router %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-gray-500 mb-1">IPv6 Router</span>
+            <span class="block text-base text-gray-900 font-mono">{{ ipv6_router }}</span>
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -57,6 +75,25 @@
         {% include "user/partials/nodes-table.html.jinja" %}
     </div>
 </div>
+
+<!-- Inactive Nodes Section -->
+{% if inactive_device_count > 0 %}
+<div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">
+    <h2 class="text-xl font-semibold text-gray-900 mb-4">
+        Inactive Nodes
+        <span class="text-base font-normal text-gray-500">
+            ({{ inactive_device_count }} total)
+        </span>
+    </h2>
+    <div class="flex flex-wrap gap-2">
+        {% for device_name in inactive_devices %}
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 font-mono">
+            {{ device_name }}
+        </span>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
 
 <!-- Links Section -->
 <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mt-6">

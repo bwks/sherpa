@@ -23,7 +23,13 @@
                     State
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Management IP
+                    Mgmt IPv4
+                </th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Mgmt IPv6
+                </th>
+                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    VNC Port
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Disks
@@ -67,8 +73,14 @@
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
                     {% if device.mgmt_ipv4 != "" %}{{ device.mgmt_ipv4 }}{% else %}-{% endif %}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
-                    {% if device.disks.is_empty() %}-{% else %}✓{% endif %}
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    {% if let Some(ipv6) = device.mgmt_ipv6 %}{{ ipv6 }}{% else %}-{% endif %}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700 font-mono">
+                    {% if let Some(port) = device.vnc_port %}{{ port }}{% else %}-{% endif %}
+                </td>
+                <td class="px-6 py-4 text-sm text-gray-700 font-mono">
+                    {% if device.disks.is_empty() %}-{% else %}{{ device.disks.join(", ") }}{% endif %}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
                     {% if device.state.to_string() == "running" %}

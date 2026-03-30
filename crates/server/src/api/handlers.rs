@@ -1116,6 +1116,7 @@ pub async fn lab_detail_handler(
                 auth.username
             );
             let device_count = response.devices.len();
+            let inactive_device_count = response.inactive_devices.len();
             let link_count = response.links.len();
             let bridge_count = response.bridges.len();
             LabDetailTemplate {
@@ -1124,6 +1125,8 @@ pub async fn lab_detail_handler(
                 lab_info: response.lab_info,
                 devices: response.devices,
                 device_count,
+                inactive_devices: response.inactive_devices,
+                inactive_device_count,
                 links: response.links,
                 link_count,
                 bridges: response.bridges,
