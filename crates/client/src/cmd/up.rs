@@ -693,7 +693,7 @@ mod tests {
 
         let result = resolve_ztp_configs(&mut manifest, "/tmp/manifest.toml");
         assert!(result.is_err());
-        let err_msg = format!("{}", result.err().expect("should be error"));
+        let err_msg = format!("{}", result.expect_err("should be error"));
         assert!(err_msg.contains("empty"));
     }
 
