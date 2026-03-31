@@ -6,7 +6,7 @@ use shared::data::{
 };
 use shared::konst::{
     CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO,
-    CONTAINER_NOKIA_SRLINUX_REPO,
+    CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
 };
 use shared::util::{
     Emoji, emoji_success, render_image_detail_table, render_images_table,
@@ -483,6 +483,7 @@ async fn pull_container_image(
             NodeModel::FrrLinux => Some(CONTAINER_FRR_REPO),
             NodeModel::GitlabCe => Some(CONTAINER_GITLAB_CE_REPO),
             NodeModel::HashicorpVault => Some(CONTAINER_HASHICORP_VAULT_REPO),
+            NodeModel::MongoDb => Some(CONTAINER_MONGO_DB_REPO),
             _ => None,
         };
 

@@ -252,6 +252,8 @@ pub struct LabDetailTemplate {
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
+    pub inactive_devices: Vec<String>,
+    pub inactive_device_count: usize,
     pub links: Vec<LinkInfo>,
     pub link_count: usize,
     pub bridges: Vec<BridgeInfo>,

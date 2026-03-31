@@ -11,51 +11,51 @@
     <!-- Page Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-3xl font-bold text-gray-900">Node Images</h2>
-            <p class="mt-1 text-sm text-gray-600">Default device templates and their specifications</p>
+            <h2 class="text-3xl font-bold text-heading">Node Images</h2>
+            <p class="mt-1 text-sm text-muted">Default device templates and their specifications</p>
         </div>
     </div>
 
     <!-- Configs Table -->
     {% if !configs.is_empty() %}
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table class="w-full bg-white border-collapse">
-            <thead class="bg-gray-50 border-b border-gray-200">
+    <div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">
+        <table class="w-full bg-card border-collapse">
+            <thead class="bg-surface border-b border-border">
                 <tr>
-                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Model</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Kind</th>
-                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Version</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">CPU</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Memory (MB)</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Interfaces</th>
-                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wide">Model</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Kind</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wide">Version</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">CPU</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Memory (MB)</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Interfaces</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wide">Actions</th>
                 </tr>
             </thead>
             <tbody>
                 {% for config in configs %}
-                <tr class="border-b border-gray-200 last:border-b-0 hover:bg-gray-50 transition-colors">
-                    <td class="p-4 text-sm text-gray-700 font-mono font-medium">{{ config.model }}</td>
+                <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors">
+                    <td class="p-4 text-sm text-body font-mono font-medium">{{ config.model }}</td>
                     <td class="p-4 text-sm text-center">
                         {% if config.kind == "virtual_machine" %}
-                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-blue-100 text-blue-800">VM</span>
+                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-vm text-kind-vm-text">VM</span>
                         {% else if config.kind == "container" %}
-                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-green-100 text-green-800">Container</span>
+                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-container text-kind-ctr-text">Container</span>
                         {% else if config.kind == "unikernel" %}
-                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-purple-100 text-purple-800">Unikernel</span>
+                            <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-unikernel text-kind-uni-text">Unikernel</span>
                         {% else %}
                             <span class="inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide">{{ config.kind }}</span>
                         {% endif %}
                     </td>
-                    <td class="p-4 text-sm text-gray-700">{{ config.version }}</td>
-                    <td class="p-4 text-sm text-gray-700 text-center">{{ config.cpu_count }}</td>
-                    <td class="p-4 text-sm text-gray-700 text-center">{{ config.memory }}</td>
-                    <td class="p-4 text-sm text-gray-700 text-center">{{ config.data_interface_count }}</td>
-                    <td class="p-4 text-sm text-gray-700 text-right">
+                    <td class="p-4 text-sm text-body">{{ config.version }}</td>
+                    <td class="p-4 text-sm text-body text-center">{{ config.cpu_count }}</td>
+                    <td class="p-4 text-sm text-body text-center">{{ config.memory }}</td>
+                    <td class="p-4 text-sm text-body text-center">{{ config.data_interface_count }}</td>
+                    <td class="p-4 text-sm text-body text-right">
                         <div class="flex items-center justify-end space-x-2">
-                            <a href="/admin/node-images/{{ config.model }}/edit" class="inline-block px-3 py-1 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded transition-colors">
+                            <a href="/admin/node-images/{{ config.model }}/edit" class="inline-block px-3 py-1 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded transition-colors">
                                 Edit
                             </a>
-                            <a href="/admin/node-images/{{ config.model }}" class="inline-block px-3 py-1 text-sm font-medium text-white bg-gray-600 hover:bg-gray-700 rounded transition-colors">
+                            <a href="/admin/node-images/{{ config.model }}" class="inline-block px-3 py-1 text-sm font-medium text-white bg-surface hover:bg-hover rounded transition-colors">
                                 View
                             </a>
                         </div>
@@ -66,17 +66,17 @@
         </table>
     </div>
     {% else %}
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <table class="w-full bg-white border-collapse">
-            <thead class="bg-gray-50 border-b border-gray-200">
+    <div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">
+        <table class="w-full bg-card border-collapse">
+            <thead class="bg-surface border-b border-border">
                 <tr>
-                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Model</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Kind</th>
-                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Version</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">CPU</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Memory (MB)</th>
-                    <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Interfaces</th>
-                    <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wide">Model</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Kind</th>
+                    <th class="px-4 py-3 text-left text-xs font-semibold text-muted uppercase tracking-wide">Version</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">CPU</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Memory (MB)</th>
+                    <th class="px-4 py-3 text-center text-xs font-semibold text-muted uppercase tracking-wide">Interfaces</th>
+                    <th class="px-4 py-3 text-right text-xs font-semibold text-muted uppercase tracking-wide">Actions</th>
                 </tr>
             </thead>
             <tbody>

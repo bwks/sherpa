@@ -252,6 +252,10 @@ pub const CONTAINER_SURREAL_DB_COMMANDS: &[&str] = &[
     "memory",
 ];
 
+pub const CONTAINER_MONGO_DB_REPO: &str = "mongo";
+pub const CONTAINER_MONGO_DB_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
+
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
 pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
 pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[

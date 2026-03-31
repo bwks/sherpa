@@ -11,18 +11,18 @@
         <!-- Page Header -->
         <div class="flex items-center justify-between">
             <div>
-                <h2 class="text-3xl font-bold text-gray-900">Your Labs</h2>
-                <p class="mt-1 text-sm text-gray-600">Manage your virtual machines, containers, and unikernels</p>
+                <h2 class="text-3xl font-bold text-heading">Your Labs</h2>
+                <p class="mt-1 text-sm text-muted">Manage your virtual machines, containers, and unikernels</p>
             </div>
-            <button class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm">
+            <button class="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors shadow-sm">
                 Create New Lab
             </button>
         </div>
 
         <!-- Loading Indicator (hidden by default, shown by HTMX) -->
         <div class="htmx-indicator flex items-center justify-center py-8">
-            <div class="w-6 h-6 border-3 border-sky-600/10 border-t-sky-600 rounded-full animate-spin"></div>
-            <span class="ml-3 text-gray-600">Loading labs...</span>
+            <div class="w-6 h-6 border-3 border-accent/10 border-t-accent rounded-full animate-spin"></div>
+            <span class="ml-3 text-muted">Loading labs...</span>
         </div>
 
         <!-- Labs Container (HTMX target) -->
