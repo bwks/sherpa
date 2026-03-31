@@ -120,5 +120,5 @@ pub async fn exec_container_with_retry(
         }
     }
 
-    Err(last_err.expect("loop ran at least once"))
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("exec retry loop completed with no error captured")))
 }

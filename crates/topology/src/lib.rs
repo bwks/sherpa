@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 mod bridge;
 mod link;
 mod manifest;

@@ -315,10 +315,11 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
             match tokio::net::TcpListener::bind(&http_addr).await {
                 Ok(listener) => {
+                    let addr = listener.local_addr();
                     tracing::info!(
                         "HTTP certificate endpoint available at http://{}:{}/cert",
-                        listener.local_addr().unwrap().ip(),
-                        listener.local_addr().unwrap().port()
+                        addr.as_ref().map(|a| a.ip().to_string()).unwrap_or_default(),
+                        addr.as_ref().map(|a| a.port().to_string()).unwrap_or_default()
                     );
 
                     if let Err(e) = axum::serve(listener, http_app).await {
@@ -435,6 +436,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 /// Handle shutdown signals (SIGTERM, SIGINT)
 async fn shutdown_signal() {
     let ctrl_c = async {
+        // SAFETY: Signal handler installation is critical for graceful shutdown.
+        // If this fails, the process cannot be stopped gracefully.
+        #[allow(clippy::expect_used)]
         tokio::signal::ctrl_c()
             .await
             .expect("Failed to install CTRL+C signal handler");
@@ -442,6 +446,8 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     let terminate = async {
+        // SAFETY: Signal handler installation is critical for graceful shutdown.
+        #[allow(clippy::expect_used)]
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("Failed to install SIGTERM signal handler")
             .recv()

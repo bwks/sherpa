@@ -247,7 +247,10 @@ pub async fn login_form_handler(
         StatusCode::OK,
         [
             (header::SET_COOKIE, cookie_value),
-            ("HX-Redirect".parse().unwrap(), redirect_path.to_string()),
+            (
+                header::HeaderName::from_static("hx-redirect"),
+                redirect_path.to_string(),
+            ),
         ],
     )
         .into_response()
@@ -380,7 +383,10 @@ pub async fn signup_form_handler(
         StatusCode::OK,
         [
             (header::SET_COOKIE, cookie_value),
-            ("HX-Redirect".parse().unwrap(), "/".to_string()),
+            (
+                header::HeaderName::from_static("hx-redirect"),
+                "/".to_string(),
+            ),
         ],
     )
         .into_response()
@@ -1653,6 +1659,8 @@ fn format_date_simple(dt: Datetime) -> String {
     match jiff::Timestamp::from_second(timestamp) {
         Ok(ts) => {
             // Format as "Feb 17, 2025"
+            // SAFETY: "UTC" is always a valid timezone
+            #[allow(clippy::expect_used)]
             let zoned = ts.in_tz("UTC").expect("UTC timezone should always work");
             let month = match zoned.month() {
                 1 => "Jan",
@@ -2187,7 +2195,9 @@ pub async fn admin_node_image_update_handler(
     let mut response = Html("").into_response();
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
-        header::HeaderValue::from_str(&redirect_url).unwrap(),
+        header::HeaderValue::from_str(&redirect_url).map_err(|e| {
+            ApiError::internal(format!("Failed to create redirect header value: {}", e))
+        })?,
     );
 
     Ok(response)

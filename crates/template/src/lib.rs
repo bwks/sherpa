@@ -1,3 +1,5 @@
+#![deny(clippy::unwrap_used, clippy::expect_used)]
+
 mod arista_eos;
 mod aruba_aos;
 mod cisco_asa;

@@ -69,8 +69,12 @@ pub async fn upsert_node_image(
         let mut updated_config = config.clone();
         updated_config.id = existing_config.id.clone();
 
+        let record_id = existing_config
+            .id
+            .context("Existing node_image record is missing its ID")?;
+
         let updated: Option<NodeConfig> = db
-            .update(existing_config.id.unwrap())
+            .update(record_id)
             .content(updated_config)
             .await
             .context(format!(

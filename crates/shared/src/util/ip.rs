@@ -57,20 +57,19 @@ pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
 /// Get a list of IP addresses currently assigned to intefaces
 #[cfg(feature = "netinfo")]
 pub fn get_interface_networks() -> Result<Vec<Ipv4Net>> {
-    let interfaces = getifaddrs().unwrap().collect::<Interfaces>();
+    let interfaces = getifaddrs()
+        .context("Failed to get network interfaces")?
+        .collect::<Interfaces>();
 
     let mut interface_networks = vec![];
     for (_index, interface) in interfaces {
         for address in interface.address.iter().flatten() {
             if let Address::V4(..) = address
-                && address.ip_addr().is_some()
-                && address.netmask().is_some()
+                && let Some(ip_address) = address.ip_addr()
+                && let Some(netmask_addr) = address.netmask()
             {
-                let ip_address = address.ip_addr().unwrap(); // Must be some.
                 let ip = Ipv4Addr::from_str(&ip_address.to_string())?;
 
-                // First convert to IpAddr to compute the prefix length
-                let netmask_addr = address.netmask().unwrap(); // Must be some.
                 // Convert to Ipv4Addr
                 let netmask = Ipv4Addr::from_str(&netmask_addr.to_string())?;
                 let prefix = ipv4_mask_to_prefix(netmask)?;

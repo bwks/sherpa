@@ -43,6 +43,9 @@ impl Deref for QemuConnection {
     type Target = Connect;
 
     fn deref(&self) -> &Connect {
+        // SAFETY: The only way conn is None is after Drop runs.
+        // Using the connection after drop is a programming error.
+        #[allow(clippy::expect_used)]
         self.conn.as_ref().expect("QemuConnection used after drop")
     }
 }
