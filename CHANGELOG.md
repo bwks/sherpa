@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.39] - 2026-03-31
+
+### Features
+
+- Mongo db container support by @bwks ([58e7d6a](https://github.com/bwks/sherpa/commit/58e7d6a6c8a2ef76a35a8d99bf5d7c90fd1c13c0))
+- Web-ui colour themes by @bwks ([e51bc82](https://github.com/bwks/sherpa/commit/e51bc82bd5585e5d7d3fa38889b826aa40fd66d8))
+- Dark mode web-ui by @bwks ([c4d09ef](https://github.com/bwks/sherpa/commit/c4d09ef82907f11bc6171cf5f73cbebc54b51926))
+- Web-ui ab information updates by @bwks ([d618aa5](https://github.com/bwks/sherpa/commit/d618aa5f398f892d1fef24ca5140d7e1dccc90c9))
+
+### Miscellaneous
+
+- Merge pull request #181 from bwks/v0.3.39
+
+V0.3.39 by @bwks in [#181](https://github.com/bwks/sherpa/pull/181) ([ddacb9d](https://github.com/bwks/sherpa/commit/ddacb9dab399e2841af3d9d7a381ebdc81829e90))
+- Version bump by @bwks ([91ce3fb](https://github.com/bwks/sherpa/commit/91ce3fb86bfc3948bf0f54e378877f235e6f2e20))
+- Version bump by @bwks ([dc3dc64](https://github.com/bwks/sherpa/commit/dc3dc641ce2208fd5b2fb5c146357cb89bd676c5))
+- Merge pull request #180 from bwks/v0.3.39
+
+V0.3.39 by @bwks in [#180](https://github.com/bwks/sherpa/pull/180) ([542d18d](https://github.com/bwks/sherpa/commit/542d18de5df753b2c9bd4702bb0620173bd05e51))
+- Obey clippy by @bwks ([e09794f](https://github.com/bwks/sherpa/commit/e09794f6e71256e965f4e67213667fbb1cb7b741))
+- Merge pull request #178 from bwks/changelog/v0.3.38
+
+chore(release): update changelog for v0.3.38 by @github-actions[bot] in [#178](https://github.com/bwks/sherpa/pull/178) ([d903fe5](https://github.com/bwks/sherpa/commit/d903fe52e34e423b84c887f3554adf5c7668855c))
 ## [0.3.38] - 2026-03-29
 
 ### Bug Fixes
