@@ -315,12 +315,18 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
             match tokio::net::TcpListener::bind(&http_addr).await {
                 Ok(listener) => {
-                    let addr = listener.local_addr();
-                    tracing::info!(
-                        "HTTP certificate endpoint available at http://{}:{}/cert",
-                        addr.as_ref().map(|a| a.ip().to_string()).unwrap_or_default(),
-                        addr.as_ref().map(|a| a.port().to_string()).unwrap_or_default()
-                    );
+                    match listener.local_addr() {
+                        Ok(addr) => {
+                            tracing::info!(
+                                "HTTP certificate endpoint available at http://{}:{}/cert",
+                                addr.ip(),
+                                addr.port()
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Could not determine listener address: {}", e);
+                        }
+                    }
 
                     if let Err(e) = axum::serve(listener, http_app).await {
                         tracing::error!("HTTP certificate endpoint server error: {}", e);

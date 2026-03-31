@@ -46,13 +46,11 @@ pub fn generate_self_signed_certificate(
                 tracing::warn!("Invalid IP in SAN: {}", ip_str);
             }
         } else if let Some(dns) = san_entry.strip_prefix("DNS:") {
-            params
-                .subject_alt_names
-                .push(SanType::DnsName(
-                    dns.to_string()
-                        .try_into()
-                        .context(format!("Invalid DNS SAN: {}", dns))?,
-                ));
+            params.subject_alt_names.push(SanType::DnsName(
+                dns.to_string()
+                    .try_into()
+                    .context(format!("Invalid DNS SAN: {}", dns))?,
+            ));
             tracing::debug!("Added DNS SAN: {}", dns);
         } else {
             // Assume it's a DNS name if no prefix

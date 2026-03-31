@@ -120,5 +120,6 @@ pub async fn exec_container_with_retry(
         }
     }
 
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("exec retry loop completed with no error captured")))
+    Err(last_err
+        .unwrap_or_else(|| anyhow::anyhow!("exec retry loop completed with no error captured")))
 }
