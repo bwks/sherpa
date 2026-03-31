@@ -18,7 +18,8 @@ use shared::konst::{
     CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
     CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
     CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
+    CONTAINER_NOKIA_SRLINUX_COMMANDS,
     CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
@@ -356,6 +357,16 @@ pub fn generate_container_ztp(
         data::NodeModel::SurrealDb => {
             image = CONTAINER_SURREAL_DB_REPO.to_string();
             commands = CONTAINER_SURREAL_DB_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
+            node.image = Some(image.clone());
+            node.commands = Some(commands.clone());
+        }
+        data::NodeModel::MongoDb => {
+            image = CONTAINER_MONGO_DB_REPO.to_string();
+            commands = CONTAINER_MONGO_DB_COMMANDS
                 .iter()
                 .map(|s| s.to_string())
                 .collect();

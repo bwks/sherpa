@@ -13,7 +13,8 @@ use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
+    CONTAINER_SURREAL_DB_REPO,
     MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
 };
 
@@ -94,6 +95,7 @@ pub enum NodeModel {
     // SQL
     SurrealDb,
     MysqlDb,
+    MongoDb,
     PostgresqlDb,
 
     // HashiCorp
@@ -173,6 +175,7 @@ impl fmt::Display for NodeModel {
             // SQL
             NodeModel::SurrealDb => write!(f, "surreal_db"),
             NodeModel::MysqlDb => write!(f, "mysql_db"),
+            NodeModel::MongoDb => write!(f, "mongo_db"),
             NodeModel::PostgresqlDb => write!(f, "postgresql_db"),
 
             // HashiCorp
@@ -262,6 +265,7 @@ impl std::str::FromStr for NodeModel {
             // SQL
             "surreal_db" => Ok(NodeModel::SurrealDb),
             "mysql_db" => Ok(NodeModel::MysqlDb),
+            "mongo_db" => Ok(NodeModel::MongoDb),
             "postgresql_db" => Ok(NodeModel::PostgresqlDb),
 
             // HashiCorp
@@ -783,6 +787,7 @@ impl NodeConfig {
 
             // SQL
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
+            NodeModel::MongoDb => NodeConfig::mongo_db(),
             NodeModel::PostgresqlDb => NodeConfig::postgresql_db(),
             NodeModel::SurrealDb => NodeConfig::surreal_db(),
 
@@ -2201,6 +2206,31 @@ impl NodeConfig {
             id: None,
             model: NodeModel::MysqlDb,
             repo: None,
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
+    pub fn mongo_db() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::MongoDb,
+            repo: Some(CONTAINER_MONGO_DB_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,
             data_interface_count: 1,
