@@ -146,3 +146,301 @@ pub fn process_manifest_bridges(
 
     Ok(bridges_detailed)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::NodeModel;
+
+    // ============================================================================
+    // process_manifest_nodes
+    // ============================================================================
+
+    #[test]
+    fn test_process_manifest_nodes_assigns_indices_starting_at_one() {
+        let nodes = vec![
+            topology::Node {
+                name: "dev01".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev02".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev03".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ];
+
+        let expanded = process_manifest_nodes(&nodes);
+
+        assert_eq!(expanded.len(), 3);
+        assert_eq!(expanded[0].index, 1);
+        assert_eq!(expanded[0].name, "dev01");
+        assert_eq!(expanded[1].index, 2);
+        assert_eq!(expanded[1].name, "dev02");
+        assert_eq!(expanded[2].index, 3);
+        assert_eq!(expanded[2].name, "dev03");
+    }
+
+    #[test]
+    fn test_process_manifest_nodes_preserves_fields() {
+        let nodes = vec![topology::Node {
+            name: "router01".to_string(),
+            model: NodeModel::AristaVeos,
+            version: Some("4.28.0".to_string()),
+            memory: Some(4096),
+            cpu_count: Some(2),
+            privileged: Some(true),
+            skip_ready_check: Some(true),
+            ..Default::default()
+        }];
+
+        let expanded = process_manifest_nodes(&nodes);
+
+        assert_eq!(expanded[0].model, NodeModel::AristaVeos);
+        assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
+        assert_eq!(expanded[0].memory, Some(4096));
+        assert_eq!(expanded[0].cpu_count, Some(2));
+        assert_eq!(expanded[0].privileged, Some(true));
+        assert_eq!(expanded[0].skip_ready_check, Some(true));
+    }
+
+    #[test]
+    fn test_process_manifest_nodes_empty_input() {
+        let nodes: Vec<topology::Node> = vec![];
+        let expanded = process_manifest_nodes(&nodes);
+        assert!(expanded.is_empty());
+    }
+
+    // ============================================================================
+    // process_manifest_links
+    // ============================================================================
+
+    #[test]
+    fn test_process_manifest_links_resolves_interfaces() {
+        let nodes = vec![
+            topology::Node {
+                name: "dev01".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev02".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let links = Some(vec![topology::Link2 {
+            src: "dev01::eth0".to_string(),
+            dst: "dev02::eth0".to_string(),
+            p2p: None,
+        }]);
+
+        let result = process_manifest_links(&links, &expanded_nodes).unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].node_a, "dev01");
+        assert_eq!(result[0].node_b, "dev02");
+        assert_eq!(result[0].int_a, "eth0");
+        assert_eq!(result[0].int_b, "eth0");
+    }
+
+    #[test]
+    fn test_process_manifest_links_none_returns_empty() {
+        let nodes = vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            ..Default::default()
+        }];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let result = process_manifest_links(&None, &expanded_nodes).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_process_manifest_links_empty_vec_returns_empty() {
+        let nodes = vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            ..Default::default()
+        }];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let result = process_manifest_links(&Some(vec![]), &expanded_nodes).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_process_manifest_links_multiple_links() {
+        let nodes = vec![
+            topology::Node {
+                name: "dev01".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev02".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev03".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let links = Some(vec![
+            topology::Link2 {
+                src: "dev01::eth0".to_string(),
+                dst: "dev02::eth0".to_string(),
+                p2p: None,
+            },
+            topology::Link2 {
+                src: "dev02::eth1".to_string(),
+                dst: "dev03::eth0".to_string(),
+                p2p: None,
+            },
+        ]);
+
+        let result = process_manifest_links(&links, &expanded_nodes).unwrap();
+
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].link_idx, 0);
+        assert_eq!(result[1].link_idx, 1);
+    }
+
+    // ============================================================================
+    // get_node_image
+    // ============================================================================
+
+    #[test]
+    fn test_get_node_image_finds_default() {
+        let configs = vec![
+            data::NodeConfig {
+                model: NodeModel::UbuntuLinux,
+                version: "22.04".to_string(),
+                default: false,
+                ..Default::default()
+            },
+            data::NodeConfig {
+                model: NodeModel::UbuntuLinux,
+                version: "24.04".to_string(),
+                default: true,
+                ..Default::default()
+            },
+        ];
+
+        let result = get_node_image(&NodeModel::UbuntuLinux, &configs).unwrap();
+        assert_eq!(result.version, "24.04");
+        assert!(result.default);
+    }
+
+    #[test]
+    fn test_get_node_image_no_default_returns_error() {
+        let configs = vec![data::NodeConfig {
+            model: NodeModel::UbuntuLinux,
+            version: "22.04".to_string(),
+            default: false,
+            ..Default::default()
+        }];
+
+        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("Default node image not found"));
+    }
+
+    #[test]
+    fn test_get_node_image_wrong_model_returns_error() {
+        let configs = vec![data::NodeConfig {
+            model: NodeModel::AristaVeos,
+            version: "4.28.0".to_string(),
+            default: true,
+            ..Default::default()
+        }];
+
+        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_get_node_image_empty_configs_returns_error() {
+        let configs: Vec<data::NodeConfig> = vec![];
+        let result = get_node_image(&NodeModel::UbuntuLinux, &configs);
+        assert!(result.is_err());
+    }
+
+    // ============================================================================
+    // process_manifest_bridges
+    // ============================================================================
+
+    #[test]
+    fn test_process_manifest_bridges_generates_names() {
+        let nodes = vec![
+            topology::Node {
+                name: "dev01".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "dev02".to_string(),
+                model: NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let bridges = Some(vec![topology::Bridge {
+            name: "mgmt".to_string(),
+            links: vec!["dev01::eth0".to_string(), "dev02::eth0".to_string()],
+        }]);
+
+        let result = process_manifest_bridges(&bridges, &expanded_nodes, "abc123").unwrap();
+
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].manifest_name, "mgmt");
+        assert_eq!(result[0].bridge_name, "brs0-abc123");
+        assert_eq!(result[0].libvirt_name, "sherpa-bridge0-mgmt-abc123");
+        assert_eq!(result[0].index, 0);
+        assert_eq!(result[0].links.len(), 2);
+    }
+
+    #[test]
+    fn test_process_manifest_bridges_none_returns_empty() {
+        let expanded_nodes = process_manifest_nodes(&[]);
+        let result = process_manifest_bridges(&None, &expanded_nodes, "lab1").unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_process_manifest_bridges_resolves_node_details() {
+        let nodes = vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            ..Default::default()
+        }];
+        let expanded_nodes = process_manifest_nodes(&nodes);
+
+        let bridges = Some(vec![topology::Bridge {
+            name: "lan".to_string(),
+            links: vec!["dev01::eth0".to_string()],
+        }]);
+
+        let result = process_manifest_bridges(&bridges, &expanded_nodes, "xyz").unwrap();
+
+        assert_eq!(result[0].links.len(), 1);
+        assert_eq!(result[0].links[0].node_name, "dev01");
+        assert_eq!(result[0].links[0].node_model, NodeModel::UbuntuLinux);
+        assert_eq!(result[0].links[0].interface_name, "eth0");
+    }
+}
