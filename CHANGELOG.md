@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.41] - 2026-04-01
+
+### Features
+
+- Open telemetry support by @bwks ([f10ae05](https://github.com/bwks/sherpa/commit/f10ae0511c9d509751d540d0df631676a52e947b))
+
+### Miscellaneous
+
+- Merge pull request #185 from bwks/v0.3.41
+
+feat: open telemetry support by @bwks in [#185](https://github.com/bwks/sherpa/pull/185) ([2439f46](https://github.com/bwks/sherpa/commit/2439f46da523ae3e03a4a0223644f74f2b3bacf6))
+- Version bump by @bwks ([68b9ae3](https://github.com/bwks/sherpa/commit/68b9ae39510b2329211ee4f5cfa5be871a6ecc9e))
+- Merge pull request #184 from bwks/changelog/v0.3.40
+
+chore(release): update changelog for v0.3.40 by @github-actions[bot] in [#184](https://github.com/bwks/sherpa/pull/184) ([5ac6190](https://github.com/bwks/sherpa/commit/5ac6190abde2e45a4ff79e510ccade33190b07a8))
 ## [0.3.40] - 2026-04-01
 
 ### Bug Fixes
