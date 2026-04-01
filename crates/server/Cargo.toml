@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.40"
+version = "0.3.41"
 edition = "2024"
 
 [dependencies]
@@ -103,6 +103,12 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2.2"
 rcgen = "0.13"
+
+# OpenTelemetry
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
+tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

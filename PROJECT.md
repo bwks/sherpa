@@ -20,6 +20,11 @@
 ### API
 - [ ] **OpenAPI/Swagger export** — Add `build_openapi()` function in `api_spec.rs` that transforms the unified spec into an OpenAPI 3.1 document. Serve at `/api/v1/openapi.json`. No new dependencies — derive from the existing operation registry, not maintained separately.
 
+### Observability
+- [ ] **OpenTelemetry integration (Phase 1 — Traces)** — Feature-gated (`otel`) OTLP trace export via `tracing-opentelemetry`. Layered subscriber keeps existing log output, adds OTel span export. Config via `[otel]` section in `sherpa.toml`. HTTP request middleware + WebSocket/RPC span instrumentation.
+- [ ] **OpenTelemetry (Phase 2 — Metrics)** — Connection count gauge, RPC latency histograms, operation duration by type, error rate counters.
+- [ ] **OpenTelemetry (Phase 3 — Enhanced spans)** — `#[instrument]` on service functions, DB/Docker/libvirt span wrappers, W3C Trace Context propagation.
+
 ### Frontend
 - [ ] **Dioxus native GUI frontend** — Planned but not yet started.
 

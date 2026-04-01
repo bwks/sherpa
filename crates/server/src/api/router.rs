@@ -4,6 +4,7 @@ use axum::routing::{delete, get, post};
 use axum::{Router, extract::Path};
 use rust_embed::Embed;
 use tower_http::cors::{AllowOrigin, CorsLayer};
+use tower_http::trace::TraceLayer;
 
 use crate::daemon::state::AppState;
 
@@ -157,8 +158,9 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/labs/{id}/nodes/{node_name}/redeploy",
             post(redeploy_node_json),
         )
-        // Apply CORS middleware to all routes
+        // Apply middleware layers (outermost = first to process request)
         .layer(cors)
+        .layer(TraceLayer::new_for_http())
         // Serve embedded static files
         .route("/{*path}", get(embedded_asset_handler))
 }

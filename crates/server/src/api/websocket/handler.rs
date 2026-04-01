@@ -8,6 +8,7 @@ use axum::{
 use futures_util::StreamExt;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use tracing::Instrument;
 use uuid::Uuid;
 
 use super::connection::Connection;
@@ -22,6 +23,13 @@ pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> 
 /// Handle individual WebSocket connection
 async fn handle_socket(socket: WebSocket, state: AppState) {
     let conn_id = Uuid::new_v4();
+    let ws_span = tracing::info_span!("ws_connection", connection_id = %conn_id);
+    handle_socket_inner(socket, state, conn_id)
+        .instrument(ws_span)
+        .await;
+}
+
+async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) {
     tracing::info!("WebSocket connection established: {}", conn_id);
 
     let (sender, mut receiver) = socket.split();
@@ -142,7 +150,14 @@ async fn handle_client_message(
         }
         ClientMessage::RpcRequest { id, method, params } => {
             // Handle RPC request asynchronously
+            let rpc_span = tracing::info_span!(
+                "rpc_call",
+                rpc.method = %method,
+                rpc.id = %id,
+                connection_id = %connection.id,
+            );
             tracing::info!(
+                parent: &rpc_span,
                 "RPC request received: method={}, id={}, connection={}",
                 method,
                 id,
@@ -161,35 +176,41 @@ async fn handle_client_message(
                 || method == "image.download"
             {
                 // Handle streaming RPC (sends multiple messages during execution)
-                tokio::spawn(async move {
-                    crate::api::websocket::rpc::handle_streaming_rpc_request(
-                        id,
-                        method,
-                        params,
-                        &state_clone,
-                        &connection_clone,
-                    )
-                    .await;
-                });
+                tokio::spawn(
+                    async move {
+                        crate::api::websocket::rpc::handle_streaming_rpc_request(
+                            id,
+                            method,
+                            params,
+                            &state_clone,
+                            &connection_clone,
+                        )
+                        .await;
+                    }
+                    .instrument(rpc_span),
+                );
             } else {
                 // Handle regular RPC (single response)
-                tokio::spawn(async move {
-                    // Call RPC router
-                    let response = crate::api::websocket::rpc::handle_rpc_request(
-                        id,
-                        method,
-                        params,
-                        &state_clone,
-                    )
-                    .await;
+                tokio::spawn(
+                    async move {
+                        // Call RPC router
+                        let response = crate::api::websocket::rpc::handle_rpc_request(
+                            id,
+                            method,
+                            params,
+                            &state_clone,
+                        )
+                        .await;
 
-                    // Send response back to client
-                    if let Ok(json) = serde_json::to_string(&response)
-                        && let Err(e) = connection_clone.send(Message::Text(json.into())).await
-                    {
-                        tracing::error!("Failed to send RPC response: {:?}", e);
+                        // Send response back to client
+                        if let Ok(json) = serde_json::to_string(&response)
+                            && let Err(e) = connection_clone.send(Message::Text(json.into())).await
+                        {
+                            tracing::error!("Failed to send RPC response: {:?}", e);
+                        }
                     }
-                });
+                    .instrument(rpc_span),
+                );
             }
         }
     }
