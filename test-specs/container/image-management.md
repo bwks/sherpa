@@ -27,6 +27,18 @@
 
 ---
 
+## Image Load (from tar archive)
+
+**What to test:**
+- `load_image()` loads a valid tar archive into Docker daemon `[integration]` **P0**
+- `load_image()` loads a gzip-compressed tar.gz archive `[integration]` **P0**
+- Progress callback receives status updates during load `[integration]` **P1**
+- Loading a nonexistent file fails with clear error `[integration]` **P0**
+- Loading an invalid/corrupt tar file fails with Docker error `[integration]` **P0**
+- Round-trip: save image with `docker save`, load with `load_image()`, verify image present `[integration]` **P0**
+
+---
+
 ## Image Save
 
 **What to test:**

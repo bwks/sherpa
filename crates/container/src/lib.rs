@@ -23,7 +23,8 @@ pub use network::{
 
 // Re-export image operations
 pub use image::{
-    get_local_images, list_images, pull_container_image, pull_image, save_container_image,
+    get_local_images, list_images, load_image, pull_container_image, pull_image,
+    save_container_image,
 };
 
 // Re-export Docker type for convenience

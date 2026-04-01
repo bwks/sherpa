@@ -93,8 +93,13 @@
 ## Image Management
 
 **What to test:**
-- Import: source file validated, copied to images dir, tracked in DB `[integration]` **P0**
-- Import: first image for model marked as default `[integration]` **P1**
+- Import VM/Unikernel: source file validated, copied to images dir, tracked in DB `[integration]` **P0**
+- Import VM/Unikernel: first image for model marked as default `[integration]` **P1**
+- Import container: tar archive loaded into Docker daemon via `load_image()` `[integration]` **P0**
+- Import container: tar.gz archive loaded into Docker daemon `[integration]` **P1**
+- Import container: image recorded in DB after successful load `[integration]` **P0**
+- Import container: first image for model marked as default `[integration]` **P1**
+- Import container: nonexistent source file rejected before Docker load `[integration]` **P0**
 - Scan: walks filesystem and Docker for discoverable images `[integration]` **P0**
 - Scan: bulk upsert to DB `[integration]` **P1**
 - Download: streams from URL with progress, imports to DB `[integration]` **P1**

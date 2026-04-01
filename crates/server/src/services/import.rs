@@ -13,15 +13,13 @@ use shared::util::{copy_file, create_dir, file_exists};
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 
-/// Import a disk image to the server filesystem and track it in the database
+/// Import an image to the server and track it in the database.
+///
+/// For VMs and unikernels: copies the disk image (qcow2) to the images directory.
+/// For containers: loads a tar archive into the Docker daemon via `docker load`.
 pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<ImportResponse> {
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
-
-    // Only VM and Unikernel imports are supported currently
-    if kind == NodeKind::Container {
-        anyhow::bail!("Container image import is not yet implemented");
-    }
 
     // Validate source file exists on the server
     if !file_exists(&request.src) {
@@ -36,48 +34,100 @@ pub async fn import_image(request: ImportRequest, state: &AppState) -> Result<Im
         request.default
     };
 
-    // Validate node model is accepted by the database before copying files
-    let mut db_config = config;
-    db_config.version = request.version.clone();
-    db_config.default = make_default;
-    db_config.id = None;
+    match kind {
+        NodeKind::Container => {
+            // Container import: load tar archive into Docker daemon
+            tracing::info!(
+                model = %request.model,
+                version = %request.version,
+                src = %request.src,
+                "Importing container image from tar archive"
+            );
 
-    db::upsert_node_image(&state.db, db_config)
-        .await
-        .context(format!(
-            "Failed to register node model '{}' in database. Ensure the server is up to date.",
-            request.model
-        ))?;
+            container::load_image(&state.docker, &request.src, |msg| {
+                tracing::info!("{}", msg);
+            })
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to load container image from '{}' for model '{}'",
+                    request.src, request.model
+                )
+            })?;
 
-    tracing::info!(
-        "Upserted node_image for model={} version={}",
-        request.model,
-        request.version
-    );
+            // Record in database
+            let mut db_config = config;
+            db_config.version = request.version.clone();
+            db_config.default = make_default;
+            db_config.id = None;
 
-    // Copy image file
-    let images_dir = SHERPA_IMAGES_PATH.to_owned();
-    let model_dir = format!("{images_dir}/{}", request.model);
-    let version_dir = format!("{model_dir}/{}", request.version);
-    let version_disk = format!("{version_dir}/virtioa.qcow2");
+            db::upsert_node_image(&state.db, db_config)
+                .await
+                .context(format!(
+                    "Failed to register container model '{}' in database",
+                    request.model
+                ))?;
 
-    create_dir(&version_dir).context("Failed to create version directory")?;
+            tracing::info!(
+                "Upserted node_image for model={} version={}",
+                request.model,
+                request.version
+            );
 
-    if !file_exists(&version_disk) {
-        tracing::info!("Copying image from {} to {}", request.src, version_disk);
-        copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
-    } else {
-        tracing::info!("Image already exists at {}, skipping copy", version_disk);
+            Ok(ImportResponse {
+                success: true,
+                model: request.model,
+                kind,
+                version: request.version,
+                image_path: format!("loaded from {}", request.src),
+                db_tracked: true,
+            })
+        }
+        NodeKind::VirtualMachine | NodeKind::Unikernel => {
+            // VM/Unikernel import: copy disk image to images directory
+            let mut db_config = config;
+            db_config.version = request.version.clone();
+            db_config.default = make_default;
+            db_config.id = None;
+
+            db::upsert_node_image(&state.db, db_config)
+                .await
+                .context(format!(
+                    "Failed to register node model '{}' in database. Ensure the server is up to date.",
+                    request.model
+                ))?;
+
+            tracing::info!(
+                "Upserted node_image for model={} version={}",
+                request.model,
+                request.version
+            );
+
+            // Copy image file
+            let images_dir = SHERPA_IMAGES_PATH.to_owned();
+            let model_dir = format!("{images_dir}/{}", request.model);
+            let version_dir = format!("{model_dir}/{}", request.version);
+            let version_disk = format!("{version_dir}/virtioa.qcow2");
+
+            create_dir(&version_dir).context("Failed to create version directory")?;
+
+            if !file_exists(&version_disk) {
+                tracing::info!("Copying image from {} to {}", request.src, version_disk);
+                copy_file(&request.src, &version_disk).context("Failed to copy image file")?;
+            } else {
+                tracing::info!("Image already exists at {}, skipping copy", version_disk);
+            }
+
+            Ok(ImportResponse {
+                success: true,
+                model: request.model,
+                kind,
+                version: request.version,
+                image_path: version_disk,
+                db_tracked: true,
+            })
+        }
     }
-
-    Ok(ImportResponse {
-        success: true,
-        model: request.model,
-        kind,
-        version: request.version,
-        image_path: version_disk,
-        db_tracked: true,
-    })
 }
 
 /// List images from the database with optional filtering by model and/or kind

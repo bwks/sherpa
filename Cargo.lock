@@ -962,6 +962,7 @@ dependencies = [
  "futures-util",
  "shared",
  "tokio",
+ "tokio-util",
  "tracing",
 ]
 
