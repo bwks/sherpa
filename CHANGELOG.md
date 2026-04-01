@@ -2,6 +2,33 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.40] - 2026-04-01
+
+### Bug Fixes
+
+- Deny expect and unwrap by @bwks ([ba35ed1](https://github.com/bwks/sherpa/commit/ba35ed1ca3b7b55a167d32bcd8bbeeec6f702055))
+
+### Features
+
+- API spec by @bwks ([77a42c7](https://github.com/bwks/sherpa/commit/77a42c775d86548fa5dc1c060954ba89989e7204))
+- Container image import by @bwks ([3a3e459](https://github.com/bwks/sherpa/commit/3a3e45923cc530fb1f914156619e639f9b7d42b0))
+
+### Miscellaneous
+
+- Merge pull request #183 from bwks/v0.3.40
+
+V0.3.40 by @bwks in [#183](https://github.com/bwks/sherpa/pull/183) ([e738cf7](https://github.com/bwks/sherpa/commit/e738cf7261119c473eaa74ba63a832315cdd8b62))
+- Version bump + doc by @bwks ([790cd26](https://github.com/bwks/sherpa/commit/790cd26f0f19b2921bb478930f27b36f5cbe8994))
+- API endpoint stubs by @bwks ([c6c862a](https://github.com/bwks/sherpa/commit/c6c862ad49df8291eceea5b4abca38a8461fc48c))
+- Merge pull request #182 from bwks/changelog/v0.3.39
+
+chore(release): update changelog for v0.3.39 by @github-actions[bot] in [#182](https://github.com/bwks/sherpa/pull/182) ([35d136e](https://github.com/bwks/sherpa/commit/35d136ee4710ef03e2abfd008b704f573d997024))
+
+### Testing
+
+- Manifest tests by @bwks ([8848b7e](https://github.com/bwks/sherpa/commit/8848b7ef59d318b1c20722c1926e4cb0fe95559b))
+- Update server tests by @bwks ([ad24b4e](https://github.com/bwks/sherpa/commit/ad24b4e69d2d4a705b44b8775453c57da45ae281))
+- Validation test specs by @bwks ([a8ed628](https://github.com/bwks/sherpa/commit/a8ed628f6441efafedc2ade9757a49ed4f29ca1d))
 ## [0.3.39] - 2026-03-31
 
 ### Features
