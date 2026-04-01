@@ -348,10 +348,27 @@ async fn import_image(
         default,
     };
 
-    let response: data::ImportResponse =
-        rpc_call("image.import", request, server_url, server_connection)
-            .await
-            .context("Failed to import image")?;
+    let response: data::ImportResponse = rpc_call_streaming(
+        "image.import",
+        request,
+        server_url,
+        server_connection,
+        |msg_text| {
+            if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
+                && status_msg.r#type == "status"
+            {
+                let emoji = match status_msg.kind {
+                    StatusKind::Progress => Emoji::Progress,
+                    StatusKind::Done => Emoji::Success,
+                    StatusKind::Info => Emoji::Info,
+                    StatusKind::Waiting => Emoji::Hourglass,
+                };
+                println!("{} {}", emoji, status_msg.message);
+            }
+        },
+    )
+    .await
+    .context("Failed to import image")?;
 
     match output_format {
         OutputFormat::Json => {

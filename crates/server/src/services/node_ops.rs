@@ -1021,6 +1021,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::JenkinsServer
         | data::NodeModel::NautobotServer
         | data::NodeModel::NetboxServer
+        | data::NodeModel::SignozServer
         | data::NodeModel::VirtServer
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => {
