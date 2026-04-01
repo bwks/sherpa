@@ -8,8 +8,8 @@ use ipnet::Ipv4Net;
 
 use super::file_system::create_file;
 use crate::data::{
-    ClientConfig, Config, ConfigurationManagement, ContainerImage, ServerConnection, TlsConfig,
-    VmProviders, ZtpServer,
+    ClientConfig, Config, ConfigurationManagement, ContainerImage, OtelConfig, ServerConnection,
+    TlsConfig, VmProviders, ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
@@ -111,6 +111,7 @@ pub fn default_config() -> Config {
         ws_port: SHERPA_SERVER_WS_PORT,
         http_port: SHERPA_SERVER_HTTP_PORT,
         tls: TlsConfig::default(),
+        otel: OtelConfig::default(),
     }
 }
 

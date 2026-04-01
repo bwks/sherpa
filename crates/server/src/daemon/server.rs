@@ -1,10 +1,16 @@
 use anyhow::{Context, Result};
 use axum::routing::get;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
+use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 /// Custom time formatter that outputs UTC time with millisecond precision
 /// Format: 2026-02-17T00:59:15.920Z
@@ -26,42 +32,109 @@ use crate::tls::CertificateManager;
 use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH};
 use shared::util::load_config;
 
+/// Holds the OTel tracer provider so pending spans are flushed on drop.
+struct OtelGuard {
+    provider: SdkTracerProvider,
+}
+
+impl Drop for OtelGuard {
+    fn drop(&mut self) {
+        if let Err(e) = self.provider.shutdown() {
+            eprintln!("OpenTelemetry shutdown error: {e:?}");
+        }
+    }
+}
+
+/// Build an OTLP tracer provider from config.
+/// Standard env vars OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_SERVICE_NAME
+/// override their config-file equivalents.
+fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTracerProvider> {
+    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+        .unwrap_or_else(|_| otel_config.endpoint.clone());
+    let service_name =
+        std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| otel_config.service_name.clone());
+
+    let sampler = if (otel_config.sample_ratio - 1.0).abs() < f64::EPSILON {
+        opentelemetry_sdk::trace::Sampler::AlwaysOn
+    } else if otel_config.sample_ratio <= 0.0 {
+        opentelemetry_sdk::trace::Sampler::AlwaysOff
+    } else {
+        opentelemetry_sdk::trace::Sampler::TraceIdRatioBased(otel_config.sample_ratio)
+    };
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(&endpoint)
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build OTLP span exporter: {}", e))?;
+
+    let resource = Resource::builder().with_service_name(service_name).build();
+
+    let provider = SdkTracerProvider::builder()
+        .with_sampler(sampler)
+        .with_resource(resource)
+        .with_batch_exporter(exporter)
+        .build();
+
+    Ok(provider)
+}
+
 /// Run the sherpad server
 pub async fn run_server(foreground: bool) -> Result<()> {
+    // Load configuration before tracing init so OTel can be configured
+    let mut config = load_config(SHERPA_CONFIG_FILE_PATH)
+        .context("Failed to load sherpa.toml config - cannot start server")?;
+
     // Create env filter with fallback to 'info' level
     let (filter, using_default) = match EnvFilter::try_from_default_env() {
         Ok(filter) => (filter, false),
         Err(_) => (EnvFilter::new("info"), true),
     };
 
-    // Setup logging based on mode
+    // Build the optional OTel layer and guard (flushes spans on drop)
+    let (_otel_guard, otel_layer) = if config.otel.enabled {
+        let provider = init_tracer_provider(&config.otel)?;
+        let tracer = provider.tracer("sherpad");
+        let layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
+        (Some(OtelGuard { provider }), Some(layer))
+    } else {
+        (None, None)
+    };
+
+    // Setup logging based on mode using a layered registry.
+    // OTel layer is added first (directly on Registry) so its type parameter matches.
     if foreground {
-        // Foreground mode: log to stdout with colors
-        tracing_subscriber::fmt()
+        let fmt_layer = tracing_subscriber::fmt::layer()
             .with_timer(MillisecondTime)
-            .with_env_filter(filter)
             .with_target(false)
             .with_thread_ids(false)
-            .compact()
+            .compact();
+
+        tracing_subscriber::registry()
+            .with(otel_layer)
+            .with(filter)
+            .with(fmt_layer)
             .init();
     } else {
-        // Background mode: log to file without colors
         let log_file = OpenOptions::new()
             .create(true)
             .append(true)
             .open(SHERPAD_LOG_FILE_PATH)?;
 
-        // Wrap file in Arc for thread-safe sharing
         let log_file = Arc::new(log_file);
 
-        tracing_subscriber::fmt()
+        let fmt_layer = tracing_subscriber::fmt::layer()
             .with_timer(MillisecondTime)
-            .with_env_filter(filter)
             .with_writer(move || log_file.clone())
             .with_target(false)
             .with_thread_ids(false)
             .with_ansi(false)
-            .compact()
+            .compact();
+
+        tracing_subscriber::registry()
+            .with(otel_layer)
+            .with(filter)
+            .with(fmt_layer)
             .init();
     }
 
@@ -70,11 +143,15 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         tracing::info!("RUST_LOG not set or invalid, using default 'info' level");
     }
 
-    tracing::info!("Starting sherpad server");
+    if config.otel.enabled {
+        tracing::info!(
+            "OpenTelemetry trace export enabled, endpoint: {}",
+            std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
+                .unwrap_or_else(|_| config.otel.endpoint.clone())
+        );
+    }
 
-    // Load configuration
-    let mut config = load_config(SHERPA_CONFIG_FILE_PATH)
-        .context("Failed to load sherpa.toml config - cannot start server")?;
+    tracing::info!("Starting sherpad server");
 
     // Allow SHERPA_SERVER_IPV4 env var to override the config file value
     if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV4") {

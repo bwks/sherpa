@@ -64,7 +64,8 @@ mod ztp;
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 
 pub use config::{
-    ClientConfig, Config, ConfigurationManagement, ServerConnection, Sherpa, TlsConfig, ZtpServer,
+    ClientConfig, Config, ConfigurationManagement, OtelConfig, ServerConnection, Sherpa, TlsConfig,
+    ZtpServer,
 };
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};

@@ -9,7 +9,9 @@ use super::container::ContainerImage;
 use super::provider::VmProviders;
 
 use crate::konst::{
-    SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
+    OTEL_DEFAULT_ENDPOINT, OTEL_DEFAULT_PROTOCOL, OTEL_DEFAULT_SAMPLE_RATIO,
+    OTEL_DEFAULT_SERVICE_NAME, SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT,
+    SHERPA_USERNAME,
 };
 use crate::util::path_to_string;
 
@@ -118,6 +120,36 @@ impl Default for TlsConfig {
     }
 }
 
+/// OpenTelemetry configuration.
+/// When the `[otel]` section is absent from sherpa.toml, all fields take their
+/// defaults from the constants in `shared::konst`.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct OtelConfig {
+    /// Enable OpenTelemetry trace export
+    pub enabled: bool,
+    /// OTLP collector endpoint
+    pub endpoint: String,
+    /// OTLP transport protocol: "grpc" or "http"
+    pub protocol: String,
+    /// Service name reported to the collector
+    pub service_name: String,
+    /// Trace sampling ratio 0.0..=1.0 (1.0 = sample everything)
+    pub sample_ratio: f64,
+}
+
+impl Default for OtelConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            endpoint: OTEL_DEFAULT_ENDPOINT.to_owned(),
+            protocol: OTEL_DEFAULT_PROTOCOL.to_owned(),
+            service_name: OTEL_DEFAULT_SERVICE_NAME.to_owned(),
+            sample_ratio: OTEL_DEFAULT_SAMPLE_RATIO,
+        }
+    }
+}
+
 /// Client-only configuration for connecting to a Sherpa server.
 /// All fields have sensible defaults so a minimal TOML works.
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -183,6 +215,8 @@ pub struct Config {
     pub server_connection: ServerConnection,
     #[serde(default)]
     pub tls: TlsConfig,
+    #[serde(default)]
+    pub otel: OtelConfig,
 }
 
 fn default_server_ipv4() -> Ipv4Addr {
@@ -307,5 +341,69 @@ mod tests {
         assert_eq!(back.server_ipv4, config.server_ipv4);
         assert_eq!(back.ws_port, config.ws_port);
         assert_eq!(back.http_port, config.http_port);
+    }
+
+    #[test]
+    fn test_otel_config_default() {
+        let otel = OtelConfig::default();
+        assert!(!otel.enabled);
+        assert_eq!(otel.endpoint, "http://localhost:4317");
+        assert_eq!(otel.protocol, "grpc");
+        assert_eq!(otel.service_name, "sherpad");
+        assert!((otel.sample_ratio - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_otel_config_serde_roundtrip() {
+        let otel = OtelConfig {
+            enabled: true,
+            endpoint: "http://collector:4317".to_string(),
+            protocol: "http".to_string(),
+            service_name: "test-service".to_string(),
+            sample_ratio: 0.5,
+        };
+        let toml_str = toml::to_string_pretty(&otel).expect("serializes");
+        let back: OtelConfig = toml::from_str(&toml_str).expect("deserializes");
+        assert!(back.enabled);
+        assert_eq!(back.endpoint, "http://collector:4317");
+        assert_eq!(back.protocol, "http");
+        assert_eq!(back.service_name, "test-service");
+        assert!((back.sample_ratio - 0.5).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_otel_config_absent_from_toml() {
+        // Verify that a Config without [otel] section still deserializes
+        let toml_str = r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserializes without otel section");
+        assert!(!config.otel.enabled);
+        assert_eq!(config.otel.endpoint, "http://localhost:4317");
+    }
+
+    #[test]
+    fn test_otel_config_partial_section() {
+        // Only enabled is set, other fields should get defaults
+        let toml_str = r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+
+            [otel]
+            enabled = true
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserializes with partial otel");
+        assert!(config.otel.enabled);
+        assert_eq!(config.otel.endpoint, "http://localhost:4317");
+        assert_eq!(config.otel.service_name, "sherpad");
     }
 }

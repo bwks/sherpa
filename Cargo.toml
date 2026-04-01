@@ -22,6 +22,13 @@ members = [
 ]
 default-members = ["crates/client"]
 
+[workspace.dependencies]
+# OpenTelemetry
+opentelemetry = "0.31"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+tracing-opentelemetry = "0.32"
+
 # Clippy lints: unwrap_used and expect_used are denied via
 # #![deny(...)] in each crate's lib.rs/main.rs (not here),
 # because workspace-level deny translates to --deny CLI flags
