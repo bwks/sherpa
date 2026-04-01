@@ -172,6 +172,7 @@ async fn handle_client_message(
             if method == "up"
                 || method == "destroy"
                 || method == "redeploy"
+                || method == "image.import"
                 || method == "image.pull"
                 || method == "image.download"
             {

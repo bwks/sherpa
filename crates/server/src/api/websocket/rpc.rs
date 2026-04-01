@@ -138,6 +138,28 @@ async fn require_admin_streaming(
     Ok(auth_ctx)
 }
 
+/// Send an RPC error response over the WebSocket connection.
+async fn send_rpc_error(
+    connection: &Arc<Connection>,
+    id: String,
+    code: RpcErrorCode,
+    message: String,
+    context: Option<String>,
+) {
+    let response = ServerMessage::RpcResponse {
+        id,
+        result: None,
+        error: Some(RpcError {
+            code,
+            message,
+            context,
+        }),
+    };
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
+    }
+}
+
 /// Handle incoming RPC request and route to appropriate service
 ///
 /// This function:
@@ -161,12 +183,7 @@ pub async fn handle_rpc_request(
             Ok(auth_ctx) => handle_clean(id, params, state, auth_ctx).await,
             Err(e) => e,
         },
-        "image.import" => {
-            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT).await {
-                Ok(auth_ctx) => handle_image_import(id, params, state, auth_ctx).await,
-                Err(e) => e,
-            }
-        }
+        // Note: "image.import" is handled separately via handle_streaming_rpc_request
         "image.delete" => {
             match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE).await {
                 Ok(auth_ctx) => handle_image_delete(id, params, state, auth_ctx).await,
@@ -237,6 +254,19 @@ pub async fn handle_streaming_rpc_request(
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
         "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
+        "image.import" => {
+            if let Ok(auth_ctx) = require_admin_streaming(
+                &id,
+                &params,
+                state,
+                connection,
+                RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
+            )
+            .await
+            {
+                handle_image_import_streaming(id, params, state, connection, auth_ctx).await;
+            }
+        }
         "image.pull" => {
             if let Ok(auth_ctx) = require_admin_streaming(
                 &id,
@@ -644,28 +674,13 @@ async fn handle_destroy_streaming(
     state: &AppState,
     connection: &Arc<Connection>,
 ) {
-    // Helper function to send error and return
-    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
-        let response = ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code,
-                message,
-                context,
-            }),
-        };
-        if let Ok(json) = serde_json::to_string(&response) {
-            let _ = connection.send(Message::Text(json.into())).await;
-        }
-    };
-
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::warn!("Authentication failed for destroy: {}", e);
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::AuthRequired,
                 RPC_MSG_AUTH_REQUIRED.to_string(),
@@ -680,7 +695,8 @@ async fn handle_destroy_streaming(
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
@@ -701,7 +717,8 @@ async fn handle_destroy_streaming(
                     lab_id,
                     owner_username
                 );
-                send_error(
+                send_rpc_error(
+                    connection,
                     id,
                     RpcErrorCode::AccessDenied,
                     RPC_MSG_ACCESS_DENIED_LAB.to_string(),
@@ -712,7 +729,8 @@ async fn handle_destroy_streaming(
             }
         }
         Err(e) => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::NotFound,
                 format!("Lab not found: {}", lab_id),
@@ -799,28 +817,13 @@ async fn handle_redeploy_streaming(
     state: &AppState,
     connection: &Arc<Connection>,
 ) {
-    // Helper function to send error and return
-    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
-        let response = ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code,
-                message,
-                context,
-            }),
-        };
-        if let Ok(json) = serde_json::to_string(&response) {
-            let _ = connection.send(Message::Text(json.into())).await;
-        }
-    };
-
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::warn!("Authentication failed for redeploy: {}", e);
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::AuthRequired,
                 RPC_MSG_AUTH_REQUIRED.to_string(),
@@ -835,7 +838,8 @@ async fn handle_redeploy_streaming(
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
@@ -849,7 +853,8 @@ async fn handle_redeploy_streaming(
     let node_name = match params.get("node_name").and_then(|v| v.as_str()) {
         Some(name) if !name.is_empty() => name.to_string(),
         _ => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
@@ -863,7 +868,8 @@ async fn handle_redeploy_streaming(
     let manifest = match params.get("manifest") {
         Some(m) => m.clone(),
         None => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_REDEPLOY.to_string(),
@@ -885,7 +891,8 @@ async fn handle_redeploy_streaming(
                     lab_id,
                     owner_username
                 );
-                send_error(
+                send_rpc_error(
+                    connection,
                     id,
                     RpcErrorCode::AccessDenied,
                     RPC_MSG_ACCESS_DENIED_LAB.to_string(),
@@ -896,7 +903,8 @@ async fn handle_redeploy_streaming(
             }
         }
         Err(e) => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::NotFound,
                 format!("Lab not found: {}", lab_id),
@@ -1044,20 +1052,21 @@ async fn handle_clean(
     }
 }
 
-/// Handle "image.import" RPC call (admin-only)
+/// Handle "image.import" RPC call with streaming progress (admin-only)
 ///
 /// Expected params: ImportRequest {"model": "string", "version": "string", "src": "string", "token": "string"}
-async fn handle_image_import(
+async fn handle_image_import_streaming(
     id: String,
     params: serde_json::Value,
     state: &AppState,
+    connection: &Arc<Connection>,
     auth_ctx: AuthContext,
-) -> ServerMessage {
+) {
     // Parse params into ImportRequest
     let request: data::ImportRequest = match serde_json::from_value(params) {
         Ok(req) => req,
         Err(e) => {
-            return ServerMessage::RpcResponse {
+            let response = ServerMessage::RpcResponse {
                 id,
                 result: None,
                 error: Some(RpcError {
@@ -1066,11 +1075,35 @@ async fn handle_image_import(
                     context: Some(format!("{:?}", e)),
                 }),
             };
+            if let Ok(json) = serde_json::to_string(&response) {
+                let _ = connection.send(Message::Text(json.into())).await;
+            }
+            return;
         }
     };
 
-    // Call import service
-    match import::import_image(request, state).await {
+    // Create progress channel
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+
+    // Spawn task to forward progress messages to WebSocket
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+
+    // Create progress sender
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    // Call import service with progress
+    let result = import::import_image(request, state, progress).await;
+
+    // Wait for forward task to complete (channel closes when progress_tx is dropped)
+    let _ = forward_task.await;
+
+    // Send final RPC response
+    let response = match result {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -1107,6 +1140,10 @@ async fn handle_image_import(
                 }),
             }
         }
+    };
+
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
     }
 }
 
@@ -1480,27 +1517,12 @@ async fn handle_image_pull_streaming(
     connection: &Arc<Connection>,
     auth_ctx: AuthContext,
 ) {
-    // Helper to send error
-    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
-        let response = ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code,
-                message,
-                context,
-            }),
-        };
-        if let Ok(json) = serde_json::to_string(&response) {
-            let _ = connection.send(Message::Text(json.into())).await;
-        }
-    };
-
     // Parse params into ContainerPullRequest
     let request: data::ContainerPullRequest = match serde_json::from_value(params) {
         Ok(req) => req,
         Err(e) => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_CONTAINER_PULL.to_string(),
@@ -1586,27 +1608,12 @@ async fn handle_image_download_streaming(
     connection: &Arc<Connection>,
     auth_ctx: AuthContext,
 ) {
-    // Helper to send error and return
-    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
-        let response = ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code,
-                message,
-                context,
-            }),
-        };
-        if let Ok(json) = serde_json::to_string(&response) {
-            let _ = connection.send(Message::Text(json.into())).await;
-        }
-    };
-
     // Parse params into DownloadImageRequest
     let request: data::DownloadImageRequest = match serde_json::from_value(params) {
         Ok(req) => req,
         Err(e) => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD.to_string(),
@@ -1691,28 +1698,13 @@ async fn handle_up(
     state: &AppState,
     connection: &Arc<Connection>,
 ) {
-    // Helper function to send error and return
-    let send_error = |id: String, code: RpcErrorCode, message: String, context: Option<String>| async move {
-        let response = ServerMessage::RpcResponse {
-            id,
-            result: None,
-            error: Some(RpcError {
-                code,
-                message,
-                context,
-            }),
-        };
-        if let Ok(json) = serde_json::to_string(&response) {
-            let _ = connection.send(Message::Text(json.into())).await;
-        }
-    };
-
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
         Ok(ctx) => ctx,
         Err(e) => {
             tracing::warn!("Authentication failed for up: {}", e);
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::AuthRequired,
                 RPC_MSG_AUTH_REQUIRED.to_string(),
@@ -1727,7 +1719,8 @@ async fn handle_up(
     let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
         None => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
@@ -1741,7 +1734,8 @@ async fn handle_up(
     let manifest_value = match params.get("manifest") {
         Some(v) => v.clone(),
         None => {
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::InvalidParams,
                 RPC_MSG_INVALID_PARAMS_MANIFEST.to_string(),
@@ -1762,7 +1756,8 @@ async fn handle_up(
                 lab_id,
                 owner_username
             );
-            send_error(
+            send_rpc_error(
+                connection,
                 id,
                 RpcErrorCode::AccessDenied,
                 RPC_MSG_ACCESS_DENIED_LAB.to_string(),
