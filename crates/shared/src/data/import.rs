@@ -1,10 +1,11 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 use super::node::{NodeConfig, NodeKind, NodeModel};
 
 /// Request type for listing images with optional filters
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListImagesRequest {
     /// Optional model filter
     pub model: Option<NodeModel>,
@@ -13,7 +14,7 @@ pub struct ListImagesRequest {
 }
 
 /// Summary of an imported image for display purposes
-#[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
+#[derive(Debug, Clone, Serialize, Deserialize, Tabled, JsonSchema)]
 pub struct ImageSummary {
     #[tabled(rename = "Model")]
     pub model: NodeModel,
@@ -26,7 +27,7 @@ pub struct ImageSummary {
 }
 
 /// Response from listing images
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListImagesResponse {
     /// List of image summaries
     pub images: Vec<ImageSummary>,
@@ -35,7 +36,7 @@ pub struct ListImagesResponse {
 }
 
 /// Request type for showing image details
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageRequest {
     /// The node model to show details for
     pub model: NodeModel,
@@ -44,14 +45,14 @@ pub struct ShowImageRequest {
 }
 
 /// Response from showing image details
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ShowImageResponse {
     /// Full image configuration
     pub image: NodeConfig,
 }
 
 /// Request type for importing a disk image
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ImportRequest {
     /// The node model to import the image for
     pub model: NodeModel,
@@ -65,7 +66,7 @@ pub struct ImportRequest {
 }
 
 /// Response from an image import operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ImportResponse {
     /// Whether the import succeeded
     pub success: bool,
@@ -82,7 +83,7 @@ pub struct ImportResponse {
 }
 
 /// Request type for scanning on-disk images
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesRequest {
     /// Optional kind filter (currently only VirtualMachine is supported)
     pub kind: Option<NodeKind>,
@@ -92,7 +93,7 @@ pub struct ScanImagesRequest {
 }
 
 /// A single scanned image result
-#[derive(Debug, Clone, Serialize, Deserialize, Tabled)]
+#[derive(Debug, Clone, Serialize, Deserialize, Tabled, JsonSchema)]
 pub struct ScannedImage {
     #[tabled(rename = "Model")]
     pub model: NodeModel,
@@ -105,7 +106,7 @@ pub struct ScannedImage {
 }
 
 /// Response from scanning on-disk images
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScanImagesResponse {
     /// List of scanned image results
     pub scanned: Vec<ScannedImage>,
@@ -114,7 +115,7 @@ pub struct ScanImagesResponse {
 }
 
 /// Request type for deleting an imported image
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteImageRequest {
     /// The node model of the image to delete
     pub model: NodeModel,
@@ -123,7 +124,7 @@ pub struct DeleteImageRequest {
 }
 
 /// Response from an image delete operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteImageResponse {
     /// Whether the delete succeeded
     pub success: bool,
@@ -140,7 +141,7 @@ pub struct DeleteImageResponse {
 }
 
 /// Request type for setting the default version of an image
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SetDefaultImageRequest {
     /// The node model to set the default for
     pub model: NodeModel,
@@ -149,7 +150,7 @@ pub struct SetDefaultImageRequest {
 }
 
 /// Response from setting the default image version
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SetDefaultImageResponse {
     /// Whether the operation succeeded
     pub success: bool,
@@ -162,7 +163,7 @@ pub struct SetDefaultImageResponse {
 }
 
 /// Request type for pulling a container image from an OCI registry
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ContainerPullRequest {
     /// Node model this image belongs to
     pub model: super::NodeModel,
@@ -176,7 +177,7 @@ pub struct ContainerPullRequest {
 }
 
 /// Response from a container image pull operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ContainerPullResponse {
     /// Whether the pull succeeded
     pub success: bool,
@@ -193,7 +194,7 @@ pub struct ContainerPullResponse {
 }
 
 /// Request type for downloading a VM image from a URL
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DownloadImageRequest {
     /// The node model to download the image for
     pub model: NodeModel,

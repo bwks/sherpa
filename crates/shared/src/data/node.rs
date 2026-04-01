@@ -1,7 +1,7 @@
 use std::fmt;
 
 use clap::ValueEnum;
-
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use surrealdb_types::{RecordId, SurrealValue};
 
@@ -18,7 +18,18 @@ use crate::konst::{
 };
 
 #[derive(
-    Default, PartialEq, Eq, Hash, Clone, Copy, Debug, Deserialize, Serialize, ValueEnum, EnumIter,
+    Default,
+    PartialEq,
+    Eq,
+    Hash,
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    Serialize,
+    ValueEnum,
+    EnumIter,
+    JsonSchema,
 )]
 #[clap(rename_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
@@ -296,7 +307,7 @@ impl NodeModel {
 }
 impl_surreal_value_for_enum!(NodeModel);
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OsVariant {
     // Arista
@@ -372,7 +383,7 @@ impl OsVariant {
 }
 impl_surreal_value_for_enum!(OsVariant);
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CpuArchitecture {
     #[default]
@@ -393,7 +404,7 @@ impl CpuArchitecture {
 impl_surreal_value_for_enum!(CpuArchitecture);
 
 #[allow(non_camel_case_types)]
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 pub enum MachineType {
     #[default]
     #[serde(rename(serialize = "pc", deserialize = "pc"))]
@@ -452,7 +463,7 @@ impl MachineType {
 }
 impl_surreal_value_for_enum!(MachineType);
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum InterfaceType {
     // VM
@@ -486,7 +497,7 @@ impl InterfaceType {
 }
 impl_surreal_value_for_enum!(InterfaceType);
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BiosTypes {
     #[default]
@@ -508,7 +519,7 @@ impl BiosTypes {
 }
 impl_surreal_value_for_enum!(BiosTypes);
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ZtpMethod {
     #[default]
@@ -547,7 +558,9 @@ impl ZtpMethod {
 }
 impl_surreal_value_for_enum!(ZtpMethod);
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter)]
+#[derive(
+    Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter, JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum NodeKind {
     #[default]
@@ -584,7 +597,9 @@ impl NodeKind {
 impl_surreal_value_for_enum!(NodeKind);
 
 /// Runtime state of a node in the lab lifecycle
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default, EnumIter, JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum NodeState {
     /// Node is running and operational
@@ -642,8 +657,9 @@ impl NodeState {
 }
 impl_surreal_value_for_enum!(NodeState);
 
-#[derive(Clone, Debug, Deserialize, Serialize, SurrealValue)]
+#[derive(Clone, Debug, Deserialize, Serialize, SurrealValue, JsonSchema)]
 pub struct NodeConfig {
+    #[schemars(skip)]
     pub id: Option<RecordId>,
     pub model: NodeModel,
     pub version: String,

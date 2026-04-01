@@ -1,5 +1,6 @@
 use std::fmt;
 
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -26,7 +27,7 @@ impl fmt::Display for CpuFeaturePolicy {
     }
 }
 
-#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq, EnumIter)]
+#[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, Eq, EnumIter, JsonSchema)]
 pub enum CpuModels {
     #[default]
     #[serde(rename(serialize = "host-model", deserialize = "host-model"))]

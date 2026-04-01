@@ -2508,6 +2508,25 @@ pub async fn lab_destroy_stream_handler(
     axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
 }
 
+/// Serve the unified API specification
+///
+/// GET /api/v1/spec
+/// Public endpoint - no authentication required
+pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
+    static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
+        std::sync::OnceLock::new();
+    let result = SPEC_JSON.get_or_init(|| {
+        let spec = shared::api_spec::build_spec();
+        serde_json::to_value(spec).map_err(|e| e.to_string())
+    });
+    match result {
+        Ok(spec) => Ok(Json(spec.clone())),
+        Err(e) => Err(ApiError::internal(format!(
+            "Failed to serialize API spec: {e}"
+        ))),
+    }
+}
+
 // Request/Response types
 
 /// Query parameters for listing labs

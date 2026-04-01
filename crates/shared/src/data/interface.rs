@@ -1,5 +1,6 @@
 use std::fmt;
 
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -106,7 +107,7 @@ pub enum InterfaceTypes {
     Ten,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, EnumIter)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum MgmtInterfaces {
     #[default]

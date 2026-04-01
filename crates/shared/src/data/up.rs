@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::lab::LabInfo;
@@ -5,7 +6,7 @@ use super::node::{NodeModel, NodeState};
 
 /// Request type for starting a lab
 /// Note: manifest is passed as JSON Value to avoid cyclic dependencies
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpRequest {
     pub lab_id: String,
     pub manifest: serde_json::Value,
@@ -16,7 +17,7 @@ pub struct UpRequest {
 }
 
 /// Response type for lab startup operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpResponse {
     pub success: bool,
     pub lab_info: LabInfo,
@@ -30,7 +31,7 @@ pub struct UpResponse {
 }
 
 /// Summary of created resources
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpSummary {
     pub containers_created: usize,
     pub vms_created: usize,
@@ -41,7 +42,7 @@ pub struct UpSummary {
 }
 
 /// Information about a node in the lab
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeInfo {
     pub name: String,
     pub kind: String,
@@ -54,7 +55,7 @@ pub struct NodeInfo {
 }
 
 /// Error tracking during lab startup
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpError {
     pub phase: String,
     pub message: String,
@@ -62,7 +63,7 @@ pub struct UpError {
 }
 
 /// Classifies each status message for appropriate emoji rendering on the client
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum StatusKind {
     /// Action started or underway (🔄)

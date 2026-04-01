@@ -1,9 +1,10 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::data::{LabInfo, NodeKind, NodeModel, NodeState};
 
 /// Request type for inspecting a lab
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct InspectRequest {
     pub lab_id: String,
     /// Username of the requesting user
@@ -13,7 +14,7 @@ pub struct InspectRequest {
 }
 
 /// Response structure for inspect operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct InspectResponse {
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
@@ -23,7 +24,7 @@ pub struct InspectResponse {
 }
 
 /// Information about a single device/node
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeviceInfo {
     pub name: String,
     pub model: NodeModel,
@@ -36,7 +37,7 @@ pub struct DeviceInfo {
 }
 
 /// Display-ready information about a point-to-point link between two nodes
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LinkInfo {
     pub node_a_name: String,
     pub int_a: String,
@@ -46,7 +47,7 @@ pub struct LinkInfo {
 }
 
 /// Display-ready information about a shared bridge connecting multiple nodes
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct BridgeInfo {
     pub bridge_name: String,
     pub network_name: String,

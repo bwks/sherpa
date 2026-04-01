@@ -4,6 +4,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use ipnet::{Ipv4Net, Ipv6Net};
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
 use super::{BridgeKind, DbNode, NodeKind, NodeModel};
@@ -64,20 +65,27 @@ pub struct LabIdentity {
     pub id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LabInfo {
     pub id: String,
     pub name: String,
     pub user: String,
+    #[schemars(with = "String")]
     pub ipv4_network: Ipv4Net,
+    #[schemars(with = "String")]
     pub ipv4_gateway: Ipv4Addr,
+    #[schemars(with = "String")]
     pub ipv4_router: Ipv4Addr,
+    #[schemars(with = "String")]
     pub loopback_network: Ipv4Net,
     #[serde(default)]
+    #[schemars(with = "Option<String>")]
     pub ipv6_network: Option<Ipv6Net>,
     #[serde(default)]
+    #[schemars(with = "Option<String>")]
     pub ipv6_gateway: Option<Ipv6Addr>,
     #[serde(default)]
+    #[schemars(with = "Option<String>")]
     pub ipv6_router: Option<Ipv6Addr>,
 }
 impl fmt::Display for LabInfo {
@@ -155,7 +163,7 @@ pub struct LabReservedNetwork {
 }
 
 /// Lab status enumeration for displaying current state
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum LabStatus {
     /// Status cannot be determined
@@ -171,7 +179,7 @@ impl fmt::Display for LabStatus {
 }
 
 /// Summary information about a lab for list views
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LabSummary {
     /// Lab ID (business key)
     pub id: String,
@@ -184,7 +192,7 @@ pub struct LabSummary {
 }
 
 /// Response for listing labs
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ListLabsResponse {
     /// List of lab summaries
     pub labs: Vec<LabSummary>,

@@ -25,9 +25,7 @@ where
     let byte_stream = codec::FramedRead::new(file, codec::BytesCodec::new())
         .map(|r| r.map(|bytes| bytes.freeze()));
 
-    let options = ImportImageOptionsBuilder::default()
-        .quiet(false)
-        .build();
+    let options = ImportImageOptionsBuilder::default().quiet(false).build();
 
     let mut response_stream = docker.import_image_stream(
         options,

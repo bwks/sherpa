@@ -1,7 +1,8 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Request type for destroying a lab
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DestroyRequest {
     pub lab_id: String,
     /// Username of the requesting user
@@ -11,7 +12,7 @@ pub struct DestroyRequest {
 }
 
 /// Response from destroy operation with detailed tracking of all resources
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DestroyResponse {
     /// Overall status: true if all succeeded, false if any failed
     pub success: bool,
@@ -26,7 +27,7 @@ pub struct DestroyResponse {
 }
 
 /// Detailed summary of all resources destroyed or failed
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DestroySummary {
     /// Containers successfully destroyed
     pub containers_destroyed: Vec<String>,
@@ -65,7 +66,7 @@ pub struct DestroySummary {
 }
 
 /// Error that occurred during destroy operation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DestroyError {
     /// Type of resource (vm, container, disk, network, etc.)
     pub resource_type: String,
