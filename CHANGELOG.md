@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.42] - 2026-04-01
+
+### Features
+
+- Streaming image import command by @bwks ([5fc19c3](https://github.com/bwks/sherpa/commit/5fc19c39acaad755d37d819791c6ded5d8ef3c10))
+- Add signoz server model by @bwks ([7448e59](https://github.com/bwks/sherpa/commit/7448e59f63f8e3804fe268221ba9238741411611))
+
+### Miscellaneous
+
+- Merge pull request #187 from bwks/v0.3.42
+
+V0.3.42 by @bwks in [#187](https://github.com/bwks/sherpa/pull/187) ([90a2a0c](https://github.com/bwks/sherpa/commit/90a2a0c09c044ebe09b297fa7b7dea53a9ae901b))
+- Version bump by @bwks ([73cb5c2](https://github.com/bwks/sherpa/commit/73cb5c2ea4fee406d5a388ead252691ba482615d))
+- Version bump by @bwks ([7f9845c](https://github.com/bwks/sherpa/commit/7f9845c4700035eaa7a51a10abbf16e7f6d91ad8))
+- Merge pull request #186 from bwks/changelog/v0.3.41
+
+chore(release): update changelog for v0.3.41 by @github-actions[bot] in [#186](https://github.com/bwks/sherpa/pull/186) ([e72bd7c](https://github.com/bwks/sherpa/commit/e72bd7c13c40ec9162b7b99c409f47fc8a79cf95))
 ## [0.3.41] - 2026-04-01
 
 ### Features
