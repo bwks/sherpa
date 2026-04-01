@@ -40,10 +40,11 @@ use super::handlers::{
     admin_node_image_detail_handler, admin_node_image_edit_page_handler,
     admin_node_image_update_handler, admin_node_image_versions_handler,
     admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
-    dashboard_handler, delete_ssh_key_handler, get_certificate_handler, get_lab, get_labs_html,
-    get_labs_json, health_check, lab_destroy_button_handler, lab_destroy_confirm_handler,
-    lab_destroy_post_handler, lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler,
-    lab_up, login, login_form_handler, login_page_handler, logout_handler, profile_handler,
+    create_lab_json, dashboard_handler, delete_lab_json, delete_ssh_key_handler,
+    down_lab_json, get_certificate_handler, get_lab, get_labs_html, get_labs_json, health_check,
+    lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
+    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, login, login_form_handler,
+    login_page_handler, logout_handler, profile_handler, redeploy_node_json, resume_lab_json,
     signup_form_handler, signup_page_handler, update_password_handler,
 };
 
@@ -146,9 +147,15 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)
+        .route("/api/v1/labs", post(create_lab_json))
         .route("/api/v1/labs/{id}", get(get_lab))
-        // Stub routes (future implementation)
-        .route("/up", post(lab_up))
+        .route("/api/v1/labs/{id}", delete(delete_lab_json))
+        .route("/api/v1/labs/{id}/down", post(down_lab_json))
+        .route("/api/v1/labs/{id}/resume", post(resume_lab_json))
+        .route(
+            "/api/v1/labs/{id}/nodes/{node_name}/redeploy",
+            post(redeploy_node_json),
+        )
         // Apply CORS middleware to all routes
         .layer(cors)
         // Serve embedded static files

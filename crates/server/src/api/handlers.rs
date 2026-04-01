@@ -2240,11 +2240,119 @@ pub async fn admin_node_image_versions_handler(
     Ok(template.into_response())
 }
 
-// Stub handlers for future implementation
+// =============================================================================
+// REST API stubs — Lab Management
+// =============================================================================
+// These stubs establish the REST API surface for external tool integration
+// (Terraform, Ansible, CI pipelines, etc.). The underlying service layer is
+// already implemented and used by the WebSocket RPC handlers.
+//
+// Streaming operations (up, destroy, redeploy) will need an async job pattern:
+// POST returns a job ID, GET polls for status/result.
 
-/// Handler for creating a lab (stub)
-pub async fn lab_up(Json(payload): Json<LabId>) -> String {
-    format!("Creating Lab {}", payload.id)
+/// Create a lab (stub)
+///
+/// POST /api/v1/labs
+///
+/// Accepts a manifest and creates a lab. This is a long-running operation
+/// that will eventually return a job ID for polling.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "lab_id": "my-lab",
+///   "manifest": { ... }
+/// }
+/// ```
+pub async fn create_lab_json(
+    _auth: AuthenticatedUser,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab creation via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Destroy a lab (stub)
+///
+/// DELETE /api/v1/labs/{lab_id}
+///
+/// Destroys a lab and all its resources. This is a long-running operation
+/// that will eventually return a job ID for polling.
+pub async fn delete_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab destruction via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Stop lab nodes (stub)
+///
+/// POST /api/v1/labs/{lab_id}/down
+///
+/// Stops all nodes in a lab, or a specific node if `node_name` is provided.
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "node_name": "dev01"
+/// }
+/// ```
+pub async fn down_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab node shutdown via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Resume lab nodes (stub)
+///
+/// POST /api/v1/labs/{lab_id}/resume
+///
+/// Resumes all stopped nodes in a lab, or a specific node if `node_name` is provided.
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "node_name": "dev01"
+/// }
+/// ```
+pub async fn resume_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab node resume via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Redeploy a lab node (stub)
+///
+/// POST /api/v1/labs/{lab_id}/nodes/{node_name}/redeploy
+///
+/// Destroys and recreates a specific node with fresh configuration.
+/// This is a long-running operation that will eventually return a job ID for polling.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "manifest": { ... }
+/// }
+/// ```
+pub async fn redeploy_node_json(
+    _auth: AuthenticatedUser,
+    Path((_lab_id, _node_name)): Path<(String, String)>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Node redeploy via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
 }
 
 /// Handler to return the nodes table fragment for HTMX polling
@@ -2412,11 +2520,6 @@ pub struct ListLabsQuery {
 #[allow(dead_code)]
 pub struct CreateUser {
     pub username: String,
-}
-
-#[derive(Deserialize)]
-pub struct LabId {
-    pub id: String,
 }
 
 #[derive(Serialize)]
