@@ -7,7 +7,7 @@ The **unified API specification** is the canonical source of truth for all Sherp
 **Spec endpoint:** `GET /api/v1/spec`
 
 ```bash
-curl http://localhost:3031/api/v1/spec | jq .
+curl http://<server>:3030/api/v1/spec | jq .
 ```
 
 This single JSON document defines every operation, its request/response schemas, and how to invoke it via each transport (REST, WebSocket RPC, CLI). All three interfaces implement from this spec.
@@ -43,7 +43,7 @@ Sherpa exposes the same operations via three transports:
 ### Login
 
 ```bash
-curl -X POST https://server:3030/api/v1/auth/login \
+curl -X POST https://<server>:3030/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"alice","password":"SecurePass123!"}'
 ```
@@ -93,7 +93,7 @@ WebSocket RPC errors follow JSON-RPC 2.0 error format.
 The server uses TLS. Download the certificate for trust-on-first-use:
 
 ```bash
-curl http://server:3031/cert > server.crt
+curl http://<server>:3031/cert > server.crt
 ```
 
 ## CORS

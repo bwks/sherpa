@@ -100,6 +100,7 @@ pub enum NodeModel {
     JenkinsServer,
     NautobotServer,
     NetboxServer,
+    SignozServer,
     VirtServer,
 
     // SQL
@@ -180,6 +181,7 @@ impl fmt::Display for NodeModel {
             NodeModel::JenkinsServer => write!(f, "jenkins_server"),
             NodeModel::NautobotServer => write!(f, "nautobot_server"),
             NodeModel::NetboxServer => write!(f, "netbox_server"),
+            NodeModel::SignozServer => write!(f, "signoz_server"),
             NodeModel::VirtServer => write!(f, "virt_server"),
 
             // SQL
@@ -270,6 +272,7 @@ impl std::str::FromStr for NodeModel {
             "jenkins_server" => Ok(NodeModel::JenkinsServer),
             "nautobot_server" => Ok(NodeModel::NautobotServer),
             "netbox_server" => Ok(NodeModel::NetboxServer),
+            "signoz_server" => Ok(NodeModel::SignozServer),
             "virt_server" => Ok(NodeModel::VirtServer),
 
             // SQL
@@ -798,6 +801,7 @@ impl NodeConfig {
             NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
             NodeModel::NautobotServer => NodeConfig::nautobot_server(),
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
+            NodeModel::SignozServer => NodeConfig::signoz_server(),
             NodeModel::VirtServer => NodeConfig::virt_server(),
 
             // SQL
@@ -2126,6 +2130,40 @@ impl NodeConfig {
             machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn signoz_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::SignozServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 4,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 8192,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,
