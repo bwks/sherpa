@@ -36,7 +36,8 @@ pub fn validate_password_strength(password: &str) -> Result<()> {
     }
 
     // Check for special character (restricted safe set)
-    let special_chars = Regex::new(r"[!@#$%^&*_+\-=]").unwrap();
+    let special_chars =
+        Regex::new(r"[!@#$%^&*_+\-=]").context("Failed to compile password regex")?;
     if !special_chars.is_match(password) {
         errors.push("• At least one special character (!@#$%^&*_+-=)");
     }

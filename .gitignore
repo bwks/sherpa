@@ -36,7 +36,6 @@ CLAUDE.md
 .ruff_cache
 lab-info.toml
 *.env
-PROJECT.md
 # test-scripts/ — tracked in repo
 manifest*.toml*
 

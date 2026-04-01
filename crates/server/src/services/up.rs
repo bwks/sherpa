@@ -476,10 +476,11 @@ pub async fn up_lab(
         );
 
         // Allocate IPv6 management and loopback subnets
-        let ipv6_mgmt_prefix = config.management_prefix_ipv6.unwrap_or_else(|| {
-            util::get_ipv6_network(SHERPA_MANAGEMENT_NETWORK_IPV6)
-                .expect("Failed to parse default IPv6 management prefix")
-        });
+        let ipv6_mgmt_prefix = match config.management_prefix_ipv6 {
+            Some(prefix) => prefix,
+            None => util::get_ipv6_network(SHERPA_MANAGEMENT_NETWORK_IPV6)
+                .context("Failed to parse default IPv6 management prefix")?,
+        };
         let ipv6_loop_prefix = util::get_ipv6_network(SHERPA_LOOPBACK_PREFIX_IPV6)
             .context("Failed to parse IPv6 loopback prefix")?;
 

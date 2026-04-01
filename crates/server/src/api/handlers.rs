@@ -247,7 +247,10 @@ pub async fn login_form_handler(
         StatusCode::OK,
         [
             (header::SET_COOKIE, cookie_value),
-            ("HX-Redirect".parse().unwrap(), redirect_path.to_string()),
+            (
+                header::HeaderName::from_static("hx-redirect"),
+                redirect_path.to_string(),
+            ),
         ],
     )
         .into_response()
@@ -380,7 +383,10 @@ pub async fn signup_form_handler(
         StatusCode::OK,
         [
             (header::SET_COOKIE, cookie_value),
-            ("HX-Redirect".parse().unwrap(), "/".to_string()),
+            (
+                header::HeaderName::from_static("hx-redirect"),
+                "/".to_string(),
+            ),
         ],
     )
         .into_response()
@@ -1653,6 +1659,8 @@ fn format_date_simple(dt: Datetime) -> String {
     match jiff::Timestamp::from_second(timestamp) {
         Ok(ts) => {
             // Format as "Feb 17, 2025"
+            // SAFETY: "UTC" is always a valid timezone
+            #[allow(clippy::expect_used)]
             let zoned = ts.in_tz("UTC").expect("UTC timezone should always work");
             let month = match zoned.month() {
                 1 => "Jan",
@@ -2187,7 +2195,9 @@ pub async fn admin_node_image_update_handler(
     let mut response = Html("").into_response();
     response.headers_mut().insert(
         header::HeaderName::from_static("hx-redirect"),
-        header::HeaderValue::from_str(&redirect_url).unwrap(),
+        header::HeaderValue::from_str(&redirect_url).map_err(|e| {
+            ApiError::internal(format!("Failed to create redirect header value: {}", e))
+        })?,
     );
 
     Ok(response)
@@ -2230,11 +2240,119 @@ pub async fn admin_node_image_versions_handler(
     Ok(template.into_response())
 }
 
-// Stub handlers for future implementation
+// =============================================================================
+// REST API stubs — Lab Management
+// =============================================================================
+// These stubs establish the REST API surface for external tool integration
+// (Terraform, Ansible, CI pipelines, etc.). The underlying service layer is
+// already implemented and used by the WebSocket RPC handlers.
+//
+// Streaming operations (up, destroy, redeploy) will need an async job pattern:
+// POST returns a job ID, GET polls for status/result.
 
-/// Handler for creating a lab (stub)
-pub async fn lab_up(Json(payload): Json<LabId>) -> String {
-    format!("Creating Lab {}", payload.id)
+/// Create a lab (stub)
+///
+/// POST /api/v1/labs
+///
+/// Accepts a manifest and creates a lab. This is a long-running operation
+/// that will eventually return a job ID for polling.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "lab_id": "my-lab",
+///   "manifest": { ... }
+/// }
+/// ```
+pub async fn create_lab_json(
+    _auth: AuthenticatedUser,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab creation via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Destroy a lab (stub)
+///
+/// DELETE /api/v1/labs/{lab_id}
+///
+/// Destroys a lab and all its resources. This is a long-running operation
+/// that will eventually return a job ID for polling.
+pub async fn delete_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab destruction via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Stop lab nodes (stub)
+///
+/// POST /api/v1/labs/{lab_id}/down
+///
+/// Stops all nodes in a lab, or a specific node if `node_name` is provided.
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "node_name": "dev01"
+/// }
+/// ```
+pub async fn down_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab node shutdown via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Resume lab nodes (stub)
+///
+/// POST /api/v1/labs/{lab_id}/resume
+///
+/// Resumes all stopped nodes in a lab, or a specific node if `node_name` is provided.
+///
+/// # Request Body (optional)
+/// ```json
+/// {
+///   "node_name": "dev01"
+/// }
+/// ```
+pub async fn resume_lab_json(
+    _auth: AuthenticatedUser,
+    Path(_lab_id): Path<String>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Lab node resume via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
+}
+
+/// Redeploy a lab node (stub)
+///
+/// POST /api/v1/labs/{lab_id}/nodes/{node_name}/redeploy
+///
+/// Destroys and recreates a specific node with fresh configuration.
+/// This is a long-running operation that will eventually return a job ID for polling.
+///
+/// # Request Body
+/// ```json
+/// {
+///   "manifest": { ... }
+/// }
+/// ```
+pub async fn redeploy_node_json(
+    _auth: AuthenticatedUser,
+    Path((_lab_id, _node_name)): Path<(String, String)>,
+    Json(_payload): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    Err(ApiError::internal(
+        "Node redeploy via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
+    ))
 }
 
 /// Handler to return the nodes table fragment for HTMX polling
@@ -2390,6 +2508,25 @@ pub async fn lab_destroy_stream_handler(
     axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
 }
 
+/// Serve the unified API specification
+///
+/// GET /api/v1/spec
+/// Public endpoint - no authentication required
+pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
+    static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
+        std::sync::OnceLock::new();
+    let result = SPEC_JSON.get_or_init(|| {
+        let spec = shared::api_spec::build_spec();
+        serde_json::to_value(spec).map_err(|e| e.to_string())
+    });
+    match result {
+        Ok(spec) => Ok(Json(spec.clone())),
+        Err(e) => Err(ApiError::internal(format!(
+            "Failed to serialize API spec: {e}"
+        ))),
+    }
+}
+
 // Request/Response types
 
 /// Query parameters for listing labs
@@ -2402,11 +2539,6 @@ pub struct ListLabsQuery {
 #[allow(dead_code)]
 pub struct CreateUser {
     pub username: String,
-}
-
-#[derive(Deserialize)]
-pub struct LabId {
-    pub id: String,
 }
 
 #[derive(Serialize)]

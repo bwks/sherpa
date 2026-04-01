@@ -315,11 +315,18 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
             match tokio::net::TcpListener::bind(&http_addr).await {
                 Ok(listener) => {
-                    tracing::info!(
-                        "HTTP certificate endpoint available at http://{}:{}/cert",
-                        listener.local_addr().unwrap().ip(),
-                        listener.local_addr().unwrap().port()
-                    );
+                    match listener.local_addr() {
+                        Ok(addr) => {
+                            tracing::info!(
+                                "HTTP certificate endpoint available at http://{}:{}/cert",
+                                addr.ip(),
+                                addr.port()
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!("Could not determine listener address: {}", e);
+                        }
+                    }
 
                     if let Err(e) = axum::serve(listener, http_app).await {
                         tracing::error!("HTTP certificate endpoint server error: {}", e);
@@ -435,6 +442,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 /// Handle shutdown signals (SIGTERM, SIGINT)
 async fn shutdown_signal() {
     let ctrl_c = async {
+        // SAFETY: Signal handler installation is critical for graceful shutdown.
+        // If this fails, the process cannot be stopped gracefully.
+        #[allow(clippy::expect_used)]
         tokio::signal::ctrl_c()
             .await
             .expect("Failed to install CTRL+C signal handler");
@@ -442,6 +452,8 @@ async fn shutdown_signal() {
 
     #[cfg(unix)]
     let terminate = async {
+        // SAFETY: Signal handler installation is critical for graceful shutdown.
+        #[allow(clippy::expect_used)]
         tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("Failed to install SIGTERM signal handler")
             .recv()

@@ -2,6 +2,7 @@ use std::fmt;
 
 use anyhow::{Result, bail};
 
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -52,7 +53,7 @@ impl fmt::Display for DiskDevices {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DiskBuses {
     Ide,

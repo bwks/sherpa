@@ -2,10 +2,11 @@
 //!
 //! These types define the JSON-RPC request/response formats for user management operations.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Request to create a new user (admin only)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CreateUserRequest {
     /// Username for the new user
     pub username: String,
@@ -21,7 +22,7 @@ pub struct CreateUserRequest {
 }
 
 /// Response after creating a user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CreateUserResponse {
     /// Whether the creation was successful
     pub success: bool,
@@ -32,21 +33,21 @@ pub struct CreateUserResponse {
 }
 
 /// Request to list all users (admin only)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListUsersRequest {
     /// Caller's authentication token
     pub token: String,
 }
 
 /// Response with list of users
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ListUsersResponse {
     /// List of users (without sensitive data)
     pub users: Vec<UserInfo>,
 }
 
 /// User information (safe for display, no password hash)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UserInfo {
     /// Username
     pub username: String,
@@ -61,7 +62,7 @@ pub struct UserInfo {
 }
 
 /// Request to delete a user (admin only)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteUserRequest {
     /// Username to delete
     pub username: String,
@@ -70,7 +71,7 @@ pub struct DeleteUserRequest {
 }
 
 /// Response after deleting a user
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DeleteUserResponse {
     /// Whether the deletion was successful
     pub success: bool,
@@ -79,7 +80,7 @@ pub struct DeleteUserResponse {
 }
 
 /// Request to change user password
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChangePasswordRequest {
     /// User whose password to change
     pub username: String,
@@ -90,7 +91,7 @@ pub struct ChangePasswordRequest {
 }
 
 /// Response after changing password
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ChangePasswordResponse {
     /// Username whose password was changed
     pub username: String,
@@ -99,7 +100,7 @@ pub struct ChangePasswordResponse {
 }
 
 /// Request to get detailed user info
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GetUserInfoRequest {
     /// Username to get info for
     pub username: String,
@@ -108,7 +109,7 @@ pub struct GetUserInfoRequest {
 }
 
 /// Response with detailed user information
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GetUserInfoResponse {
     /// User information
     pub user: UserInfo,

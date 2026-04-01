@@ -21,3 +21,9 @@ members = [
   "crates/validate",
 ]
 default-members = ["crates/client"]
+
+# Clippy lints: unwrap_used and expect_used are denied via
+# #![deny(...)] in each crate's lib.rs/main.rs (not here),
+# because workspace-level deny translates to --deny CLI flags
+# which cannot be overridden by #[allow] in test code.
+# See clippy.toml for test exceptions.

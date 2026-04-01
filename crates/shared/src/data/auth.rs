@@ -2,10 +2,11 @@
 //!
 //! These types define the JSON-RPC request/response formats for authentication operations.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Request to authenticate a user and receive a JWT token
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LoginRequest {
     /// Username to authenticate
     pub username: String,
@@ -14,7 +15,7 @@ pub struct LoginRequest {
 }
 
 /// Response from a successful login
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LoginResponse {
     /// JWT token for authenticated requests
     pub token: String,
@@ -27,14 +28,14 @@ pub struct LoginResponse {
 }
 
 /// Request to validate a JWT token
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateRequest {
     /// JWT token to validate
     pub token: String,
 }
 
 /// Response from token validation
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ValidateResponse {
     /// Whether the token is valid
     pub valid: bool,

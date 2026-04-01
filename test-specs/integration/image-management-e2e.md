@@ -27,6 +27,17 @@
 
 ---
 
+## Container Image Import (from tar archive)
+
+**What to test:**
+- Import tar archive → loaded into Docker daemon → tracked in DB `[e2e]` **P0**
+- Import tar.gz archive → loaded into Docker daemon → tracked in DB `[e2e]` **P1**
+- First container image for model marked as default `[e2e]` **P1**
+- Nonexistent source file rejected before Docker load `[e2e]` **P0**
+- Round-trip: `docker save` → `sherpa server image import` → image present in Docker `[e2e]` **P0**
+
+---
+
 ## Container Image Pull
 
 **What to test:**

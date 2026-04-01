@@ -36,7 +36,10 @@ pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
                 .iter()
                 .find(|d| d.name == *name)
                 .ok_or_else(|| anyhow::anyhow!("Device not found: {}", name))?;
-            let device_id = dev_id_map.get(&device.name).unwrap().to_owned(); // should never error
+            let device_id = dev_id_map
+                .get(&device.name)
+                .ok_or_else(|| anyhow::anyhow!("Device ID not found for: {}", device.name))?
+                .to_owned();
             get_ip(&lab_info.loopback_network, device_id)
         }
     };

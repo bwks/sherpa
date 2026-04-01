@@ -46,15 +46,20 @@ pub fn generate_self_signed_certificate(
                 tracing::warn!("Invalid IP in SAN: {}", ip_str);
             }
         } else if let Some(dns) = san_entry.strip_prefix("DNS:") {
-            params
-                .subject_alt_names
-                .push(SanType::DnsName(dns.to_string().try_into().unwrap()));
+            params.subject_alt_names.push(SanType::DnsName(
+                dns.to_string()
+                    .try_into()
+                    .context(format!("Invalid DNS SAN: {}", dns))?,
+            ));
             tracing::debug!("Added DNS SAN: {}", dns);
         } else {
             // Assume it's a DNS name if no prefix
-            params
-                .subject_alt_names
-                .push(SanType::DnsName(san_entry.to_string().try_into().unwrap()));
+            params.subject_alt_names.push(SanType::DnsName(
+                san_entry
+                    .to_string()
+                    .try_into()
+                    .context(format!("Invalid DNS SAN: {}", san_entry))?,
+            ));
             tracing::debug!("Added DNS SAN: {}", san_entry);
         }
     }
@@ -65,15 +70,20 @@ pub fn generate_self_signed_certificate(
 
     if !has_localhost {
         params.subject_alt_names.push(SanType::DnsName(
-            "localhost".to_string().try_into().unwrap(),
+            "localhost"
+                .to_string()
+                .try_into()
+                .context("Failed to create localhost SAN")?,
         ));
         tracing::debug!("Added default DNS SAN: localhost");
     }
 
     if !has_loopback {
-        params
-            .subject_alt_names
-            .push(SanType::IpAddress("127.0.0.1".parse().unwrap()));
+        params.subject_alt_names.push(SanType::IpAddress(
+            "127.0.0.1"
+                .parse()
+                .context("Failed to parse loopback address")?,
+        ));
         tracing::debug!("Added default IP SAN: 127.0.0.1");
     }
 

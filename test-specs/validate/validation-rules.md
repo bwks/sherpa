@@ -2,7 +2,7 @@
 
 > **Crate:** `crates/validate/`
 > **External Dependencies:** None (pure logic), except `validate_and_resolve_node_versions` which checks filesystem and Docker image lists
-> **Existing Tests:** 42 unit tests across 6 of 7 modules
+> **Existing Tests:** 79 unit tests across all 7 modules
 
 ---
 
@@ -16,7 +16,7 @@
 - Invalid address format returns an error `[unit]` **P1**
 - Connection respects the 100ms timeout `[integration]` **P2**
 
-**Existing coverage:** None
+**Existing coverage:** 2 tests (closed port returns false, invalid address returns error)
 
 ---
 
@@ -66,7 +66,7 @@
 - Multiple nodes validated — first invalid address triggers the error `[unit]` **P1**
 - Error messages include the node name and address `[unit]` **P1**
 
-**Existing coverage:** 5 tests cover core cases. Gap: multi-node validation and error message content assertions.
+**Existing coverage:** 8 tests cover all cases including multi-node and error message assertions.
 
 ---
 
@@ -110,7 +110,7 @@
 - Link referencing an undefined device fails with the device name in error `[unit]` **P0**
 - Empty links list passes `[unit]` **P2**
 
-**Existing coverage:** No dedicated tests
+**Existing coverage:** 3 tests (valid, undefined device, empty links)
 
 ---
 
@@ -168,7 +168,7 @@ Index scheme: `0 = mgmt | 1..reserved_count = reserved | (1+reserved_count)..(1+
 - Empty interface prefix fails `[unit]` **P0**
 - First failing field produces the error (validation order matters) `[unit]` **P2**
 
-**Existing coverage:** 4 tests cover private validators (cpu, memory, mtu, version). Gaps: no test for the public `validate_node_image_update` entry point, no test for `interface_prefix`, no test for `data_interface_count`.
+**Existing coverage:** 14 tests — private validators (cpu, memory, interface count, mtu, version, prefix) plus 8 public entry point tests covering all failure modes and boundary values.
 
 ---
 
@@ -200,20 +200,22 @@ Index scheme: `0 = mgmt | 1..reserved_count = reserved | (1+reserved_count)..(1+
 - Mixed VM and container nodes in same manifest `[unit]` **P1**
 - Multiple nodes of same model with different versions `[unit]` **P1**
 
-**Existing coverage:** 6 tests cover private validators (version in db, container image). Gaps: no test for the public entry point, no test for `validate_vm_disk`, no test for version fallback/resolution logic, no multi-node scenarios.
+**Existing coverage:** 17 tests — private validators (version in db, container image, vm disk) plus public entry point tests covering version resolution, fallback, precedence, multi-node scenarios, and failure cases.
 
 ---
 
-## Coverage Gap Summary
+## Coverage Gap Summary (Updated 2026-03-31)
+
+All P0 gaps have been addressed. Current status: 79 tests passing.
 
 | Area | Status | Priority |
 |------|--------|----------|
-| `tcp_connect` | No tests | P1 |
-| `check_link_device` | No dedicated tests | P0 |
-| `validate_node_image_update` (public entry) | Not tested directly | P0 |
-| `validate_and_resolve_node_versions` (public entry) | Not tested directly | P0 |
-| `validate_vm_disk` | Not tested | P0 |
-| `interface_prefix` validation | Not tested | P1 |
-| `data_interface_count` validation | Not tested | P1 |
-| Multi-node IPv6 validation | Not tested | P2 |
-| Error message content assertions | Sparse | P2 |
+| `tcp_connect` | 2 tests (closed port, invalid addr) | P1 |
+| `check_link_device` | 3 tests (valid, undefined, empty) | Done |
+| `validate_node_image_update` (public entry) | 7 tests | Done |
+| `validate_and_resolve_node_versions` (public entry) | 8 tests | Done |
+| `validate_vm_disk` | 2 tests (not found, path format) | Done |
+| `interface_prefix` validation | 1 test | Done |
+| `data_interface_count` validation | 1 test | Done |
+| Multi-node IPv6 validation | 2 tests | Done |
+| Error message content assertions | Covered in most modules | Done |
