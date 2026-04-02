@@ -151,6 +151,10 @@ pub fn build_router() -> Router<AppState> {
         .route("/cert", get(get_certificate_handler))
         .route("/api/v1/spec", get(api_spec_handler))
         .route("/api/v1/openapi.json", get(openapi_handler))
+        .route(
+            "/api/docs",
+            get(|| async { axum::response::Redirect::permanent("/swagger/index.html") }),
+        )
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)
