@@ -41,7 +41,7 @@ use super::handlers::{
     admin_node_image_detail_handler, admin_node_image_edit_page_handler,
     admin_node_image_update_handler, admin_node_image_versions_handler,
     admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
-    api_spec_handler, create_lab_json, dashboard_handler, delete_lab_json, delete_ssh_key_handler,
+    api_spec_handler, create_lab_json, dashboard_handler, delete_lab_json, delete_ssh_key_handler, openapi_handler,
     down_lab_json, get_certificate_handler, get_lab, get_labs_html, get_labs_json, health_check,
     lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
     lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, login, login_form_handler,
@@ -146,6 +146,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/health", get(health_check))
         .route("/cert", get(get_certificate_handler))
         .route("/api/v1/spec", get(api_spec_handler))
+        .route("/api/v1/openapi.json", get(openapi_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)

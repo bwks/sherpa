@@ -2527,6 +2527,25 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     }
 }
 
+/// Serve the OpenAPI 3.1 specification
+///
+/// GET /api/v1/openapi.json
+/// Public endpoint - no authentication required
+pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
+    static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
+        std::sync::OnceLock::new();
+    let result = OPENAPI_JSON.get_or_init(|| {
+        let doc = shared::api_spec::build_openapi();
+        Ok(doc)
+    });
+    match result {
+        Ok(doc) => Ok(Json(doc.clone())),
+        Err(e) => Err(ApiError::internal(format!(
+            "Failed to build OpenAPI spec: {e}"
+        ))),
+    }
+}
+
 // Request/Response types
 
 /// Query parameters for listing labs
