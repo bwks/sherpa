@@ -4,6 +4,7 @@ use askama::Template;
 use axum::extract::ws::Message;
 use axum::response::sse::Event;
 use futures::stream::Stream;
+use serde::Serialize;
 use shared::data::{DestroyResponse, StatusKind};
 use tokio::sync::mpsc;
 
@@ -81,6 +82,46 @@ pub fn destroy_progress_stream(
 
         let event = Event::default().event("complete").data(summary_html);
         yield Ok(event);
+    }
+}
+
+/// Convert a progress message receiver and a typed result receiver into a JSON SSE
+/// event stream for REST API consumption.
+///
+/// The stream yields:
+/// - `event: progress` — JSON status messages as they arrive from the progress channel
+/// - `event: complete` — final JSON result when the operation succeeds
+/// - `event: error` — JSON error message if the operation fails
+pub fn json_progress_stream<T: Serialize + Send + 'static>(
+    mut rx: mpsc::UnboundedReceiver<Message>,
+    result_rx: tokio::sync::oneshot::Receiver<anyhow::Result<T>>,
+) -> impl Stream<Item = Result<Event, Infallible>> {
+    async_stream::stream! {
+        while let Some(msg) = rx.recv().await {
+            if let Message::Text(text) = msg {
+                let event = Event::default().event("progress").data(text.to_string());
+                yield Ok(event);
+            }
+        }
+
+        match result_rx.await {
+            Ok(Ok(response)) => {
+                if let Ok(json) = serde_json::to_string(&response) {
+                    let event = Event::default().event("complete").data(json);
+                    yield Ok(event);
+                }
+            }
+            Ok(Err(e)) => {
+                let error = serde_json::json!({ "error": format!("{:#}", e) });
+                let event = Event::default().event("error").data(error.to_string());
+                yield Ok(event);
+            }
+            Err(_) => {
+                let error = serde_json::json!({ "error": "Lost connection to operation" });
+                let event = Event::default().event("error").data(error.to_string());
+                yield Ok(event);
+            }
+        }
     }
 }
 

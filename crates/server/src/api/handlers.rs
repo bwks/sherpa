@@ -11,11 +11,13 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use surrealdb_types::Datetime;
 
-use crate::api::sse::destroy_progress_stream;
+use crate::api::sse::{destroy_progress_stream, json_progress_stream};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
-use crate::services::{destroy, inspect, list_labs};
+use crate::services::{
+    clean, container_pull, delete, destroy, down, import, inspect, list_labs, redeploy, resume, up,
+};
 use crate::templates::{
     AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
     AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
@@ -31,9 +33,13 @@ use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCooki
 
 use shared::auth::{password, ssh};
 use shared::data::{
-    BiosTypes, CpuArchitecture, CpuModels, DestroyRequest, DiskBuses, InspectRequest,
-    InspectResponse, InterfaceType, ListLabsResponse, LoginRequest, LoginResponse, MachineType,
-    NodeModel, OsVariant, ZtpMethod,
+    BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
+    CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
+    DestroyRequest, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
+    InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
+    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
+    OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
+    UpRequest, UserInfo, ZtpMethod,
 };
 use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
 
@@ -2241,118 +2247,522 @@ pub async fn admin_node_image_versions_handler(
 }
 
 // =============================================================================
-// REST API stubs — Lab Management
+// REST API — Lab Management
 // =============================================================================
-// These stubs establish the REST API surface for external tool integration
-// (Terraform, Ansible, CI pipelines, etc.). The underlying service layer is
-// already implemented and used by the WebSocket RPC handlers.
-//
-// Streaming operations (up, destroy, redeploy) will need an async job pattern:
-// POST returns a job ID, GET polls for status/result.
 
-/// Create a lab (stub)
+/// Optional body for down/resume operations
+#[derive(Deserialize, Default)]
+pub struct NodeActionPayload {
+    pub node_name: Option<String>,
+}
+
+/// Helper to verify lab ownership. Returns Ok(()) or an ApiError.
+async fn require_lab_access(
+    auth: &AuthenticatedUser,
+    lab_id: &str,
+    state: &AppState,
+) -> Result<(), ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+    Ok(())
+}
+
+/// Helper to require admin privileges
+fn require_admin_auth(auth: &AuthenticatedUser) -> Result<(), ApiError> {
+    if !auth.is_admin {
+        return Err(ApiError::forbidden("Admin privileges required"));
+    }
+    Ok(())
+}
+
+/// Create a lab (SSE streaming)
 ///
 /// POST /api/v1/labs
-///
-/// Accepts a manifest and creates a lab. This is a long-running operation
-/// that will eventually return a job ID for polling.
-///
-/// # Request Body
-/// ```json
-/// {
-///   "lab_id": "my-lab",
-///   "manifest": { ... }
-/// }
-/// ```
 pub async fn create_lab_json(
-    _auth: AuthenticatedUser,
-    Json(_payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::internal(
-        "Lab creation via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
-    ))
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(payload): Json<UpRequest>,
+) -> impl IntoResponse {
+    let request = UpRequest {
+        username: auth.username,
+        ..payload
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = up::up_lab(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    axum::response::sse::Sse::new(json_progress_stream(progress_rx, result_rx))
 }
 
-/// Destroy a lab (stub)
+/// Destroy a lab (SSE streaming)
 ///
 /// DELETE /api/v1/labs/{lab_id}
-///
-/// Destroys a lab and all its resources. This is a long-running operation
-/// that will eventually return a job ID for polling.
 pub async fn delete_lab_json(
-    _auth: AuthenticatedUser,
-    Path(_lab_id): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::internal(
-        "Lab destruction via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
-    ))
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_lab_access(&auth, &lab_id, &state).await?;
+
+    let request = DestroyRequest {
+        lab_id,
+        username: auth.username,
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = destroy::destroy_lab(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    Ok(axum::response::sse::Sse::new(json_progress_stream(
+        progress_rx,
+        result_rx,
+    )))
 }
 
-/// Stop lab nodes (stub)
+/// Stop lab nodes
 ///
 /// POST /api/v1/labs/{lab_id}/down
-///
-/// Stops all nodes in a lab, or a specific node if `node_name` is provided.
-///
-/// # Request Body (optional)
-/// ```json
-/// {
-///   "node_name": "dev01"
-/// }
-/// ```
 pub async fn down_lab_json(
-    _auth: AuthenticatedUser,
-    Path(_lab_id): Path<String>,
-    Json(_payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::internal(
-        "Lab node shutdown via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
-    ))
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+    Json(payload): Json<NodeActionPayload>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    require_lab_access(&auth, &lab_id, &state).await?;
+
+    let response = down::shutdown_lab_nodes(&lab_id, payload.node_name.as_deref(), &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
 }
 
-/// Resume lab nodes (stub)
+/// Resume lab nodes
 ///
 /// POST /api/v1/labs/{lab_id}/resume
-///
-/// Resumes all stopped nodes in a lab, or a specific node if `node_name` is provided.
-///
-/// # Request Body (optional)
-/// ```json
-/// {
-///   "node_name": "dev01"
-/// }
-/// ```
 pub async fn resume_lab_json(
-    _auth: AuthenticatedUser,
-    Path(_lab_id): Path<String>,
-    Json(_payload): Json<serde_json::Value>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::internal(
-        "Lab node resume via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
-    ))
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+    Json(payload): Json<NodeActionPayload>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    require_lab_access(&auth, &lab_id, &state).await?;
+
+    let response = resume::start_lab_nodes(&lab_id, payload.node_name.as_deref(), &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
 }
 
-/// Redeploy a lab node (stub)
+/// Redeploy a lab node (SSE streaming)
 ///
 /// POST /api/v1/labs/{lab_id}/nodes/{node_name}/redeploy
-///
-/// Destroys and recreates a specific node with fresh configuration.
-/// This is a long-running operation that will eventually return a job ID for polling.
-///
-/// # Request Body
-/// ```json
-/// {
-///   "manifest": { ... }
-/// }
-/// ```
 pub async fn redeploy_node_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path((lab_id, node_name)): Path<(String, String)>,
+    Json(payload): Json<serde_json::Value>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_lab_access(&auth, &lab_id, &state).await?;
+
+    let manifest = payload
+        .get("manifest")
+        .cloned()
+        .ok_or_else(|| ApiError::bad_request("Missing 'manifest' field in request body"))?;
+
+    let request = RedeployRequest {
+        lab_id,
+        node_name,
+        manifest,
+        username: auth.username,
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = redeploy::redeploy_node(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    Ok(axum::response::sse::Sse::new(json_progress_stream(
+        progress_rx,
+        result_rx,
+    )))
+}
+
+/// Force-clean a lab (admin only)
+///
+/// POST /api/v1/labs/{lab_id}/clean
+pub async fn clean_lab_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let response = clean::clean_lab(&lab_id, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+// =============================================================================
+// REST API — Image Management
+// =============================================================================
+
+/// List images
+///
+/// GET /api/v1/images
+pub async fn list_images_json(
     _auth: AuthenticatedUser,
-    Path((_lab_id, _node_name)): Path<(String, String)>,
-    Json(_payload): Json<serde_json::Value>,
+    State(state): State<AppState>,
+    Query(params): Query<ListImagesRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    Err(ApiError::internal(
-        "Node redeploy via REST API is not yet implemented. Use the WebSocket RPC or CLI.",
-    ))
+    let response = import::list_images(params, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
+}
+
+/// Show image details
+///
+/// GET /api/v1/images/{model}
+pub async fn show_image_json(
+    _auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(model): Path<String>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let model: NodeModel = model
+        .parse()
+        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+
+    let request = ShowImageRequest {
+        model,
+        version: params.get("version").cloned(),
+    };
+
+    let response = import::show_image(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
+}
+
+/// Import an image (SSE streaming)
+///
+/// POST /api/v1/images/import
+pub async fn import_image_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(request): Json<ImportRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = import::import_image(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    Ok(axum::response::sse::Sse::new(json_progress_stream(
+        progress_rx,
+        result_rx,
+    )))
+}
+
+/// Delete an image
+///
+/// DELETE /api/v1/images/{model}/{version}
+pub async fn delete_image_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path((model, version)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let model: NodeModel = model
+        .parse()
+        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+
+    let request = DeleteImageRequest { model, version };
+
+    let response = delete::delete_image(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
+}
+
+/// Set default image version
+///
+/// POST /api/v1/images/{model}/{version}/default
+pub async fn set_default_image_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path((model, version)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let model: NodeModel = model
+        .parse()
+        .map_err(|_| ApiError::bad_request(format!("Invalid model: {model}")))?;
+
+    let request = SetDefaultImageRequest { model, version };
+
+    let response = import::set_default_image(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
+}
+
+/// Scan for images
+///
+/// POST /api/v1/images/scan
+pub async fn scan_images_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(request): Json<ScanImagesRequest>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let response = import::scan_images(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
+}
+
+/// Pull a container image (SSE streaming)
+///
+/// POST /api/v1/images/pull
+pub async fn pull_image_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(request): Json<ContainerPullRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = container_pull::pull_container_image(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    Ok(axum::response::sse::Sse::new(json_progress_stream(
+        progress_rx,
+        result_rx,
+    )))
+}
+
+/// Download a VM image (SSE streaming)
+///
+/// POST /api/v1/images/download
+pub async fn download_image_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(request): Json<DownloadImageRequest>,
+) -> Result<impl IntoResponse, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    tokio::spawn(async move {
+        let result = import::download_image(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    Ok(axum::response::sse::Sse::new(json_progress_stream(
+        progress_rx,
+        result_rx,
+    )))
+}
+
+// =============================================================================
+// REST API — User Management
+// =============================================================================
+
+/// Create a user (admin only)
+///
+/// POST /api/v1/users
+pub async fn create_user_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Json(request): Json<CreateUserRequest>,
+) -> Result<Json<CreateUserResponse>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let user = db::create_user(
+        &state.db,
+        request.username.clone(),
+        &request.password,
+        request.is_admin,
+        request.ssh_keys.unwrap_or_default(),
+    )
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(Json(CreateUserResponse {
+        success: true,
+        username: user.username,
+        is_admin: user.is_admin,
+    }))
+}
+
+/// List users (admin only)
+///
+/// GET /api/v1/users
+pub async fn list_users_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+) -> Result<Json<ListUsersResponse>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let users = db::list_users(&state.db).await.map_err(ApiError::from)?;
+
+    let user_list: Vec<UserInfo> = users
+        .into_iter()
+        .map(|u| UserInfo {
+            username: u.username,
+            is_admin: u.is_admin,
+            ssh_keys: u.ssh_keys,
+            created_at: u.created_at.timestamp(),
+            updated_at: u.updated_at.timestamp(),
+        })
+        .collect();
+
+    Ok(Json(ListUsersResponse { users: user_list }))
+}
+
+/// Delete a user (admin only)
+///
+/// DELETE /api/v1/users/{username}
+pub async fn delete_user_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    if username == auth.username {
+        return Err(ApiError::bad_request("Cannot delete your own account"));
+    }
+
+    // Check last admin safety
+    let users = db::list_users(&state.db).await.map_err(ApiError::from)?;
+    let admin_count = users.iter().filter(|u| u.is_admin).count();
+    let target_is_admin = users.iter().any(|u| u.username == username && u.is_admin);
+
+    if target_is_admin && admin_count <= 1 {
+        return Err(ApiError::bad_request(
+            "Cannot delete the last admin account",
+        ));
+    }
+
+    db::delete_user_by_username(&state.db, &username)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(json!({ "success": true, "username": username })))
+}
+
+/// Change a user's password
+///
+/// POST /api/v1/users/{username}/password
+pub async fn change_password_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<Json<ChangePasswordResponse>, ApiError> {
+    // Admins can change any password; users can only change their own
+    if !auth.is_admin && auth.username != username {
+        return Err(ApiError::forbidden("You can only change your own password"));
+    }
+
+    let mut user = db::get_user(&state.db, &username)
+        .await
+        .map_err(ApiError::from)?;
+
+    user.password_hash = password::hash_password(&payload.new_password)
+        .map_err(|e| ApiError::internal(format!("{e}")))?;
+    user.updated_at = Datetime::default();
+
+    db::update_user(&state.db, user)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(ChangePasswordResponse {
+        success: true,
+        username,
+    }))
+}
+
+/// Get user info
+///
+/// GET /api/v1/users/{username}
+pub async fn get_user_info_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+) -> Result<Json<GetUserInfoResponse>, ApiError> {
+    // Admins can view any user; users can only view themselves
+    if !auth.is_admin && auth.username != username {
+        return Err(ApiError::forbidden("You can only view your own profile"));
+    }
+
+    let user = db::get_user(&state.db, &username)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(GetUserInfoResponse {
+        user: UserInfo {
+            username: user.username,
+            is_admin: user.is_admin,
+            ssh_keys: user.ssh_keys,
+            created_at: user.created_at.timestamp(),
+            updated_at: user.updated_at.timestamp(),
+        },
+    }))
 }
 
 /// Handler to return the nodes table fragment for HTMX polling
@@ -2523,6 +2933,25 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
         Ok(spec) => Ok(Json(spec.clone())),
         Err(e) => Err(ApiError::internal(format!(
             "Failed to serialize API spec: {e}"
+        ))),
+    }
+}
+
+/// Serve the OpenAPI 3.1 specification
+///
+/// GET /api/v1/openapi.json
+/// Public endpoint - no authentication required
+pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
+    static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
+        std::sync::OnceLock::new();
+    let result = OPENAPI_JSON.get_or_init(|| {
+        let doc = shared::api_spec::build_openapi();
+        Ok(doc)
+    });
+    match result {
+        Ok(doc) => Ok(Json(doc.clone())),
+        Err(e) => Err(ApiError::internal(format!(
+            "Failed to build OpenAPI spec: {e}"
         ))),
     }
 }

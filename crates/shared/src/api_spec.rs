@@ -2,6 +2,7 @@ use std::collections::BTreeMap;
 
 use schemars::schema_for;
 use serde::Serialize;
+use serde_json::json;
 
 use crate::data::{
     ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest, ContainerPullResponse,
@@ -82,6 +83,9 @@ pub struct RestBinding {
     pub method: HttpMethod,
     /// URL path pattern
     pub path: String,
+    /// Path parameter names (e.g. `["id", "node"]`)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub path_params: Vec<String>,
     /// Streaming mechanism (null for non-streaming)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_type: Option<String>,
@@ -137,6 +141,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/auth/login".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -159,6 +164,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/auth/validate".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -182,6 +188,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/labs".to_string(),
+                    path_params: vec![],
                     stream_type: Some("sse".to_string()),
                 },
                 rpc: RpcBinding {
@@ -204,6 +211,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Delete,
                     path: "/api/v1/labs/{id}".to_string(),
+                    path_params: vec!["id".to_string()],
                     stream_type: Some("sse".to_string()),
                 },
                 rpc: RpcBinding {
@@ -226,6 +234,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Get,
                     path: "/api/v1/labs/{id}".to_string(),
+                    path_params: vec!["id".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -248,6 +257,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/labs/{id}/down".to_string(),
+                    path_params: vec!["id".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -270,6 +280,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/labs/{id}/resume".to_string(),
+                    path_params: vec!["id".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -292,6 +303,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/labs/{id}/clean".to_string(),
+                    path_params: vec!["id".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -315,6 +327,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/labs/{id}/nodes/{node}/redeploy".to_string(),
+                    path_params: vec!["id".to_string(), "node".to_string()],
                     stream_type: Some("sse".to_string()),
                 },
                 rpc: RpcBinding {
@@ -338,6 +351,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Get,
                     path: "/api/v1/images".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -360,6 +374,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Get,
                     path: "/api/v1/images/{model}".to_string(),
+                    path_params: vec!["model".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -382,6 +397,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/images/import".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -404,6 +420,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Delete,
                     path: "/api/v1/images/{model}/{version}".to_string(),
+                    path_params: vec!["model".to_string(), "version".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -426,6 +443,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/images/{model}/{version}/default".to_string(),
+                    path_params: vec!["model".to_string(), "version".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -448,6 +466,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/images/scan".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -470,6 +489,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/images/pull".to_string(),
+                    path_params: vec![],
                     stream_type: Some("sse".to_string()),
                 },
                 rpc: RpcBinding {
@@ -492,6 +512,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/images/download".to_string(),
+                    path_params: vec![],
                     stream_type: Some("sse".to_string()),
                 },
                 rpc: RpcBinding {
@@ -515,6 +536,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/users".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -537,6 +559,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Get,
                     path: "/api/v1/users".to_string(),
+                    path_params: vec![],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -559,6 +582,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Delete,
                     path: "/api/v1/users/{username}".to_string(),
+                    path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -581,6 +605,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Post,
                     path: "/api/v1/users/{username}/password".to_string(),
+                    path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -603,6 +628,7 @@ fn build_operations() -> Vec<OperationDef> {
                 rest: RestBinding {
                     method: HttpMethod::Get,
                     path: "/api/v1/users/{username}".to_string(),
+                    path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
                 rpc: RpcBinding {
@@ -674,6 +700,227 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<GetUserInfoResponse>(&mut schemas);
 
     schemas
+}
+
+/// Recursively rewrite `$ref` paths from schemars format (`#/definitions/Foo`)
+/// to OpenAPI 3.1 format (`#/components/schemas/Foo`).
+fn rewrite_refs(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(serde_json::Value::String(ref_str)) = map.get_mut("$ref")
+                && let Some(name) = ref_str.strip_prefix("#/definitions/")
+            {
+                *ref_str = format!("#/components/schemas/{name}");
+            }
+            for v in map.values_mut() {
+                rewrite_refs(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                rewrite_refs(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Extract nested `definitions` blocks from schemars-generated schemas
+/// and hoist them into the top-level schemas map.
+fn extract_definitions(schemas: &mut BTreeMap<String, serde_json::Value>) {
+    let mut hoisted = BTreeMap::new();
+
+    for schema in schemas.values_mut() {
+        if let serde_json::Value::Object(map) = schema
+            && let Some(serde_json::Value::Object(defs)) = map.remove("definitions")
+        {
+            for (name, def) in defs {
+                hoisted.insert(name, def);
+            }
+        }
+    }
+
+    for (name, mut def) in hoisted {
+        rewrite_refs(&mut def);
+        schemas.entry(name).or_insert(def);
+    }
+}
+
+/// Build an OpenAPI 3.1.0 document from the unified API spec.
+pub fn build_openapi() -> serde_json::Value {
+    let spec = build_spec();
+
+    let mut schemas: BTreeMap<String, serde_json::Value> = spec.schemas;
+    extract_definitions(&mut schemas);
+    for schema in schemas.values_mut() {
+        rewrite_refs(schema);
+    }
+
+    // Build paths, grouping operations that share the same REST path
+    let mut paths: BTreeMap<String, serde_json::Map<String, serde_json::Value>> = BTreeMap::new();
+
+    for op in &spec.operations {
+        let rest = &op.transports.rest;
+
+        let method_key = match rest.method {
+            HttpMethod::Get => "get",
+            HttpMethod::Post => "post",
+            HttpMethod::Delete => "delete",
+        };
+
+        let category_tag = match op.category {
+            Category::Auth => "auth",
+            Category::Lab => "lab",
+            Category::Node => "node",
+            Category::Image => "image",
+            Category::User => "user",
+        };
+
+        // Security
+        let security = match op.auth {
+            AuthRequirement::None => json!([]),
+            AuthRequirement::Authenticated | AuthRequirement::Admin => {
+                json!([{"BearerAuth": []}, {"CookieAuth": []}])
+            }
+        };
+
+        // Request body (skip for GET)
+        let request_body = match rest.method {
+            HttpMethod::Get => None,
+            _ => op.request_schema.as_ref().map(|schema_name| {
+                json!({
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
+                        }
+                    }
+                })
+            }),
+        };
+
+        // Response
+        let success_response = if op.streaming {
+            json!({
+                "description": format!("{} (Server-Sent Events stream)", op.description),
+                "content": {
+                    "text/event-stream": {
+                        "schema": { "type": "string" }
+                    }
+                }
+            })
+        } else if let Some(ref schema_name) = op.response_schema {
+            json!({
+                "description": op.description,
+                "content": {
+                    "application/json": {
+                        "schema": { "$ref": format!("#/components/schemas/{schema_name}") }
+                    }
+                }
+            })
+        } else {
+            json!({ "description": op.description })
+        };
+
+        let mut responses = serde_json::Map::new();
+        responses.insert("200".to_string(), success_response);
+
+        // Add error responses based on auth requirement
+        responses.insert("400".to_string(), json!({ "description": "Bad request" }));
+        responses.insert(
+            "500".to_string(),
+            json!({ "description": "Internal server error" }),
+        );
+
+        match op.auth {
+            AuthRequirement::None => {}
+            AuthRequirement::Authenticated => {
+                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
+            }
+            AuthRequirement::Admin => {
+                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
+                responses.insert(
+                    "403".to_string(),
+                    json!({ "description": "Forbidden — admin privileges required" }),
+                );
+            }
+        }
+
+        // Build the operation object
+        let mut operation = serde_json::Map::new();
+        operation.insert("operationId".to_string(), json!(op.name));
+        operation.insert("summary".to_string(), json!(op.description));
+        operation.insert("tags".to_string(), json!([category_tag]));
+        operation.insert("security".to_string(), security);
+        operation.insert(
+            "responses".to_string(),
+            serde_json::Value::Object(responses),
+        );
+
+        if let Some(body) = request_body {
+            operation.insert("requestBody".to_string(), body);
+        }
+
+        if matches!(op.auth, AuthRequirement::Admin) {
+            operation.insert("x-admin-required".to_string(), json!(true));
+        }
+
+        // Path parameters at path item level (shared across methods)
+        let path_entry = paths.entry(rest.path.clone()).or_default();
+
+        if !rest.path_params.is_empty() && !path_entry.contains_key("parameters") {
+            let params: Vec<serde_json::Value> = rest
+                .path_params
+                .iter()
+                .map(|name| {
+                    json!({
+                        "name": name,
+                        "in": "path",
+                        "required": true,
+                        "schema": { "type": "string" }
+                    })
+                })
+                .collect();
+            path_entry.insert("parameters".to_string(), json!(params));
+        }
+
+        path_entry.insert(method_key.to_string(), serde_json::Value::Object(operation));
+    }
+
+    // Convert paths to Value
+    let paths_value: serde_json::Map<String, serde_json::Value> = paths
+        .into_iter()
+        .map(|(k, v)| (k, serde_json::Value::Object(v)))
+        .collect();
+
+    // Convert schemas to Value
+    let schemas_value: serde_json::Map<String, serde_json::Value> = schemas.into_iter().collect();
+
+    json!({
+        "openapi": "3.1.0",
+        "info": {
+            "title": "Sherpa API",
+            "description": "Sherpa lab management API — virtual machines, containers, and unikernels",
+            "version": spec.version
+        },
+        "servers": [{ "url": "/" }],
+        "paths": serde_json::Value::Object(paths_value),
+        "components": {
+            "schemas": serde_json::Value::Object(schemas_value),
+            "securitySchemes": {
+                "BearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                    "bearerFormat": "JWT"
+                },
+                "CookieAuth": {
+                    "type": "apiKey",
+                    "in": "cookie",
+                    "name": "sherpa_token"
+                }
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -803,5 +1050,100 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_build_openapi_valid_structure() {
+        let doc = build_openapi();
+        assert_eq!(doc["openapi"], "3.1.0");
+        assert_eq!(doc["info"]["title"], "Sherpa API");
+        assert_eq!(doc["info"]["version"], "1.0.0");
+        assert!(doc["paths"].is_object());
+        assert!(doc["components"]["schemas"].is_object());
+        assert!(doc["components"]["securitySchemes"].is_object());
+    }
+
+    #[test]
+    fn test_build_openapi_has_all_paths() {
+        let spec = build_spec();
+        let doc = build_openapi();
+        let paths = doc["paths"].as_object().unwrap();
+
+        let mut expected_paths: Vec<&str> = spec
+            .operations
+            .iter()
+            .map(|op| op.transports.rest.path.as_str())
+            .collect();
+        expected_paths.sort();
+        expected_paths.dedup();
+
+        for path in &expected_paths {
+            assert!(
+                paths.contains_key(*path),
+                "Path '{}' missing from OpenAPI document",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_openapi_schema_refs_rewritten() {
+        let doc = build_openapi();
+        let json_str = serde_json::to_string(&doc).unwrap();
+        assert!(
+            !json_str.contains("#/definitions/"),
+            "Found unrewritten #/definitions/ ref in OpenAPI document"
+        );
+    }
+
+    #[test]
+    fn test_build_openapi_security_schemes() {
+        let doc = build_openapi();
+        let schemes = &doc["components"]["securitySchemes"];
+        assert_eq!(schemes["BearerAuth"]["type"], "http");
+        assert_eq!(schemes["BearerAuth"]["scheme"], "bearer");
+        assert_eq!(schemes["BearerAuth"]["bearerFormat"], "JWT");
+        assert_eq!(schemes["CookieAuth"]["type"], "apiKey");
+        assert_eq!(schemes["CookieAuth"]["in"], "cookie");
+    }
+
+    #[test]
+    fn test_build_openapi_public_endpoints_no_security() {
+        let doc = build_openapi();
+        let login_op = &doc["paths"]["/api/v1/auth/login"]["post"];
+        assert_eq!(login_op["security"], json!([]));
+    }
+
+    #[test]
+    fn test_build_openapi_streaming_ops_use_sse() {
+        let doc = build_openapi();
+        // lab.create is POST /api/v1/labs and is streaming
+        let create_lab = &doc["paths"]["/api/v1/labs"]["post"];
+        assert!(
+            create_lab["responses"]["200"]["content"]["text/event-stream"].is_object(),
+            "Streaming operation should have text/event-stream response"
+        );
+    }
+
+    #[test]
+    fn test_build_openapi_path_parameters_extracted() {
+        let doc = build_openapi();
+        let lab_path = &doc["paths"]["/api/v1/labs/{id}"];
+        let params = lab_path["parameters"].as_array().unwrap();
+        assert!(
+            params.iter().any(|p| p["name"] == "id"),
+            "Path /api/v1/labs/{{id}} should have 'id' parameter"
+        );
+    }
+
+    #[test]
+    fn test_build_openapi_admin_ops_marked() {
+        let doc = build_openapi();
+        // image.import is admin-only: POST /api/v1/images/import
+        let import_op = &doc["paths"]["/api/v1/images/import"]["post"];
+        assert_eq!(
+            import_op["x-admin-required"], true,
+            "Admin operation should have x-admin-required: true"
+        );
     }
 }
