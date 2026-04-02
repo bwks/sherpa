@@ -22,8 +22,8 @@
 
 ### Observability
 - [x] **OpenTelemetry integration (Phase 1 — Traces)** — OTLP trace export via `tracing-opentelemetry`, always compiled in, enabled via `[otel]` section in `sherpa.toml`. Layered subscriber keeps existing log output, adds OTel span export. HTTP request middleware + WebSocket/RPC span instrumentation. See `docs/OTEL.md`.
-- [ ] **OpenTelemetry (Phase 2 — Metrics)** — Connection count gauge, RPC latency histograms, operation duration by type, error rate counters.
-- [ ] **OpenTelemetry (Phase 3 — Enhanced spans)** — `#[instrument]` on service functions, DB/Docker/libvirt span wrappers, W3C Trace Context propagation.
+- [x] **OpenTelemetry (Phase 2 — Metrics)** — Connection count gauge, RPC latency histograms, operation duration by type, error rate counters. `Metrics` struct with noop pattern, `MeterProvider` init, 4 instruments exported via OTLP.
+- [x] **OpenTelemetry (Phase 3 — Enhanced spans)** — `#[instrument]` on service functions, DB/Docker/libvirt span wrappers. W3C Trace Context propagation not needed (no outgoing HTTP calls). See `docs/OTEL.md`.
 
 ### Frontend
 - [ ] **Dioxus native GUI frontend** — Planned but not yet started.
