@@ -18,7 +18,7 @@
 - [ ] **Rate limiting** — Acknowledged as missing in API.md.
 
 ### API
-- [ ] **OpenAPI/Swagger export** — Add `build_openapi()` function in `api_spec.rs` that transforms the unified spec into an OpenAPI 3.1 document. Serve at `/api/v1/openapi.json`. No new dependencies — derive from the existing operation registry, not maintained separately.
+- [x] **OpenAPI/Swagger export** — `build_openapi()` in `api_spec.rs` transforms the unified spec into an OpenAPI 3.1 document. Served at `/api/v1/openapi.json`. No new dependencies — derived from the existing operation registry.
 
 ### Observability
 - [x] **OpenTelemetry integration (Phase 1 — Traces)** — OTLP trace export via `tracing-opentelemetry`, always compiled in, enabled via `[otel]` section in `sherpa.toml`. Layered subscriber keeps existing log output, adds OTel span export. HTTP request middleware + WebSocket/RPC span instrumentation. See `docs/OTEL.md`.
@@ -31,3 +31,6 @@
 ## Lower Priority
 - [ ] **Shared crate test directory** — Inline tests exist but no dedicated test directory.
 - [ ] **Install script BATS testing** — VM-based testing per `test-specs/install/HOW-TO-RUN.md`.
+
+### P2P Interface
+- [ ] **eBPF Interface** - Build and eBPF interface that can be used in both libvirt VM's and Containers as point-to-point interfaces.

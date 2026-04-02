@@ -41,12 +41,16 @@ use super::handlers::{
     admin_node_image_detail_handler, admin_node_image_edit_page_handler,
     admin_node_image_update_handler, admin_node_image_versions_handler,
     admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
-    api_spec_handler, create_lab_json, dashboard_handler, delete_lab_json, delete_ssh_key_handler, openapi_handler,
-    down_lab_json, get_certificate_handler, get_lab, get_labs_html, get_labs_json, health_check,
+    api_spec_handler, change_password_json, clean_lab_json, create_lab_json, create_user_json,
+    dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
+    delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
+    get_labs_html, get_labs_json, get_user_info_json, health_check, import_image_json,
     lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
-    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, login, login_form_handler,
-    login_page_handler, logout_handler, profile_handler, redeploy_node_json, resume_lab_json,
-    signup_form_handler, signup_page_handler, update_password_handler,
+    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, list_images_json,
+    list_users_json, login, login_form_handler, login_page_handler, logout_handler,
+    openapi_handler, profile_handler, pull_image_json, redeploy_node_json, resume_lab_json,
+    scan_images_json, set_default_image_json, show_image_json, signup_form_handler,
+    signup_page_handler, update_password_handler,
 };
 
 /// Build the Axum router with all API routes
@@ -158,6 +162,32 @@ pub fn build_router() -> Router<AppState> {
         .route(
             "/api/v1/labs/{id}/nodes/{node_name}/redeploy",
             post(redeploy_node_json),
+        )
+        .route("/api/v1/labs/{id}/clean", post(clean_lab_json))
+        // Image API endpoints
+        .route("/api/v1/images", get(list_images_json))
+        .route("/api/v1/images/import", post(import_image_json))
+        .route("/api/v1/images/scan", post(scan_images_json))
+        .route("/api/v1/images/pull", post(pull_image_json))
+        .route("/api/v1/images/download", post(download_image_json))
+        .route("/api/v1/images/{model}", get(show_image_json))
+        .route(
+            "/api/v1/images/{model}/{version}",
+            delete(delete_image_json),
+        )
+        .route(
+            "/api/v1/images/{model}/{version}/default",
+            post(set_default_image_json),
+        )
+        // User API endpoints
+        .route("/api/v1/users", post(create_user_json).get(list_users_json))
+        .route(
+            "/api/v1/users/{username}",
+            get(get_user_info_json).delete(delete_user_json),
+        )
+        .route(
+            "/api/v1/users/{username}/password",
+            post(change_password_json),
         )
         // Apply middleware layers (outermost = first to process request)
         .layer(cors)

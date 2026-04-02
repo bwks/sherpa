@@ -826,10 +826,7 @@ pub fn build_openapi() -> serde_json::Value {
         responses.insert("200".to_string(), success_response);
 
         // Add error responses based on auth requirement
-        responses.insert(
-            "400".to_string(),
-            json!({ "description": "Bad request" }),
-        );
+        responses.insert("400".to_string(), json!({ "description": "Bad request" }));
         responses.insert(
             "500".to_string(),
             json!({ "description": "Internal server error" }),
@@ -838,16 +835,10 @@ pub fn build_openapi() -> serde_json::Value {
         match op.auth {
             AuthRequirement::None => {}
             AuthRequirement::Authenticated => {
-                responses.insert(
-                    "401".to_string(),
-                    json!({ "description": "Unauthorized" }),
-                );
+                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
             }
             AuthRequirement::Admin => {
-                responses.insert(
-                    "401".to_string(),
-                    json!({ "description": "Unauthorized" }),
-                );
+                responses.insert("401".to_string(), json!({ "description": "Unauthorized" }));
                 responses.insert(
                     "403".to_string(),
                     json!({ "description": "Forbidden — admin privileges required" }),
@@ -878,7 +869,8 @@ pub fn build_openapi() -> serde_json::Value {
         let path_entry = paths.entry(rest.path.clone()).or_default();
 
         if !rest.path_params.is_empty() && !path_entry.contains_key("parameters") {
-            let params: Vec<serde_json::Value> = rest.path_params
+            let params: Vec<serde_json::Value> = rest
+                .path_params
                 .iter()
                 .map(|name| {
                     json!({
@@ -892,10 +884,7 @@ pub fn build_openapi() -> serde_json::Value {
             path_entry.insert("parameters".to_string(), json!(params));
         }
 
-        path_entry.insert(
-            method_key.to_string(),
-            serde_json::Value::Object(operation),
-        );
+        path_entry.insert(method_key.to_string(), serde_json::Value::Object(operation));
     }
 
     // Convert paths to Value
@@ -905,8 +894,7 @@ pub fn build_openapi() -> serde_json::Value {
         .collect();
 
     // Convert schemas to Value
-    let schemas_value: serde_json::Map<String, serde_json::Value> =
-        schemas.into_iter().collect();
+    let schemas_value: serde_json::Map<String, serde_json::Value> = schemas.into_iter().collect();
 
     json!({
         "openapi": "3.1.0",
