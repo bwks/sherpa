@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.44] - 2026-04-02
+
+### Documentation
+
+- Project tasks by @bwks ([ee6d4a9](https://github.com/bwks/sherpa/commit/ee6d4a99d3ab40c3ff7e6947ddccf0605c7f2688))
+
+### Features
+
+- Swagger docs by @bwks ([8059d89](https://github.com/bwks/sherpa/commit/8059d89ee49f7c3ba29528c1aacc8388284008d0))
+- API endpoint updates by @bwks ([0529004](https://github.com/bwks/sherpa/commit/0529004f4c5eef747e5766f9a5d2d2c480575afb))
+- Openapi spec doc by @bwks ([585acd2](https://github.com/bwks/sherpa/commit/585acd2bf20e39c63f7a36c01a771000fdb93ab7))
+
+### Miscellaneous
+
+- Merge pull request #192 from bwks/v0.3.44
+
+V0.3.44 by @bwks in [#192](https://github.com/bwks/sherpa/pull/192) ([2ab8b48](https://github.com/bwks/sherpa/commit/2ab8b48ca4649a67cbd49c9b5b00f8f5384d7730))
+- Version bump by @bwks ([126f4ba](https://github.com/bwks/sherpa/commit/126f4ba0599180e371e8c5ecc0f8b084fe979b30))
+- Merge pull request #190 from bwks/changelog/v0.3.43
+
+chore(release): update changelog for v0.3.43 by @github-actions[bot] in [#190](https://github.com/bwks/sherpa/pull/190) ([f275fef](https://github.com/bwks/sherpa/commit/f275fef148e7fa13e1f58783ae82a6f9834bb3d8))
 ## [0.3.43] - 2026-04-02
 
 ### Documentation
