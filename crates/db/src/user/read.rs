@@ -3,6 +3,7 @@ use shared::data::{DbUser, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Get a user by username
 ///
@@ -32,6 +33,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUser> {
     let mut response = db
         .query("SELECT * FROM ONLY user WHERE username = $username")
@@ -69,6 +71,7 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<Option<DbUser>> {
     let user: Option<DbUser> = db
         .select(id.clone())
@@ -103,6 +106,7 @@ pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<O
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
     let users: Vec<DbUser> = db
         .select("user")
@@ -138,6 +142,7 @@ pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_users(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let users: Vec<DbUser> = db
         .select("user")
@@ -166,6 +171,7 @@ pub async fn count_users(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Security Note
 /// This function returns the password hash. Only use it for authentication purposes
 /// and never expose the hash in API responses or logs.
+#[instrument(skip(db), level = "debug")]
 pub async fn get_user_for_auth(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUser> {
     get_user(db, username).await
 }

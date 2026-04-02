@@ -1,8 +1,10 @@
 use anyhow::Result;
 use bollard::Docker;
 use bollard::query_parameters::ListImagesOptions;
+use tracing::instrument;
 
 /// Get list of all local container images with their tags
+#[instrument(skip(docker_conn), level = "debug")]
 pub async fn get_local_images(docker_conn: &Docker) -> Result<Vec<String>> {
     let container_images = docker_conn
         .list_images(Some(ListImagesOptions {
@@ -23,6 +25,7 @@ pub async fn get_local_images(docker_conn: &Docker) -> Result<Vec<String>> {
 }
 
 /// List all container images (logs to console)
+#[instrument(skip(docker_conn), level = "debug")]
 pub async fn list_images(docker_conn: &Docker) -> Result<()> {
     let image_list = get_local_images(docker_conn).await?;
 

@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
+use tracing::instrument;
 
 use crate::services::progress::ProgressSender;
 
@@ -2329,6 +2330,7 @@ fn cpu_features_for_model(model: &data::NodeModel) -> Vec<data::CpuFeature> {
 // ============================================================================
 
 /// Clone a list of disks in parallel using libvirt.
+#[instrument(skip(qemu_conn, clone_disks, progress), fields(%lab_id), level = "debug")]
 pub async fn clone_node_disks(
     qemu_conn: Arc<libvirt::QemuConnection>,
     clone_disks: Vec<data::CloneDisk>,
@@ -2425,6 +2427,7 @@ pub async fn clone_node_disks(
 // ============================================================================
 
 /// Create a VM from a domain template using libvirt.
+#[instrument(skip(qemu_conn, domain, progress), fields(vm_name = %domain.name), level = "debug")]
 pub async fn create_vm(
     qemu_conn: Arc<libvirt::QemuConnection>,
     domain: template::DomainTemplate,
@@ -2460,6 +2463,7 @@ pub async fn create_vm(
 
 /// Start a container node with all its network attachments.
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip(docker, env_vars, volumes, capabilities, progress), fields(%container_name, %image), level = "debug")]
 pub async fn start_container_node(
     docker: &Arc<bollard::Docker>,
     container_name: &str,
@@ -2532,6 +2536,7 @@ pub fn check_node_ready_ssh(ip: &str, port: u16) -> Result<bool> {
 // ============================================================================
 
 /// Destroy a single VM node: destroy domain, undefine, delete disks, and destroy networks.
+#[instrument(skip(qemu_conn), fields(%node_name, %lab_id), level = "debug")]
 pub async fn destroy_vm_node(
     qemu_conn: Arc<libvirt::QemuConnection>,
     node_name: &str,
@@ -2618,6 +2623,7 @@ pub async fn destroy_vm_node(
 }
 
 /// Destroy a single container node: kill, remove, and delete associated Docker networks.
+#[instrument(skip(docker), fields(%node_name, %lab_id), level = "debug")]
 pub async fn destroy_container_node(
     docker: &bollard::Docker,
     node_name: &str,

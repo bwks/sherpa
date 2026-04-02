@@ -4,6 +4,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail};
+use opentelemetry::KeyValue;
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::node_ops;
@@ -18,6 +21,7 @@ use shared::konst::{
 use shared::util;
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
+#[instrument(skip(state, progress), fields(lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn redeploy_node(
     request: RedeployRequest,
     state: &AppState,
@@ -676,6 +680,11 @@ pub async fn redeploy_node(
     }
 
     let total_time = start_time.elapsed().as_secs();
+
+    state.metrics.operation_duration.record(
+        start_time.elapsed().as_secs_f64(),
+        &[KeyValue::new("operation.type", "redeploy")],
+    );
 
     let response = RedeployResponse {
         success: true,

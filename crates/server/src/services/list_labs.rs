@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use shared::data::{LabStatus, LabSummary, ListLabsResponse};
@@ -16,6 +17,7 @@ use shared::data::{LabStatus, LabSummary, ListLabsResponse};
 /// Returns error if:
 /// - User doesn't exist in database
 /// - Database query fails
+#[instrument(skip(state), fields(%username))]
 pub async fn list_labs(username: &str, state: &AppState) -> Result<ListLabsResponse> {
     // Get user from database
     let user = db::get_user(&state.db, username)

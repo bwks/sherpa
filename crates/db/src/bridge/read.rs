@@ -4,6 +4,7 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
+use tracing::instrument;
 
 /// Get a bridge by its ID
 ///
@@ -17,6 +18,7 @@ use surrealdb_types::RecordId;
 /// # Errors
 /// - If the bridge doesn't exist
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn get_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Result<DbBridge> {
     let bridge: Option<DbBridge> = db
         .select::<Option<DbBridge>>(bridge_id)
@@ -39,6 +41,7 @@ pub async fn get_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Resu
 /// # Errors
 /// - If the bridge doesn't exist
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn get_bridge_by_index(
     db: &Arc<Surreal<Client>>,
     index: u16,
@@ -70,6 +73,7 @@ pub async fn get_bridge_by_index(
 ///
 /// # Errors
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn list_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Result<Vec<DbBridge>> {
     let mut result = db
         .query("SELECT * FROM bridge WHERE lab = $lab_id ORDER BY index")

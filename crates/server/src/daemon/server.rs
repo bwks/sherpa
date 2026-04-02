@@ -1,12 +1,15 @@
 use anyhow::{Context, Result};
 use axum::routing::get;
+use opentelemetry::metrics::MeterProvider;
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::Resource;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
@@ -27,33 +30,45 @@ impl FormatTime for MillisecondTime {
 
 use crate::api::build_router;
 use crate::api::websocket;
+use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::tls::CertificateManager;
-use shared::konst::{SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH};
+use shared::konst::{
+    OTEL_METRIC_EXPORT_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH,
+};
 use shared::util::load_config;
 
-/// Holds the OTel tracer provider so pending spans are flushed on drop.
+/// Holds OTel providers so pending data is flushed on drop.
 struct OtelGuard {
-    provider: SdkTracerProvider,
+    tracer_provider: SdkTracerProvider,
+    meter_provider: SdkMeterProvider,
 }
 
 impl Drop for OtelGuard {
     fn drop(&mut self) {
-        if let Err(e) = self.provider.shutdown() {
-            eprintln!("OpenTelemetry shutdown error: {e:?}");
+        if let Err(e) = self.meter_provider.shutdown() {
+            eprintln!("OpenTelemetry meter shutdown error: {e:?}");
+        }
+        if let Err(e) = self.tracer_provider.shutdown() {
+            eprintln!("OpenTelemetry tracer shutdown error: {e:?}");
         }
     }
 }
 
-/// Build an OTLP tracer provider from config.
-/// Standard env vars OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_SERVICE_NAME
-/// override their config-file equivalents.
-fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTracerProvider> {
-    let endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-        .unwrap_or_else(|_| otel_config.endpoint.clone());
+/// Resolve the OTLP endpoint, preferring the env var over config.
+fn otel_endpoint(otel_config: &shared::data::OtelConfig) -> String {
+    std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| otel_config.endpoint.clone())
+}
+
+/// Build the shared OTel Resource (service identity) from config / env vars.
+fn otel_resource(otel_config: &shared::data::OtelConfig) -> Resource {
     let service_name =
         std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| otel_config.service_name.clone());
+    Resource::builder().with_service_name(service_name).build()
+}
 
+/// Build an OTLP tracer provider from config.
+fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTracerProvider> {
     let sampler = if (otel_config.sample_ratio - 1.0).abs() < f64::EPSILON {
         opentelemetry_sdk::trace::Sampler::AlwaysOn
     } else if otel_config.sample_ratio <= 0.0 {
@@ -64,16 +79,34 @@ fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTra
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
-        .with_endpoint(&endpoint)
+        .with_endpoint(otel_endpoint(otel_config))
         .build()
         .map_err(|e| anyhow::anyhow!("Failed to build OTLP span exporter: {}", e))?;
 
-    let resource = Resource::builder().with_service_name(service_name).build();
-
     let provider = SdkTracerProvider::builder()
         .with_sampler(sampler)
-        .with_resource(resource)
+        .with_resource(otel_resource(otel_config))
         .with_batch_exporter(exporter)
+        .build();
+
+    Ok(provider)
+}
+
+/// Build an OTLP meter provider from config.
+fn init_meter_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkMeterProvider> {
+    let exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .with_endpoint(otel_endpoint(otel_config))
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build OTLP metric exporter: {}", e))?;
+
+    let reader = opentelemetry_sdk::metrics::PeriodicReader::builder(exporter)
+        .with_interval(Duration::from_secs(OTEL_METRIC_EXPORT_INTERVAL_SECS))
+        .build();
+
+    let provider = SdkMeterProvider::builder()
+        .with_resource(otel_resource(otel_config))
+        .with_reader(reader)
         .build();
 
     Ok(provider)
@@ -91,14 +124,24 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         Err(_) => (EnvFilter::new("info"), true),
     };
 
-    // Build the optional OTel layer and guard (flushes spans on drop)
-    let (_otel_guard, otel_layer) = if config.otel.enabled {
-        let provider = init_tracer_provider(&config.otel)?;
-        let tracer = provider.tracer("sherpad");
+    // Build the optional OTel layer, guard (flushes on drop), and metrics
+    let (_otel_guard, otel_layer, metrics) = if config.otel.enabled {
+        let tracer_provider = init_tracer_provider(&config.otel)?;
+        let meter_provider = init_meter_provider(&config.otel)?;
+
+        let tracer = tracer_provider.tracer("sherpad");
         let layer = tracing_opentelemetry::OpenTelemetryLayer::new(tracer);
-        (Some(OtelGuard { provider }), Some(layer))
+
+        let meter = meter_provider.meter("sherpad");
+        let metrics = Metrics::new(&meter);
+
+        let guard = OtelGuard {
+            tracer_provider,
+            meter_provider,
+        };
+        (Some(guard), Some(layer), metrics)
     } else {
-        (None, None)
+        (None, None, Metrics::noop())
     };
 
     // Setup logging based on mode using a layered registry.
@@ -256,7 +299,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     }
 
     // Create application state (includes db, libvirt, docker connections)
-    let state = AppState::new(config.clone())
+    let state = AppState::new(config.clone(), metrics)
         .await
         .context("Failed to initialize application state")?;
 

@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::models::{Ipam, IpamConfig, NetworkCreateRequest};
+use tracing::instrument;
 
+#[instrument(skip(docker), level = "debug")]
 pub async fn create_docker_bridge_network(
     docker: &Docker,
     name: &str,
@@ -69,6 +71,7 @@ pub async fn create_docker_bridge_network(
 /// * Uses macvlan driver which provides pure L2 connectivity without requiring IP addressing
 /// * No IPAM configuration - containers get no IPs on this network
 /// * Relies on the bridge already being created via rtnetlink
+#[instrument(skip(docker), level = "debug")]
 pub async fn create_docker_macvlan_network(
     docker: &Docker,
     parent_interface: &str,
@@ -112,6 +115,7 @@ pub async fn create_docker_macvlan_network(
 /// Unlike `create_docker_macvlan_network` (passthru), bridge mode allows multiple
 /// macvlan networks to share the same parent bridge — required for isolated bridges
 /// that carry multiple disabled interfaces.
+#[instrument(skip(docker), level = "debug")]
 pub async fn create_docker_macvlan_bridge_network(
     docker: &Docker,
     parent_interface: &str,

@@ -3,6 +3,7 @@ use shared::data::DbLink;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::link::read::get_link;
 
@@ -43,6 +44,7 @@ use crate::link::read::get_link;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn update_link(db: &Arc<Surreal<Client>>, link: DbLink) -> Result<DbLink> {
     // Require id field for updates
     let id = link

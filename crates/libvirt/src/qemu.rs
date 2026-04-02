@@ -1,6 +1,7 @@
 use std::ops::Deref;
 
 use anyhow::Result;
+use tracing::instrument;
 use virt::connect::Connect;
 
 use shared::konst::QEMU_URI;
@@ -18,6 +19,7 @@ impl Default for Qemu {
 }
 
 impl Qemu {
+    #[instrument(level = "debug", skip(self))]
     pub fn connect(&self) -> Result<QemuConnection> {
         // Suppress libvirt's default error handler which prints to stderr.
         // Errors are still returned via the Rust API.

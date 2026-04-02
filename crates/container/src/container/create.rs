@@ -9,12 +9,14 @@ use bollard::models::{
 use bollard::query_parameters::{
     CreateContainerOptions, InspectContainerOptions, StartContainerOptions,
 };
+use tracing::instrument;
 
 use shared::data::ContainerNetworkAttachment;
 
 use super::exec::exec_container_with_retry;
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip(docker), level = "debug")]
 pub async fn run_container(
     docker: &Docker,
     name: &str,

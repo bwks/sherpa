@@ -5,6 +5,7 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::Datetime;
+use tracing::instrument;
 
 /// Validate username format according to schema constraints
 ///
@@ -64,6 +65,8 @@ fn validate_username(username: &str) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db, password), level = "debug")]
+#[instrument(skip(db), level = "debug")]
 pub async fn create_user(
     db: &Arc<Surreal<Client>>,
     username: String,
@@ -135,6 +138,8 @@ pub async fn create_user(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db, password), level = "debug")]
+#[instrument(skip(db), level = "debug")]
 pub async fn upsert_user(
     db: &Arc<Surreal<Client>>,
     username: String,

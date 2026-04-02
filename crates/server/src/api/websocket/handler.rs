@@ -37,6 +37,7 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
     // Create connection and register it
     let connection = Arc::new(Connection::new(conn_id, sender));
     state.connections.insert(conn_id, connection.clone());
+    state.metrics.ws_connections.add(1, &[]);
 
     // Send connected confirmation
     let connected_msg = ServerMessage::Connected {
@@ -93,6 +94,7 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
 
     // Clean up connection
     state.connections.remove(&conn_id);
+    state.metrics.ws_connections.add(-1, &[]);
     tracing::info!("WebSocket connection closed: {}", conn_id);
 }
 

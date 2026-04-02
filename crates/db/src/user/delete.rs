@@ -3,6 +3,7 @@ use shared::data::{DbLab, DbUser, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::helpers::get_user_id;
 
@@ -39,6 +40,7 @@ use crate::helpers::get_user_id;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
     let deleted: Option<DbUser> = db.delete(id.clone()).await.context(format!(
@@ -83,6 +85,7 @@ pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) -> Result<()> {
     // First get the user to obtain their ID
     let mut response = db
@@ -138,6 +141,7 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // First check if the user exists
     let user: Option<DbUser> = db

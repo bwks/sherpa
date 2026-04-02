@@ -3,8 +3,10 @@ use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// List all node_image records from the database ordered by model
+#[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfig>> {
     let mut response = db
         .query("SELECT * FROM node_image ORDER BY model ASC")
@@ -16,6 +18,7 @@ pub async fn list_node_images(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfi
 }
 
 /// Get node_image by model, kind, and version
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node_image_by_model_kind_version(
     db: &Arc<Surreal<Client>>,
     model: &NodeModel,
@@ -38,6 +41,7 @@ pub async fn get_node_image_by_model_kind_version(
 }
 
 /// Get the default node_image for a specific model and kind
+#[instrument(skip(db), level = "debug")]
 pub async fn get_default_node_image(
     db: &Arc<Surreal<Client>>,
     model: &NodeModel,
@@ -58,6 +62,7 @@ pub async fn get_default_node_image(
 }
 
 /// List all node_image records filtered by kind
+#[instrument(skip(db), level = "debug")]
 pub async fn list_node_images_by_kind(
     db: &Arc<Surreal<Client>>,
     kind: &NodeKind,
@@ -76,6 +81,7 @@ pub async fn list_node_images_by_kind(
 }
 
 /// Get all versions of a node_image for a specific model and kind
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node_image_versions(
     db: &Arc<Surreal<Client>>,
     model: &NodeModel,
@@ -96,6 +102,7 @@ pub async fn get_node_image_versions(
 }
 
 /// Get multiple node_images by a list of RecordIds in a single query
+#[instrument(skip(db), level = "debug")]
 pub async fn list_node_images_by_ids(
     db: &Arc<Surreal<Client>>,
     ids: Vec<RecordId>,
@@ -115,6 +122,7 @@ pub async fn list_node_images_by_ids(
 }
 
 /// Get node_image by RecordId
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node_image_by_id(
     db: &Arc<Surreal<Client>>,
     id: RecordId,
@@ -130,6 +138,7 @@ pub async fn get_node_image_by_id(
 /// Get node_image from node_model (returns error if not found)
 /// This is used internally for image lookups by model.
 #[allow(dead_code)]
+#[instrument(skip(db), level = "debug")]
 pub(crate) async fn get_node_image(
     db: &Arc<Surreal<Client>>,
     node_model: &NodeModel,
@@ -148,6 +157,7 @@ pub(crate) async fn get_node_image(
 }
 
 /// Count total number of node_image records in the database
+#[instrument(skip(db), level = "debug")]
 pub async fn count_node_images(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let configs: Vec<NodeConfig> = db
         .select("node_image")

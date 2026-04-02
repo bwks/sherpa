@@ -6,6 +6,7 @@ use ipnet::{Ipv4Net, Ipv6Net};
 use shared::data::{DbLab, RecordId};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Get a lab by its lab_id (business key)
 ///
@@ -31,6 +32,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
     let mut response = db
         .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
@@ -67,6 +69,7 @@ pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLab> {
     let lab: Option<DbLab> = db
         .select(id.clone())
@@ -102,6 +105,7 @@ pub async fn get_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<Db
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_lab_by_name_and_user(
     db: &Arc<Surreal<Client>>,
     name: &str,
@@ -140,6 +144,7 @@ pub async fn get_lab_by_name_and_user(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
     let labs: Vec<DbLab> = db
         .select("lab")
@@ -174,6 +179,7 @@ pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<Vec<DbLab>> {
     let mut response = db
         .query("SELECT * FROM lab WHERE user = $user_id")
@@ -207,6 +213,7 @@ pub async fn list_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> 
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_labs(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM lab GROUP ALL")
@@ -242,6 +249,7 @@ pub async fn count_labs(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM lab WHERE user = $user_id GROUP ALL")
@@ -258,6 +266,7 @@ pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) ->
 /// Returns a vector of `Ipv4Net` representing the loopback subnets
 /// in use by existing labs. Used when allocating a new loopback subnet
 /// to avoid collisions.
+#[instrument(skip(db), level = "debug")]
 pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
     let labs: Vec<DbLab> = db
         .select("lab")
@@ -282,6 +291,7 @@ pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec
 /// Returns a vector of `Ipv4Net` representing the management subnets
 /// in use by existing labs. Used when allocating a new management subnet
 /// to avoid collisions.
+#[instrument(skip(db), level = "debug")]
 pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
     let labs: Vec<DbLab> = db
         .select("lab")
@@ -305,6 +315,7 @@ pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<V
 ///
 /// Returns a vector of `Ipv6Net` representing the IPv6 management subnets
 /// in use by existing labs. Labs without IPv6 are skipped.
+#[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
     let labs: Vec<DbLab> = db
         .select("lab")
@@ -330,6 +341,7 @@ pub async fn get_used_ipv6_management_networks(db: &Arc<Surreal<Client>>) -> Res
 ///
 /// Returns a vector of `Ipv6Net` representing the IPv6 loopback subnets
 /// in use by existing labs. Labs without IPv6 are skipped.
+#[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
     let labs: Vec<DbLab> = db
         .select("lab")

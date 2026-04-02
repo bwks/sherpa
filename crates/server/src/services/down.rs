@@ -1,6 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
+use opentelemetry::KeyValue;
 use shared::data::{LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
+use std::time::Instant;
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 
@@ -10,11 +14,14 @@ use crate::daemon::state::AppState;
 /// `domain.shutdown()`. Otherwise, forced power-off via `domain.destroy()`.
 /// Containers: `docker stop`.
 /// DB node state is updated to `Stopped` on success.
+#[instrument(skip(state), fields(%lab_id))]
 pub async fn shutdown_lab_nodes(
     lab_id: &str,
     node_name: Option<&str>,
     state: &AppState,
 ) -> Result<LabNodeActionResponse> {
+    let start = Instant::now();
+
     // Get lab from DB to obtain RecordId
     let db_lab = db::get_lab(&state.db, lab_id)
         .await
@@ -102,6 +109,11 @@ pub async fn shutdown_lab_nodes(
         }
         results.push(result);
     }
+
+    state.metrics.operation_duration.record(
+        start.elapsed().as_secs_f64(),
+        &[KeyValue::new("operation.type", "down")],
+    );
 
     Ok(LabNodeActionResponse { results })
 }

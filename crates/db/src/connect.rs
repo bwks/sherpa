@@ -4,9 +4,11 @@ use anyhow::{Context, Result};
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::{Client, Ws};
 use surrealdb::opt::auth::Root;
+use tracing::instrument;
 
 use shared::konst::SHERPA_DB_USER;
 
+#[instrument(skip(password), level = "debug")]
 pub async fn connect(
     host: &str,
     port: u16,

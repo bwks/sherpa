@@ -11,6 +11,7 @@ use surrealdb::engine::remote::ws::Client;
 
 use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::jwt;
+use crate::daemon::metrics::Metrics;
 
 /// Application state shared across the server.
 ///
@@ -35,11 +36,13 @@ pub struct AppState {
     pub config: Arc<Config>,
     /// JWT secret for token creation and validation
     pub jwt_secret: Arc<Vec<u8>>,
+    /// OpenTelemetry metrics instruments
+    pub metrics: Metrics,
 }
 
 impl AppState {
     /// Create a new AppState with all infrastructure connections
-    pub async fn new(config: Config) -> Result<Self> {
+    pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
         // Load or generate JWT secret
         let jwt_secret =
             jwt::load_or_generate_secret().context("Failed to load or generate JWT secret")?;
@@ -124,6 +127,7 @@ impl AppState {
             docker: Arc::new(docker),
             config: Arc::new(config),
             jwt_secret: Arc::new(jwt_secret),
+            metrics,
         })
     }
 }

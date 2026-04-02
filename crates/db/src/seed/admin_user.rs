@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::user::{create_user, get_user};
 
@@ -40,6 +41,7 @@ use crate::user::{create_user, get_user};
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db, password), level = "debug")]
 pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Result<bool> {
     // Check if admin user already exists
     match get_user(db, "admin").await {

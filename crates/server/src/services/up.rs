@@ -10,6 +10,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use serde_json;
 
+use opentelemetry::KeyValue;
+
+use tracing::instrument;
+
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::node_ops;
@@ -247,6 +251,7 @@ fn get_node_image(
 // ============================================================================
 
 /// Start a lab with streaming progress updates
+#[instrument(skip(request, state, progress), fields(lab_id = %request.lab_id))]
 pub async fn up_lab(
     request: data::UpRequest,
     state: &AppState,
@@ -2089,9 +2094,23 @@ pub async fn up_lab(
         Ok(response)
     }; // end resource_creation async block
 
+    let op_attrs = &[KeyValue::new("operation.type", "up")];
+
     match resource_creation.await {
-        Ok(response) => Ok(response),
+        Ok(response) => {
+            state
+                .metrics
+                .operation_duration
+                .record(start_time.elapsed().as_secs_f64(), op_attrs);
+            Ok(response)
+        }
         Err(e) => {
+            state.metrics.error_count.add(1, op_attrs);
+            state
+                .metrics
+                .operation_duration
+                .record(start_time.elapsed().as_secs_f64(), op_attrs);
+
             tracing::error!(
                 lab_id = %lab_id,
                 error = ?e,

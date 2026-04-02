@@ -3,6 +3,7 @@ use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use tracing::instrument;
 
 use virt::connect::Connect;
 use virt::domain::Domain;
@@ -13,6 +14,7 @@ use virt::stream::Stream;
 use shared::konst::SHERPA_STORAGE_POOL;
 
 /// Clone a disk image.
+#[instrument(level = "debug", skip(conn))]
 pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
 
@@ -93,6 +95,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
 }
 
 /// Resize a volume in the storage pool via the libvirt API.
+#[instrument(level = "debug", skip(conn))]
 pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
     anyhow::ensure!(size_gb > 0, "Disk size must be greater than 0 GB");
 
@@ -125,6 +128,7 @@ pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
 }
 
 /// Delete a volume from the storage pool.
+#[instrument(level = "debug", skip(conn))]
 pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
     let vol = StorageVol::lookup_by_name(&pool, disk_name)?;
@@ -133,6 +137,7 @@ pub fn delete_disk(conn: &Connect, disk_name: &str) -> Result<()> {
 }
 
 /// Create a virtual machine. This will define a persistent virtual machine.
+#[instrument(level = "debug", skip(conn, xml))]
 pub fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
     let domain = Domain::define_xml(conn, xml)?;
     domain.create()?;
@@ -140,6 +145,7 @@ pub fn create_vm(conn: &Connect, xml: &str) -> Result<Domain> {
 }
 
 /// Get virtual machine's Management IP address
+#[instrument(level = "debug", skip(conn))]
 pub fn get_mgmt_ip(conn: &Connect, vm_name: &str) -> Result<Option<String>> {
     // Look up the domain by name
     let domain = Domain::lookup_by_name(conn, vm_name)?;

@@ -1,16 +1,23 @@
 use anyhow::{Context, Result};
+use opentelemetry::KeyValue;
+use std::time::Instant;
 
 use shared::data::{ContainerPullRequest, ContainerPullResponse, NodeConfig, NodeKind, StatusKind};
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 
 /// Pull a container image from an OCI registry via Docker and import to DB
+#[instrument(skip(state, progress), fields(model = %request.model, repo = %request.repo, tag = %request.tag))]
 pub async fn pull_container_image(
     request: ContainerPullRequest,
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<ContainerPullResponse> {
+    let start = Instant::now();
+
     tracing::info!(
         model = %request.model,
         repo = %request.repo,
@@ -71,6 +78,11 @@ pub async fn pull_container_image(
             request.repo, request.tag
         ),
         StatusKind::Done,
+    );
+
+    state.metrics.operation_duration.record(
+        start.elapsed().as_secs_f64(),
+        &[KeyValue::new("operation.type", "container_pull")],
     );
 
     Ok(ContainerPullResponse {

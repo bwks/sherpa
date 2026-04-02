@@ -3,6 +3,7 @@ use shared::data::{DbLink, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Get a link by its RecordId (surrogate key)
 ///
@@ -29,6 +30,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
     let link: Option<DbLink> = db
         .select(id.clone())
@@ -50,6 +52,7 @@ pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink>
 /// # Errors
 /// - If link with id not found
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
     get_link(db, id).await
 }
@@ -83,6 +86,7 @@ pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_link_by_peers(
     db: &Arc<Surreal<Client>>,
     node_a_id: RecordId,
@@ -138,6 +142,7 @@ pub async fn get_link_by_peers(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
     let links: Vec<DbLink> = db
         .select("link")
@@ -172,6 +177,7 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbLink>> {
     let mut response = db
         .query("SELECT * FROM link WHERE lab = $lab_id")
@@ -210,6 +216,7 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_links_by_node(
     db: &Arc<Surreal<Client>>,
     node_id: RecordId,
@@ -246,6 +253,7 @@ pub async fn list_links_by_node(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM link GROUP ALL")
@@ -281,6 +289,7 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM link WHERE lab = $lab_id GROUP ALL")
@@ -319,6 +328,7 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM link WHERE node_a = $node_id OR node_b = $node_id GROUP ALL")

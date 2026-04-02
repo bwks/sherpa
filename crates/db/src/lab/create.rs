@@ -3,6 +3,7 @@ use shared::data::{DbLab, DbUser};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::helpers::get_user_id;
 
@@ -18,6 +19,7 @@ use crate::helpers::get_user_id;
 /// # Returns
 /// * `Ok(())` if valid
 /// * `Err` with descriptive message if invalid
+#[instrument(level = "debug")]
 pub fn validate_lab_id(lab_id: &str) -> Result<()> {
     // Check length
     if lab_id.len() != 8 {
@@ -75,6 +77,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// # }
 /// ```
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip(db), level = "debug")]
 pub async fn create_lab(
     db: &Arc<Surreal<Client>>,
     name: &str,
@@ -159,6 +162,7 @@ pub async fn create_lab(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn upsert_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(&lab.lab_id)?;

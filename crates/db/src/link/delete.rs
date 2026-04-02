@@ -3,6 +3,7 @@ use shared::data::{DbLink, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::link::read::get_link;
 
@@ -28,6 +29,7 @@ use crate::link::read::get_link;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify link exists
     let _ = get_link(db, id.clone()).await?;
@@ -49,6 +51,7 @@ pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// # Errors
 /// - If link not found
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_link(db, id).await
 }
@@ -76,6 +79,7 @@ pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE lab = $lab_id")
@@ -111,6 +115,7 @@ pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")

@@ -1,7 +1,11 @@
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
+use opentelemetry::KeyValue;
 use shared::data::{LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
+use std::time::Instant;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 
@@ -10,11 +14,14 @@ use crate::daemon::state::AppState;
 /// VMs: if shutoff, calls `domain.create()` (cold boot). If paused, calls `domain.resume()`.
 /// Containers: calls `docker start`.
 /// DB node state is updated to `Running` on success.
+#[instrument(skip(state), fields(%lab_id))]
 pub async fn start_lab_nodes(
     lab_id: &str,
     node_name: Option<&str>,
     state: &AppState,
 ) -> Result<LabNodeActionResponse> {
+    let start = Instant::now();
+
     // Get lab from DB to obtain RecordId
     let db_lab = db::get_lab(&state.db, lab_id)
         .await
@@ -102,6 +109,11 @@ pub async fn start_lab_nodes(
         }
         results.push(result);
     }
+
+    state.metrics.operation_duration.record(
+        start.elapsed().as_secs_f64(),
+        &[KeyValue::new("operation.type", "resume")],
+    );
 
     Ok(LabNodeActionResponse { results })
 }

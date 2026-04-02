@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow};
 use shared::data::{DbLab, DbNode, DbUser, NodeConfig, RecordId};
+use tracing::instrument;
 
 /// Get a user's id from a user record.
+#[instrument(skip(user), level = "debug")]
 pub fn get_user_id(user: &DbUser) -> Result<RecordId> {
     user.id
         .as_ref()
@@ -10,6 +12,7 @@ pub fn get_user_id(user: &DbUser) -> Result<RecordId> {
 }
 
 /// Get a lab's id from a lab record.
+#[instrument(level = "debug")]
 pub fn get_lab_id(lab: &DbLab) -> Result<RecordId> {
     lab.id
         .as_ref()
@@ -18,6 +21,7 @@ pub fn get_lab_id(lab: &DbLab) -> Result<RecordId> {
 }
 
 /// Get an image's id from a node image record.
+#[instrument(level = "debug")]
 pub fn get_image_id(config: &NodeConfig) -> Result<RecordId> {
     config
         .id
@@ -27,6 +31,7 @@ pub fn get_image_id(config: &NodeConfig) -> Result<RecordId> {
 }
 
 /// Get a node's id from a node record.
+#[instrument(level = "debug")]
 pub fn get_node_id(node: &DbNode) -> Result<RecordId> {
     node.id
         .as_ref()

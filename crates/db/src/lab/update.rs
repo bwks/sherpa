@@ -3,6 +3,7 @@ use shared::data::DbLab;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::lab::validate_lab_id;
 
@@ -39,6 +40,7 @@ use crate::lab::validate_lab_id;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Require id field for updates
     let id = lab

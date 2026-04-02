@@ -4,6 +4,7 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
+use tracing::instrument;
 
 use crate::node::read::get_node;
 
@@ -42,6 +43,7 @@ use crate::node::read::get_node;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNode> {
     // Require id field for updates
     let id = node
@@ -86,6 +88,7 @@ pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNo
 /// # Errors
 /// - If the node doesn't exist
 /// - If the database update fails
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_ipv4(
     db: &Arc<Surreal<Client>>,
     node_id: RecordId,
@@ -121,6 +124,7 @@ pub async fn update_node_mgmt_ipv4(
 /// # Errors
 /// - If the node doesn't exist
 /// - If the database update fails
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_ipv6(
     db: &Arc<Surreal<Client>>,
     node_id: RecordId,
@@ -156,6 +160,7 @@ pub async fn update_node_mgmt_ipv6(
 /// # Errors
 /// - If the node doesn't exist
 /// - If the database update fails
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_mac(
     db: &Arc<Surreal<Client>>,
     node_id: RecordId,
@@ -188,6 +193,7 @@ pub async fn update_node_mgmt_mac(
 /// # Errors
 /// - If the node doesn't exist
 /// - If the database update fails
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node_state(
     db: &Arc<Surreal<Client>>,
     node_id: RecordId,

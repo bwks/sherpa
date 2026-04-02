@@ -3,6 +3,7 @@ use shared::data::{BridgeKind, DbLink, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Create a new link between two nodes
 ///
@@ -62,6 +63,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # }
 /// ```
 #[allow(clippy::too_many_arguments)]
+#[instrument(skip(db), level = "debug")]
 pub async fn create_link(
     db: &Arc<Surreal<Client>>,
     index: u16,
