@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.43] - 2026-04-02
+
+### Documentation
+
+- Proect tracker update by @bwks ([fd9cfc9](https://github.com/bwks/sherpa/commit/fd9cfc99a282b76c878db8825dfd771042482adb))
+
+### Features
+
+- Otel metrics and tracing instrumentation by @bwks ([4e24511](https://github.com/bwks/sherpa/commit/4e2451183235eeb0106132a8808759fd0d1d03b9))
+
+### Miscellaneous
+
+- Merge pull request #189 from bwks/v0.3.43
+
+V0.3.43 by @bwks in [#189](https://github.com/bwks/sherpa/pull/189) ([47b365f](https://github.com/bwks/sherpa/commit/47b365f6b33483ba84cd56d0387710204b4bf398))
+- Version bump by @bwks ([944c9b2](https://github.com/bwks/sherpa/commit/944c9b272b84c48ebe95cb234600cf8a4c8e54a2))
+- Merge pull request #188 from bwks/changelog/v0.3.42
+
+chore(release): update changelog for v0.3.42 by @github-actions[bot] in [#188](https://github.com/bwks/sherpa/pull/188) ([a991920](https://github.com/bwks/sherpa/commit/a9919209ee0728187b5fac8bb4fd670cd11d4612))
 ## [0.3.42] - 2026-04-01
 
 ### Features
