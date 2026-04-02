@@ -1,10 +1,13 @@
 use std::fs;
 
 use anyhow::Result;
+use opentelemetry::KeyValue;
 
 use shared::data::{DestroyError, DestroyResponse, DestroySummary};
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
 use shared::util::{dir_exists, load_file};
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::destroy::{
@@ -19,6 +22,7 @@ use crate::services::destroy::{
 /// - Does not validate user ownership (admin-only, verified at RPC layer)
 /// - Tolerates missing lab info files
 /// - Always attempts all resource types regardless of partial failures
+#[instrument(skip(state), fields(%lab_id))]
 pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
     let start_time = std::time::Instant::now();
 
@@ -161,6 +165,15 @@ pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse
 
     let success = errors.is_empty();
     let total_duration = start_time.elapsed().as_secs();
+
+    let op_attrs = &[KeyValue::new("operation.type", "clean")];
+    state
+        .metrics
+        .operation_duration
+        .record(start_time.elapsed().as_secs_f64(), op_attrs);
+    if !success {
+        state.metrics.error_count.add(1, op_attrs);
+    }
 
     tracing::info!(
         lab_id = %lab_id,

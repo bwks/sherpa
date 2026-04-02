@@ -57,11 +57,36 @@ Start sherpad with OTel enabled, make some API or WebSocket calls, then open
   tagged with `connection_id`.
 - **RPC calls** — each WebSocket RPC method dispatch gets an `rpc_call` span
   tagged with `rpc.method`, `rpc.id`, and `connection_id`.
+- **Service operations** — top-level service functions (`up_lab`, `destroy_lab`,
+  `shutdown_lab_nodes`, `start_lab_nodes`, `clean_lab`, `inspect_lab`,
+  `redeploy_node`, `import_image`, `pull_container_image`, etc.) each create
+  an `#[instrument]` span with relevant fields like `lab_id` or `node_name`.
+- **Database calls** — every public DB function gets a debug-level span with
+  `#[instrument(skip(db), level = "debug")]`.
+- **Docker operations** — container create/start/stop/exec/network functions
+  get debug-level spans.
+- **libvirt operations** — VM clone/create/resize/delete and network functions
+  get debug-level spans.
 - **Existing tracing calls** — all 500+ `tracing::info!` / `error!` / `debug!`
   calls throughout the codebase automatically appear as span events under the
   OTel layer.
 
+## Metrics
+
+When OTel is enabled, the following metrics are exported via OTLP alongside
+traces (same endpoint):
+
+| Metric name                  | Type          | Description                              | Attributes          |
+|------------------------------|---------------|------------------------------------------|----------------------|
+| `sherpad.ws.connections`     | UpDownCounter | Active WebSocket connections             | —                    |
+| `sherpad.rpc.duration`       | Histogram (s) | RPC call duration                        | `rpc.method`         |
+| `sherpad.operation.duration` | Histogram (s) | Service operation duration               | `operation.type`     |
+| `sherpad.errors`             | Counter       | Error count by operation type            | `operation.type`     |
+
+Metrics are exported every 60 seconds by default. When OTel is disabled, all
+metric instruments are no-ops with zero overhead.
+
 ## Graceful shutdown
 
-The tracer provider is held in an `OtelGuard` that flushes pending spans when
-the server shuts down. No manual cleanup is required.
+The tracer and meter providers are held in an `OtelGuard` that flushes pending
+spans and metrics when the server shuts down. No manual cleanup is required.

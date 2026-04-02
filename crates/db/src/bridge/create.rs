@@ -3,6 +3,7 @@ use shared::data::{DbBridge, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Create a new shared bridge for a lab
 ///
@@ -24,6 +25,7 @@ use surrealdb::engine::remote::ws::Client;
 /// - If unique constraint is violated (index, lab combination)
 /// - If lab doesn't exist
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn create_bridge(
     db: &Arc<Surreal<Client>>,
     index: u16,

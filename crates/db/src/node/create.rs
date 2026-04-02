@@ -6,6 +6,7 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
+use tracing::instrument;
 
 /// Create a new node in the database.
 ///
@@ -51,6 +52,7 @@ use surrealdb_types::RecordId;
 /// - The image_id doesn't reference a valid node_image
 /// - The lab_id doesn't reference a valid lab
 /// - Database operation fails
+#[instrument(skip(db), level = "debug")]
 pub async fn create_node(
     db: &Arc<Surreal<Client>>,
     name: &str,

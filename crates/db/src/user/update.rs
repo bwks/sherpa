@@ -3,6 +3,7 @@ use shared::data::DbUser;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::helpers::get_user_id;
 
@@ -46,6 +47,8 @@ use crate::helpers::get_user_id;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db, user), level = "debug")]
+#[instrument(skip(db), level = "debug")]
 pub async fn update_user(db: &Arc<Surreal<Client>>, user: DbUser) -> Result<DbUser> {
     // Extract and validate the ID
     let id = get_user_id(&user)?;

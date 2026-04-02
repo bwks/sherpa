@@ -1,6 +1,7 @@
 use std::fs;
 
 use anyhow::{Context, Result, anyhow};
+use opentelemetry::KeyValue;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -15,6 +16,8 @@ use shared::konst::{
 };
 use shared::util::{dir_exists, load_file};
 use std::str::FromStr;
+
+use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -37,6 +40,7 @@ use crate::services::progress::ProgressSender;
 /// environment where the client can be trusted to send correct username. In production,
 /// this should be replaced with proper authentication (JWT, session, etc.) where the
 /// username is extracted from a verified token rather than client-provided param.
+#[instrument(skip(state, progress), fields(lab_id = %request.lab_id))]
 pub async fn destroy_lab(
     request: DestroyRequest,
     state: &AppState,
@@ -288,6 +292,15 @@ pub async fn destroy_lab(
     // Determine overall success
     let success = errors.is_empty();
     let total_duration = start_time.elapsed().as_secs();
+
+    let op_attrs = &[KeyValue::new("operation.type", "destroy")];
+    state
+        .metrics
+        .operation_duration
+        .record(start_time.elapsed().as_secs_f64(), op_attrs);
+    if !success {
+        state.metrics.error_count.add(1, op_attrs);
+    }
 
     tracing::info!(
         lab_id = %lab_id,

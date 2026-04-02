@@ -3,6 +3,7 @@ use shared::data::{DbNode, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Get a node by its RecordId (surrogate key)
 ///
@@ -29,6 +30,7 @@ use surrealdb::engine::remote::ws::Client;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
     let node: Option<DbNode> = db
         .select(id.clone())
@@ -50,6 +52,7 @@ pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode>
 /// # Errors
 /// - If node with id not found
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
     get_node(db, id).await
 }
@@ -81,6 +84,7 @@ pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn get_node_by_name_and_lab(
     db: &Arc<Surreal<Client>>,
     name: &str,
@@ -119,6 +123,7 @@ pub async fn get_node_by_name_and_lab(
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
     let nodes: Vec<DbNode> = db
         .select("node")
@@ -154,6 +159,7 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
     let mut response = db
         .query("SELECT * FROM node WHERE lab = $lab_id ORDER BY name ASC")
@@ -187,6 +193,7 @@ pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM node GROUP ALL")
@@ -223,6 +230,7 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM node WHERE lab = $lab_id GROUP ALL")

@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+use opentelemetry::KeyValue;
+use std::time::Instant;
 use tokio::io::AsyncWriteExt;
 
 use shared::data::{
@@ -10,6 +12,8 @@ use shared::data::{
 use shared::konst::SHERPA_IMAGES_PATH;
 use shared::util::{copy_file, create_dir, file_exists};
 
+use tracing::instrument;
+
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 
@@ -17,11 +21,14 @@ use crate::services::progress::ProgressSender;
 ///
 /// For VMs and unikernels: copies the disk image (qcow2) to the images directory.
 /// For containers: loads a tar archive into the Docker daemon via `docker load`.
+#[instrument(skip(state, progress), fields(model = %request.model, version = %request.version))]
 pub async fn import_image(
     request: ImportRequest,
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<ImportResponse> {
+    let start = Instant::now();
+
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
 
@@ -43,7 +50,7 @@ pub async fn import_image(
         request.default
     };
 
-    match kind {
+    let result = match kind {
         NodeKind::Container => {
             // Container import: load tar archive into Docker daemon
             tracing::info!(
@@ -163,10 +170,22 @@ pub async fn import_image(
                 db_tracked: true,
             })
         }
+    };
+
+    let op_attrs = &[KeyValue::new("operation.type", "import")];
+    state
+        .metrics
+        .operation_duration
+        .record(start.elapsed().as_secs_f64(), op_attrs);
+    if result.is_err() {
+        state.metrics.error_count.add(1, op_attrs);
     }
+
+    result
 }
 
 /// List images from the database with optional filtering by model and/or kind
+#[instrument(skip(state), level = "debug")]
 pub async fn list_images(
     request: ListImagesRequest,
     state: &AppState,
@@ -204,6 +223,7 @@ pub async fn list_images(
 }
 
 /// Show detailed information about a specific node image
+#[instrument(skip(state), level = "debug")]
 pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<ShowImageResponse> {
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
@@ -231,6 +251,7 @@ pub async fn show_image(request: ShowImageRequest, state: &AppState) -> Result<S
 }
 
 /// Scan the images directory for on-disk VM images and import them into the database
+#[instrument(skip(state), level = "debug")]
 pub async fn scan_images(
     request: ScanImagesRequest,
     state: &AppState,
@@ -553,6 +574,7 @@ pub async fn scan_images(
 }
 
 /// Set the default version for a node image
+#[instrument(skip(state), fields(model = %request.model, version = %request.version), level = "debug")]
 pub async fn set_default_image(
     request: SetDefaultImageRequest,
     state: &AppState,
@@ -611,6 +633,7 @@ fn resolve_download_url(model: &NodeModel, version: &str, url: Option<&str>) -> 
 }
 
 /// Download a VM image from a URL and track it in the database
+#[instrument(skip(state, progress), fields(model = %request.model, version = %request.version))]
 pub async fn download_image(
     request: DownloadImageRequest,
     state: &AppState,

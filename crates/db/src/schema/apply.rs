@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use super::bridge::generate_bridge_schema;
 use super::lab::generate_lab_schema;
@@ -101,6 +102,7 @@ async fn apply_schema_section(
 ///     Ok(())
 /// }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Generate schemas dynamically from individual schema modules
     let user_schema = generate_user_schema();

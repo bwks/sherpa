@@ -3,6 +3,7 @@ use shared::data::{DbLink, DbNode, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::node::read::get_node;
 
@@ -35,6 +36,7 @@ use crate::node::read::get_node;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify node exists
     let _ = get_node(db, id.clone()).await?;
@@ -57,6 +59,7 @@ pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// - If node not found
 /// - If node has associated links
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_node(db, id).await
 }
@@ -88,6 +91,7 @@ pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbNode> = db
         .query("DELETE node WHERE lab = $lab_id")
@@ -124,6 +128,7 @@ pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
         .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
@@ -162,6 +167,7 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_node(db, id).await
 }
@@ -199,6 +205,7 @@ pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Res
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Get the node to verify it exists
     let node = get_node(db, id.clone()).await?;

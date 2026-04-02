@@ -3,6 +3,7 @@ use shared::data::{DbLab, DbLink, DbNode, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::helpers::get_lab_id;
 use crate::lab::get_lab;
@@ -34,6 +35,7 @@ use crate::lab::get_lab;
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
@@ -72,6 +74,7 @@ pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     let _deleted: Option<DbLab> = db
         .delete(id.clone())
@@ -105,6 +108,7 @@ pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
@@ -143,6 +147,7 @@ pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
@@ -182,6 +187,7 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     delete_lab(db, lab_id).await
 }
@@ -216,6 +222,7 @@ pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Resu
 /// # Ok(())
 /// # }
 /// ```
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     // Get the lab to verify it exists
     let lab = get_lab(db, lab_id).await?;

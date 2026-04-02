@@ -9,6 +9,7 @@ use shared::util::load_file;
 use std::str::FromStr;
 use std::time::Instant;
 use tracing::Instrument;
+use tracing::instrument;
 use uuid::Uuid;
 use virt::storage_pool::StoragePool;
 
@@ -23,6 +24,7 @@ use crate::daemon::state::AppState;
 ///
 /// Authentication is handled by the caller (RPC middleware or web cookie auth)
 /// before this function is invoked.
+#[instrument(skip(state), fields(lab_id = %request.lab_id))]
 pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<InspectResponse> {
     let req_id = Uuid::now_v7();
     let span = tracing::debug_span!("inspect_lab", %req_id, lab_id = %request.lab_id);

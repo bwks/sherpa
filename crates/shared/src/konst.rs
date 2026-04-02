@@ -272,6 +272,13 @@ pub const OTEL_DEFAULT_PROTOCOL: &str = "grpc";
 pub const OTEL_DEFAULT_SERVICE_NAME: &str = "sherpad";
 pub const OTEL_DEFAULT_SAMPLE_RATIO: f64 = 1.0;
 
+// OpenTelemetry metric names
+pub const OTEL_METRIC_WS_CONNECTIONS: &str = "sherpad.ws.connections";
+pub const OTEL_METRIC_RPC_DURATION: &str = "sherpad.rpc.duration";
+pub const OTEL_METRIC_OPERATION_DURATION: &str = "sherpad.operation.duration";
+pub const OTEL_METRIC_ERROR_COUNT: &str = "sherpad.errors";
+pub const OTEL_METRIC_EXPORT_INTERVAL_SECS: u64 = 60;
+
 // Sherpad daemon constants
 pub const SHERPAD_PID_FILE: &str = "sherpad.pid";
 pub const SHERPAD_LOG_FILE: &str = "sherpad.log";

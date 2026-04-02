@@ -3,6 +3,7 @@ use shared::data::{NodeConfig, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 /// Delete a node_image record from the database by its RecordId
 ///
@@ -21,6 +22,7 @@ use surrealdb::engine::remote::ws::Client;
 /// - If the record doesn't exist
 /// - If the record is referenced by nodes (REFERENCE ON DELETE REJECT constraint)
 /// - If there's a database error during deletion
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_node_image(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
     let deleted: Option<NodeConfig> = db

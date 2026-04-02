@@ -3,6 +3,7 @@ use shared::data::NodeConfig;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::helpers::get_image_id;
 
@@ -22,6 +23,7 @@ use crate::helpers::get_image_id;
 /// - If the config has no ID
 /// - If the record doesn't exist in the database
 /// - If there's a database error during the update
+#[instrument(skip(db), level = "debug")]
 pub async fn update_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,

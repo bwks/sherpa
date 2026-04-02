@@ -5,6 +5,7 @@ use bollard::Docker;
 use bollard::query_parameters::CreateImageOptionsBuilder;
 use futures_util::StreamExt;
 use tokio::io::AsyncWriteExt;
+use tracing::instrument;
 
 use shared::data::{Config as SherpaConfig, ContainerImage};
 
@@ -13,6 +14,7 @@ use shared::data::{Config as SherpaConfig, ContainerImage};
 ///
 /// The optional `on_progress` callback is invoked with human-readable status
 /// strings as the pull progresses.
+#[instrument(skip(on_progress), level = "debug")]
 pub async fn pull_image<F>(repo: &str, tag: &str, on_progress: F) -> Result<()>
 where
     F: Fn(&str),
@@ -63,6 +65,7 @@ where
 }
 
 /// Pull down a container image from an OCI compliant Repository.
+#[instrument(skip(config), level = "debug")]
 pub async fn pull_container_image(config: &SherpaConfig, image: &ContainerImage) -> Result<()> {
     let image_location = format!("{}:{}", image.repo, image.version);
     let image_save_location = format!("{}/{}.tar.gz", config.containers_dir, image.name);

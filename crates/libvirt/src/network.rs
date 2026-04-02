@@ -2,6 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context, Result};
 use askama::Template;
+use tracing::instrument;
 use virt::connect::Connect;
 use virt::network::Network;
 
@@ -50,6 +51,7 @@ pub struct BridgeNetwork {
 }
 
 impl BridgeNetwork {
+    #[instrument(level = "debug", skip(self, qemu_conn))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
         if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Bridge network already exists");
@@ -76,6 +78,7 @@ pub struct IsolatedNetwork {
 impl IsolatedNetwork {
     /// Create an isolated bridge for forwarding disabled and ports
     /// isolated from one another.
+    #[instrument(level = "debug", skip(self, qemu_conn))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
         if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Isolated network already exists");
@@ -101,6 +104,7 @@ pub struct ReservedNetwork {
 
 impl ReservedNetwork {
     /// Create a reserved bridge for control traffic in a VM.
+    #[instrument(level = "debug", skip(self, qemu_conn))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
         if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "Reserved network already exists");
@@ -129,6 +133,7 @@ pub struct NatNetwork {
 }
 
 impl NatNetwork {
+    #[instrument(level = "debug", skip(self, qemu_conn))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
         if ensure_network_active(qemu_conn, &self.network_name)? {
             tracing::debug!(network_name = %self.network_name, "NAT network already exists");

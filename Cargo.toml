@@ -25,8 +25,8 @@ default-members = ["crates/client"]
 [workspace.dependencies]
 # OpenTelemetry
 opentelemetry = "0.31"
-opentelemetry_sdk = { version = "0.31", features = ["rt-tokio"] }
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic"] }
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics"] }
+opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics"] }
 tracing-opentelemetry = "0.32"
 
 # Clippy lints: unwrap_used and expect_used are denied via

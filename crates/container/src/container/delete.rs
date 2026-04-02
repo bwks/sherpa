@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::query_parameters::{KillContainerOptions, RemoveContainerOptions};
+use tracing::instrument;
 
+#[instrument(skip(docker), level = "debug")]
 pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
     docker
         .kill_container(
@@ -17,6 +19,7 @@ pub async fn kill_container(docker: &Docker, name: &str) -> Result<()> {
     Ok(())
 }
 
+#[instrument(skip(docker), level = "debug")]
 pub async fn remove_container(docker: &Docker, name: &str) -> Result<()> {
     // Wait for the container to exit, then remove (emulates --rm)
     docker

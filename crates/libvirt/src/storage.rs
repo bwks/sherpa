@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use tracing::instrument;
 use virt::connect::Connect;
 use virt::storage_pool::StoragePool;
 
@@ -7,6 +8,7 @@ pub struct SherpaStoragePool {
     pub path: String,
 }
 impl SherpaStoragePool {
+    #[instrument(level = "debug", skip(self, qemu_conn))]
     pub fn create(self, qemu_conn: &Connect) -> Result<()> {
         let name = self.name;
         let path = self.path;

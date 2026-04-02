@@ -3,6 +3,7 @@ use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use surrealdb_types::RecordId;
+use tracing::instrument;
 
 /// Delete a bridge
 ///
@@ -18,6 +19,7 @@ use surrealdb_types::RecordId;
 /// # Errors
 /// - If the bridge doesn't exist
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Result<()> {
     let _: Option<RecordId> = db
         .delete::<Option<RecordId>>(bridge_id)
@@ -43,6 +45,7 @@ pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> R
 ///
 /// # Errors
 /// - If there's a database error
+#[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Result<()> {
     db.query("DELETE FROM bridge WHERE lab = $lab_id")
         .bind(("lab_id", lab_id.clone()))

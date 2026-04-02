@@ -3,6 +3,7 @@ use bollard::Docker;
 use bollard::query_parameters::ImportImageOptionsBuilder;
 use futures_util::StreamExt;
 use tokio_util::codec;
+use tracing::instrument;
 
 /// Load a container image from a tar archive into the Docker daemon.
 ///
@@ -11,6 +12,7 @@ use tokio_util::codec;
 ///
 /// The optional `on_progress` callback is invoked with status messages
 /// as the load progresses.
+#[instrument(skip(docker, on_progress), level = "debug")]
 pub async fn load_image<F>(docker: &Docker, src: &str, on_progress: F) -> Result<()>
 where
     F: Fn(&str),

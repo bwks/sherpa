@@ -1,6 +1,8 @@
 use axum::extract::ws::Message;
+use opentelemetry::KeyValue;
 use serde_json;
 use std::sync::Arc;
+use std::time::Instant;
 use surrealdb_types::Datetime;
 use tokio::sync::mpsc;
 
@@ -172,7 +174,10 @@ pub async fn handle_rpc_request(
     params: serde_json::Value,
     state: &AppState,
 ) -> ServerMessage {
-    match method.as_str() {
+    let start = Instant::now();
+    let method_attr = KeyValue::new("rpc.method", method.clone());
+
+    let response = match method.as_str() {
         "auth.login" => handle_auth_login(id, params, state).await,
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
@@ -238,7 +243,14 @@ pub async fn handle_rpc_request(
                 }),
             }
         }
-    }
+    };
+
+    state
+        .metrics
+        .rpc_duration
+        .record(start.elapsed().as_secs_f64(), &[method_attr]);
+
+    response
 }
 
 /// Handle streaming RPC request (sends multiple messages during execution)
@@ -250,6 +262,9 @@ pub async fn handle_streaming_rpc_request(
     state: &AppState,
     connection: &Arc<Connection>,
 ) {
+    let start = Instant::now();
+    let method_attr = KeyValue::new("rpc.method", method.clone());
+
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
@@ -309,6 +324,11 @@ pub async fn handle_streaming_rpc_request(
             }
         }
     }
+
+    state
+        .metrics
+        .rpc_duration
+        .record(start.elapsed().as_secs_f64(), &[method_attr]);
 }
 
 /// Handle "inspect" RPC call

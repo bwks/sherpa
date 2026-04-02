@@ -1,11 +1,13 @@
 use std::process::Command;
 
 use anyhow::Result;
+use tracing::instrument;
 
 use shared::konst::{CONTAINER_IMAGE_NAME, TEMP_DIR};
 use shared::util::{create_dir, dir_exists};
 
 /// Save a local container image the ".tmp/" directory.
+#[instrument(level = "debug")]
 pub fn save_container_image(image: &str, version: &str) -> Result<()> {
     let image_name = format!("{image}:{version}");
     tracing::info!(image = %image_name, "Exporting container image to temp directory");

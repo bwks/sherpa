@@ -1,7 +1,9 @@
 use anyhow::{Context, Result};
 use bollard::Docker;
 use bollard::query_parameters::StartContainerOptions;
+use tracing::instrument;
 
+#[instrument(skip(docker), level = "debug")]
 pub async fn start_container(docker: &Docker, name: &str) -> Result<()> {
     docker
         .start_container(name, None::<StartContainerOptions>)
@@ -12,6 +14,7 @@ pub async fn start_container(docker: &Docker, name: &str) -> Result<()> {
     Ok(())
 }
 
+#[instrument(skip(docker), level = "debug")]
 pub async fn unpause_container(docker: &Docker, name: &str) -> Result<()> {
     docker
         .unpause_container(name)

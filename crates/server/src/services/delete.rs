@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use tracing::instrument;
 
 use shared::data::{DeleteImageRequest, DeleteImageResponse, NodeConfig, NodeKind};
 use shared::konst::SHERPA_IMAGES_PATH;
@@ -7,6 +8,7 @@ use shared::util::delete_dirs;
 use crate::daemon::state::AppState;
 
 /// Delete an imported image from both disk and database
+#[instrument(skip(state), fields(model = %request.model, version = %request.version))]
 pub async fn delete_image(
     request: DeleteImageRequest,
     state: &AppState,

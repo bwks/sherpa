@@ -2,9 +2,11 @@ use anyhow::{Context, Result, anyhow, bail};
 use bollard::Docker;
 use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
 use futures_util::TryStreamExt;
+use tracing::instrument;
 
 /// Execute a command inside a running container in attached mode.
 /// Waits for the command to complete and verifies the exit code.
+#[instrument(skip(docker), level = "debug")]
 pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str>) -> Result<()> {
     let config = CreateExecOptions {
         cmd: Some(cmd),
@@ -54,6 +56,7 @@ pub async fn exec_container(docker: &Docker, container_name: &str, cmd: Vec<&str
 
 /// Execute a command inside a running container in detached mode.
 /// Fire-and-forget: the command starts but we do not wait for it to complete.
+#[instrument(skip(docker), level = "debug")]
 pub async fn exec_container_detached(
     docker: &Docker,
     container_name: &str,
@@ -86,6 +89,7 @@ pub async fn exec_container_detached(
 
 /// Execute a command inside a running container with retry logic.
 /// Retries up to `max_retries` times with `delay` between attempts.
+#[instrument(skip(docker), level = "debug")]
 pub async fn exec_container_with_retry(
     docker: &Docker,
     container_name: &str,

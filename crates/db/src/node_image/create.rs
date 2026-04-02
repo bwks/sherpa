@@ -3,10 +3,12 @@ use shared::data::NodeConfig;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use tracing::instrument;
 
 use crate::node_image::get_node_image_by_model_kind_version;
 
 /// Create a node_image record in the database with auto-generated ID
+#[instrument(skip(db), level = "debug")]
 pub async fn create_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,
@@ -35,6 +37,7 @@ pub async fn create_node_image(
 /// If config.default is true, it will automatically unset default on other versions
 /// of the same (model, kind) combination.
 /// SurrealDB will auto-generate IDs for new records.
+#[instrument(skip(db), level = "debug")]
 pub async fn upsert_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,
