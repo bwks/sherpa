@@ -32,23 +32,11 @@ fn extract_and_validate_token(
     Err("Missing or invalid authentication")
 }
 
-/// Authenticated user extracted from JWT token
+/// Authenticated user extracted from JWT token.
 ///
 /// Use this as a handler parameter to require authentication.
 /// The token is extracted from the `Authorization: Bearer <token>` header OR from cookie.
 /// Header takes priority if both are present.
-///
-/// # Example
-/// ```rust
-/// pub async fn get_lab(
-///     Path(lab_id): Path<String>,
-///     auth: AuthenticatedUser,  // ← Automatic authentication!
-/// ) -> Result<Json<Response>, ApiError> {
-///     // auth.username is guaranteed valid
-///     println!("User {} is accessing lab {}", auth.username, lab_id);
-///     Ok(Json(response))
-/// }
-/// ```
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUser {
     pub username: String,
@@ -76,21 +64,11 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
     }
 }
 
-/// Authenticated user extracted from cookie for HTML pages
+/// Authenticated user extracted from cookie for HTML pages.
 ///
 /// Use this for HTML routes that should redirect to login on authentication failure.
 /// This extractor ONLY checks cookies (not Authorization headers).
-///
-/// On authentication failure, returns a redirect to `/login?error=session_required`
-///
-/// # Example
-/// ```rust
-/// pub async fn dashboard(
-///     auth: AuthenticatedUserFromCookie,
-/// ) -> impl IntoResponse {
-///     Html(format!("Welcome, {}!", auth.username))
-/// }
-/// ```
+/// On authentication failure, returns a redirect to `/login?error=session_required`.
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUserFromCookie {
     pub username: String,
@@ -144,22 +122,12 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
     }
 }
 
-/// Admin user extracted from cookie for admin-only HTML pages
+/// Admin user extracted from cookie for admin-only HTML pages.
 ///
 /// Use this for HTML routes that require admin privileges.
 /// This extractor checks for valid authentication AND admin status.
-///
-/// On authentication failure, redirects to `/login?error=session_required`
-/// On non-admin access, returns a 403 Forbidden page
-///
-/// # Example
-/// ```rust
-/// pub async fn admin_dashboard(
-///     admin: AdminUser,
-/// ) -> impl IntoResponse {
-///     Html(format!("Welcome, admin {}!", admin.username))
-/// }
-/// ```
+/// On authentication failure, redirects to `/login?error=session_required`.
+/// On non-admin access, returns a 403 Forbidden page.
 #[derive(Debug, Clone)]
 pub struct AdminUser {
     pub username: String,
