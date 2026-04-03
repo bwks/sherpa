@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.46] - 2026-04-03
+
+### Bug Fixes
+
+- Update testdb port mapping for SurrealDB v3.0.0 by @bwks ([40f261a](https://github.com/bwks/sherpa/commit/40f261ae986d1ed1488ffc2f6b317b747a868a89))
+
+### Documentation
+
+- Update integration test plan with current status by @bwks ([c5ab24a](https://github.com/bwks/sherpa/commit/c5ab24a1981e5742bfb689fe0b566ab6e2c4cc48))
+
+### Features
+
+- Update instal sciprt by @bwks ([5587b7b](https://github.com/bwks/sherpa/commit/5587b7baba274ef4fefe16870e7a598e56ee9d14))
+- Add forbid unsafe_code, fix netem serialization, bump to 0.3.46 ([6285a95](https://github.com/bwks/sherpa/commit/6285a95c2e1121c1dd1800508147a2a07bbafd52))
+- Add integration test harness and server integration tests by @bwks ([b077f06](https://github.com/bwks/sherpa/commit/b077f062b55c8ae7e150ae3a16630b69095761f4))
+- Web-ui sidebar by @bwks ([2dd1dde](https://github.com/bwks/sherpa/commit/2dd1dde53e909755002b395e2ad5561dbb246b26))
+
+### Miscellaneous
+
+- Merge pull request #196 from bwks/feat/integration-tests
+
+Feat/integration tests by @bwks in [#196](https://github.com/bwks/sherpa/pull/196) ([773595d](https://github.com/bwks/sherpa/commit/773595de29321a9753e8728caf86d1f37169dfd9))
+- Obey clippy by @bwks ([066f023](https://github.com/bwks/sherpa/commit/066f023b3782d0dc19369f3f3ccfe65d3fb2e69e))
+- Remove docstring code examples from extractors by @bwks ([eddfb89](https://github.com/bwks/sherpa/commit/eddfb894c4ec395127b7ea6e5e1eb86d3af0de24))
+- Update ztp methods for VMs by @bwks ([3d36531](https://github.com/bwks/sherpa/commit/3d365316205da1448b0dfc5fe9035c95df40f4f5))
+- Merge pull request #195 from bwks/changelog/v0.3.45
+
+chore(release): update changelog for v0.3.45 by @github-actions[bot] in [#195](https://github.com/bwks/sherpa/pull/195) ([3c17cb7](https://github.com/bwks/sherpa/commit/3c17cb7542ef1aa5c06dea8ecae6000c388b9dd5))
+
+### Testing
+
+- Allow unsafe code in tests by @bwks ([c3b5d5e](https://github.com/bwks/sherpa/commit/c3b5d5ecee163b6a27e711da7065bf01ba70cf1c))
 ## [0.3.45] - 2026-04-03
 
 ### Bug Fixes
