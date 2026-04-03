@@ -45,9 +45,9 @@ start_db() {
     echo "Starting SurrealDB ${SURREALDB_VERSION} (in-memory)..."
     docker run -d \
         --name "${CONTAINER_NAME}" \
-        -p "${DB_PORT}:42069" \
+        -p "${DB_PORT}:8000" \
         "${SURREALDB_IMAGE}" \
-        start --log info --user "${DB_USER}" --pass "${DB_PASS}" memory > /dev/null
+        start --log info --user "${DB_USER}" --pass "${DB_PASS}" --bind 0.0.0.0:8000 memory > /dev/null
 
     echo "SurrealDB is running."
     echo "Connection: ws://localhost:${DB_PORT}"
