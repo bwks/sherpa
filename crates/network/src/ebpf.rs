@@ -14,9 +14,7 @@ struct AlignedElf<const N: usize>([u8; N]);
 /// Pre-built eBPF redirect program ELF, embedded with 8-byte alignment.
 static EBPF_REDIRECT_ELF: &AlignedElf<
     { include_bytes!("../../ebpf-redirect/ebpf-redirect.elf").len() },
-> = &AlignedElf(*include_bytes!(
-    "../../ebpf-redirect/ebpf-redirect.elf"
-));
+> = &AlignedElf(*include_bytes!("../../ebpf-redirect/ebpf-redirect.elf"));
 
 /// Attach a P2p redirect program to an interface.
 ///
