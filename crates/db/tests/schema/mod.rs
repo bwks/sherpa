@@ -86,6 +86,8 @@ async fn test_schema_creates_all_tables() -> Result<()> {
         "br-0".to_string(),
         "veth-a".to_string(),
         "veth-b".to_string(),
+        String::new(),
+        String::new(),
         lab_id.clone(),
     )
     .await?;

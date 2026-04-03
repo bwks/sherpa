@@ -48,6 +48,7 @@ impl Manifest {
             src: format!("{}::{}", dev01.name.clone(), "eth1"),
             dst: format!("{}::{}", dev02.name.clone(), "eth1"),
             p2p: None,
+            impairment: None,
         }];
 
         let nodes: Vec<Node> = vec![dev01, dev02];

@@ -57,6 +57,8 @@ async fn test_create_link_success() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -121,6 +123,8 @@ async fn test_create_link_with_lab() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -181,6 +185,8 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -198,6 +204,8 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         "br3".to_string(),
         "veth2".to_string(),
         "veth3".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await;
@@ -267,6 +275,8 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -284,6 +294,8 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
         "br3".to_string(),
         "veth2".to_string(),
         "veth3".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -354,6 +366,8 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -371,6 +385,8 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         "br3".to_string(),
         "veth2".to_string(),
         "veth3".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -388,6 +404,8 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
         "br5".to_string(),
         "veth4".to_string(),
         "veth5".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -452,6 +470,8 @@ async fn test_create_link_increments_count() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -467,6 +487,8 @@ async fn test_create_link_increments_count() -> Result<()> {
         "br3".to_string(),
         "veth2".to_string(),
         "veth3".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -530,6 +552,8 @@ async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -600,6 +624,8 @@ async fn test_create_link_can_retrieve_by_id() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;

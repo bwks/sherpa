@@ -57,6 +57,27 @@ pub struct DbLink {
     pub bridge_b: String,
     pub veth_a: String,
     pub veth_b: String,
+    /// Tap device name for node_a side (P2p links only).
+    #[serde(default)]
+    pub tap_a: String,
+    /// Tap device name for node_b side (P2p links only).
+    #[serde(default)]
+    pub tap_b: String,
+    /// Link impairment: one-way delay in microseconds.
+    #[serde(default)]
+    pub delay_us: u32,
+    /// Link impairment: delay jitter in microseconds.
+    #[serde(default)]
+    pub jitter_us: u32,
+    /// Link impairment: packet loss percent (0.0-100.0).
+    #[serde(default)]
+    pub loss_percent: f32,
+    /// Link impairment: packet reorder percent (0.0-100.0).
+    #[serde(default)]
+    pub reorder_percent: f32,
+    /// Link impairment: bit-flip corruption percent (0.0-100.0).
+    #[serde(default)]
+    pub corrupt_percent: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]

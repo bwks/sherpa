@@ -13,12 +13,30 @@ pub struct Link {
     pub int_b: u8,
 }
 
+/// Link impairment configuration from the manifest.
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestImpairment {
+    /// One-way delay in milliseconds.
+    pub delay: Option<u32>,
+    /// Delay jitter in milliseconds.
+    pub jitter: Option<u32>,
+    /// Packet loss percentage (0.0-100.0).
+    pub loss_percent: Option<f32>,
+    /// Packet reordering percentage (0.0-100.0).
+    pub reorder_percent: Option<f32>,
+    /// Bit-flip corruption percentage (0.0-100.0).
+    pub corrupt_percent: Option<f32>,
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LinkExpanded {
     pub node_a: String,
     pub int_a: String,
     pub node_b: String,
     pub int_b: String,
+    pub p2p: bool,
+    pub impairment: Option<ManifestImpairment>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -34,6 +52,8 @@ pub struct LinkDetailed {
     pub int_b: String,
     pub int_b_idx: u8,
     pub link_idx: u16,
+    pub p2p: bool,
+    pub impairment: Option<ManifestImpairment>,
 }
 
 /// Manifest Link
@@ -47,6 +67,7 @@ pub struct Link2 {
     pub src: String,
     pub dst: String,
     pub p2p: Option<bool>,
+    pub impairment: Option<ManifestImpairment>,
 }
 
 impl Link2 {
@@ -59,6 +80,8 @@ impl Link2 {
             int_a,
             node_b,
             int_b,
+            p2p: self.p2p.unwrap_or(false),
+            impairment: self.impairment.clone(),
         })
     }
 }

@@ -270,6 +270,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "assert_matches"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9b34d609dfbaf33d6889b2b7106d3ca345eacad44200913df5ba02bfd31d2ba9"
+
+[[package]]
 name = "async-channel"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -518,6 +524,37 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
+]
+
+[[package]]
+name = "aya"
+version = "0.13.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d18bc4e506fbb85ab7392ed993a7db4d1a452c71b75a246af4a80ab8c9d2dd50"
+dependencies = [
+ "assert_matches",
+ "aya-obj",
+ "bitflags 2.11.0",
+ "bytes",
+ "libc",
+ "log",
+ "object",
+ "once_cell",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "aya-obj"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c51b96c5a8ed8705b40d655273bc4212cbbf38d4e3be2788f36306f154523ec7"
+dependencies = [
+ "bytes",
+ "core-error",
+ "hashbrown 0.15.5",
+ "log",
+ "object",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -953,7 +990,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -964,6 +1001,15 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "core-error"
+version = "0.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "efcdb2972eb64230b4c50646d8498ff73f5128d196a90c7236eec4cbe8619b8f"
+dependencies = [
+ "version_check",
 ]
 
 [[package]]
@@ -1141,7 +1187,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2672,7 +2718,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "askama",
@@ -2958,11 +3004,13 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
+ "aya",
  "futures",
  "rtnetlink",
+ "shared",
  "tokio",
  "tracing",
 ]
@@ -3141,6 +3189,18 @@ checksum = "33fafba39597d6dc1fb709123dfa8289d39406734be322956a69f0931c73bb15"
 dependencies = [
  "libc",
  "objc2-core-foundation",
+]
+
+[[package]]
+name = "object"
+version = "0.36.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "62948e14d923ea95ea2c7c86c71013138b66525b86bdc08d2dcc262bdb497b87"
+dependencies = [
+ "crc32fast",
+ "hashbrown 0.15.5",
+ "indexmap 2.13.0",
+ "memchr",
 ]
 
 [[package]]
@@ -4962,7 +5022,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5015,7 +5075,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "askama",
@@ -5052,7 +5112,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "askama",
@@ -5675,7 +5735,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "askama",
@@ -6062,7 +6122,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "petname",
@@ -6377,7 +6437,7 @@ dependencies = [
 
 [[package]]
 name = "validate"
-version = "0.3.44"
+version = "0.3.45"
 dependencies = [
  "anyhow",
  "shared",

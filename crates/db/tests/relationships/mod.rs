@@ -61,6 +61,8 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
         "br-0".to_string(),
         "veth-a".to_string(),
         "veth-b".to_string(),
+        String::new(),
+        String::new(),
         lab_rid.clone(),
     )
     .await?;
@@ -263,6 +265,8 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "br-0".to_string(),
         "veth-a".to_string(),
         "veth-b".to_string(),
+        String::new(),
+        String::new(),
         lab_a.id.clone().unwrap(),
     )
     .await?;
@@ -281,6 +285,8 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "br-0".to_string(),
         "veth-a".to_string(),
         "veth-b".to_string(),
+        String::new(),
+        String::new(),
         lab_b.id.clone().unwrap(),
     )
     .await?;

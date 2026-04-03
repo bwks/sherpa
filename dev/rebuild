@@ -2,6 +2,13 @@
 
 set -euo pipefail
 
+# Build eBPF redirect program (excluded from workspace, requires nightly)
+# The compiled ELF is embedded into the network crate via include_bytes!()
+# Must cd into the crate so cargo picks up .cargo/config.toml (target + build-std)
+echo "Building eBPF redirect program..."
+(cd crates/ebpf-redirect && cargo +nightly build --release)
+cp crates/ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect crates/ebpf-redirect/ebpf-redirect.elf
+
 # Build Tailwind CSS (embedded into sherpad binary at compile time)
 bash scripts/tailwind-build.sh
 

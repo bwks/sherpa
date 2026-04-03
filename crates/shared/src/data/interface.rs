@@ -170,6 +170,7 @@ pub enum ConnectionTypes {
     #[default]
     Disabled, // Disable interface
     Management,    // Connects to management bridge
+    P2p,           // Point-to-point eBPF redirect (no bridges)
     Peer,          // Peered with another device
     PeerBridge,    // Peered with another device via a bridge
     PrivateBridge, // Attached to a private bridge

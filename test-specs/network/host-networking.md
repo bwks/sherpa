@@ -2,7 +2,7 @@
 
 > **Crate:** `crates/network/`
 > **External Dependencies:** Linux kernel, elevated privileges (CAP_NET_ADMIN), rtnetlink
-> **Existing Tests:** None
+> **eBPF tests additionally require:** CAP_BPF, CAP_PERFMON
 
 ---
 
@@ -54,6 +54,41 @@
 - Returns empty list when no matches `[integration]` **P0**
 - Returns multiple matches when pattern is broad `[integration]` **P1**
 - Partial name match works correctly `[integration]` **P1**
+
+---
+
+## Tap Device
+
+**What to test:**
+- `create_tap()` creates persistent tap device `[integration]` **P0**
+- Tap created with MTU 9600 and UP state `[integration]` **P0**
+- `get_ifindex()` returns valid index for existing interface `[integration]` **P0**
+- `get_ifindex()` fails for nonexistent interface `[integration]` **P0**
+
+---
+
+## TC Netem Impairment
+
+**What to test:**
+- `percent_to_kernel()` converts 0% → 0 `[unit]` **P0**
+- `percent_to_kernel()` converts 100% → u32::MAX `[unit]` **P0**
+- `percent_to_kernel()` converts 50% → ~u32::MAX/2 `[unit]` **P0**
+- `percent_to_kernel()` clamps negative values to 0 `[unit]` **P1**
+- `percent_to_kernel()` clamps >100% to u32::MAX `[unit]` **P1**
+- `TcNetemQopt` struct is exactly 24 bytes `[unit]` **P0**
+- `apply_netem()` creates netem qdisc on interface `[integration]` **P0**
+- `remove_netem()` removes netem qdisc from interface `[integration]` **P0**
+
+---
+
+## eBPF P2p Redirect
+
+**What to test:**
+- `attach_p2p_redirect()` creates TC BPF filter on interface `[integration]` **P0**
+- Bidirectional eBPF redirect between veth pair `[integration]` **P0**
+- Attaching to nonexistent interface fails `[integration]` **P0**
+- TC filter persists after attach function returns `[integration]` **P0**
+- Deleting interface cleans up BPF program `[integration]` **P1**
 
 ---
 

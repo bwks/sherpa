@@ -16,7 +16,8 @@ use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, import, inspect, list_labs, redeploy, resume, up,
+    clean, container_pull, delete, destroy, down, impairment, import, inspect, list_labs, redeploy,
+    resume, up,
 };
 use crate::templates::{
     AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
@@ -39,7 +40,7 @@ use shared::data::{
     InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
     OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
-    UpRequest, UserInfo, ZtpMethod,
+    UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
 };
 use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
 
@@ -2957,6 +2958,31 @@ pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
 }
 
 // Request/Response types
+
+/// Update link impairment on a running P2p link
+///
+/// POST /api/v1/labs/{lab_id}/links/{link_index}/impairment
+pub async fn update_impairment_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path((lab_id, link_index)): Path<(String, u16)>,
+    Json(payload): Json<UpdateImpairmentRequest>,
+) -> Result<Json<UpdateImpairmentResponse>, ApiError> {
+    require_lab_access(&auth, &lab_id, &state).await?;
+
+    let request = UpdateImpairmentRequest {
+        lab_id,
+        link_index,
+        username: auth.username,
+        ..payload
+    };
+
+    let response = impairment::update_impairment(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
 
 /// Query parameters for listing labs
 #[derive(Deserialize)]

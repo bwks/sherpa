@@ -33,4 +33,4 @@
 - [ ] **Install script BATS testing** — VM-based testing per `test-specs/install/HOW-TO-RUN.md`.
 
 ### P2P Interface
-- [ ] **eBPF Interface** - Build and eBPF interface that can be used in both libvirt VM's and Containers as point-to-point interfaces.
+- [x] **eBPF Interface** - Build and eBPF interface that can be used in both libvirt VM's and Containers as point-to-point interfaces. Implements protocol-transparent P2p links using eBPF TC redirect (VM-VM, VM-Container, Container-Container). Includes TC netem link impairment, idempotent eBPF re-attachment for redeploy/resume, REST API endpoint for live impairment updates, and integration tests.

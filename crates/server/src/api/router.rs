@@ -50,7 +50,7 @@ use super::handlers::{
     list_users_json, login, login_form_handler, login_page_handler, logout_handler,
     openapi_handler, profile_handler, pull_image_json, redeploy_node_json, resume_lab_json,
     scan_images_json, set_default_image_json, show_image_json, signup_form_handler,
-    signup_page_handler, update_password_handler,
+    signup_page_handler, update_impairment_json, update_password_handler,
 };
 
 /// Build the Axum router with all API routes
@@ -168,6 +168,11 @@ pub fn build_router() -> Router<AppState> {
             post(redeploy_node_json),
         )
         .route("/api/v1/labs/{id}/clean", post(clean_lab_json))
+        // Link API endpoints
+        .route(
+            "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
+            post(update_impairment_json),
+        )
         // Image API endpoints
         .route("/api/v1/images", get(list_images_json))
         .route("/api/v1/images/import", post(import_image_json))

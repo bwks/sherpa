@@ -2,18 +2,18 @@ use anyhow::{Context, Result, anyhow};
 use futures::TryStreamExt;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::{Handle, LinkBridge, LinkVeth, new_connection};
-
-const MTU_JUMBO_NET: u32 = 9600;
+use shared::konst::MTU_JUMBO_NET;
+use tracing::instrument;
 
 /// Helper to set up netlink connection
-async fn setup_netlink() -> Result<Handle> {
+pub(crate) async fn setup_netlink() -> Result<Handle> {
     let (connection, handle, _) = new_connection().context("Error creating netlink connection")?;
     tokio::spawn(connection);
     Ok(handle)
 }
 
 /// Helper to get a link index
-async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
+pub(crate) async fn get_link_index(handle: &Handle, name: &str) -> Result<u32> {
     let mut links = handle.link().get().match_name(name.to_string()).execute();
 
     if let Some(msg) = links.try_next().await? {
@@ -38,6 +38,29 @@ async fn enable_link(handle: &Handle, name: &str, index: u32) -> Result<()> {
         .execute()
         .await
         .context(format!("Error enabling link: {name}"))?;
+    Ok(())
+}
+
+/// Set a link to DOWN state.
+///
+/// Used to remove carrier from a veth peer (e.g. disabled container interfaces).
+#[instrument(fields(%name), level = "debug")]
+pub async fn set_link_down(name: &str) -> Result<()> {
+    let handle = setup_netlink().await?;
+    let index = get_link_index(&handle, name).await?;
+
+    let mut msg = LinkMessage::default();
+    msg.header.index = index;
+    msg.header.flags = LinkFlags::empty();
+    msg.header.change_mask = LinkFlags::Up;
+
+    tracing::debug!(link_name = %name, "Setting link down");
+    handle
+        .link()
+        .set(msg)
+        .execute()
+        .await
+        .context(format!("Error setting link down: {name}"))?;
     Ok(())
 }
 
@@ -83,7 +106,7 @@ async fn set_alias_name(handle: &Handle, name: &str, alias: &str) -> Result<()> 
 }
 
 /// Set all common link properties at once.
-async fn set_link_properties(
+pub(crate) async fn set_link_properties(
     handle: &Handle,
     link_name: &str,
     link_idx: u32,
@@ -136,7 +159,7 @@ pub async fn create_bridge(name: &str, alias_name: &str) -> Result<()> {
 
     let idx = get_link_index(&handle, name).await?;
 
-    set_link_properties(&handle, name, idx, alias_name, MTU_JUMBO_NET).await?;
+    set_link_properties(&handle, name, idx, alias_name, MTU_JUMBO_NET as u32).await?;
 
     Ok(())
 }
@@ -161,10 +184,24 @@ pub async fn create_veth_pair(
         ))?;
 
     let src_idx = get_link_index(&handle, src_name).await?;
-    set_link_properties(&handle, src_name, src_idx, src_alias_name, MTU_JUMBO_NET).await?;
+    set_link_properties(
+        &handle,
+        src_name,
+        src_idx,
+        src_alias_name,
+        MTU_JUMBO_NET as u32,
+    )
+    .await?;
 
     let dst_idx = get_link_index(&handle, dst_name).await?;
-    set_link_properties(&handle, dst_name, dst_idx, dst_alias_name, MTU_JUMBO_NET).await?;
+    set_link_properties(
+        &handle,
+        dst_name,
+        dst_idx,
+        dst_alias_name,
+        MTU_JUMBO_NET as u32,
+    )
+    .await?;
 
     Ok(())
 }

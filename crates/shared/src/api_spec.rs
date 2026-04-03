@@ -13,7 +13,7 @@ use crate::data::{
     ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, RedeployRequest,
     RedeployResponse, ScanImagesRequest, ScanImagesResponse, SetDefaultImageRequest,
     SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
-    ValidateRequest, ValidateResponse,
+    UpdateImpairmentRequest, UpdateImpairmentResponse, ValidateRequest, ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -54,6 +54,7 @@ pub struct OperationDef {
 pub enum Category {
     Auth,
     Lab,
+    Link,
     Node,
     Image,
     User,
@@ -639,6 +640,31 @@ fn build_operations() -> Vec<OperationDef> {
                 },
             },
         },
+        // Link operations
+        OperationDef {
+            name: "link.update_impairment".to_string(),
+            description: "Update link impairment (delay, jitter, loss) on a running P2p link"
+                .to_string(),
+            category: Category::Link,
+            auth: AuthRequirement::Authenticated,
+            streaming: false,
+            request_schema: Some("UpdateImpairmentRequest".to_string()),
+            response_schema: Some("UpdateImpairmentResponse".to_string()),
+            transports: Transports {
+                rest: RestBinding {
+                    method: HttpMethod::Post,
+                    path: "/api/v1/labs/{lab_id}/links/{link_index}/impairment".to_string(),
+                    path_params: vec!["lab_id".to_string(), "link_index".to_string()],
+                    stream_type: None,
+                },
+                rpc: RpcBinding {
+                    method: "link.update_impairment".to_string(),
+                },
+                cli: CliBinding {
+                    command: "sherpa lab link impairment".to_string(),
+                },
+            },
+        },
     ]
 }
 
@@ -686,6 +712,10 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<ContainerPullRequest>(&mut schemas);
     add_schema::<ContainerPullResponse>(&mut schemas);
     add_schema::<DownloadImageRequest>(&mut schemas);
+
+    // Link operations
+    add_schema::<UpdateImpairmentRequest>(&mut schemas);
+    add_schema::<UpdateImpairmentResponse>(&mut schemas);
 
     // User management
     add_schema::<CreateUserRequest>(&mut schemas);
@@ -771,6 +801,7 @@ pub fn build_openapi() -> serde_json::Value {
         let category_tag = match op.category {
             Category::Auth => "auth",
             Category::Lab => "lab",
+            Category::Link => "link",
             Category::Node => "node",
             Category::Image => "image",
             Category::User => "user",
@@ -928,9 +959,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_22_operations() {
+    fn test_build_spec_has_23_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 22);
+        assert_eq!(spec.operations.len(), 23);
     }
 
     #[test]
@@ -976,7 +1007,7 @@ mod tests {
             .map(|op| op.transports.rpc.method.as_str())
             .collect();
 
-        // These are the 22 RPC methods from the WebSocket handler
+        // These are the 23 RPC methods from the WebSocket handler
         let expected = vec![
             "auth.login",
             "auth.validate",
@@ -987,6 +1018,7 @@ mod tests {
             "resume",
             "clean",
             "redeploy",
+            "link.update_impairment",
             "image.list",
             "image.show",
             "image.import",

@@ -173,6 +173,15 @@
       <model type='{{ interface_type }}'/>
     </interface>
 
+    {%     when ConnectionTypes::P2p %}
+    <interface type='ethernet'>
+      <alias name='ua-net-{{ name }}-p2p-{{ interface.name }}'/>
+      <mac address='{{ interface.mac_address }}'/>
+      <target dev='{{ interface.name }}'/>
+      <script path=''/>
+      <model type='{{ interface_type }}'/>
+    </interface>
+
     {%     when ConnectionTypes::Peer %}
     {%       match interface.interface_connection %}
     {%         when Some with (interface_connection) %}

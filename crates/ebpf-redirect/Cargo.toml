@@ -1,0 +1,17 @@
+[package]
+name = "ebpf-redirect"
+version = "0.3.45"
+edition = "2021"
+
+[dependencies]
+aya-ebpf = "0.1.1"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+
+[[bin]]
+name = "ebpf-redirect"
+path = "src/main.rs"
