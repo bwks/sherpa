@@ -2,6 +2,40 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.45] - 2026-04-03
+
+### Bug Fixes
+
+- Update elf location and add to git for CI tests by @bwks ([5954d2a](https://github.com/bwks/sherpa/commit/5954d2a68fd58bc688864d1c57856e8d0db8b25e))
+- Update elf location and add to git for CI tests by @bwks ([9ef90c1](https://github.com/bwks/sherpa/commit/9ef90c1e6480d48cbf31af7f0b24b3e31f4e35f1))
+
+### Documentation
+
+- Project update by @bwks ([c249c2e](https://github.com/bwks/sherpa/commit/c249c2ecdfab52b94cd7129947e0298d5d87fe5c))
+- P2p link imparement by @bwks ([39b0961](https://github.com/bwks/sherpa/commit/39b0961d55a422e8759e7c1740cc2548984e3914))
+
+### Features
+
+- Feat(p2p link)
+
+version: v0.3.45
+- Direct p2p links between nodes using eBPF forwarding
+- Link impairment with TC by @bwks in [#194](https://github.com/bwks/sherpa/pull/194) ([90ed4b2](https://github.com/bwks/sherpa/commit/90ed4b2a9de3e28af2028029f661783f25b9a966))
+- P2p imparement api endpoints by @bwks ([fb9029d](https://github.com/bwks/sherpa/commit/fb9029d7b3c27eb5a6cfaed8a1eaf87d91d0df49))
+- P2p interface instrumentation by @bwks ([0861086](https://github.com/bwks/sherpa/commit/0861086d491cbe7d465778c2f74b82016256d58e))
+- Ebpf p2p link by @bwks ([79b9347](https://github.com/bwks/sherpa/commit/79b9347f0c006fdbfaa993eebdd8eb019e170db3))
+
+### Miscellaneous
+
+- Obey clippy by @bwks ([842963c](https://github.com/bwks/sherpa/commit/842963c900fd7ac6036a6cddea68c06850245e53))
+- Version bump by @bwks ([54ae462](https://github.com/bwks/sherpa/commit/54ae462c228e32a8ba187866b5ac10bd89f1da2e))
+- Merge pull request #193 from bwks/changelog/v0.3.44
+
+chore(release): update changelog for v0.3.44 by @github-actions[bot] in [#193](https://github.com/bwks/sherpa/pull/193) ([d122fa9](https://github.com/bwks/sherpa/commit/d122fa9bea0215d6fc7e975a4dbd129800930f72))
+
+### Testing
+
+- P2p link integration tests by @bwks ([481e204](https://github.com/bwks/sherpa/commit/481e204d6288cdf51677b0468692b4db768658e3))
 ## [0.3.44] - 2026-04-02
 
 ### Documentation
