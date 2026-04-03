@@ -24,12 +24,13 @@ use shared::data;
 use shared::data::{NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE,
-    LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, NODE_CONFIGS_DIR,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LABS_PATH,
-    SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
+    CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
+    LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
+    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT,
+    TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
 
@@ -60,6 +61,7 @@ fn find_interface_link(
                 peer_interface: link.int_b.clone(),
                 peer_interface_index: link.int_b_idx,
                 peer_side: data::PeerSide::B,
+                p2p: link.p2p,
             }))
         } else if link.node_b == node_name && link.int_b == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
@@ -74,6 +76,7 @@ fn find_interface_link(
                 peer_interface: link.int_a.clone(),
                 peer_interface_index: link.int_a_idx,
                 peer_side: data::PeerSide::A,
+                p2p: link.p2p,
             }))
         }
     }
@@ -185,6 +188,8 @@ fn process_manifest_links(
     let mut links_detailed = vec![];
     for (link_idx, link) in links.iter().enumerate() {
         let mut this_link = topology::LinkDetailed::default();
+        this_link.p2p = link.p2p;
+        this_link.impairment = link.impairment.clone();
         for device in manifest_nodes.iter() {
             let device_model = device.model;
             if link.node_a == device.name {
@@ -841,6 +846,21 @@ pub async fn up_lab(
 
         let mut lab_link_data = vec![];
 
+        // Track P2p container-side veths that need to be moved into container netns after start.
+        struct P2pContainerVeth {
+            node_name: String,
+            host_veth: String,
+            container_veth: String,
+            interface_idx: u8,
+            node_model: data::NodeModel,
+            admin_down: bool,
+        }
+        let mut p2p_container_veths: Vec<P2pContainerVeth> = vec![];
+        // Track which container nodes participate in P2p links.
+        // These containers handle ALL data interfaces via veth+netns, not Docker networks.
+        let mut p2p_container_names: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
         for (idx, link) in links_detailed.iter().enumerate() {
             let node_a = lab_node_data
                 .iter()
@@ -852,16 +872,24 @@ pub async fn up_lab(
                 .find(|n| n.name == link.node_b)
                 .ok_or_else(|| anyhow!("Node not found: {}", link.node_b))?;
 
+            let link_kind = if link.p2p {
+                data::BridgeKind::P2p
+            } else {
+                data::BridgeKind::P2pBridge
+            };
+
             let bridge_a = format!("{}a{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
             let bridge_b = format!("{}b{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
             let veth_a = format!("{}a{}-{}", VETH_PREFIX, link.link_idx, lab_id);
             let veth_b = format!("{}b{}-{}", VETH_PREFIX, link.link_idx, lab_id);
+            let tap_a = format!("{}a{}-{}", TAP_PREFIX, link.link_idx, lab_id);
+            let tap_b = format!("{}b{}-{}", TAP_PREFIX, link.link_idx, lab_id);
 
             // Create the link in the database
             let _db_link = db::create_link(
                 &db,
                 link.link_idx,
-                data::BridgeKind::P2pBridge,
+                link_kind.clone(),
                 db::get_node_id(&node_a.record)?,
                 db::get_node_id(&node_b.record)?,
                 link.int_a.clone(),
@@ -870,13 +898,15 @@ pub async fn up_lab(
                 bridge_b.clone(),
                 veth_a.clone(),
                 veth_b.clone(),
+                tap_a.clone(),
+                tap_b.clone(),
                 lab_record_id.clone(),
             )
             .await?;
 
             lab_link_data.push(data::LabLinkData {
                 index: link.link_idx,
-                kind: data::BridgeKind::P2pBridge,
+                kind: link_kind.clone(),
                 node_a: node_a.record.clone(),
                 node_b: node_b.record.clone(),
                 int_a: link.int_a.clone(),
@@ -885,12 +915,14 @@ pub async fn up_lab(
                 bridge_b: bridge_b.clone(),
                 veth_a: veth_a.clone(),
                 veth_b: veth_b.clone(),
+                tap_a: tap_a.clone(),
+                tap_b: tap_b.clone(),
             });
 
             let _ = progress.send_status(
                 format!(
-                    "Creating link #{} - {}::{} <-> {}::{}",
-                    idx, link.node_a, link.int_a, link.node_b, link.int_b
+                    "Creating link #{} ({}) - {}::{} <-> {}::{}",
+                    idx, link_kind, link.node_a, link.int_a, link.node_b, link.int_b
                 ),
                 StatusKind::Progress,
             );
@@ -898,6 +930,7 @@ pub async fn up_lab(
             tracing::info!(
                 lab_id = %lab_id,
                 link_num = idx,
+                link_kind = %link_kind,
                 node_a = %link.node_a,
                 int_a = %link.int_a,
                 node_b = %link.node_b,
@@ -905,37 +938,107 @@ pub async fn up_lab(
                 "Creating point-to-point link"
             );
 
-            network::create_bridge(
-                &bridge_a,
-                &format!("{}-bridge-{}::{}", lab_id, link.node_a, link.int_a),
-            )
-            .await?;
+            if link.p2p {
+                // P2p link: for VMs, libvirt creates the tap devices via type='ethernet'.
+                // eBPF redirect is attached after VMs/containers start (see post-creation phase).
+                // For containers, create a veth pair now (host side = tap name for eBPF).
 
-            network::create_bridge(
-                &bridge_b,
-                &format!("{}-bridge-{}::{}", lab_id, link.node_b, link.int_b),
-            )
-            .await?;
+                if node_a.kind == data::NodeKind::Container {
+                    let container_veth_a =
+                        format!("{}a{}-{}", CONTAINER_VETH_PREFIX, link.link_idx, lab_id);
+                    network::create_veth_pair(
+                        &tap_a,
+                        &container_veth_a,
+                        &format!("{}-p2p-host-{}::{}", lab_id, link.node_a, link.int_a),
+                        &format!("{}-p2p-ctr-{}::{}", lab_id, link.node_a, link.int_a),
+                    )
+                    .await?;
+                    p2p_container_veths.push(P2pContainerVeth {
+                        node_name: link.node_a.clone(),
+                        host_veth: tap_a.clone(),
+                        container_veth: container_veth_a.clone(),
+                        interface_idx: link.int_a_idx,
+                        node_model: link.node_a_model,
+                        admin_down: false,
+                    });
+                    p2p_container_names.insert(link.node_a.clone());
+                    tracing::info!(
+                        lab_id = %lab_id,
+                        host_veth = %tap_a,
+                        container_veth = %container_veth_a,
+                        node = %link.node_a,
+                        "Created P2p veth pair for container endpoint"
+                    );
+                }
 
-            network::create_veth_pair(
-                &veth_a,
-                &veth_b,
-                &format!("{}-veth-{}::{}", lab_id, link.node_a, link.int_a),
-                &format!("{}-veth-{}::{}", lab_id, link.node_b, link.int_b),
-            )
-            .await?;
+                if node_b.kind == data::NodeKind::Container {
+                    let container_veth_b =
+                        format!("{}b{}-{}", CONTAINER_VETH_PREFIX, link.link_idx, lab_id);
+                    network::create_veth_pair(
+                        &tap_b,
+                        &container_veth_b,
+                        &format!("{}-p2p-host-{}::{}", lab_id, link.node_b, link.int_b),
+                        &format!("{}-p2p-ctr-{}::{}", lab_id, link.node_b, link.int_b),
+                    )
+                    .await?;
+                    p2p_container_veths.push(P2pContainerVeth {
+                        node_name: link.node_b.clone(),
+                        host_veth: tap_b.clone(),
+                        container_veth: container_veth_b.clone(),
+                        interface_idx: link.int_b_idx,
+                        node_model: link.node_b_model,
+                        admin_down: false,
+                    });
+                    p2p_container_names.insert(link.node_b.clone());
+                    tracing::info!(
+                        lab_id = %lab_id,
+                        host_veth = %tap_b,
+                        container_veth = %container_veth_b,
+                        node = %link.node_b,
+                        "Created P2p veth pair for container endpoint"
+                    );
+                }
 
-            network::enslave_to_bridge(&veth_a, &bridge_a).await?;
-            network::enslave_to_bridge(&veth_b, &bridge_b).await?;
+                tracing::info!(
+                    lab_id = %lab_id,
+                    tap_a = %tap_a,
+                    tap_b = %tap_b,
+                    "P2p link registered — eBPF redirect will attach after node creation"
+                );
+            } else {
+                // PeerBridge link: create bridges + veth pair (existing behavior)
+                network::create_bridge(
+                    &bridge_a,
+                    &format!("{}-bridge-{}::{}", lab_id, link.node_a, link.int_a),
+                )
+                .await?;
 
-            tracing::debug!(
-                lab_id = %lab_id,
-                bridge_a = %bridge_a,
-                bridge_b = %bridge_b,
-                veth_a = %veth_a,
-                veth_b = %veth_b,
-                "Created link infrastructure"
-            );
+                network::create_bridge(
+                    &bridge_b,
+                    &format!("{}-bridge-{}::{}", lab_id, link.node_b, link.int_b),
+                )
+                .await?;
+
+                network::create_veth_pair(
+                    &veth_a,
+                    &veth_b,
+                    &format!("{}-veth-{}::{}", lab_id, link.node_a, link.int_a),
+                    &format!("{}-veth-{}::{}", lab_id, link.node_b, link.int_b),
+                )
+                .await?;
+
+                network::enslave_to_bridge(&veth_a, &bridge_a).await?;
+                network::enslave_to_bridge(&veth_b, &bridge_b).await?;
+
+                tracing::debug!(
+                    lab_id = %lab_id,
+                    bridge_a = %bridge_a,
+                    bridge_b = %bridge_b,
+                    veth_a = %veth_a,
+                    veth_b = %veth_b,
+                    "Created PeerBridge link infrastructure"
+                );
+            }
         }
 
         tracing::info!(
@@ -943,6 +1046,54 @@ pub async fn up_lab(
             links_created = links_detailed.len(),
             "All point-to-point links created"
         );
+
+        // Create veth pairs for disabled interfaces on P2p containers.
+        // P2p containers handle ALL data interfaces via veth+netns (not Docker networks)
+        // to avoid ethN naming conflicts between Docker and the container's init process.
+        for nsd in &node_setup_data {
+            if !p2p_container_names.contains(&nsd.name) {
+                continue;
+            }
+            let node_data = lab_node_data
+                .iter()
+                .find(|n| n.name == nsd.name)
+                .ok_or_else(|| anyhow!("P2p container {} not found in lab_node_data", nsd.name))?;
+
+            for iface in &nsd.interfaces {
+                if !matches!(iface.data, data::NodeInterface::Disabled) {
+                    continue;
+                }
+                // Create a veth pair for this disabled interface.
+                // Host side is a dummy (no eBPF needed), container side goes into netns.
+                // Format: cd{node_idx}i{iface_idx}-{lab_id} / ce{node_idx}i{iface_idx}-{lab_id}
+                // Compact to stay within Linux's 15-char interface name limit.
+                let host_veth = format!("cd{}i{}-{}", nsd.index, iface.index, lab_id);
+                let container_veth = format!("ce{}i{}-{}", nsd.index, iface.index, lab_id);
+                network::create_veth_pair(
+                    &host_veth,
+                    &container_veth,
+                    &format!("{}-p2p-disabled-host-{}::{}", lab_id, nsd.name, iface.name),
+                    &format!("{}-p2p-disabled-ctr-{}::{}", lab_id, nsd.name, iface.name),
+                )
+                .await?;
+                p2p_container_veths.push(P2pContainerVeth {
+                    node_name: nsd.name.clone(),
+                    host_veth: host_veth.clone(),
+                    container_veth: container_veth.clone(),
+                    interface_idx: iface.index,
+                    node_model: node_data.model,
+                    admin_down: true,
+                });
+                tracing::debug!(
+                    lab_id = %lab_id,
+                    host_veth = %host_veth,
+                    container_veth = %container_veth,
+                    node = %nsd.name,
+                    interface = %iface.name,
+                    "Created disabled interface veth pair for P2p container"
+                );
+            }
+        }
 
         phases_completed.push("LinkCreation".to_string());
 
@@ -958,6 +1109,11 @@ pub async fn up_lab(
 
         let mut docker_net_count = 0;
         for link_data in &lab_link_data {
+            // P2p links handle container networking via veth netns move, not Docker macvlan
+            if link_data.kind == data::BridgeKind::P2p {
+                continue;
+            }
+
             let node_a_data = lab_node_data
                 .iter()
                 .find(|n| n.record.id == link_data.node_a.id)
@@ -1014,11 +1170,14 @@ pub async fn up_lab(
                 None => continue,
             };
 
-            // Only process container nodes
+            // Only process container nodes (skip P2p containers — they use veth+netns)
             let node_data = match lab_node_data.iter().find(|n| n.name == nsd.name) {
                 Some(n) if n.kind == data::NodeKind::Container => n,
                 _ => continue,
             };
+            if p2p_container_names.contains(&nsd.name) {
+                continue;
+            }
 
             for iface in &nsd.interfaces {
                 if !matches!(iface.data, data::NodeInterface::Disabled) {
@@ -1360,14 +1519,6 @@ pub async fn up_lab(
                     data::NodeInterface::Peer(peer) => {
                         let local_id = peer.this_node_index as u8;
                         let source_id = peer.peer_node_index as u8;
-                        let bridge_name = match peer.this_side {
-                            data::PeerSide::A => {
-                                format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                            }
-                            data::PeerSide::B => {
-                                format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                            }
-                        };
                         let interface_connection = data::InterfaceConnection {
                             local_id: peer.this_node_index,
                             local_port: util::id_to_port(local_id),
@@ -1376,14 +1527,41 @@ pub async fn up_lab(
                             source_port: util::id_to_port(source_id),
                             source_loopback: util::get_ip(&loopback_subnet, source_id).to_string(),
                         };
-                        interfaces.push(data::Interface {
-                            name: bridge_name,
-                            num: interface.index,
-                            mtu: node_image.interface_mtu,
-                            mac_address: util::random_mac(KVM_OUI),
-                            connection_type: data::ConnectionTypes::PeerBridge,
-                            interface_connection: Some(interface_connection),
-                        });
+                        if peer.p2p {
+                            let tap_name = match peer.this_side {
+                                data::PeerSide::A => {
+                                    format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                }
+                                data::PeerSide::B => {
+                                    format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                }
+                            };
+                            interfaces.push(data::Interface {
+                                name: tap_name,
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::P2p,
+                                interface_connection: Some(interface_connection),
+                            });
+                        } else {
+                            let bridge_name = match peer.this_side {
+                                data::PeerSide::A => {
+                                    format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                                }
+                                data::PeerSide::B => {
+                                    format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                                }
+                            };
+                            interfaces.push(data::Interface {
+                                name: bridge_name,
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::PeerBridge,
+                                interface_connection: Some(interface_connection),
+                            });
+                        }
                     }
                     data::NodeInterface::Disabled => {
                         interfaces.push(data::Interface {
@@ -1593,6 +1771,97 @@ pub async fn up_lab(
         phases_completed.push("VmCreation".to_string());
 
         // ========================================================================
+        // PHASE 11b: Attach eBPF redirect on P2p links
+        // ========================================================================
+        // Now that libvirt has created the tap devices, attach eBPF redirect
+        // programs to wire up P2p links between VMs.
+        let p2p_links: Vec<_> = lab_link_data
+            .iter()
+            .filter(|l| l.kind == data::BridgeKind::P2p)
+            .collect();
+
+        if !p2p_links.is_empty() {
+            let _ = progress.send_status(
+                format!("Attaching eBPF redirect on {} P2p links", p2p_links.len()),
+                StatusKind::Progress,
+            );
+
+            for link_data in &p2p_links {
+                let tap_a = &link_data.tap_a;
+                let tap_b = &link_data.tap_b;
+
+                let ifindex_a = network::get_ifindex(tap_a)
+                    .await
+                    .context(format!("failed to get ifindex for {tap_a}"))?;
+                let ifindex_b = network::get_ifindex(tap_b)
+                    .await
+                    .context(format!("failed to get ifindex for {tap_b}"))?;
+
+                network::attach_p2p_redirect(tap_a, ifindex_b)
+                    .context(format!("failed to attach eBPF redirect on {tap_a}"))?;
+                network::attach_p2p_redirect(tap_b, ifindex_a)
+                    .context(format!("failed to attach eBPF redirect on {tap_b}"))?;
+
+                // Apply link impairment if configured
+                let link_detail = links_detailed
+                    .iter()
+                    .find(|l| l.link_idx == link_data.index);
+                if let Some(ld) = link_detail {
+                    if let Some(ref impairment_cfg) = ld.impairment {
+                        let netem = network::LinkImpairment {
+                            delay_us: impairment_cfg.delay.unwrap_or(0) * 1000,
+                            jitter_us: impairment_cfg.jitter.unwrap_or(0) * 1000,
+                            loss_percent: impairment_cfg.loss_percent.unwrap_or(0.0),
+                            reorder_percent: impairment_cfg.reorder_percent.unwrap_or(0.0),
+                            corrupt_percent: impairment_cfg.corrupt_percent.unwrap_or(0.0),
+                        };
+                        network::apply_netem(ifindex_a as i32, &netem).await?;
+                        network::apply_netem(ifindex_b as i32, &netem).await?;
+                    }
+                }
+
+                tracing::info!(
+                    lab_id = %lab_id,
+                    tap_a = %tap_a,
+                    tap_b = %tap_b,
+                    ifindex_a = ifindex_a,
+                    ifindex_b = ifindex_b,
+                    "Attached eBPF P2p redirect"
+                );
+            }
+
+            let _ = progress.send_status(
+                "All P2p eBPF redirects attached".to_string(),
+                StatusKind::Done,
+            );
+        }
+
+        phases_completed.push("P2pEbpfAttach".to_string());
+
+        // ========================================================================
+        // PHASE 11c: Set VM isolated bridges DOWN
+        // ========================================================================
+        // After VM creation, set isolated network bridges DOWN to remove carrier
+        // from disabled VM interfaces. This ensures disabled interfaces show as
+        // "not connected" on the VM side.
+        for vm in &vm_nodes {
+            let nsd = node_setup_data
+                .iter()
+                .find(|n| n.name == vm.name);
+            if let Some(nsd) = nsd
+                && let Some(ref iso_net) = nsd.isolated_network
+            {
+                tracing::info!(
+                    lab_id = %lab_id,
+                    node_name = %vm.name,
+                    bridge_name = %iso_net.bridge_name,
+                    "Setting isolated bridge DOWN to remove carrier from disabled interfaces"
+                );
+                network::set_link_down(&iso_net.bridge_name).await?;
+            }
+        }
+
+        // ========================================================================
         // PHASE 12: SSH Config & Network Map Building
         // ========================================================================
         let _ = progress.send_phase(
@@ -1655,6 +1924,11 @@ pub async fn up_lab(
         // from the link data for container nodes.
         let mut container_link_net_lookup: HashMap<(String, String), String> = HashMap::new();
         for link_data in &lab_link_data {
+            // P2p links handle container networking via veth netns move, not Docker networks
+            if link_data.kind == data::BridgeKind::P2p {
+                continue;
+            }
+
             let node_a_data = lab_node_data
                 .iter()
                 .find(|n| n.record.id == link_data.node_a.id)
@@ -1701,6 +1975,13 @@ pub async fn up_lab(
                 Some(n) if n.kind == data::NodeKind::Container => n,
                 _ => continue,
             };
+
+            // P2p containers handle ALL data interfaces via veth+netns move,
+            // so they get no Docker network attachments for data interfaces.
+            if p2p_container_names.contains(&nsd.name) {
+                container_link_networks.insert(nsd.name.clone(), vec![]);
+                continue;
+            }
 
             let attachments: Vec<data::ContainerNetworkAttachment> = nsd
                 .interfaces
@@ -1915,6 +2196,75 @@ pub async fn up_lab(
 
                 if !is_running {
                     continue;
+                }
+
+                // Move P2p veth endpoints into the container's network namespace
+                let container_p2p_veths: Vec<&P2pContainerVeth> = p2p_container_veths
+                    .iter()
+                    .filter(|v| v.node_name == container.name)
+                    .collect();
+
+                if !container_p2p_veths.is_empty() {
+                    let pid = container::get_container_pid(&docker_conn, &container_name).await?;
+
+                    for veth_info in &container_p2p_veths {
+                        // Move the container-side veth into the container's netns
+                        network::move_to_netns(&veth_info.container_veth, pid).await?;
+
+                        // Compute the target interface name inside the container
+                        let target_name = if veth_info.node_model == data::NodeModel::NokiaSrlinux {
+                            let iface_name = util::interface_from_idx(
+                                &veth_info.node_model,
+                                veth_info.interface_idx,
+                            )?;
+                            util::srlinux_to_linux_interface(&iface_name)?
+                        } else {
+                            format!("eth{}", veth_info.interface_idx)
+                        };
+
+                        // Rename interface; bring UP for active links, leave DOWN for disabled
+                        let setup_cmd = if veth_info.admin_down {
+                            format!(
+                                "ip link set {} name {} && ip link set {} down",
+                                veth_info.container_veth, target_name, target_name
+                            )
+                        } else {
+                            format!(
+                                "ip link set {} name {} && ip link set {} promisc on && ip link set {} up",
+                                veth_info.container_veth, target_name, target_name, target_name
+                            )
+                        };
+                        container::exec_container_with_retry(
+                            &docker_conn,
+                            &container_name,
+                            vec!["sh", "-c", &setup_cmd],
+                            3,
+                            std::time::Duration::from_secs(2),
+                        )
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "Failed to configure P2p interface {} in container {}",
+                                target_name, container_name
+                            )
+                        })?;
+
+                        // For disabled interfaces, bring the host-side veth DOWN
+                        // so the container side loses carrier (shows as "not connected")
+                        if veth_info.admin_down {
+                            network::set_link_down(&veth_info.host_veth).await?;
+                        }
+
+                        tracing::info!(
+                            lab_id = %lab_id,
+                            container = %container_name,
+                            veth = %veth_info.container_veth,
+                            target = %target_name,
+                            admin_down = veth_info.admin_down,
+                            pid = pid,
+                            "Moved P2p veth into container netns"
+                        );
+                    }
                 }
 
                 connected_nodes.insert(container.name.clone());

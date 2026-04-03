@@ -263,6 +263,8 @@ mod tests {
             int_b: "test".to_string(),
             int_b_idx: int_b,
             link_idx: 0,
+            p2p: false,
+            impairment: None,
         }
     }
 

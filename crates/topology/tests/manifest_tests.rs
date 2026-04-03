@@ -314,6 +314,7 @@ fn test_write_load_roundtrip() {
             src: "r1::eth1".to_string(),
             dst: "r2::eth1".to_string(),
             p2p: None,
+            impairment: None,
         }]),
         bridges: None,
         ztp_server: None,
@@ -349,6 +350,7 @@ fn test_link2_expand() {
         src: "router1::eth1".to_string(),
         dst: "switch1::GigabitEthernet0/1".to_string(),
         p2p: None,
+        impairment: None,
     };
     let expanded = link.expand().expect("expands");
     assert_eq!(expanded.node_a, "router1");
@@ -363,6 +365,7 @@ fn test_link2_expand_missing_separator() {
         src: "router1-eth1".to_string(),
         dst: "switch1::eth1".to_string(),
         p2p: None,
+        impairment: None,
     };
     let result = link.expand();
     assert!(result.is_err());

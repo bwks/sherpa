@@ -28,6 +28,7 @@ pub struct PeerInterface {
     pub peer_interface: String,
     pub peer_interface_index: u8,
     pub peer_side: PeerSide,
+    pub p2p: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -133,6 +134,10 @@ pub struct LabLinkData {
     pub bridge_b: String,
     pub veth_a: String,
     pub veth_b: String,
+    /// Tap device name for node_a side (P2p links only).
+    pub tap_a: String,
+    /// Tap device name for node_b side (P2p links only).
+    pub tap_b: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

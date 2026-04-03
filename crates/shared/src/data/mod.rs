@@ -45,6 +45,7 @@ mod destroy;
 mod dhcp;
 mod disk;
 mod dns;
+mod impairment;
 mod import;
 mod inspect;
 mod interface;
@@ -74,6 +75,7 @@ pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary}
 pub use dhcp::DhcpLease;
 pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
 pub use dns::{Dns, NameServer};
+pub use impairment::{UpdateImpairmentRequest, UpdateImpairmentResponse};
 pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,

@@ -56,6 +56,8 @@ async fn test_delete_link_success() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -121,6 +123,8 @@ async fn test_delete_link_by_id_success() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -186,6 +190,8 @@ async fn test_delete_link_nonexistent_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -254,6 +260,8 @@ async fn test_delete_link_decrements_count() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -270,6 +278,8 @@ async fn test_delete_link_decrements_count() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -350,6 +360,8 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -366,6 +378,8 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -382,6 +396,8 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -478,6 +494,8 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab1.id.clone().unwrap(),
     )
     .await?;
@@ -494,6 +512,8 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab1.id.clone().unwrap(),
     )
     .await?;
@@ -511,6 +531,8 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -593,6 +615,8 @@ async fn test_delete_links_by_node_success() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -609,6 +633,8 @@ async fn test_delete_links_by_node_success() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -626,6 +652,8 @@ async fn test_delete_links_by_node_success() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -715,6 +743,8 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -732,6 +762,8 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -749,6 +781,8 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -766,6 +800,8 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         "br-8".to_string(),
         "veth-7".to_string(),
         "veth-8".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;

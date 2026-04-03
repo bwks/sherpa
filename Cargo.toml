@@ -1,16 +1,12 @@
 # Speed up SSH key generation in debug mode.
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
-# Use once it becomes available in the ssh-key crate release.
-# [profile.dev.package.crypto-bigint]
-# opt-level = 3
 
 [workspace]
 resolver = "3"
 members = [
   "crates/client",
   "crates/container",
-
   "crates/db",
   "crates/network",
   "crates/libvirt",
@@ -20,6 +16,7 @@ members = [
   "crates/topology",
   "crates/validate",
 ]
+exclude = ["crates/ebpf-redirect"]
 default-members = ["crates/client"]
 
 [workspace.dependencies]

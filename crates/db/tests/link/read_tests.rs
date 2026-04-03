@@ -56,6 +56,8 @@ async fn test_get_link_by_id_success() -> Result<()> {
         "br-node2-eth0".to_string(),
         "veth-node1".to_string(),
         "veth-node2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -149,6 +151,8 @@ async fn test_get_link_by_peers_success() -> Result<()> {
         "br-node2-eth1".to_string(),
         "veth-node1".to_string(),
         "veth-node2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -292,6 +296,8 @@ async fn test_list_links_returns_all() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -308,6 +314,8 @@ async fn test_list_links_returns_all() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -425,6 +433,8 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab1.id.clone().unwrap(),
     )
     .await?;
@@ -442,6 +452,8 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -458,6 +470,8 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -537,6 +551,8 @@ async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -554,6 +570,8 @@ async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -571,6 +589,8 @@ async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -656,6 +676,8 @@ async fn test_count_links_accurate() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -746,6 +768,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab1.id.clone().unwrap(),
     )
     .await?;
@@ -763,6 +787,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -779,6 +805,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -795,6 +823,8 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
         "br-8".to_string(),
         "veth-7".to_string(),
         "veth-8".to_string(),
+        String::new(),
+        String::new(),
         lab2.id.clone().unwrap(),
     )
     .await?;
@@ -866,6 +896,8 @@ async fn test_count_links_by_node_accurate() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -883,6 +915,8 @@ async fn test_count_links_by_node_accurate() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -900,6 +934,8 @@ async fn test_count_links_by_node_accurate() -> Result<()> {
         "br-6".to_string(),
         "veth-5".to_string(),
         "veth-6".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;

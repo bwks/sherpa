@@ -241,6 +241,7 @@ mod tests {
             src: "dev01::eth0".to_string(),
             dst: "dev02::eth0".to_string(),
             p2p: None,
+            impairment: None,
         }]);
 
         let result = process_manifest_links(&links, &expanded_nodes).unwrap();
@@ -304,11 +305,13 @@ mod tests {
                 src: "dev01::eth0".to_string(),
                 dst: "dev02::eth0".to_string(),
                 p2p: None,
+                impairment: None,
             },
             topology::Link2 {
                 src: "dev02::eth1".to_string(),
                 dst: "dev03::eth0".to_string(),
                 p2p: None,
+                impairment: None,
             },
         ]);
 

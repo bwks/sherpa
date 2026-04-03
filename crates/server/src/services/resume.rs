@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use opentelemetry::KeyValue;
-use shared::data::{LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
+use shared::data::{self, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
 use std::time::Instant;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
@@ -30,7 +30,7 @@ pub async fn start_lab_nodes(
     let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
     // Get all nodes for this lab
-    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
+    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone())
         .await
         .context("Failed to list nodes for lab")?;
 
@@ -83,6 +83,7 @@ pub async fn start_lab_nodes(
         let node_id = node.id.clone();
         let state = state.clone();
 
+        let kind_clone = kind.clone();
         futures.push(async move {
             let result = match kind {
                 NodeKind::VirtualMachine | NodeKind::Unikernel => {
@@ -91,7 +92,7 @@ pub async fn start_lab_nodes(
                 NodeKind::Container => start_container_node(&device_name, &node_name, &state).await,
             };
 
-            (result, node_name, node_id)
+            (result, node_name, node_id, kind_clone)
         });
     }
 
@@ -100,14 +101,37 @@ pub async fn start_lab_nodes(
 
     // Collect results and update DB state
     let mut results = immediate_results;
-    for (result, node_name, node_id) in concurrent_results {
+    let mut cold_booted_vms: Vec<String> = vec![];
+    for (result, node_name, node_id, kind) in concurrent_results {
         if result.success
             && let Some(id) = node_id
             && let Err(e) = db::update_node_state(&state.db, id, NodeState::Running).await
         {
             tracing::warn!("Failed to update DB state for node '{}': {}", node_name, e);
         }
+        // Track VMs that were cold-booted (new tap devices with new ifindexes)
+        if result.success
+            && result.message == "Started"
+            && matches!(kind, NodeKind::VirtualMachine)
+        {
+            cold_booted_vms.push(node_name.clone());
+        }
         results.push(result);
+    }
+
+    // Re-attach eBPF redirect on P2p links for cold-booted VMs.
+    // Cold boot creates new tap devices, so the eBPF programs need re-attaching
+    // on both sides (new VM tap + peer's stale redirect).
+    if !cold_booted_vms.is_empty() {
+        if let Err(e) =
+            reattach_p2p_ebpf_for_nodes(lab_id, &cold_booted_vms, &lab_record_id, state).await
+        {
+            tracing::error!(
+                lab_id = %lab_id,
+                error = ?e,
+                "Failed to re-attach eBPF redirect after VM cold boot"
+            );
+        }
     }
 
     state.metrics.operation_duration.record(
@@ -216,4 +240,78 @@ async fn start_container_node(
             message: format!("Failed to unpause: {:#}", e),
         },
     }
+}
+
+/// Re-attach eBPF redirect programs on P2p links after VM cold boot.
+///
+/// When a VM is cold-booted, libvirt creates new tap devices with new ifindexes.
+/// The peer side's eBPF program still points to the old (stale) ifindex.
+/// This function re-attaches eBPF on both sides of each affected P2p link.
+async fn reattach_p2p_ebpf_for_nodes(
+    lab_id: &str,
+    node_names: &[String],
+    lab_record_id: &RecordId,
+    state: &AppState,
+) -> Result<()> {
+    let db_links = db::list_links_by_lab(&state.db, lab_record_id.clone()).await?;
+    let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id.clone()).await?;
+
+    // Build node name -> RecordId lookup
+    let node_record_ids: std::collections::HashMap<String, RecordId> = db_nodes
+        .iter()
+        .filter_map(|n| n.id.clone().map(|id| (n.name.clone(), id)))
+        .collect();
+
+    let target_record_ids: Vec<&RecordId> = node_names
+        .iter()
+        .filter_map(|name| node_record_ids.get(name))
+        .collect();
+
+    for link in &db_links {
+        if link.kind != data::BridgeKind::P2p {
+            continue;
+        }
+
+        // Only process links that involve one of the cold-booted nodes
+        let involves_target = target_record_ids
+            .iter()
+            .any(|id| link.node_a == **id || link.node_b == **id);
+        if !involves_target {
+            continue;
+        }
+
+        let ifindex_a = network::get_ifindex(&link.tap_a)
+            .await
+            .context(format!("failed to get ifindex for {}", link.tap_a))?;
+        let ifindex_b = network::get_ifindex(&link.tap_b)
+            .await
+            .context(format!("failed to get ifindex for {}", link.tap_b))?;
+
+        network::attach_p2p_redirect(&link.tap_a, ifindex_b)
+            .context(format!("failed to attach eBPF redirect on {}", link.tap_a))?;
+        network::attach_p2p_redirect(&link.tap_b, ifindex_a)
+            .context(format!("failed to attach eBPF redirect on {}", link.tap_b))?;
+
+        // Re-apply link impairment if configured
+        if link.delay_us > 0 || link.loss_percent > 0.0 {
+            let netem = network::LinkImpairment {
+                delay_us: link.delay_us,
+                jitter_us: link.jitter_us,
+                loss_percent: link.loss_percent,
+                reorder_percent: 0.0,
+                corrupt_percent: 0.0,
+            };
+            network::apply_netem(ifindex_a as i32, &netem).await?;
+            network::apply_netem(ifindex_b as i32, &netem).await?;
+        }
+
+        tracing::info!(
+            lab_id = %lab_id,
+            tap_a = %link.tap_a,
+            tap_b = %link.tap_b,
+            "Re-attached eBPF P2p redirect after cold boot"
+        );
+    }
+
+    Ok(())
 }

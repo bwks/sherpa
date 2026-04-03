@@ -371,6 +371,8 @@ async fn test_delete_node_safe_with_links_fails() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -443,6 +445,8 @@ async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -521,6 +525,8 @@ async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
         "br1".to_string(),
         "veth0".to_string(),
         "veth1".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -537,6 +543,8 @@ async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
         "br3".to_string(),
         "veth2".to_string(),
         "veth3".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;

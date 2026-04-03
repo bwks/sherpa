@@ -9,6 +9,7 @@ use strum_macros::EnumIter;
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {
+    P2p,
     #[default]
     P2pBridge,
     P2pUdp,
@@ -18,6 +19,7 @@ pub enum BridgeKind {
 impl fmt::Display for BridgeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            BridgeKind::P2p => write!(f, "p2p"),
             BridgeKind::P2pBridge => write!(f, "p2p_bridge"),
             BridgeKind::P2pUdp => write!(f, "p2p_udp"),
             BridgeKind::P2pVeth => write!(f, "p2p_veth"),
@@ -65,6 +67,7 @@ mod tests {
 
     #[test]
     fn test_bridge_kind_display() {
+        assert_eq!(BridgeKind::P2p.to_string(), "p2p");
         assert_eq!(BridgeKind::P2pBridge.to_string(), "p2p_bridge");
         assert_eq!(BridgeKind::P2pUdp.to_string(), "p2p_udp");
         assert_eq!(BridgeKind::P2pVeth.to_string(), "p2p_veth");
@@ -74,7 +77,7 @@ mod tests {
     #[test]
     fn test_bridge_kind_to_vec() {
         let kinds = BridgeKind::to_vec();
-        assert_eq!(kinds.len(), 4);
+        assert_eq!(kinds.len(), 5);
     }
 
     #[test]

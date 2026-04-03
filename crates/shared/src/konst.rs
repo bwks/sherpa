@@ -82,6 +82,8 @@ pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
 pub const LAB_FILE_NAME: &str = "lab-info.toml";
 pub const BRIDGE_PREFIX: &str = "br";
 pub const VETH_PREFIX: &str = "ve";
+pub const TAP_PREFIX: &str = "tp";
+pub const CONTAINER_VETH_PREFIX: &str = "cv";
 
 pub const SHERPA_DB_NAME: &str = "sherpa";
 pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
@@ -387,6 +389,11 @@ pub const RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD: &str =
 
 // Node name params
 pub const RPC_MSG_INVALID_PARAMS_NODE_NAME: &str = "Invalid 'node_name' parameter";
+
+// Impairment operations
+pub const RPC_MSG_IMPAIRMENT_UPDATE_FAILED: &str = "Link impairment update failed";
+pub const RPC_MSG_INVALID_PARAMS_IMPAIRMENT: &str =
+    "Invalid params: expected lab_id, link_index, and token";
 
 // Redeploy operations
 pub const RPC_MSG_REDEPLOY_FAILED: &str = "Redeploy operation failed";

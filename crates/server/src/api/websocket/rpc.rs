@@ -12,7 +12,8 @@ use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, import, inspect, progress, redeploy, resume, up,
+    clean, container_pull, delete, destroy, down, impairment, import, inspect, progress, redeploy,
+    resume, up,
 };
 use shared::data;
 use shared::error::RpcErrorCode;
@@ -25,12 +26,13 @@ use shared::konst::{
     RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED,
     RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
     RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
-    RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
-    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DELETE, RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD,
-    RPC_MSG_INVALID_PARAMS_IMAGE_LIST, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT,
-    RPC_MSG_INVALID_PARAMS_IMAGE_SHOW, RPC_MSG_INVALID_PARAMS_IMPORT,
+    RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
+    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL,
+    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
+    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
+    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
+    RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW,
+    RPC_MSG_INVALID_PARAMS_IMPAIRMENT, RPC_MSG_INVALID_PARAMS_IMPORT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
     RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
     RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
@@ -182,6 +184,7 @@ pub async fn handle_rpc_request(
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
         "down" => handle_down(id, params, state).await,
+        "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         "resume" => handle_resume(id, params, state).await,
         // Note: "destroy" is handled separately via handle_streaming_rpc_request
         "clean" => match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_CLEAN).await {
@@ -678,6 +681,157 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_RESUME_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "link.update_impairment" RPC call — update link impairment on a running P2p link
+///
+/// Expected params: {"lab_id": "string", "link_index": number, "token": "string",
+///   "delay": number, "jitter": number, "loss_percent": number,
+///   "reorder_percent": number, "corrupt_percent": number}
+async fn handle_link_update_impairment(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for link.update_impairment: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    let link_index = match params.get("link_index").and_then(|v| v.as_u64()) {
+        Some(idx) => idx as u16,
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_IMPAIRMENT.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to update impairment on lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    lab_id,
+                    owner_username
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::AccessDenied,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        }
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::NotFound,
+                    message: format!("Lab not found: {}", lab_id),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    }
+
+    let request = data::UpdateImpairmentRequest {
+        lab_id,
+        link_index,
+        username: auth_ctx.username.clone(),
+        delay: params.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+        jitter: params
+            .get("jitter")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32,
+        loss_percent: params
+            .get("loss_percent")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32,
+        reorder_percent: params
+            .get("reorder_percent")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32,
+        corrupt_percent: params
+            .get("corrupt_percent")
+            .and_then(|v| v.as_f64())
+            .unwrap_or(0.0) as f32,
+    };
+
+    match impairment::update_impairment(request, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' updated link impairment on link {} in lab",
+                    auth_ctx.username,
+                    link_index,
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: RPC_MSG_IMPAIRMENT_UPDATE_FAILED.to_string(),
                     context: Some(error_chain),
                 }),
             }

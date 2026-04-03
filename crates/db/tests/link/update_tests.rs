@@ -55,6 +55,8 @@ async fn test_update_link_success() -> Result<()> {
         "br-node2-eth0".to_string(),
         "veth-node1".to_string(),
         "veth-node2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -132,6 +134,8 @@ async fn test_update_link_without_id_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -209,6 +213,8 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab1.id.clone().unwrap(),
     )
     .await?;
@@ -286,6 +292,8 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -364,6 +372,8 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -435,6 +445,8 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -452,6 +464,8 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
         "br-4".to_string(),
         "veth-3".to_string(),
         "veth-4".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -524,6 +538,8 @@ async fn test_update_link_preserves_id() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -590,6 +606,8 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
@@ -660,6 +678,8 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
         "br-2".to_string(),
         "veth-1".to_string(),
         "veth-2".to_string(),
+        String::new(),
+        String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;

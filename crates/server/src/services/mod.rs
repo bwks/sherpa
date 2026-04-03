@@ -3,6 +3,7 @@ pub mod container_pull;
 pub mod delete;
 pub mod destroy;
 pub mod down;
+pub mod impairment;
 pub mod import;
 pub mod inspect;
 pub mod list_labs;
