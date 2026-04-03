@@ -56,7 +56,8 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
     let token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let lab_name = format!("test-cont-{}", std::process::id());
+    // lab_id must be exactly 8 characters
+    let lab_name = format!("tc{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
     // Up the lab
@@ -125,7 +126,8 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
     let token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let lab_name = format!("test-dr-{}", std::process::id());
+    // lab_id must be exactly 8 characters
+    let lab_name = format!("dr{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
     // Up
@@ -198,7 +200,8 @@ async fn test_container_lab_destroy() -> Result<()> {
     let token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let lab_name = format!("test-dest-{}", std::process::id());
+    // lab_id must be exactly 8 characters
+    let lab_name = format!("ds{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
     // Up
@@ -267,7 +270,8 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
     let token = ws.login_admin().await?;
     bootstrap_images(&mut ws, &token).await?;
 
-    let lab_name = format!("test-vm-{}", std::process::id());
+    // lab_id must be exactly 8 characters
+    let lab_name = format!("vm{:06}", std::process::id() % 1_000_000);
     let manifest = vm_manifest(&lab_name);
 
     // Up the VM lab

@@ -59,7 +59,8 @@ impl TestServer {
             http_port: 0,
             vm_provider: VmProviders::default(),
             qemu_bin: "/usr/bin/qemu-system-x86_64".to_string(),
-            management_prefix_ipv4: "172.31.0.0/16".parse()?,
+            // Use a range that doesn't conflict with host interfaces (enp3s0 uses 172.31.0.0/16)
+            management_prefix_ipv4: "10.200.0.0/16".parse()?,
             management_prefix_ipv6: None,
             images_dir: images_dir
                 .unwrap_or_else(|| "/opt/sherpa/images".to_string()),

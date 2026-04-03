@@ -212,15 +212,15 @@ async fn test_cookie_login_valid() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(&server);
 
-    let status = client
-        .login_form("admin", helpers::test_server::TEST_ADMIN_PASSWORD)
+    let resp = client
+        .post_form("/login", &[("username", "admin"), ("password", helpers::test_server::TEST_ADMIN_PASSWORD)])
         .await?;
 
-    // Should redirect to dashboard on success
+    // Login uses HTMX pattern: 200 OK with hx-redirect header (not a 3xx redirect)
+    assert_eq!(resp.status().as_u16(), 200, "Expected 200 OK for HTMX login, got {}", resp.status());
     assert!(
-        status.is_redirection(),
-        "Expected redirect after login, got {}",
-        status
+        resp.headers().contains_key("hx-redirect"),
+        "Expected hx-redirect header in login response"
     );
 
     Ok(())

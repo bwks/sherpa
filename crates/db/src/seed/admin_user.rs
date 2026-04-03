@@ -68,12 +68,19 @@ mod tests {
     use super::*;
     use crate::user::{count_users, get_user};
 
+    fn test_db_port() -> u16 {
+        std::env::var("SHERPA_DEV_DB_PORT")
+            .unwrap_or_else(|_| "42069".to_string())
+            .parse()
+            .expect("SHERPA_DEV_DB_PORT must be a valid port number")
+    }
+
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
         let db = crate::connect(
             "localhost",
-            8000,
+            test_db_port(),
             "test_seed_admin",
             "test_db",
             shared::konst::SHERPA_PASSWORD,
@@ -103,7 +110,7 @@ mod tests {
     async fn test_seed_admin_user_creates_when_other_users_exist() -> Result<()> {
         let db = crate::connect(
             "localhost",
-            8000,
+            test_db_port(),
             "test_seed_admin_skip",
             "test_db",
             shared::konst::SHERPA_PASSWORD,
@@ -140,7 +147,7 @@ mod tests {
     async fn test_seed_admin_user_validates_password() -> Result<()> {
         let db = crate::connect(
             "localhost",
-            8000,
+            test_db_port(),
             "test_seed_admin_validate",
             "test_db",
             shared::konst::SHERPA_PASSWORD,
@@ -170,7 +177,7 @@ mod tests {
     async fn test_seed_admin_user_idempotent() -> Result<()> {
         let db = crate::connect(
             "localhost",
-            8000,
+            test_db_port(),
             "test_seed_admin_idem",
             "test_db",
             shared::konst::SHERPA_PASSWORD,

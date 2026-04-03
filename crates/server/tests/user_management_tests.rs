@@ -142,12 +142,14 @@ async fn test_user_gets_own_info() -> Result<()> {
         .await?;
 
     let result = response.get("result").expect("should have result");
+    // user.info returns GetUserInfoResponse { user: UserInfo { ... } }
+    let user = result.get("user").expect("result should have 'user' field");
     assert_eq!(
-        result.get("username").and_then(|v| v.as_str()),
+        user.get("username").and_then(|v| v.as_str()),
         Some("admin")
     );
     assert_eq!(
-        result.get("is_admin").and_then(|v| v.as_bool()),
+        user.get("is_admin").and_then(|v| v.as_bool()),
         Some(true)
     );
 
@@ -245,7 +247,8 @@ async fn test_admin_lists_users() -> Result<()> {
         .await?;
 
     let result = response.get("result").expect("should have result");
-    let users = result.as_array().expect("should be array");
+    // user.list returns ListUsersResponse { users: Vec<UserInfo> }
+    let users = result.get("users").and_then(|v| v.as_array()).expect("result should have 'users' array");
     assert!(users.len() >= 3, "should have admin + 2 created users");
 
     Ok(())
@@ -368,7 +371,7 @@ async fn test_non_admin_cannot_delete_user() -> Result<()> {
             .get("error")
             .and_then(|e| e.get("code"))
             .and_then(|c| c.as_i64()),
-        Some(-32001)
+        Some(-32003) // AccessDenied: non-admin cannot delete other users
     );
 
     Ok(())
