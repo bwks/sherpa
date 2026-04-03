@@ -78,7 +78,10 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
         "lab up should succeed: {:?}",
         response
     );
-    assert!(!statuses.is_empty(), "should have status messages during up");
+    assert!(
+        !statuses.is_empty(),
+        "should have status messages during up"
+    );
 
     // Inspect the lab
     let inspect_resp = ws

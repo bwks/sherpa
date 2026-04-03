@@ -62,8 +62,7 @@ impl TestServer {
             // Use a range that doesn't conflict with host interfaces (enp3s0 uses 172.31.0.0/16)
             management_prefix_ipv4: "10.200.0.0/16".parse()?,
             management_prefix_ipv6: None,
-            images_dir: images_dir
-                .unwrap_or_else(|| "/opt/sherpa/images".to_string()),
+            images_dir: images_dir.unwrap_or_else(|| "/opt/sherpa/images".to_string()),
             containers_dir: "/opt/sherpa/containers".to_string(),
             bins_dir: "/opt/sherpa/bins".to_string(),
             ztp_server: ZtpServer::default(),

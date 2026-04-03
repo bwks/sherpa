@@ -45,8 +45,8 @@ impl TestWsClient {
 
         let connection_id = match connected_msg {
             Message::Text(text) => {
-                let msg: Value = serde_json::from_str(&text)
-                    .context("Failed to parse Connected message")?;
+                let msg: Value =
+                    serde_json::from_str(&text).context("Failed to parse Connected message")?;
                 msg.get("connection_id")
                     .and_then(|v| v.as_str())
                     .context("Missing connection_id in Connected message")?
@@ -133,18 +133,14 @@ impl TestWsClient {
 
                 if let Message::Text(text) = msg {
                     let parsed: Value = serde_json::from_str(&text)?;
-                    let msg_type = parsed
-                        .get("type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("");
+                    let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                     match msg_type {
                         "status" => {
                             status_messages.push(parsed);
                         }
                         "rpc_response" => {
-                            let resp_id =
-                                parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");
+                            let resp_id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");
                             if resp_id == id {
                                 return Ok::<(Vec<Value>, Value), anyhow::Error>((
                                     status_messages,
@@ -206,10 +202,7 @@ impl TestWsClient {
 
             if let Message::Text(text) = msg {
                 let parsed: Value = serde_json::from_str(&text)?;
-                let msg_type = parsed
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
                 if msg_type == "rpc_response" {
                     let id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");

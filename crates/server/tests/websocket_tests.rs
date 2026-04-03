@@ -48,9 +48,7 @@ async fn test_rpc_unknown_method() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
 
-    let response = ws
-        .rpc_call("nonexistent.method", json!({}))
-        .await?;
+    let response = ws.rpc_call("nonexistent.method", json!({})).await?;
 
     let error = response.get("error").expect("should have error");
     // MethodNotFound = -32601
@@ -73,15 +71,31 @@ async fn test_rpc_response_id_matches_request() -> Result<()> {
     let mut ws = TestWsClient::connect(&server).await?;
 
     // Make multiple requests and verify IDs match
-    let r1 = ws.rpc_call("auth.login", json!({"username": "admin", "password": "wrong"})).await?;
-    let r2 = ws.rpc_call("auth.login", json!({"username": "admin", "password": "wrong"})).await?;
+    let r1 = ws
+        .rpc_call(
+            "auth.login",
+            json!({"username": "admin", "password": "wrong"}),
+        )
+        .await?;
+    let r2 = ws
+        .rpc_call(
+            "auth.login",
+            json!({"username": "admin", "password": "wrong"}),
+        )
+        .await?;
 
     let id1 = r1.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let id2 = r2.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
     assert_ne!(id1, id2, "Each response should have a unique ID");
-    assert!(id1.starts_with("test-"), "Response ID should match request format");
-    assert!(id2.starts_with("test-"), "Response ID should match request format");
+    assert!(
+        id1.starts_with("test-"),
+        "Response ID should match request format"
+    );
+    assert!(
+        id2.starts_with("test-"),
+        "Response ID should match request format"
+    );
 
     Ok(())
 }
@@ -121,10 +135,7 @@ async fn test_rpc_auth_validate_returns_user_info() -> Result<()> {
         result.get("username").and_then(|v| v.as_str()),
         Some("admin")
     );
-    assert_eq!(
-        result.get("is_admin").and_then(|v| v.as_bool()),
-        Some(true)
-    );
+    assert_eq!(result.get("is_admin").and_then(|v| v.as_bool()), Some(true));
     assert!(result.get("expires_at").is_some());
 
     Ok(())

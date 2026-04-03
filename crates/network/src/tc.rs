@@ -62,7 +62,11 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 #[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
 pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
     // Serialize tc_netem_qopt fields in kernel layout order (6 x u32, native endian)
-    let gap: u32 = if impairment.reorder_percent > 0.0 { 1 } else { 0 };
+    let gap: u32 = if impairment.reorder_percent > 0.0 {
+        1
+    } else {
+        0
+    };
     let mut qopt_bytes = Vec::with_capacity(24);
     qopt_bytes.extend_from_slice(&impairment.delay_us.to_ne_bytes());
     qopt_bytes.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
@@ -164,5 +168,4 @@ mod tests {
         let result = percent_to_kernel(0.1);
         assert!(result > 0, "0.1% should produce non-zero kernel value");
     }
-
 }

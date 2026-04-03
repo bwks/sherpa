@@ -3,7 +3,7 @@ mod helpers;
 use anyhow::Result;
 use serde_json::json;
 
-use helpers::test_server::{TestServer, TEST_ADMIN_PASSWORD};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 
 // ── User Creation ──
@@ -27,8 +27,14 @@ async fn test_admin_creates_user() -> Result<()> {
         )
         .await?;
 
-    assert!(response.get("result").is_some(), "user.create should succeed");
-    assert!(response.get("error").is_none(), "user.create should not error");
+    assert!(
+        response.get("result").is_some(),
+        "user.create should succeed"
+    );
+    assert!(
+        response.get("error").is_none(),
+        "user.create should not error"
+    );
 
     // Verify user can login
     let user_token = ws.login("testuser", "TestUser123!").await?;
@@ -70,7 +76,10 @@ async fn test_duplicate_username_rejected() -> Result<()> {
         )
         .await?;
 
-    assert!(response.get("error").is_some(), "duplicate user should be rejected");
+    assert!(
+        response.get("error").is_some(),
+        "duplicate user should be rejected"
+    );
 
     Ok(())
 }
@@ -110,7 +119,10 @@ async fn test_non_admin_cannot_create_user() -> Result<()> {
         )
         .await?;
 
-    assert!(response.get("error").is_some(), "non-admin should not create users");
+    assert!(
+        response.get("error").is_some(),
+        "non-admin should not create users"
+    );
     assert_eq!(
         response
             .get("error")
@@ -144,14 +156,8 @@ async fn test_user_gets_own_info() -> Result<()> {
     let result = response.get("result").expect("should have result");
     // user.info returns GetUserInfoResponse { user: UserInfo { ... } }
     let user = result.get("user").expect("result should have 'user' field");
-    assert_eq!(
-        user.get("username").and_then(|v| v.as_str()),
-        Some("admin")
-    );
-    assert_eq!(
-        user.get("is_admin").and_then(|v| v.as_bool()),
-        Some(true)
-    );
+    assert_eq!(user.get("username").and_then(|v| v.as_str()), Some("admin"));
+    assert_eq!(user.get("is_admin").and_then(|v| v.as_bool()), Some(true));
 
     Ok(())
 }
@@ -242,13 +248,14 @@ async fn test_admin_lists_users() -> Result<()> {
             .await?;
     }
 
-    let response = ws
-        .rpc_call("user.list", json!({ "token": token }))
-        .await?;
+    let response = ws.rpc_call("user.list", json!({ "token": token })).await?;
 
     let result = response.get("result").expect("should have result");
     // user.list returns ListUsersResponse { users: Vec<UserInfo> }
-    let users = result.get("users").and_then(|v| v.as_array()).expect("result should have 'users' array");
+    let users = result
+        .get("users")
+        .and_then(|v| v.as_array())
+        .expect("result should have 'users' array");
     assert!(users.len() >= 3, "should have admin + 2 created users");
 
     Ok(())
@@ -299,7 +306,10 @@ async fn test_admin_deletes_user() -> Result<()> {
             }),
         )
         .await?;
-    assert!(login.get("error").is_some(), "deleted user should not login");
+    assert!(
+        login.get("error").is_some(),
+        "deleted user should not login"
+    );
 
     Ok(())
 }

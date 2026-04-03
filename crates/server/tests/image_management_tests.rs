@@ -44,9 +44,7 @@ async fn test_image_list_returns_images() -> Result<()> {
         .await?;
 
     // List all images
-    let response = ws
-        .rpc_call("image.list", json!({ "token": token }))
-        .await?;
+    let response = ws.rpc_call("image.list", json!({ "token": token })).await?;
 
     assert!(
         response.get("result").is_some(),
@@ -111,9 +109,7 @@ async fn test_image_set_default() -> Result<()> {
         .await?;
 
     // List images to get a model and version
-    let list_resp = ws
-        .rpc_call("image.list", json!({ "token": token }))
-        .await?;
+    let list_resp = ws.rpc_call("image.list", json!({ "token": token })).await?;
 
     if let Some(result) = list_resp.get("result") {
         if let Some(images) = result.as_array() {

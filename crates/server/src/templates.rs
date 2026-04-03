@@ -14,7 +14,6 @@ mod filters {
             .map(|c| c.to_uppercase().to_string())
             .unwrap_or_default())
     }
-
 }
 /// Main dashboard page template
 #[derive(Template)]

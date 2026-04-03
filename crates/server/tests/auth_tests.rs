@@ -27,7 +27,10 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
 
     let result = response.get("result").expect("should have result");
     assert!(result.get("token").is_some(), "should have token");
-    assert_eq!(result.get("username").and_then(|v| v.as_str()), Some("admin"));
+    assert_eq!(
+        result.get("username").and_then(|v| v.as_str()),
+        Some("admin")
+    );
     assert_eq!(result.get("is_admin").and_then(|v| v.as_bool()), Some(true));
     assert!(result.get("expires_at").is_some(), "should have expires_at");
 
@@ -120,10 +123,7 @@ async fn test_auth_validate_invalid_token() -> Result<()> {
     let mut ws = TestWsClient::connect(&server).await?;
 
     let response = ws
-        .rpc_call(
-            "auth.validate",
-            json!({ "token": "invalid.jwt.token" }),
-        )
+        .rpc_call("auth.validate", json!({ "token": "invalid.jwt.token" }))
         .await?;
 
     let result = response.get("result").expect("should have result");
@@ -191,10 +191,7 @@ async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
 
     // Try admin-only operation
     let response = ws
-        .rpc_call(
-            "user.list",
-            json!({ "token": user_token }),
-        )
+        .rpc_call("user.list", json!({ "token": user_token }))
         .await?;
 
     let error = response.get("error").expect("should have error");
@@ -213,11 +210,22 @@ async fn test_cookie_login_valid() -> Result<()> {
     let client = TestHttpClient::new(&server);
 
     let resp = client
-        .post_form("/login", &[("username", "admin"), ("password", helpers::test_server::TEST_ADMIN_PASSWORD)])
+        .post_form(
+            "/login",
+            &[
+                ("username", "admin"),
+                ("password", helpers::test_server::TEST_ADMIN_PASSWORD),
+            ],
+        )
         .await?;
 
     // Login uses HTMX pattern: 200 OK with hx-redirect header (not a 3xx redirect)
-    assert_eq!(resp.status().as_u16(), 200, "Expected 200 OK for HTMX login, got {}", resp.status());
+    assert_eq!(
+        resp.status().as_u16(),
+        200,
+        "Expected 200 OK for HTMX login, got {}",
+        resp.status()
+    );
     assert!(
         resp.headers().contains_key("hx-redirect"),
         "Expected hx-redirect header in login response"
@@ -268,7 +276,10 @@ async fn test_login_page_renders() -> Result<()> {
     assert_eq!(response.status().as_u16(), 200);
 
     let body = response.text().await?;
-    assert!(body.contains("login") || body.contains("Login"), "Login page should contain login form");
+    assert!(
+        body.contains("login") || body.contains("Login"),
+        "Login page should contain login form"
+    );
 
     Ok(())
 }
