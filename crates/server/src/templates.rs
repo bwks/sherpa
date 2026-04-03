@@ -6,12 +6,23 @@ use shared::data::{
 };
 
 use crate::api::handlers::{NodeImageSummary, UserSummary};
+
+mod filters {
+    pub fn initial(s: &str, _: &dyn askama::Values) -> askama::Result<String> {
+        Ok(s.chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default())
+    }
+
+}
 /// Main dashboard page template
 #[derive(Template)]
 #[template(path = "user/dashboard.html.jinja")]
 pub struct DashboardTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
 }
 
 impl IntoResponse for DashboardTemplate {
@@ -180,6 +191,8 @@ impl IntoResponse for SignupErrorTemplate {
 #[allow(dead_code)]
 pub struct Error404Template {
     pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
     pub message: String,
 }
 
@@ -202,6 +215,8 @@ impl IntoResponse for Error404Template {
 #[allow(dead_code)]
 pub struct Error403Template {
     pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
     pub message: String,
 }
 
@@ -224,6 +239,7 @@ impl IntoResponse for Error403Template {
 pub struct Admin403Template {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
 }
 
 impl IntoResponse for Admin403Template {
@@ -249,6 +265,7 @@ impl IntoResponse for Admin403Template {
 pub struct LabDetailTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
@@ -283,6 +300,7 @@ impl IntoResponse for LabDetailTemplate {
 pub struct ProfileTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub ssh_keys_html: String,
 }
 
@@ -388,6 +406,8 @@ impl IntoResponse for SshKeyErrorTemplate {
 #[template(path = "admin/dashboard.html.jinja")]
 pub struct AdminDashboardTemplate {
     pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
     pub users: Vec<UserSummary>,
 }
 
@@ -409,6 +429,8 @@ impl IntoResponse for AdminDashboardTemplate {
 #[template(path = "admin/labs.html.jinja")]
 pub struct AdminLabsTemplate {
     pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
     pub labs: Vec<AdminLabSummary>,
 }
 
@@ -438,6 +460,8 @@ impl IntoResponse for AdminLabsTemplate {
 #[template(path = "admin/user-edit.html.jinja")]
 pub struct AdminUserEditTemplate {
     pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
     pub target_user: DbUser,
     pub is_self: bool,
     pub ssh_keys_html: String,
@@ -530,6 +554,7 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 pub struct AdminNodeImagesListTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub configs: Vec<NodeImageSummary>,
 }
 
@@ -553,6 +578,7 @@ impl IntoResponse for AdminNodeImagesListTemplate {
 pub struct AdminNodeImageDetailTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub config: NodeConfig,
 }
 
@@ -576,6 +602,7 @@ impl IntoResponse for AdminNodeImageDetailTemplate {
 pub struct AdminNodeImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub config: NodeConfig,
     pub os_variants: Vec<String>,
     pub bios_types: Vec<String>,
@@ -607,6 +634,7 @@ impl IntoResponse for AdminNodeImageEditTemplate {
 pub struct AdminNodeImageVersionsTemplate {
     pub username: String,
     pub is_admin: bool,
+    pub active_page: String,
     pub model: String,
     pub kind: String,
     pub versions: Vec<NodeConfig>,
@@ -753,4 +781,26 @@ pub struct DestroySummaryErrorsFragment {
 #[template(path = "user/partials/destroy-summary-failed.html.jinja")]
 pub struct DestroySummaryFailedFragment {
     pub message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use askama::NO_VALUES;
+
+    use super::filters::initial;
+
+    #[test]
+    fn test_initial_lowercase() {
+        assert_eq!(initial("bradmin", NO_VALUES).unwrap(), "B");
+    }
+
+    #[test]
+    fn test_initial_uppercase() {
+        assert_eq!(initial("Admin", NO_VALUES).unwrap(), "A");
+    }
+
+    #[test]
+    fn test_initial_empty() {
+        assert_eq!(initial("", NO_VALUES).unwrap(), "");
+    }
 }

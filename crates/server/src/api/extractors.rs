@@ -184,6 +184,7 @@ impl IntoResponse for AdminForbidden {
         Admin403Template {
             username: self.username,
             is_admin: false,
+            active_page: String::new(),
         }
         .into_response()
     }

@@ -504,6 +504,7 @@ pub async fn profile_handler(
     ProfileTemplate {
         username: auth.username.clone(),
         is_admin: auth.is_admin,
+        active_page: "profile".to_string(),
         ssh_keys_html: SshKeysListTemplate {
             ssh_keys: user.ssh_keys,
         }
@@ -1024,6 +1025,7 @@ pub async fn dashboard_handler(
     Ok(DashboardTemplate {
         username: auth.username.clone(),
         is_admin: auth.is_admin,
+        active_page: "dashboard".to_string(),
     })
 }
 
@@ -1135,6 +1137,7 @@ pub async fn lab_detail_handler(
             LabDetailTemplate {
                 username: auth.username.clone(),
                 is_admin: auth.is_admin,
+                active_page: "dashboard".to_string(),
                 lab_info: response.lab_info,
                 devices: response.devices,
                 device_count,
@@ -1159,6 +1162,8 @@ pub async fn lab_detail_handler(
                 );
                 Error403Template {
                     username: auth.username,
+                    is_admin: auth.is_admin,
+                    active_page: String::new(),
                     message: "You don't have permission to view this lab.".to_string(),
                 }
                 .into_response()
@@ -1168,6 +1173,8 @@ pub async fn lab_detail_handler(
                 tracing::debug!("Lab '{}' not found for user '{}'", lab_id, auth.username);
                 Error404Template {
                     username: auth.username,
+                    is_admin: auth.is_admin,
+                    active_page: String::new(),
                     message: "Lab not found.".to_string(),
                 }
                 .into_response()
@@ -1182,6 +1189,8 @@ pub async fn lab_detail_handler(
                 );
                 Error404Template {
                     username: auth.username,
+                    is_admin: auth.is_admin,
+                    active_page: String::new(),
                     message: "An error occurred loading the lab.".to_string(),
                 }
                 .into_response()
@@ -1258,6 +1267,8 @@ pub async fn admin_dashboard_handler(
 
     Ok(AdminDashboardTemplate {
         username: admin.username,
+        is_admin: true,
+        active_page: "admin_users".to_string(),
         users: user_summaries,
     }
     .into_response())
@@ -1307,6 +1318,8 @@ pub async fn admin_labs_list_handler(
 
     Ok(crate::templates::AdminLabsTemplate {
         username: admin.username,
+        is_admin: true,
+        active_page: "admin_labs".to_string(),
         labs: lab_summaries,
     }
     .into_response())
@@ -1354,6 +1367,8 @@ pub async fn admin_user_edit_handler(
 
     Ok(AdminUserEditTemplate {
         username: admin.username,
+        is_admin: true,
+        active_page: "admin_users".to_string(),
         target_user,
         is_self,
         ssh_keys_html,
@@ -1758,6 +1773,7 @@ pub async fn admin_node_images_list_handler(
     let template = crate::templates::AdminNodeImagesListTemplate {
         username: _admin.username.clone(),
         is_admin: true,
+        active_page: "admin_images".to_string(),
         configs: summaries,
     };
 
@@ -1841,6 +1857,7 @@ pub async fn admin_node_image_detail_handler(
     let template = crate::templates::AdminNodeImageDetailTemplate {
         username: _admin.username.clone(),
         is_admin: true,
+        active_page: "admin_images".to_string(),
         config,
     };
 
@@ -1925,6 +1942,7 @@ pub async fn admin_node_image_edit_page_handler(
     let template = crate::templates::AdminNodeImageEditTemplate {
         username: _admin.username.clone(),
         is_admin: true,
+        active_page: "admin_images".to_string(),
         config,
         os_variants: OsVariant::iter().map(|v| v.to_string()).collect(),
         bios_types: BiosTypes::iter().map(|v| v.to_string()).collect(),
@@ -2239,6 +2257,7 @@ pub async fn admin_node_image_versions_handler(
     let template = crate::templates::AdminNodeImageVersionsTemplate {
         username,
         is_admin: true,
+        active_page: "admin_images".to_string(),
         model,
         kind: kind_enum.to_string(), // Derive kind for display in template
         versions,
