@@ -1,5 +1,81 @@
 # Integration Test Implementation Plan
 
+## Current Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 0 — VM Setup | **DONE** | libvirtd started, repo cloned, dirs created, images pulled/downloaded |
+| 1 — Baseline | **BLOCKED** | Unit tests pass. DB integration tests fail — SurrealDB v3.0.0 port issue (see below) |
+| 2 — Test Harness | **DONE** | TestServer, TestWsClient, TestHttpClient created in `crates/server/tests/helpers/` |
+| 3 — Auth + HTTP Tests | **DONE** | Written in `crates/server/tests/auth_tests.rs` — not yet run |
+| 4 — WebSocket RPC Tests | **DONE** | Written in `crates/server/tests/websocket_tests.rs` — not yet run |
+| 5 — User Management E2E | **DONE** | Written in `crates/server/tests/user_management_tests.rs` — not yet run |
+| 6 — Image Management E2E | **DONE** | Written in `crates/server/tests/image_management_tests.rs` — not yet run |
+| 7 — Lab Lifecycle E2E | **DONE** | Written in `crates/server/tests/lab_lifecycle_tests.rs` — not yet run |
+| 8 — Per-Crate Integration | **ALREADY EXISTS** | container, network, libvirt, template, topology all have tests |
+| 9 — Test Runner Script | **DONE** | `scripts/run-integration-tests.sh` |
+
+### Known Issue: SurrealDB v3.0.0 Port Change
+
+SurrealDB v3.0.0 changed its default listen port from 42069 to 8000. The `dev/testdb` script was updated to map `host:42069 -> container:8000`, but the DB tests are still getting connection refused. The DB container IS running and port 42069 IS bound on the host (`ss -tlnp` confirms), but something in the SurrealDB startup or the WebSocket handshake is failing.
+
+**To debug on the VM:**
+```bash
+# Check if SurrealDB responds on the mapped port
+curl http://localhost:42069/health
+
+# If that fails, check the container logs
+docker logs sherpa-test-db
+
+# Try connecting directly to the container's internal port
+docker exec sherpa-test-db curl http://localhost:8000/health
+```
+
+### What Was Done (Code Changes)
+
+1. **`crates/server/src/lib.rs`** (NEW) — Exposes server internals for integration tests
+2. **`crates/server/src/main.rs`** — Refactored to use `sherpad::` imports from lib.rs
+3. **`crates/server/Cargo.toml`** — Added `tokio-tungstenite` and `reqwest` dev-deps
+4. **`crates/server/tests/helpers/`** — TestServer, TestWsClient, TestHttpClient
+5. **`crates/server/tests/auth_tests.rs`** — 11 tests (JWT, cookie, HTTP routes)
+6. **`crates/server/tests/websocket_tests.rs`** — 5 tests (connection, dispatch, auth methods)
+7. **`crates/server/tests/user_management_tests.rs`** — 8 tests (CRUD, passwords, permissions)
+8. **`crates/server/tests/image_management_tests.rs`** — 7 tests (scan, list, show, import, pull)
+9. **`crates/server/tests/lab_lifecycle_tests.rs`** — 7 tests (container/VM up/down/destroy, errors)
+10. **`crates/server/src/api/extractors.rs`** — Removed non-compiling docstring code examples
+11. **`dev/testdb`** — Updated port mapping for SurrealDB v3.0.0
+12. **`scripts/run-integration-tests.sh`** (NEW) — Runs all tests in order
+
+### How to Run on the VM
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+cd /home/sherpa/code/rust/sherpa
+
+# 1. Fix the testdb issue first, then:
+./dev/testdb restart
+sleep 5
+
+# 2. Unit tests
+cargo test --workspace
+
+# 3. DB integration tests
+cargo test -p db -- --ignored
+
+# 4. Server integration tests (need sudo for network ops in lab lifecycle)
+sudo -E $(which cargo) test -p sherpad -- --ignored --test-threads=1
+
+# 5. Per-crate integration tests
+cargo test -p container -- --ignored --test-threads=1
+sudo -E $(which cargo) test -p network -- --ignored --test-threads=1
+cargo test -p libvirt -- --ignored --test-threads=1
+
+# Or run everything via the script:
+sudo -E ./scripts/run-integration-tests.sh
+```
+
+---
+
 ## Context
 
 The Sherpa project has comprehensive test specifications in `test-specs/` but most integration tests are unimplemented. Only the `db` crate has integration tests (28 files). The goal is to implement all integration tests and run them on a dedicated VM.
