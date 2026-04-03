@@ -1,5 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![forbid(unsafe_code)]
+#![cfg_attr(not(test), forbid(unsafe_code))]
 
 pub mod api;
 pub mod auth;
