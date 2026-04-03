@@ -3,6 +3,7 @@ use futures::TryStreamExt;
 use rtnetlink::packet_route::link::{LinkAttribute, LinkFlags, LinkMessage};
 use rtnetlink::{Handle, LinkBridge, LinkVeth, new_connection};
 use shared::konst::MTU_JUMBO_NET;
+use tracing::instrument;
 
 /// Helper to set up netlink connection
 pub(crate) async fn setup_netlink() -> Result<Handle> {
@@ -43,6 +44,7 @@ async fn enable_link(handle: &Handle, name: &str, index: u32) -> Result<()> {
 /// Set a link to DOWN state.
 ///
 /// Used to remove carrier from a veth peer (e.g. disabled container interfaces).
+#[instrument(fields(%name), level = "debug")]
 pub async fn set_link_down(name: &str) -> Result<()> {
     let handle = setup_netlink().await?;
     let index = get_link_index(&handle, name).await?;

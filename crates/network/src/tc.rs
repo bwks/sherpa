@@ -4,6 +4,7 @@ use rtnetlink::packet_core::{
 };
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::tc::{TcAttribute, TcHandle, TcMessage};
+use tracing::instrument;
 
 use crate::linux::setup_netlink;
 
@@ -80,6 +81,7 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 /// Can coexist with the clsact qdisc that aya uses for TC BPF programs,
 /// because clsact handles ingress/egress classification while netem is the
 /// root egress scheduler.
+#[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
 pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
     let qopt = TcNetemQopt {
         latency: impairment.delay_us,
@@ -129,6 +131,7 @@ pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Resul
 }
 
 /// Remove the netem qdisc from an interface.
+#[instrument(fields(iface_index), level = "debug")]
 pub async fn remove_netem(iface_index: i32) -> Result<()> {
     let mut msg = TcMessage::default();
     msg.header.index = iface_index;
@@ -146,6 +149,7 @@ pub async fn remove_netem(iface_index: i32) -> Result<()> {
 /// Update netem parameters on an interface that already has netem applied.
 ///
 /// This replaces the existing netem qdisc with updated parameters.
+#[instrument(skip(impairment), fields(iface_index), level = "debug")]
 pub async fn update_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
     // Remove then re-add — simplest approach that avoids change vs replace semantics
     let _ = remove_netem(iface_index).await;

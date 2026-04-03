@@ -3,6 +3,7 @@ use aya::Ebpf;
 use aya::maps::HashMap;
 use aya::programs::tc::qdisc_detach_program;
 use aya::programs::{SchedClassifier, TcAttachType};
+use tracing::instrument;
 
 /// Wrapper to ensure include_bytes!() data is 8-byte aligned.
 /// The ELF parser requires naturally-aligned data, but include_bytes!()
@@ -26,6 +27,7 @@ static EBPF_REDIRECT_ELF: &AlignedElf<{
 /// The Ebpf object is intentionally leaked so the TC filter, BPF program, and maps
 /// persist in the kernel after this function returns. Cleanup happens when the
 /// interface is deleted (e.g. VM destroy removes the tap device).
+#[instrument(fields(%iface_name, peer_ifindex))]
 pub fn attach_p2p_redirect(iface_name: &str, peer_ifindex: u32) -> Result<()> {
     // Detach any existing p2p_redirect program on this interface.
     // This makes the function idempotent for redeploy/resume scenarios.

@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, anyhow};
 use bollard::Docker;
 use bollard::query_parameters::InspectContainerOptions;
+use tracing::instrument;
 
 /// Get the PID of a running container.
 ///
 /// Returns the init PID of the container's main process,
 /// which can be used to access the container's network namespace.
+#[instrument(skip(docker), fields(%container_name), level = "debug")]
 pub async fn get_container_pid(docker: &Docker, container_name: &str) -> Result<u32> {
     let options = Some(InspectContainerOptions { size: false });
     let details = docker
