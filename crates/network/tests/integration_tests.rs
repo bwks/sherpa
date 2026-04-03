@@ -11,9 +11,9 @@
 use anyhow::Result;
 
 use network::{
-    apply_netem, attach_p2p_redirect, create_bridge, create_tap, create_veth_pair,
+    LinkImpairment, apply_netem, attach_p2p_redirect, create_bridge, create_tap, create_veth_pair,
     delete_interface, enslave_to_bridge, find_interfaces_fuzzy, get_ifindex, remove_netem,
-    set_link_down, update_netem, LinkImpairment,
+    set_link_down, update_netem,
 };
 
 // ============================================================================
@@ -409,7 +409,10 @@ async fn test_get_ifindex() -> Result<()> {
 #[ignore]
 async fn test_get_ifindex_nonexistent_fails() -> Result<()> {
     let result = get_ifindex("st-noexist99").await;
-    assert!(result.is_err(), "Getting ifindex of nonexistent interface should fail");
+    assert!(
+        result.is_err(),
+        "Getting ifindex of nonexistent interface should fail"
+    );
     Ok(())
 }
 
@@ -583,7 +586,10 @@ async fn test_ebpf_redirect_idempotent() -> Result<()> {
         .output()
         .expect("tc command failed");
     let tc_out = String::from_utf8_lossy(&output.stdout);
-    assert!(tc_out.contains("bpf"), "BPF filter should exist after first attach");
+    assert!(
+        tc_out.contains("bpf"),
+        "BPF filter should exist after first attach"
+    );
 
     // Attach again (idempotent re-attach) — should not error
     attach_p2p_redirect(src, idx_src)?;
@@ -594,7 +600,10 @@ async fn test_ebpf_redirect_idempotent() -> Result<()> {
         .output()
         .expect("tc command failed");
     let tc_out = String::from_utf8_lossy(&output.stdout);
-    assert!(tc_out.contains("bpf"), "BPF filter should exist after re-attach");
+    assert!(
+        tc_out.contains("bpf"),
+        "BPF filter should exist after re-attach"
+    );
 
     // Count BPF filter lines — should be exactly one program
     let bpf_count = tc_out.lines().filter(|l| l.contains("bpf")).count();
@@ -740,8 +749,14 @@ async fn test_set_link_down() -> Result<()> {
     create_veth_pair(src, dst, "down-src", "down-dst").await?;
 
     // Both should be UP after creation
-    assert!(interface_is_up(src), "src should be UP before set_link_down");
-    assert!(interface_is_up(dst), "dst should be UP before set_link_down");
+    assert!(
+        interface_is_up(src),
+        "src should be UP before set_link_down"
+    );
+    assert!(
+        interface_is_up(dst),
+        "dst should be UP before set_link_down"
+    );
 
     // Set src DOWN
     set_link_down(src).await?;

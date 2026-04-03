@@ -353,8 +353,7 @@ pub async fn redeploy_node(
                             &format!("{}-p2p-ctr-{}::{}", lab_id, node_name, link.int_a),
                         )
                         .await?;
-                        let iface_idx =
-                            util::interface_to_idx(&target_node.model, &link.int_a)?;
+                        let iface_idx = util::interface_to_idx(&target_node.model, &link.int_a)?;
                         p2p_container_veths.push(P2pContainerVeth {
                             host_veth: link.tap_a.clone(),
                             container_veth,
@@ -373,8 +372,7 @@ pub async fn redeploy_node(
                             &format!("{}-p2p-ctr-{}::{}", lab_id, node_name, link.int_b),
                         )
                         .await?;
-                        let iface_idx =
-                            util::interface_to_idx(&target_node.model, &link.int_b)?;
+                        let iface_idx = util::interface_to_idx(&target_node.model, &link.int_b)?;
                         p2p_container_veths.push(P2pContainerVeth {
                             host_veth: link.tap_b.clone(),
                             container_veth,
@@ -386,8 +384,10 @@ pub async fn redeploy_node(
                 }
 
                 // Create veths for disabled interfaces
-                let linked_iface_idxs: std::collections::HashSet<u8> =
-                    p2p_container_veths.iter().map(|v| v.interface_idx).collect();
+                let linked_iface_idxs: std::collections::HashSet<u8> = p2p_container_veths
+                    .iter()
+                    .map(|v| v.interface_idx)
+                    .collect();
                 for idx in first_data_idx..=max_iface_idx {
                     if linked_iface_idxs.contains(&idx) {
                         continue;
@@ -527,8 +527,10 @@ pub async fn redeploy_node(
                     network::move_to_netns(&veth_info.container_veth, pid).await?;
 
                     let target_name = if veth_info.node_model == data::NodeModel::NokiaSrlinux {
-                        let iface_name =
-                            util::interface_from_idx(&veth_info.node_model, veth_info.interface_idx)?;
+                        let iface_name = util::interface_from_idx(
+                            &veth_info.node_model,
+                            veth_info.interface_idx,
+                        )?;
                         util::srlinux_to_linux_interface(&iface_name)?
                     } else {
                         format!("eth{}", veth_info.interface_idx)
@@ -851,7 +853,10 @@ pub async fn redeploy_node(
 
             if !p2p_vm_links.is_empty() {
                 let _ = progress.send_status(
-                    format!("Re-attaching eBPF redirect for {} P2p links", p2p_vm_links.len()),
+                    format!(
+                        "Re-attaching eBPF redirect for {} P2p links",
+                        p2p_vm_links.len()
+                    ),
                     StatusKind::Progress,
                 );
 

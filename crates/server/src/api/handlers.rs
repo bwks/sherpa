@@ -40,7 +40,7 @@ use shared::data::{
     InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
     OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
-    UpdateImpairmentRequest, UpdateImpairmentResponse, UpRequest, UserInfo, ZtpMethod,
+    UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
 };
 use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
 

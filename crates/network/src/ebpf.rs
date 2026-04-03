@@ -12,11 +12,11 @@ use tracing::instrument;
 struct AlignedElf<const N: usize>([u8; N]);
 
 /// Pre-built eBPF redirect program ELF, embedded with 8-byte alignment.
-static EBPF_REDIRECT_ELF: &AlignedElf<{
-    include_bytes!("../../ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect").len()
-}> = &AlignedElf(
-    *include_bytes!("../../ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect"),
-);
+static EBPF_REDIRECT_ELF: &AlignedElf<
+    { include_bytes!("../../ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect").len() },
+> = &AlignedElf(*include_bytes!(
+    "../../ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect"
+));
 
 /// Attach a P2p redirect program to an interface.
 ///

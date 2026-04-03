@@ -782,10 +782,7 @@ async fn handle_link_update_impairment(
         link_index,
         username: auth_ctx.username.clone(),
         delay: params.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-        jitter: params
-            .get("jitter")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32,
+        jitter: params.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         loss_percent: params
             .get("loss_percent")
             .and_then(|v| v.as_f64())

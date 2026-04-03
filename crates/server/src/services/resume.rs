@@ -110,9 +110,7 @@ pub async fn start_lab_nodes(
             tracing::warn!("Failed to update DB state for node '{}': {}", node_name, e);
         }
         // Track VMs that were cold-booted (new tap devices with new ifindexes)
-        if result.success
-            && result.message == "Started"
-            && matches!(kind, NodeKind::VirtualMachine)
+        if result.success && result.message == "Started" && matches!(kind, NodeKind::VirtualMachine)
         {
             cold_booted_vms.push(node_name.clone());
         }
@@ -122,16 +120,15 @@ pub async fn start_lab_nodes(
     // Re-attach eBPF redirect on P2p links for cold-booted VMs.
     // Cold boot creates new tap devices, so the eBPF programs need re-attaching
     // on both sides (new VM tap + peer's stale redirect).
-    if !cold_booted_vms.is_empty() {
-        if let Err(e) =
+    if !cold_booted_vms.is_empty()
+        && let Err(e) =
             reattach_p2p_ebpf_for_nodes(lab_id, &cold_booted_vms, &lab_record_id, state).await
-        {
-            tracing::error!(
-                lab_id = %lab_id,
-                error = ?e,
-                "Failed to re-attach eBPF redirect after VM cold boot"
-            );
-        }
+    {
+        tracing::error!(
+            lab_id = %lab_id,
+            error = ?e,
+            "Failed to re-attach eBPF redirect after VM cold boot"
+        );
     }
 
     state.metrics.operation_duration.record(

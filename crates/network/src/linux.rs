@@ -184,10 +184,24 @@ pub async fn create_veth_pair(
         ))?;
 
     let src_idx = get_link_index(&handle, src_name).await?;
-    set_link_properties(&handle, src_name, src_idx, src_alias_name, MTU_JUMBO_NET as u32).await?;
+    set_link_properties(
+        &handle,
+        src_name,
+        src_idx,
+        src_alias_name,
+        MTU_JUMBO_NET as u32,
+    )
+    .await?;
 
     let dst_idx = get_link_index(&handle, dst_name).await?;
-    set_link_properties(&handle, dst_name, dst_idx, dst_alias_name, MTU_JUMBO_NET as u32).await?;
+    set_link_properties(
+        &handle,
+        dst_name,
+        dst_idx,
+        dst_alias_name,
+        MTU_JUMBO_NET as u32,
+    )
+    .await?;
 
     Ok(())
 }

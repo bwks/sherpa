@@ -187,9 +187,11 @@ fn process_manifest_links(
 
     let mut links_detailed = vec![];
     for (link_idx, link) in links.iter().enumerate() {
-        let mut this_link = topology::LinkDetailed::default();
-        this_link.p2p = link.p2p;
-        this_link.impairment = link.impairment.clone();
+        let mut this_link = topology::LinkDetailed {
+            p2p: link.p2p,
+            impairment: link.impairment.clone(),
+            ..Default::default()
+        };
         for device in manifest_nodes.iter() {
             let device_model = device.model;
             if link.node_a == device.name {
@@ -1806,18 +1808,18 @@ pub async fn up_lab(
                 let link_detail = links_detailed
                     .iter()
                     .find(|l| l.link_idx == link_data.index);
-                if let Some(ld) = link_detail {
-                    if let Some(ref impairment_cfg) = ld.impairment {
-                        let netem = network::LinkImpairment {
-                            delay_us: impairment_cfg.delay.unwrap_or(0) * 1000,
-                            jitter_us: impairment_cfg.jitter.unwrap_or(0) * 1000,
-                            loss_percent: impairment_cfg.loss_percent.unwrap_or(0.0),
-                            reorder_percent: impairment_cfg.reorder_percent.unwrap_or(0.0),
-                            corrupt_percent: impairment_cfg.corrupt_percent.unwrap_or(0.0),
-                        };
-                        network::apply_netem(ifindex_a as i32, &netem).await?;
-                        network::apply_netem(ifindex_b as i32, &netem).await?;
-                    }
+                if let Some(ld) = link_detail
+                    && let Some(ref impairment_cfg) = ld.impairment
+                {
+                    let netem = network::LinkImpairment {
+                        delay_us: impairment_cfg.delay.unwrap_or(0) * 1000,
+                        jitter_us: impairment_cfg.jitter.unwrap_or(0) * 1000,
+                        loss_percent: impairment_cfg.loss_percent.unwrap_or(0.0),
+                        reorder_percent: impairment_cfg.reorder_percent.unwrap_or(0.0),
+                        corrupt_percent: impairment_cfg.corrupt_percent.unwrap_or(0.0),
+                    };
+                    network::apply_netem(ifindex_a as i32, &netem).await?;
+                    network::apply_netem(ifindex_b as i32, &netem).await?;
                 }
 
                 tracing::info!(
@@ -1845,9 +1847,7 @@ pub async fn up_lab(
         // from disabled VM interfaces. This ensures disabled interfaces show as
         // "not connected" on the VM side.
         for vm in &vm_nodes {
-            let nsd = node_setup_data
-                .iter()
-                .find(|n| n.name == vm.name);
+            let nsd = node_setup_data.iter().find(|n| n.name == vm.name);
             if let Some(nsd) = nsd
                 && let Some(ref iso_net) = nsd.isolated_network
             {

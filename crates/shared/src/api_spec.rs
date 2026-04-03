@@ -12,8 +12,8 @@ use crate::data::{
     InspectResponse, LabNodeActionResponse, ListImagesRequest, ListImagesResponse,
     ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, RedeployRequest,
     RedeployResponse, ScanImagesRequest, ScanImagesResponse, SetDefaultImageRequest,
-    SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, UpdateImpairmentRequest,
-    UpdateImpairmentResponse, UpRequest, UpResponse, ValidateRequest, ValidateResponse,
+    SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
+    UpdateImpairmentRequest, UpdateImpairmentResponse, ValidateRequest, ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -959,9 +959,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_22_operations() {
+    fn test_build_spec_has_23_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 22);
+        assert_eq!(spec.operations.len(), 23);
     }
 
     #[test]
@@ -1007,7 +1007,7 @@ mod tests {
             .map(|op| op.transports.rpc.method.as_str())
             .collect();
 
-        // These are the 22 RPC methods from the WebSocket handler
+        // These are the 23 RPC methods from the WebSocket handler
         let expected = vec![
             "auth.login",
             "auth.validate",
@@ -1018,6 +1018,7 @@ mod tests {
             "resume",
             "clean",
             "redeploy",
+            "link.update_impairment",
             "image.list",
             "image.show",
             "image.import",
