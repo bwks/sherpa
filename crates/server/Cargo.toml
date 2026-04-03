@@ -113,3 +113,5 @@ tracing-opentelemetry = { workspace = true }
 [dev-dependencies]
 tokio-test = "0.4"
 tempfile = "3.25.0"
+tokio-tungstenite = "0.24"
+reqwest = { version = "0.11.27", features = ["cookies", "json"] }
