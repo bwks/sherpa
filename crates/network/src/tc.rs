@@ -23,28 +23,6 @@ pub struct LinkImpairment {
     pub corrupt_percent: f32,
 }
 
-/// Kernel struct tc_netem_qopt layout (24 bytes).
-///
-/// ```c
-/// struct tc_netem_qopt {
-///     __u32 latency;      // added delay (us)
-///     __u32 limit;        // fifo limit (packets)
-///     __u32 loss;         // random packet loss (0=none, ~0=100%)
-///     __u32 gap;          // re-ordering gap
-///     __u32 duplicate;    // random packet duplication
-///     __u32 jitter;       // random jitter in latency (us)
-/// };
-/// ```
-#[repr(C)]
-struct TcNetemQopt {
-    latency: u32,
-    limit: u32,
-    loss: u32,
-    gap: u32,
-    duplicate: u32,
-    jitter: u32,
-}
-
 /// Convert a percentage (0.0-100.0) to the kernel's u32 representation.
 /// Kernel uses 0 = 0%, u32::MAX ~ 100%.
 fn percent_to_kernel(pct: f32) -> u32 {
@@ -83,27 +61,19 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 /// root egress scheduler.
 #[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
 pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
-    let qopt = TcNetemQopt {
-        latency: impairment.delay_us,
-        limit: 1000, // default packet queue limit
-        loss: percent_to_kernel(impairment.loss_percent),
-        gap: if impairment.reorder_percent > 0.0 {
-            1
-        } else {
-            0
-        },
-        duplicate: 0,
-        jitter: impairment.jitter_us,
+    // Serialize tc_netem_qopt fields in kernel layout order (6 x u32, native endian)
+    let gap: u32 = if impairment.reorder_percent > 0.0 {
+        1
+    } else {
+        0
     };
-
-    // Serialize the struct to bytes
-    let qopt_bytes: Vec<u8> = unsafe {
-        core::slice::from_raw_parts(
-            &qopt as *const TcNetemQopt as *const u8,
-            core::mem::size_of::<TcNetemQopt>(),
-        )
-        .to_vec()
-    };
+    let mut qopt_bytes = Vec::with_capacity(24);
+    qopt_bytes.extend_from_slice(&impairment.delay_us.to_ne_bytes());
+    qopt_bytes.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
+    qopt_bytes.extend_from_slice(&percent_to_kernel(impairment.loss_percent).to_ne_bytes());
+    qopt_bytes.extend_from_slice(&gap.to_ne_bytes());
+    qopt_bytes.extend_from_slice(&0u32.to_ne_bytes()); // duplicate
+    qopt_bytes.extend_from_slice(&impairment.jitter_us.to_ne_bytes());
 
     let mut msg = TcMessage::default();
     msg.header.index = iface_index;
@@ -197,14 +167,5 @@ mod tests {
     fn test_percent_to_kernel_small_value() {
         let result = percent_to_kernel(0.1);
         assert!(result > 0, "0.1% should produce non-zero kernel value");
-    }
-
-    #[test]
-    fn test_tc_netem_qopt_size() {
-        assert_eq!(
-            core::mem::size_of::<TcNetemQopt>(),
-            24,
-            "TcNetemQopt must be exactly 24 bytes to match kernel struct"
-        );
     }
 }

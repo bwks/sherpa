@@ -38,7 +38,9 @@ pub struct QemuConnection {
     conn: Option<Connect>,
 }
 
+#[allow(unsafe_code)]
 unsafe impl Send for QemuConnection {}
+#[allow(unsafe_code)]
 unsafe impl Sync for QemuConnection {}
 
 impl Deref for QemuConnection {

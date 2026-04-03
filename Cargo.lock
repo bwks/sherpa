@@ -990,7 +990,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1001,6 +1001,34 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "cookie"
+version = "0.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7efb37c3e1ccb1ff97164ad95ac1606e8ccd35b3fa0a7d99a304c7f4a428cc24"
+dependencies = [
+ "percent-encoding",
+ "time",
+ "version_check",
+]
+
+[[package]]
+name = "cookie_store"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "387461abbc748185c3a6e1673d826918b450b87ff22639429c694619a83b6cf6"
+dependencies = [
+ "cookie",
+ "idna 0.3.0",
+ "log",
+ "publicsuffix",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "time",
+ "url",
 ]
 
 [[package]]
@@ -1187,7 +1215,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2440,6 +2468,16 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
 name = "idna"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e14ddfc70884202db2244c223200c204c2bda1bc6e0998d11b5e024d657209e6"
+dependencies = [
+ "unicode-bidi",
+ "unicode-normalization",
+]
+
+[[package]]
+name = "idna"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b0875f23caa03898994f6ddc501886a45c7d3d62d04d2d90788d47be1b1e4de"
@@ -2718,7 +2756,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "askama",
@@ -3004,7 +3042,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "aya",
@@ -3861,6 +3899,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "publicsuffix"
+version = "2.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6f42ea446cab60335f76979ec15e12619a2165b5ae2c12166bef27d283a9fadf"
+dependencies = [
+ "idna 1.1.0",
+ "psl-types",
+]
+
+[[package]]
 name = "quick_cache"
 version = "0.6.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4156,6 +4204,8 @@ checksum = "dd67538700a17451e7cba03ac727fb961abb7607553461627b97de0b89cf4a62"
 dependencies = [
  "base64 0.21.7",
  "bytes",
+ "cookie",
+ "cookie_store",
  "encoding_rs",
  "futures-core",
  "futures-util",
@@ -5022,7 +5072,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5075,7 +5125,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "askama",
@@ -5112,7 +5162,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "askama",
@@ -5735,7 +5785,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "askama",
@@ -6122,7 +6172,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "petname",
@@ -6352,10 +6402,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbc4bc3a9f746d862c45cb89d705aa10f187bb96c76001afab07a0d35ce60142"
 
 [[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
+
+[[package]]
 name = "unicode-ident"
 version = "1.0.24"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
+
+[[package]]
+name = "unicode-normalization"
+version = "0.1.25"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5fd4f6878c9cb28d874b009da9e8d183b5abc80117c40bbd187a1fde336be6e8"
+dependencies = [
+ "tinyvec",
+]
 
 [[package]]
 name = "unicode-width"
@@ -6394,7 +6459,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff67a8a4397373c3ef660812acab3268222035010ab8680ec4215f38ba3d0eed"
 dependencies = [
  "form_urlencoded",
- "idna",
+ "idna 1.1.0",
  "percent-encoding",
  "serde",
 ]
@@ -6437,7 +6502,7 @@ dependencies = [
 
 [[package]]
 name = "validate"
-version = "0.3.45"
+version = "0.3.46"
 dependencies = [
  "anyhow",
  "shared",

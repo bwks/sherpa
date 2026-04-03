@@ -756,8 +756,9 @@ Group=sherpa
 WorkingDirectory=/opt/sherpa
 
 # Capabilities needed for network operations (bridge, raw sockets, etc.)
-AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+# CAP_BPF + CAP_PERFMON required for eBPF P2p link redirect programs
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW CAP_BPF CAP_PERFMON
 
 # Run in foreground so systemd manages the process lifecycle
 ExecStart=/opt/sherpa/bin/sherpad start --foreground

@@ -662,12 +662,27 @@ pub fn generate_vm_ztp(
                 src_config_disk = Some(src_cfg);
                 dst_config_disk = Some(dst_cfg);
             }
-            _ => {
+            data::ZtpMethod::Volume => {
                 let _ = progress.send_status(
                     format!(
-                        "ZTP method {:?} not yet implemented for VM: {}",
-                        node_image.ztp_method, node.name
+                        "ZTP method Volume is not applicable to VMs, skipping: {}",
+                        node.name
                     ),
+                    StatusKind::Info,
+                );
+            }
+            data::ZtpMethod::Ipxe => {
+                let _ = progress.send_status(
+                    format!(
+                        "ZTP method iPXE is not yet implemented for VM: {}",
+                        node.name
+                    ),
+                    StatusKind::Info,
+                );
+            }
+            data::ZtpMethod::None => {
+                let _ = progress.send_status(
+                    format!("ZTP disabled for VM: {}", node.name),
                     StatusKind::Info,
                 );
             }

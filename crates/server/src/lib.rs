@@ -1,10 +1,12 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
-pub mod api_spec;
+pub mod api;
 pub mod auth;
-pub mod data;
-pub mod error;
-pub mod konst;
+pub mod cli;
+pub mod daemon;
+pub mod doctor;
+pub mod init;
+pub mod services;
+pub mod templates;
 pub mod tls;
-pub mod util;

@@ -1,19 +1,10 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-
-mod api;
-mod auth;
-mod cli;
-mod daemon;
-mod doctor;
-mod init;
-mod services;
-mod templates;
-mod tls;
+#![cfg_attr(not(test), forbid(unsafe_code))]
 
 use anyhow::Result;
 use clap::Parser;
-use cli::{Cli, Commands};
-use daemon::manager::{
+use sherpad::cli::{Cli, Commands};
+use sherpad::daemon::manager::{
     logs_daemon, restart_daemon, run_background_child, start_daemon, status_daemon, stop_daemon,
 };
 
@@ -47,7 +38,7 @@ async fn main() -> Result<()> {
             http_port,
             db_port,
         } => {
-            init::init(
+            sherpad::init::init(
                 force,
                 db_password.as_deref(),
                 server_ipv4.as_deref(),
@@ -57,6 +48,6 @@ async fn main() -> Result<()> {
             )
             .await
         }
-        Commands::Doctor { boxes } => doctor::doctor(boxes),
+        Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
     }
 }

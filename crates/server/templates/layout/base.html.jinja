@@ -19,31 +19,12 @@
     <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body class="bg-page min-h-screen">
-    <!-- Header -->
-    <header class="bg-header shadow-sm border-b border-header-border">
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-            <div class="flex items-center justify-between">
-                <div class="flex items-center space-x-3">
-                    <div class="w-10 h-10 bg-gradient-to-br from-logo-from to-logo-to rounded-lg flex items-center justify-center">
-                        <span class="text-white font-bold text-xl">S</span>
-                    </div>
-                    <h1 class="text-2xl font-bold text-header-text">Sherpa Labs</h1>
-                </div>
-                <div class="text-sm text-muted">
-                    {% block header_actions %}{% endblock %}
-                </div>
-            </div>
-        </div>
-    </header>
+    <!-- Sidebar -->
+    {% include "layout/sidebar.html.jinja" %}
 
     <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <main class="ml-60 min-h-screen px-8 py-8">
         {% block content %}{% endblock %}
     </main>
-
-    <!-- Footer -->
-    <footer class="mt-auto py-6 text-center text-sm text-muted">
-        <p>Sherpa Labs - Virtual Machine & Container Management</p>
-    </footer>
 </body>
 </html>

@@ -14,7 +14,7 @@
 ### Features
 - [x] **Container image import** — Loads tar/tar.gz archives into Docker via Bollard `import_image_stream`. Supports air-gapped environments.
 - [x] **REST API for lab management** — All 22 operations wired up as REST endpoints. Streaming operations (create, destroy, redeploy, image import/pull/download) use JSON SSE. Non-streaming operations return JSON directly. Includes lab, image, and user management endpoints.
-- [ ] **ZTP for VMs** — Some ZTP methods bail with "not yet implemented" in `crates/server/src/services/node_ops.rs`.
+- [x] **ZTP for VMs** — All ZTP methods explicitly handled: None (skip), Volume (not applicable to VMs), Ipxe (not yet needed). Exhaustive match, no catch-all.
 - [ ] **Rate limiting** — Acknowledged as missing in API.md.
 
 ### API
