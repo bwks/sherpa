@@ -24,13 +24,11 @@ dev.sh
 !lab.sql
 .idea/
 .opencode/
-AGENTS.md
 srl-config.json
 
 # Dev
 test_*.toml
 sherpa_ssh_*
-CLAUDE.md
 .claude/*
 !.claude/skills/
 .ruff_cache

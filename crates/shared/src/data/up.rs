@@ -213,7 +213,10 @@ mod tests {
             UpPhase::LinkCreation.as_str(),
             "Point-to-Point Link Creation"
         );
-        assert_eq!(UpPhase::ContainerNetworks.as_str(), "Container Link Networks");
+        assert_eq!(
+            UpPhase::ContainerNetworks.as_str(),
+            "Container Link Networks"
+        );
         assert_eq!(UpPhase::SharedBridges.as_str(), "Shared Bridge Creation");
         assert_eq!(
             UpPhase::ZtpGeneration.as_str(),

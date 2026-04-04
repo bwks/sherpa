@@ -247,7 +247,9 @@ mod tests {
 
     #[test]
     fn test_disk_targets_ide_all_indices() {
-        let expected = ["hda", "hdb", "hdc", "hdd", "hde", "hdf", "hdg", "hdh", "hdi", "hdj"];
+        let expected = [
+            "hda", "hdb", "hdc", "hdd", "hde", "hdf", "hdg", "hdh", "hdi", "hdj",
+        ];
         for (i, name) in expected.iter().enumerate() {
             let t = DiskTargets::target(&DiskBuses::Ide, i as u8).unwrap();
             assert_eq!(t.to_string(), *name);
@@ -256,7 +258,9 @@ mod tests {
 
     #[test]
     fn test_disk_targets_sata_all_indices() {
-        let expected = ["sda", "sdb", "sdc", "sdd", "sde", "sdf", "sdg", "sdh", "sdi", "sdj"];
+        let expected = [
+            "sda", "sdb", "sdc", "sdd", "sde", "sdf", "sdg", "sdh", "sdi", "sdj",
+        ];
         for (i, name) in expected.iter().enumerate() {
             let t = DiskTargets::target(&DiskBuses::Sata, i as u8).unwrap();
             assert_eq!(t.to_string(), *name);
@@ -274,7 +278,9 @@ mod tests {
 
     #[test]
     fn test_disk_targets_virtio_all_indices() {
-        let expected = ["vda", "vdb", "vdc", "vdd", "vde", "vdf", "vdg", "vdh", "vdi", "vdj"];
+        let expected = [
+            "vda", "vdb", "vdc", "vdd", "vde", "vdf", "vdg", "vdh", "vdi", "vdj",
+        ];
         for (i, name) in expected.iter().enumerate() {
             let t = DiskTargets::target(&DiskBuses::Virtio, i as u8).unwrap();
             assert_eq!(t.to_string(), *name);

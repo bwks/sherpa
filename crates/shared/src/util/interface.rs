@@ -160,7 +160,10 @@ mod tests {
     fn assert_roundtrip(model: &NodeModel) {
         let name = interface_from_idx(model, 0).unwrap();
         let back = interface_to_idx(model, &name).unwrap();
-        assert_eq!(back, 0, "{model:?}: round-trip failed for idx 0 (name={name})");
+        assert_eq!(
+            back, 0,
+            "{model:?}: round-trip failed for idx 0 (name={name})"
+        );
     }
 
     #[test]
@@ -279,7 +282,10 @@ mod tests {
         ];
         for model in &named_models {
             let ifaces = node_model_interfaces(model);
-            assert!(!ifaces.is_empty(), "{model:?} returned empty interface list");
+            assert!(
+                !ifaces.is_empty(),
+                "{model:?} returned empty interface list"
+            );
         }
     }
 }
