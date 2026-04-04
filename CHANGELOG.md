@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.50] - 2026-04-04
+
+### Features
+
+- Web-ui updates by @bwks ([ff846f4](https://github.com/bwks/sherpa/commit/ff846f4477298d9747a4cc74a927a157e8605d6a))
+
+### Miscellaneous
+
+- Merge pull request #207 from bwks/v0.3.50
+
+V0.3.50 by @bwks in [#207](https://github.com/bwks/sherpa/pull/207) ([3331c51](https://github.com/bwks/sherpa/commit/3331c516678fa159b8a75689925325ebbd944c87))
+- Version bump by @bwks ([127c074](https://github.com/bwks/sherpa/commit/127c0749ccec8af5a53c01861b56cbe72eca509c))
+- Merge pull request #206 from bwks/changelog/v0.3.49
+
+chore(release): update changelog for v0.3.49 by @github-actions[bot] in [#206](https://github.com/bwks/sherpa/pull/206) ([55ce0d1](https://github.com/bwks/sherpa/commit/55ce0d19b93fb3ed376b686c8bba86e6ab2489ce))
 ## [0.3.49] - 2026-04-04
 
 ### Bug Fixes
