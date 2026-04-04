@@ -91,3 +91,55 @@ impl QemuCommand {
         }]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_juniper_vrouter_smbios() {
+        let cmds = QemuCommand::juniper_vrouter();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].param, "-smbios");
+        assert_eq!(cmds[0].value, "type=1,product=VM-VMX,family=lab");
+    }
+
+    #[test]
+    fn test_juniper_vswitch_smbios() {
+        let cmds = QemuCommand::juniper_vswitch();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].param, "-smbios");
+        assert_eq!(cmds[0].value, "type=1,product=VM-VEX");
+    }
+
+    #[test]
+    fn test_juniper_vsrxv3_machine_type() {
+        let cmds = QemuCommand::juniper_vsrxv3();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].param, "-machine");
+        assert_eq!(cmds[0].value, "smbios-entry-point-type=32");
+    }
+
+    #[test]
+    fn test_juniper_vevolved_three_smbios_entries() {
+        let cmds = QemuCommand::juniper_vevolved();
+        assert_eq!(cmds.len(), 3);
+        assert!(cmds.iter().all(|c| c.param == "-smbios"));
+        // First entry sets vendor
+        assert!(cmds[0].value.contains("vendor=Bochs"));
+        // Third entry contains the chassis serial
+        assert!(cmds[2].value.contains("chassis_no=0"));
+    }
+
+    #[test]
+    fn test_ignition_config_path_embedded() {
+        let path = "/var/lib/ignition.json";
+        let cmds = QemuCommand::ignition_config(path);
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].param, "-fw_cfg");
+        assert_eq!(
+            cmds[0].value,
+            format!("name=opt/org.flatcar-linux/config,file={path}")
+        );
+    }
+}

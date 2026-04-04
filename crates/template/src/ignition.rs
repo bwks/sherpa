@@ -521,3 +521,230 @@ where
 
     serializer.serialize_u32(decimal_mode)
 }
+
+#[cfg(test)]
+mod tests {
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    use shared::data::{NetworkV4, NetworkV6};
+
+    use super::*;
+
+    // ── IgnitionFileSystem ────────────────────────────────────────────────────
+
+    #[test]
+    fn test_filesystem_default_values() {
+        let fs = IgnitionFileSystem::default();
+        assert_eq!(fs.device, "/dev/disk/by-label/data-disk");
+        assert_eq!(fs.format, "ext4");
+        assert!(!fs.wipe_filesystem);
+        assert_eq!(fs.label, "data-disk");
+    }
+
+    // ── Directory ─────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_directory_default_values() {
+        let d = Directory::default();
+        assert_eq!(d.path, "/opt/ztp");
+        assert_eq!(d.mode, 755);
+        assert!(!d.overwrite);
+    }
+
+    // ── IgnitionFileContents ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_file_contents_new_stores_source() {
+        let source = "data:text/plain;base64,aGVsbG8=";
+        let c = IgnitionFileContents::new(source);
+        assert_eq!(c.source, source);
+    }
+
+    // ── IgnitionFile factory functions ────────────────────────────────────────
+
+    #[test]
+    fn test_disable_resolved_path_and_mode() {
+        let f = IgnitionFile::disable_resolved();
+        assert_eq!(f.path, "/etc/systemd/resolved.conf.d/no-stub.conf");
+        assert_eq!(f.mode, 644);
+        assert_eq!(f.overwrite, Some(true));
+    }
+
+    #[test]
+    fn test_disable_updates_path_and_mode() {
+        let f = IgnitionFile::disable_updates();
+        assert_eq!(f.path, "/etc/flatcar/update.conf");
+        assert_eq!(f.mode, 644);
+        assert_eq!(f.overwrite, Some(true));
+    }
+
+    #[test]
+    fn test_docker_compose_raw_path() {
+        let f = IgnitionFile::docker_compose_raw();
+        assert!(f.path.contains("docker-compose"));
+        assert!(f.path.ends_with(".raw"));
+        assert_eq!(f.mode, 644);
+    }
+
+    #[test]
+    fn test_docker_compose_conf_path() {
+        let f = IgnitionFile::docker_compose_conf();
+        assert_eq!(
+            f.path,
+            "/etc/sysupdate.docker-compose.d/docker-compose.conf"
+        );
+        assert_eq!(f.mode, 644);
+    }
+
+    #[test]
+    fn test_systemd_noop_path() {
+        let f = IgnitionFile::systemd_noop();
+        assert_eq!(f.path, "/etc/sysupdate.d/noop.conf");
+        assert_eq!(f.mode, 644);
+    }
+
+    #[test]
+    fn test_dnsmasq_config_embeds_content() {
+        let f = IgnitionFile::dnsmasq_config("abc123==");
+        assert_eq!(f.path, "/opt/dnsmasq/dnsmasq.conf");
+        assert!(f.contents.source.contains("abc123=="));
+    }
+
+    fn make_netv4() -> NetworkV4 {
+        let prefix: ipnet::Ipv4Net = "10.0.0.0/24".parse().unwrap();
+        NetworkV4 {
+            prefix,
+            prefix_length: 24,
+            first: "10.0.0.1".parse().unwrap(),
+            last: "10.0.0.254".parse().unwrap(),
+            boot_server: "10.0.0.1".parse().unwrap(),
+            network: "10.0.0.0".parse().unwrap(),
+            subnet_mask: "255.255.255.0".parse().unwrap(),
+            hostmask: "0.0.0.255".parse().unwrap(),
+        }
+    }
+
+    fn make_netv6() -> NetworkV6 {
+        let prefix: ipnet::Ipv6Net = "2001:db8::/64".parse().unwrap();
+        NetworkV6 {
+            prefix,
+            prefix_length: 64,
+            first: "2001:db8::1".parse().unwrap(),
+            last: "2001:db8::fffe".parse().unwrap(),
+            boot_server: "2001:db8::1".parse().unwrap(),
+            network: "2001:db8::".parse().unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_ztp_interface_ipv4_only() {
+        let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
+        let f = IgnitionFile::ztp_interface(addr, make_netv4(), None, None).unwrap();
+        assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
+        assert_eq!(f.mode, 644);
+        assert_eq!(f.user.as_ref().unwrap().name, "root");
+        assert_eq!(f.group.as_ref().unwrap().name, "root");
+        assert!(f.contents.source.starts_with("data:;base64,"));
+    }
+
+    #[test]
+    fn test_ztp_interface_dual_stack() {
+        let addr: Ipv4Addr = "10.0.0.5".parse().unwrap();
+        let v6_addr: Ipv6Addr = "2001:db8::5".parse().unwrap();
+        let v6_net = make_netv6();
+        let f =
+            IgnitionFile::ztp_interface(addr, make_netv4(), Some(v6_addr), Some(&v6_net)).unwrap();
+        assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
+        assert!(f.contents.source.len() > "data:;base64,".len());
+    }
+
+    // ── IgnitionLink ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ignition_link_docker_compose_raw() {
+        let link = IgnitionLink::docker_compose_raw();
+        assert!(
+            link.path.contains("docker-compose"),
+            "expected path to mention docker-compose"
+        );
+        assert!(!link.target.is_empty());
+    }
+
+    // ── IgnitionUnit factory functions ────────────────────────────────────────
+
+    #[test]
+    fn test_unit_systemd_resolved() {
+        let u = IgnitionUnit::systemd_resolved();
+        assert_eq!(u.name, "systemd-resolved.service");
+        assert_eq!(u.enabled, Some(false));
+    }
+
+    #[test]
+    fn test_unit_systemd_update_timer() {
+        let u = IgnitionUnit::systemd_update_timer();
+        assert_eq!(u.name, "systemd-sysupdate.timer");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_unit_systemd_update_service() {
+        let u = IgnitionUnit::systemd_update_service();
+        assert_eq!(u.name, "systemd-sysupdate.service");
+        assert!(u.dropins.is_some());
+    }
+
+    #[test]
+    fn test_unit_mount_container_disk() {
+        let u = IgnitionUnit::mount_container_disk();
+        assert_eq!(u.name, "media-container.mount");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_unit_dnsmasq() {
+        let u = IgnitionUnit::dnsmasq();
+        assert_eq!(u.name, "dnsmasq.service");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_unit_webdir() {
+        let u = IgnitionUnit::webdir();
+        assert_eq!(u.name, "webdir.service");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_unit_srlinux() {
+        let u = IgnitionUnit::srlinux();
+        assert_eq!(u.name, "srlinux.service");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    #[test]
+    fn test_unit_ceos() {
+        let u = IgnitionUnit::ceos();
+        assert_eq!(u.name, "ceos.service");
+        assert_eq!(u.enabled, Some(true));
+    }
+
+    // ── IgnitionConfig ────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_ignition_config_new_serializes_to_json() {
+        let config = IgnitionConfig::new(vec![], vec![], vec![], vec![], vec![], vec![]);
+        let json = config.to_json_pretty().unwrap();
+        assert!(json.contains("ignition"));
+        assert!(json.contains("version"));
+    }
+
+    // ── serialize_mode_as_decimal ─────────────────────────────────────────────
+
+    #[test]
+    fn test_file_mode_serialized_as_decimal() {
+        // mode 644 in octal = 420 in decimal
+        let f = IgnitionFile::disable_resolved();
+        let json = serde_json::to_value(&f).unwrap();
+        assert_eq!(json["mode"], 420);
+    }
+}
