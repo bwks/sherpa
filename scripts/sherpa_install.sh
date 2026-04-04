@@ -15,10 +15,11 @@
 #   - Port 8000 available
 #
 # Usage:
-#   sudo ./sherpa_install.sh --db-pass "YourPassword"
-#   # OR
 #   export SHERPA_DB_PASSWORD="YourPassword"
 #   sudo -E ./sherpa_install.sh
+#
+#   # Or install a specific version:
+#   sudo -E ./sherpa_install.sh --version v0.3.4
 #
 ################################################################################
 
@@ -198,7 +199,16 @@ check_curl_installed() {
 
 check_port_available() {
     print_info "Checking if port ${DB_PORT} is available..."
-    
+
+    # If the sherpa-db container itself holds the port, that's fine — the installer
+    # will stop and recreate it later. Only fail for other processes.
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -q "^${CONTAINER_NAME} .*:${DB_PORT}->"; then
+            print_info "Port ${DB_PORT} is held by existing ${CONTAINER_NAME} container (will be replaced)"
+            return 0
+        fi
+    fi
+
     # Check if port is in use (works on most Linux systems)
     if command -v ss >/dev/null 2>&1; then
         if ss -tuln | grep -q ":${DB_PORT} "; then
@@ -223,7 +233,7 @@ check_port_available() {
     else
         print_warning "Cannot verify port availability (ss/netstat not found)"
     fi
-    
+
     print_success "Port ${DB_PORT} is available"
 }
 
@@ -363,9 +373,20 @@ get_server_ip() {
         SERVER_IP="${SERVER_IP:-0.0.0.0}"
     fi
 
-    # Basic validation: check it looks like an IPv4 address
+    # Trim whitespace
+    SERVER_IP="$(echo "$SERVER_IP" | xargs)"
+
+    # Validate IPv4 address format
     if ! echo "$SERVER_IP" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
         print_error "Invalid IPv4 address: ${SERVER_IP}"
+        exit 1
+    fi
+
+    # Validate each octet is 0-255
+    local IFS='.'
+    read -r o1 o2 o3 o4 <<< "$SERVER_IP"
+    if [ "$o1" -gt 255 ] || [ "$o2" -gt 255 ] || [ "$o3" -gt 255 ] || [ "$o4" -gt 255 ] 2>/dev/null; then
+        print_error "Invalid IPv4 address: ${SERVER_IP} (each octet must be 0-255)"
         exit 1
     fi
 
@@ -386,6 +407,13 @@ setup_sherpa_user() {
         print_success "Created sherpa user"
     else
         print_info "Sherpa user already exists"
+        # Ensure system user has nologin shell (may differ if user was created manually)
+        local current_shell
+        current_shell=$(getent passwd sherpa | cut -d: -f7)
+        if [ "$current_shell" != "/usr/sbin/nologin" ] && [ "$(id -u sherpa)" -lt 1000 ]; then
+            usermod -s /usr/sbin/nologin sherpa
+            print_info "Updated sherpa shell to /usr/sbin/nologin (was: ${current_shell})"
+        fi
     fi
     
     # Add sherpa user to required groups
@@ -978,12 +1006,14 @@ cleanup_on_error() {
     if [ $exit_code -ne 0 ]; then
         print_error "Installation failed (exit code: ${exit_code})"
         
-        # Stop and remove container if it exists
-        if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$" 2>/dev/null; then
-            print_info "Cleaning up container..."
-            docker stop "${CONTAINER_NAME}" 2>/dev/null || true
-            docker rm "${CONTAINER_NAME}" 2>/dev/null || true
-            print_info "Container removed"
+        # Stop and remove container if docker is available and the container exists
+        if command -v docker >/dev/null 2>&1; then
+            if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"; then
+                print_info "Cleaning up container..."
+                docker stop "${CONTAINER_NAME}" 2>/dev/null || true
+                docker rm "${CONTAINER_NAME}" 2>/dev/null || true
+                print_info "Container removed"
+            fi
         fi
         
         echo ""
@@ -1040,10 +1070,10 @@ main() {
     print_info "Starting installation..."
     echo ""
 
+    check_port_available
     install_system_packages
     enable_libvirtd
     install_docker
-    check_port_available
     setup_sherpa_user
     setup_directories
     stop_existing_container
