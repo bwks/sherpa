@@ -3,12 +3,26 @@
   var stored = localStorage.getItem("theme");
   var palettes = [
     "theme-zinc-emerald",
-    "theme-slate-indigo",
-    "theme-slate-sky",
     "theme-stone-amber",
     "theme-neon-cyber",
-    "theme-neon-matrix",
+    "theme-matrix",
     "theme-retro-nes",
+    "theme-pixel-quest",
+    "theme-c64",
+    "theme-ctp-latte",
+    "theme-ctp-frappe",
+    "theme-ctp-macchiato",
+    "theme-ctp-mocha",
+    "theme-gruvbox",
+    "theme-fizzy",
+    "theme-nord",
+    "theme-rose-pine",
+    "theme-rose-pine-moon",
+    "theme-rose-pine-dawn",
+    "theme-tokyo-night",
+    "theme-tokyo-storm",
+    "theme-dracula",
+    "theme-ant-bloody",
   ];
 
   function applyTheme(dark) {
