@@ -3,7 +3,7 @@ mod helpers;
 use anyhow::Result;
 use serde_json::json;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use helpers::test_server::TestServer;
 use helpers::ws_client::TestWsClient;
 
 // ── User Creation ──
@@ -382,6 +382,64 @@ async fn test_non_admin_cannot_delete_user() -> Result<()> {
             .and_then(|e| e.get("code"))
             .and_then(|c| c.as_i64()),
         Some(-32003) // AccessDenied: non-admin cannot delete other users
+    );
+
+    Ok(())
+}
+
+// ── DB-Backed Verification via RPC ──
+
+#[tokio::test]
+#[ignore]
+async fn test_db_reflects_user_operations() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    // Verify admin is accessible via user.info
+    let admin_resp = ws
+        .rpc_call("user.info", json!({ "token": token, "username": "admin" }))
+        .await?;
+    let admin = admin_resp
+        .get("result")
+        .and_then(|r| r.get("user"))
+        .expect("admin user.info should return a result");
+    assert_eq!(
+        admin.get("username").and_then(|v| v.as_str()),
+        Some("admin")
+    );
+    assert_eq!(admin.get("is_admin").and_then(|v| v.as_bool()), Some(true));
+
+    // Create a user via RPC
+    ws.rpc_call(
+        "user.create",
+        json!({
+            "token": token,
+            "username": "dbverify",
+            "password": "DbVerify123!",
+            "is_admin": false,
+        }),
+    )
+    .await?;
+
+    // Verify the new user is accessible via user.info
+    let new_resp = ws
+        .rpc_call(
+            "user.info",
+            json!({ "token": token, "username": "dbverify" }),
+        )
+        .await?;
+    let new_user = new_resp
+        .get("result")
+        .and_then(|r| r.get("user"))
+        .expect("dbverify user.info should return a result");
+    assert_eq!(
+        new_user.get("username").and_then(|v| v.as_str()),
+        Some("dbverify")
+    );
+    assert_eq!(
+        new_user.get("is_admin").and_then(|v| v.as_bool()),
+        Some(false)
     );
 
     Ok(())

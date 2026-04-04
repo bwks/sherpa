@@ -36,7 +36,11 @@ fn vm_manifest(lab_name: &str) -> serde_json::Value {
 /// Helper to bootstrap images by running image.scan
 async fn bootstrap_images(ws: &mut TestWsClient, token: &str) -> Result<()> {
     let (_s, response) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": token }),
+            Duration::from_secs(60),
+        )
         .await?;
     assert!(
         response.get("error").is_none(),
@@ -62,7 +66,7 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 
     // Up the lab
     let (statuses, response) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -102,7 +106,7 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 
     // Cleanup: destroy the lab
     let (_s, destroy_resp) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "destroy",
             json!({
                 "token": token,
@@ -135,7 +139,7 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
 
     // Up
     let (_s, _r) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -182,7 +186,7 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
 
     // Cleanup
     let (_s, _r) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "destroy",
             json!({
                 "token": token,
@@ -209,7 +213,7 @@ async fn test_container_lab_destroy() -> Result<()> {
 
     // Up
     let (_s, _r) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -222,7 +226,7 @@ async fn test_container_lab_destroy() -> Result<()> {
 
     // Destroy
     let (_s, destroy_resp) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "destroy",
             json!({
                 "token": token,
@@ -279,7 +283,7 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 
     // Up the VM lab
     let (statuses, response) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -299,7 +303,7 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 
     // Cleanup
     let (_s, _r) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "destroy",
             json!({
                 "token": token,
@@ -333,7 +337,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
     });
 
     let (_s, response) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -362,7 +366,7 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
 
     // Empty manifest - missing required fields
     let (_s, response) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "token": token,
@@ -389,7 +393,7 @@ async fn test_lab_up_requires_auth() -> Result<()> {
     let mut ws = TestWsClient::connect(&server).await?;
 
     let (_s, response) = ws
-        .rpc_call_streaming_with_timeout(
+        .rpc_call_streaming(
             "up",
             json!({
                 "lab_id": "test-noauth",

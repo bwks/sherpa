@@ -2,6 +2,7 @@ mod helpers;
 
 use anyhow::Result;
 use serde_json::json;
+use std::time::Duration;
 
 use helpers::test_server::TestServer;
 use helpers::ws_client::TestWsClient;
@@ -16,7 +17,11 @@ async fn test_image_scan_discovers_images() -> Result<()> {
     let token = ws.login_admin().await?;
 
     let (_statuses, response) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": token }),
+            Duration::from_secs(60),
+        )
         .await?;
 
     assert!(
@@ -40,7 +45,11 @@ async fn test_image_list_returns_images() -> Result<()> {
 
     // First scan to register images
     let (_s, _r) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": token }),
+            Duration::from_secs(60),
+        )
         .await?;
 
     // List all images
@@ -66,7 +75,11 @@ async fn test_image_show_returns_config() -> Result<()> {
 
     // Scan first
     let (_s, _r) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": token }),
+            Duration::from_secs(60),
+        )
         .await?;
 
     // Show a specific model — use ubuntu_linux which should be on disk
@@ -105,7 +118,11 @@ async fn test_image_set_default() -> Result<()> {
 
     // Scan first
     let (_s, _r) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": token }),
+            Duration::from_secs(60),
+        )
         .await?;
 
     // List images to get a model and version
@@ -160,6 +177,7 @@ async fn test_image_import_nonexistent_file() -> Result<()> {
                 "version": "99.99",
                 "path": "/nonexistent/path/virtioa.qcow2",
             }),
+            Duration::from_secs(30),
         )
         .await?;
 
@@ -191,6 +209,7 @@ async fn test_image_pull_container() -> Result<()> {
                 "repo": "ghcr.io/nokia/srlinux",
                 "tag": "latest",
             }),
+            Duration::from_secs(120),
         )
         .await?;
 
@@ -229,7 +248,11 @@ async fn test_image_scan_admin_only() -> Result<()> {
 
     // image.scan is streaming, but non-admin should get access denied
     let (_s, response) = ws
-        .rpc_call_streaming("image.scan", json!({ "token": user_token }))
+        .rpc_call_streaming(
+            "image.scan",
+            json!({ "token": user_token }),
+            Duration::from_secs(10),
+        )
         .await?;
 
     assert!(
