@@ -84,6 +84,7 @@ pub enum NodeModel {
     OpensuseLinux,
     SuseLinux,
     UbuntuLinux,
+    KaliLinux,
     FlatcarLinux,
     SonicLinux,
 
@@ -169,6 +170,7 @@ impl fmt::Display for NodeModel {
             NodeModel::OpensuseLinux => write!(f, "opensuse_linux"),
             NodeModel::SuseLinux => write!(f, "suse_linux"),
             NodeModel::UbuntuLinux => write!(f, "ubuntu_linux"),
+            NodeModel::KaliLinux => write!(f, "kali_linux"),
             NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
             NodeModel::SonicLinux => write!(f, "sonic_linux"),
 
@@ -257,6 +259,7 @@ impl std::str::FromStr for NodeModel {
             "opensuse_linux" => Ok(NodeModel::OpensuseLinux),
             "suse_linux" => Ok(NodeModel::SuseLinux),
             "ubuntu_linux" => Ok(NodeModel::UbuntuLinux),
+            "kali_linux" => Ok(NodeModel::KaliLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
             "sonic_linux" => Ok(NodeModel::SonicLinux),
 
@@ -785,6 +788,7 @@ impl NodeConfig {
             NodeModel::OpensuseLinux => NodeConfig::opensuse_linux(),
             NodeModel::SuseLinux => NodeConfig::suse_linux(),
             NodeModel::UbuntuLinux => NodeConfig::ubuntu_linux(),
+            NodeModel::KaliLinux => NodeConfig::kali_linux(),
             NodeModel::SonicLinux => NodeConfig::sonic_linux(),
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
 
@@ -1775,6 +1779,40 @@ impl NodeConfig {
         NodeConfig {
             id: None,
             model: NodeModel::UbuntuLinux,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 1,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 1024,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+        }
+    }
+    pub fn kali_linux() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::KaliLinux,
             version: "0.0.0".to_owned(),
             repo: None,
             os_variant: OsVariant::Linux,
