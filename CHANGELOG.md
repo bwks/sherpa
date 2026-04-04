@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.47] - 2026-04-04
+
+### Miscellaneous
+
+- Merge pull request #199 from bwks/v0.3.47
+
+V0.3.47 by @bwks in [#199](https://github.com/bwks/sherpa/pull/199) ([ce4bcd2](https://github.com/bwks/sherpa/commit/ce4bcd23e9cc205fe4f63e8346a2770a46185717))
+- Update actions by @bwks ([e071d54](https://github.com/bwks/sherpa/commit/e071d54c6917ed38d09a53c8b15f575b730fee84))
+- Test coverage report. by @bwks ([3ec02f1](https://github.com/bwks/sherpa/commit/3ec02f1827c8a9331c9ebe2dc7b04c20799f5b9f))
+- Version bump by @bwks ([2fe71a3](https://github.com/bwks/sherpa/commit/2fe71a39afea8480ec73e3c9f34bbec4bdb88b5c))
+- Merge pull request #198 from bwks/v0.3.47
+
+V0.3.47 by @bwks in [#198](https://github.com/bwks/sherpa/pull/198) ([2105d78](https://github.com/bwks/sherpa/commit/2105d7877ff6ed633952bffb264afb9199fce935))
+- Apply rustfmt by @bwks ([d369dad](https://github.com/bwks/sherpa/commit/d369dad28c7b8b86816570989d030ea6250f061b))
+- Merge pull request #197 from bwks/changelog/v0.3.46
+
+chore(release): update changelog for v0.3.46 by @github-actions[bot] in [#197](https://github.com/bwks/sherpa/pull/197) ([f8ac9b1](https://github.com/bwks/sherpa/commit/f8ac9b1af63bdb24e00f72354a57695fa20dab54))
+
+### Testing
+
+- Fix integration test failures and enforce dead_code = forbid by @bwks ([997bf75](https://github.com/bwks/sherpa/commit/997bf7567c3493f7d7f35a65566ef31ac026d951))
+- Code coverage by @bwks ([d595449](https://github.com/bwks/sherpa/commit/d59544943293f6f257d4410f3410a75cb13f06c5))
 ## [0.3.46] - 2026-04-03
 
 ### Bug Fixes
