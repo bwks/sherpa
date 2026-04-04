@@ -208,3 +208,96 @@ impl DiskTargets {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_disk_drivers_display() {
+        assert_eq!(DiskDrivers::Qemu.to_string(), "qemu");
+    }
+
+    #[test]
+    fn test_disk_formats_display() {
+        assert_eq!(DiskFormats::Qcow2.to_string(), "qcow2");
+        assert_eq!(DiskFormats::Raw.to_string(), "raw");
+    }
+
+    #[test]
+    fn test_disk_devices_display() {
+        assert_eq!(DiskDevices::Cdrom.to_string(), "cdrom");
+        assert_eq!(DiskDevices::File.to_string(), "file");
+    }
+
+    #[test]
+    fn test_disk_buses_display() {
+        assert_eq!(DiskBuses::Ide.to_string(), "ide");
+        assert_eq!(DiskBuses::Sata.to_string(), "sata");
+        assert_eq!(DiskBuses::Scsi.to_string(), "scsi");
+        assert_eq!(DiskBuses::Usb.to_string(), "usb");
+        assert_eq!(DiskBuses::Virtio.to_string(), "virtio");
+    }
+
+    #[test]
+    fn test_disk_buses_to_vec_contains_all() {
+        let buses = DiskBuses::to_vec();
+        assert_eq!(buses.len(), 5);
+    }
+
+    #[test]
+    fn test_disk_targets_ide_all_indices() {
+        let expected = ["hda", "hdb", "hdc", "hdd", "hde", "hdf", "hdg", "hdh", "hdi", "hdj"];
+        for (i, name) in expected.iter().enumerate() {
+            let t = DiskTargets::target(&DiskBuses::Ide, i as u8).unwrap();
+            assert_eq!(t.to_string(), *name);
+        }
+    }
+
+    #[test]
+    fn test_disk_targets_sata_all_indices() {
+        let expected = ["sda", "sdb", "sdc", "sdd", "sde", "sdf", "sdg", "sdh", "sdi", "sdj"];
+        for (i, name) in expected.iter().enumerate() {
+            let t = DiskTargets::target(&DiskBuses::Sata, i as u8).unwrap();
+            assert_eq!(t.to_string(), *name);
+        }
+    }
+
+    #[test]
+    fn test_disk_targets_usb_uses_sd_prefix() {
+        // USB shares the Sata/Usb arm
+        let t = DiskTargets::target(&DiskBuses::Usb, 0).unwrap();
+        assert_eq!(t.to_string(), "sda");
+        let t = DiskTargets::target(&DiskBuses::Usb, 9).unwrap();
+        assert_eq!(t.to_string(), "sdj");
+    }
+
+    #[test]
+    fn test_disk_targets_virtio_all_indices() {
+        let expected = ["vda", "vdb", "vdc", "vdd", "vde", "vdf", "vdg", "vdh", "vdi", "vdj"];
+        for (i, name) in expected.iter().enumerate() {
+            let t = DiskTargets::target(&DiskBuses::Virtio, i as u8).unwrap();
+            assert_eq!(t.to_string(), *name);
+        }
+    }
+
+    #[test]
+    fn test_disk_targets_ide_out_of_range_returns_err() {
+        assert!(DiskTargets::target(&DiskBuses::Ide, 10).is_err());
+    }
+
+    #[test]
+    fn test_disk_targets_sata_out_of_range_returns_err() {
+        assert!(DiskTargets::target(&DiskBuses::Sata, 10).is_err());
+    }
+
+    #[test]
+    fn test_disk_targets_virtio_out_of_range_returns_err() {
+        assert!(DiskTargets::target(&DiskBuses::Virtio, 10).is_err());
+    }
+
+    #[test]
+    fn test_disk_targets_scsi_unsupported_returns_err() {
+        assert!(DiskTargets::target(&DiskBuses::Scsi, 0).is_err());
+    }
+}

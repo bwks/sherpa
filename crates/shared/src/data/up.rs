@@ -202,4 +202,60 @@ mod tests {
         let msg: TestMsg = serde_json::from_str(r#"{}"#).unwrap();
         assert_eq!(msg.kind, StatusKind::Info);
     }
+
+    #[test]
+    fn test_up_phase_as_str() {
+        assert_eq!(UpPhase::Setup.as_str(), "Setup");
+        assert_eq!(UpPhase::ManifestValidation.as_str(), "Manifest Validation");
+        assert_eq!(UpPhase::DatabaseRecords.as_str(), "Database Records");
+        assert_eq!(UpPhase::LabNetworkSetup.as_str(), "Lab Network Setup");
+        assert_eq!(
+            UpPhase::LinkCreation.as_str(),
+            "Point-to-Point Link Creation"
+        );
+        assert_eq!(UpPhase::ContainerNetworks.as_str(), "Container Link Networks");
+        assert_eq!(UpPhase::SharedBridges.as_str(), "Shared Bridge Creation");
+        assert_eq!(
+            UpPhase::ZtpGeneration.as_str(),
+            "ZTP Configuration Generation"
+        );
+        assert_eq!(UpPhase::BootContainers.as_str(), "Boot Container Creation");
+        assert_eq!(UpPhase::DiskCloning.as_str(), "Disk Cloning");
+        assert_eq!(UpPhase::VmCreation.as_str(), "VM Creation");
+        assert_eq!(UpPhase::SshConfig.as_str(), "SSH Config Generation");
+        assert_eq!(UpPhase::NodeReadiness.as_str(), "Node Readiness Check");
+    }
+
+    #[test]
+    fn test_up_phase_number_sequential() {
+        let phases = [
+            UpPhase::Setup,
+            UpPhase::ManifestValidation,
+            UpPhase::DatabaseRecords,
+            UpPhase::LabNetworkSetup,
+            UpPhase::LinkCreation,
+            UpPhase::ContainerNetworks,
+            UpPhase::SharedBridges,
+            UpPhase::ZtpGeneration,
+            UpPhase::BootContainers,
+            UpPhase::DiskCloning,
+            UpPhase::VmCreation,
+            UpPhase::SshConfig,
+            UpPhase::NodeReadiness,
+        ];
+        for (i, phase) in phases.iter().enumerate() {
+            assert_eq!(phase.number(), (i + 1) as u8);
+        }
+    }
+
+    #[test]
+    fn test_up_phase_total_phases_matches_enum_count() {
+        assert_eq!(UpPhase::total_phases(), 13);
+    }
+
+    #[test]
+    fn test_up_phase_number_matches_total() {
+        // Last phase number should equal total_phases
+        assert_eq!(UpPhase::NodeReadiness.number(), UpPhase::total_phases());
+    }
 }

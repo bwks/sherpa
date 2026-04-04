@@ -155,4 +155,131 @@ mod tests {
         assert!(!node_model_interfaces(&NodeModel::NokiaSrlinux).is_empty());
         assert!(!node_model_interfaces(&NodeModel::UbuntuLinux).is_empty());
     }
+
+    // Helper: verify idx→name→idx round-trips correctly for a given model.
+    fn assert_roundtrip(model: &NodeModel) {
+        let name = interface_from_idx(model, 0).unwrap();
+        let back = interface_to_idx(model, &name).unwrap();
+        assert_eq!(back, 0, "{model:?}: round-trip failed for idx 0 (name={name})");
+    }
+
+    #[test]
+    fn test_roundtrip_arista_ceos() {
+        assert_roundtrip(&NodeModel::AristaCeos);
+    }
+
+    #[test]
+    fn test_roundtrip_aruba_aoscx() {
+        assert_roundtrip(&NodeModel::ArubaAoscx);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_asav() {
+        assert_roundtrip(&NodeModel::CiscoAsav);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_csr1000v() {
+        assert_roundtrip(&NodeModel::CiscoCsr1000v);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_cat8000v() {
+        assert_roundtrip(&NodeModel::CiscoCat8000v);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_cat9000v() {
+        assert_roundtrip(&NodeModel::CiscoCat9000v);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_iosxrv9000() {
+        assert_roundtrip(&NodeModel::CiscoIosxrv9000);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_nexus9300v() {
+        assert_roundtrip(&NodeModel::CiscoNexus9300v);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_iosvl2() {
+        assert_roundtrip(&NodeModel::CiscoIosvl2);
+    }
+
+    #[test]
+    fn test_roundtrip_cisco_ftdv() {
+        assert_roundtrip(&NodeModel::CiscoFtdv);
+    }
+
+    #[test]
+    fn test_roundtrip_juniper_vrouter() {
+        assert_roundtrip(&NodeModel::JuniperVrouter);
+    }
+
+    #[test]
+    fn test_roundtrip_juniper_vswitch() {
+        assert_roundtrip(&NodeModel::JuniperVswitch);
+    }
+
+    #[test]
+    fn test_roundtrip_juniper_vevolved() {
+        assert_roundtrip(&NodeModel::JuniperVevolved);
+    }
+
+    #[test]
+    fn test_roundtrip_juniper_vsrxv3() {
+        assert_roundtrip(&NodeModel::JuniperVsrxv3);
+    }
+
+    #[test]
+    fn test_roundtrip_cumulus_linux() {
+        assert_roundtrip(&NodeModel::CumulusLinux);
+    }
+
+    #[test]
+    fn test_roundtrip_nokia_srlinux() {
+        assert_roundtrip(&NodeModel::NokiaSrlinux);
+    }
+
+    #[test]
+    fn test_roundtrip_mikrotik_chr() {
+        assert_roundtrip(&NodeModel::MikrotikChr);
+    }
+
+    #[test]
+    fn test_roundtrip_paloalto_panos() {
+        assert_roundtrip(&NodeModel::PaloaltoPanos);
+    }
+
+    #[test]
+    fn test_node_model_interfaces_all_named_models() {
+        let named_models = [
+            NodeModel::AristaVeos,
+            NodeModel::AristaCeos,
+            NodeModel::ArubaAoscx,
+            NodeModel::CiscoAsav,
+            NodeModel::CiscoCsr1000v,
+            NodeModel::CiscoCat8000v,
+            NodeModel::CiscoCat9000v,
+            NodeModel::CiscoIosxrv9000,
+            NodeModel::CiscoNexus9300v,
+            NodeModel::CiscoIosv,
+            NodeModel::CiscoIosvl2,
+            NodeModel::CiscoFtdv,
+            NodeModel::JuniperVrouter,
+            NodeModel::JuniperVswitch,
+            NodeModel::JuniperVevolved,
+            NodeModel::JuniperVsrxv3,
+            NodeModel::CumulusLinux,
+            NodeModel::NokiaSrlinux,
+            NodeModel::MikrotikChr,
+            NodeModel::PaloaltoPanos,
+        ];
+        for model in &named_models {
+            let ifaces = node_model_interfaces(model);
+            assert!(!ifaces.is_empty(), "{model:?} returned empty interface list");
+        }
+    }
 }

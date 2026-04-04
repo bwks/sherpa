@@ -49,3 +49,64 @@ pub struct SshPublicKey {
     pub key: String,
     pub comment: Option<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_display_ed25519() {
+        assert_eq!(SshKeyAlgorithms::SshEd25519.to_string(), "ssh-ed25519");
+    }
+
+    #[test]
+    fn test_display_rsa() {
+        assert_eq!(SshKeyAlgorithms::SshRsa.to_string(), "ssh-rsa");
+    }
+
+    #[test]
+    fn test_from_str_ed25519() {
+        let alg: SshKeyAlgorithms = "ssh-ed25519".parse().unwrap();
+        assert!(matches!(alg, SshKeyAlgorithms::SshEd25519));
+    }
+
+    #[test]
+    fn test_from_str_rsa() {
+        let alg: SshKeyAlgorithms = "ssh-rsa".parse().unwrap();
+        assert!(matches!(alg, SshKeyAlgorithms::SshRsa));
+    }
+
+    #[test]
+    fn test_from_str_invalid_returns_err() {
+        assert!("ecdsa-sha2-nistp256".parse::<SshKeyAlgorithms>().is_err());
+    }
+
+    #[test]
+    fn test_error_display() {
+        assert_eq!(
+            SshKeyAlgorithmsError.to_string(),
+            "Invalid SSH key algorithm variant"
+        );
+    }
+
+    #[test]
+    fn test_default_is_ed25519() {
+        assert!(matches!(
+            SshKeyAlgorithms::default(),
+            SshKeyAlgorithms::SshEd25519
+        ));
+    }
+
+    #[test]
+    fn test_serde_round_trip() {
+        let original = SshPublicKey {
+            algorithm: SshKeyAlgorithms::SshEd25519,
+            key: "AAAAC3NzaC1lZDI1NTE5AAAA".to_string(),
+            comment: Some("user@host".to_string()),
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let deserialized: SshPublicKey = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.key, original.key);
+        assert_eq!(deserialized.comment, original.comment);
+    }
+}

@@ -204,3 +204,61 @@ pub struct ListLabsResponse {
     /// Total number of labs
     pub total: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use std::str::FromStr;
+
+    use super::*;
+
+    fn make_lab_info() -> LabInfo {
+        LabInfo {
+            id: "lab-001".to_string(),
+            name: "test-lab".to_string(),
+            user: "alice".to_string(),
+            ipv4_network: "192.168.100.0/24".parse().unwrap(),
+            ipv4_gateway: "192.168.100.1".parse().unwrap(),
+            ipv4_router: "192.168.100.2".parse().unwrap(),
+            loopback_network: "127.127.127.0/24".parse().unwrap(),
+            ipv6_network: None,
+            ipv6_gateway: None,
+            ipv6_router: None,
+        }
+    }
+
+    #[test]
+    fn test_lab_info_display_and_from_str_round_trip() {
+        let lab = make_lab_info();
+        let s = lab.to_string();
+        let parsed = LabInfo::from_str(&s).unwrap();
+        assert_eq!(parsed.id, "lab-001");
+        assert_eq!(parsed.name, "test-lab");
+        assert_eq!(parsed.user, "alice");
+        assert_eq!(
+            parsed.ipv4_gateway,
+            "192.168.100.1".parse::<std::net::Ipv4Addr>().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_lab_info_from_str_invalid_returns_err() {
+        assert!(LabInfo::from_str("not valid toml").is_err());
+    }
+
+    #[test]
+    fn test_lab_status_display_unknown() {
+        assert_eq!(LabStatus::Unknown.to_string(), "unknown");
+    }
+
+    #[test]
+    fn test_lab_status_serde_serializes_lowercase() {
+        let json = serde_json::to_string(&LabStatus::Unknown).unwrap();
+        assert_eq!(json, r#""unknown""#);
+    }
+
+    #[test]
+    fn test_lab_status_serde_deserializes() {
+        let status: LabStatus = serde_json::from_str(r#""unknown""#).unwrap();
+        assert!(matches!(status, LabStatus::Unknown));
+    }
+}
