@@ -398,10 +398,7 @@ async fn test_db_reflects_user_operations() -> Result<()> {
 
     // Verify admin is accessible via user.info
     let admin_resp = ws
-        .rpc_call(
-            "user.info",
-            json!({ "token": token, "username": "admin" }),
-        )
+        .rpc_call("user.info", json!({ "token": token, "username": "admin" }))
         .await?;
     let admin = admin_resp
         .get("result")

@@ -1,9 +1,9 @@
 use anyhow::{Context, Result};
+use rtnetlink::packet_core::DefaultNla;
 use rtnetlink::packet_core::{
     NLM_F_ACK, NLM_F_CREATE, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload,
 };
 use rtnetlink::packet_route::RouteNetlinkMessage;
-use rtnetlink::packet_core::DefaultNla;
 use rtnetlink::packet_route::tc::{TcAttribute, TcHandle, TcMessage};
 use tracing::instrument;
 
@@ -67,7 +67,11 @@ pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Resul
     // Modern Linux kernels use a fixed 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000.
     let latency = (impairment.delay_us as u64 * 15625 / 1000) as u32;
     let jitter = (impairment.jitter_us as u64 * 15625 / 1000) as u32;
-    let gap: u32 = if impairment.reorder_percent > 0.0 { 1 } else { 0 };
+    let gap: u32 = if impairment.reorder_percent > 0.0 {
+        1
+    } else {
+        0
+    };
     let mut qopt_bytes = Vec::with_capacity(24);
     qopt_bytes.extend_from_slice(&latency.to_ne_bytes());
     qopt_bytes.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
