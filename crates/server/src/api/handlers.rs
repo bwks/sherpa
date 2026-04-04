@@ -247,7 +247,7 @@ pub async fn login_form_handler(
     );
 
     // Redirect admin users to /admin, regular users to /
-    let redirect_path = if user.is_admin { "/admin" } else { "/" };
+    let redirect_path = if user.is_admin { "/admin/users" } else { "/" };
 
     // Return response with Set-Cookie header and HX-Redirect
     (
@@ -1226,15 +1226,10 @@ pub async fn admin_dashboard_handler(
         ApiError::internal("Failed to load users")
     })?;
 
-    // Transform users into display format and filter out the logged-in admin
+    // Transform users into display format
     let mut user_summaries: Vec<UserSummary> = Vec::new();
 
     for user in users.into_iter() {
-        // Filter out current admin
-        if user.username == admin.username {
-            continue;
-        }
-
         // Format created_at date using jiff
         let created_at_formatted = format_date_simple(user.created_at);
 
@@ -1259,11 +1254,7 @@ pub async fn admin_dashboard_handler(
     // Sort users alphabetically by username
     user_summaries.sort_by(|a, b| a.username.cmp(&b.username));
 
-    tracing::debug!(
-        "Loaded {} users for admin dashboard (filtered out current admin '{}')",
-        user_summaries.len(),
-        admin.username
-    );
+    tracing::debug!("Loaded {} users for admin dashboard", user_summaries.len(),);
 
     Ok(AdminDashboardTemplate {
         username: admin.username,

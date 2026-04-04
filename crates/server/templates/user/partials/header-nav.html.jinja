@@ -1,6 +1,6 @@
     <div class="flex items-center space-x-4">
         {% if is_admin %}
-        <a href="/admin" class="text-sm font-semibold text-header-link hover:text-header-link-hover transition-colors">
+        <a href="/admin/users" class="text-sm font-semibold text-header-link hover:text-header-link-hover transition-colors">
             Admin
         </a>
         {% endif %}
@@ -17,6 +17,7 @@
             <option value="theme-stone-amber">Stone Amber</option>
             <option value="theme-neon-cyber">Neon Cyber</option>
             <option value="theme-neon-matrix">Neon Matrix</option>
+            <option value="theme-retro-nes">Retro NES</option>
         </select>
         <button onclick="toggleTheme()" class="text-muted hover:text-heading cursor-pointer transition-colors" title="Toggle dark mode">
             <!-- Sun icon (shown in dark mode) -->

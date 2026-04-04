@@ -1,4 +1,4 @@
-{% extends "layout/base.html.jinja" %}
+{% extends "layouts/base.html.jinja" %}
 
 {% block title %}Edit User: {{ target_user.username }} - Sherpa Labs{% endblock %}
 
@@ -6,9 +6,9 @@
 {% block content %}
 <!-- Breadcrumb Navigation -->
 <nav class="flex items-center mb-6 text-sm text-muted">
-    <a href="/admin" class="text-accent hover:text-accent-hover hover:underline">Admin</a>
+    <a href="/admin/users" class="text-accent hover:text-accent-hover hover:underline">Admin</a>
     <span class="mx-2">/</span>
-    <a href="/admin" class="text-accent hover:text-accent-hover hover:underline">Users</a>
+    <a href="/admin/users" class="text-accent hover:text-accent-hover hover:underline">Users</a>
     <span class="mx-2">/</span>
     <span class="text-heading font-medium">{{ target_user.username }}</span>
 </nav>

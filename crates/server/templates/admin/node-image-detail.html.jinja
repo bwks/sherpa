@@ -1,4 +1,4 @@
-{% extends "layout/base.html.jinja" %}
+{% extends "layouts/base.html.jinja" %}
 
 {% block title %}{{ config.model }} - Sherpa Labs{% endblock %}
 
@@ -12,7 +12,7 @@
             <p class="mt-1 text-sm text-muted">Device template configuration details</p>
         </div>
         <div class="flex items-center space-x-3">
-            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" class="inline-block px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded transition-colors">
+            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" class="inline-block px-4 py-2 text-sm font-medium text-white bg-edit hover:bg-edit-hover rounded transition-colors">
                 Edit Configuration
             </a>
             <a href="/admin/node-images/{{ config.model }}/versions" class="inline-block px-4 py-2 text-sm font-medium text-accent hover:text-accent-hover border border-accent hover:border-accent-hover rounded transition-colors">
