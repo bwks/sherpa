@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   test-app:
@@ -40,6 +41,46 @@ jobs:
 
       - name: Run tests with coverage
         run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+
+      - name: Generate coverage summary
+        run: cargo llvm-cov report --workspace --summary-only 2>&1 | tee coverage-summary.txt
+
+      - name: Post coverage to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('coverage-summary.txt', 'utf8');
+            const lines = summary.split('\n');
+            const totalLine = lines.find(l => l.startsWith('TOTAL'));
+            let coverageInfo = 'Coverage report generated.';
+            if (totalLine) {
+              const parts = totalLine.split(/\s+/).filter(Boolean);
+              coverageInfo = `**Line coverage:** ${parts[3]} | **Function coverage:** ${parts[6]} | **Region coverage:** ${parts[9]}`;
+            }
+            const body = `## 📊 Test Coverage\n\n${coverageInfo}\n\n<details>\n<summary>Full Report</summary>\n\n\`\`\`\n${summary}\n\`\`\`\n\n</details>`;
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find(c => c.body.includes('## 📊 Test Coverage'));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
