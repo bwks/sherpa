@@ -3,6 +3,7 @@ use rtnetlink::packet_core::{
     NLM_F_ACK, NLM_F_CREATE, NLM_F_REPLACE, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload,
 };
 use rtnetlink::packet_route::RouteNetlinkMessage;
+use rtnetlink::packet_core::DefaultNla;
 use rtnetlink::packet_route::tc::{TcAttribute, TcHandle, TcMessage};
 use tracing::instrument;
 
@@ -61,30 +62,29 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 /// root egress scheduler.
 #[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
 pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
-    // Serialize tc_netem_qopt fields in kernel layout order (6 x u32, native endian)
-    let gap: u32 = if impairment.reorder_percent > 0.0 {
-        1
-    } else {
-        0
-    };
+    // Serialize tc_netem_qopt fields in kernel layout order (6 x u32, native endian).
+    // latency and jitter must be in PSCHED ticks (not microseconds).
+    // Modern Linux kernels use a fixed 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000.
+    let latency = (impairment.delay_us as u64 * 15625 / 1000) as u32;
+    let jitter = (impairment.jitter_us as u64 * 15625 / 1000) as u32;
+    let gap: u32 = if impairment.reorder_percent > 0.0 { 1 } else { 0 };
     let mut qopt_bytes = Vec::with_capacity(24);
-    qopt_bytes.extend_from_slice(&impairment.delay_us.to_ne_bytes());
+    qopt_bytes.extend_from_slice(&latency.to_ne_bytes());
     qopt_bytes.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
     qopt_bytes.extend_from_slice(&percent_to_kernel(impairment.loss_percent).to_ne_bytes());
     qopt_bytes.extend_from_slice(&gap.to_ne_bytes());
     qopt_bytes.extend_from_slice(&0u32.to_ne_bytes()); // duplicate
-    qopt_bytes.extend_from_slice(&impairment.jitter_us.to_ne_bytes());
+    qopt_bytes.extend_from_slice(&jitter.to_ne_bytes());
 
     let mut msg = TcMessage::default();
     msg.header.index = iface_index;
     msg.header.handle = TcHandle { major: 1, minor: 0 };
     msg.header.parent = TcHandle::ROOT;
     msg.attributes.push(TcAttribute::Kind("netem".to_string()));
-    msg.attributes.push(TcAttribute::Options(vec![
-        rtnetlink::packet_route::tc::TcOption::Other(rtnetlink::packet_core::DefaultNla::new(
-            1, qopt_bytes,
-        )),
-    ]));
+    // TCA_OPTIONS (type 2) must carry the raw tc_netem_qopt bytes directly —
+    // the kernel reads them without any nested NLA framing.
+    msg.attributes
+        .push(TcAttribute::Other(DefaultNla::new(2, qopt_bytes)));
 
     let mut req = NetlinkMessage::from(RouteNetlinkMessage::NewQueueDiscipline(msg));
     req.header.flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE;

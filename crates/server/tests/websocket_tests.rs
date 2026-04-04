@@ -2,6 +2,7 @@ mod helpers;
 
 use anyhow::Result;
 use serde_json::json;
+use std::time::Duration;
 
 use helpers::test_server::TestServer;
 use helpers::ws_client::TestWsClient;
@@ -95,6 +96,37 @@ async fn test_rpc_response_id_matches_request() -> Result<()> {
     assert!(
         id2.starts_with("test-"),
         "Response ID should match request format"
+    );
+
+    Ok(())
+}
+
+// ── Streaming RPC Tests ──
+
+#[tokio::test]
+#[ignore]
+async fn test_rpc_streaming_returns_final_response() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            "auth.validate",
+            serde_json::json!({ "token": token }),
+            Duration::from_secs(10),
+        )
+        .await?;
+
+    assert!(
+        response.get("result").is_some(),
+        "streaming call should return a final result: {:?}",
+        response
+    );
+    // auth.validate is not a streaming operation so no intermediate status messages
+    assert!(
+        statuses.is_empty(),
+        "auth.validate should have no status messages"
     );
 
     Ok(())

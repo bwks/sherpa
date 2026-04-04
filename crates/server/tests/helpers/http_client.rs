@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use reqwest::{Client, Response, StatusCode};
+use std::net::SocketAddr;
 use std::sync::Arc;
-
-use super::test_server::TestServer;
 
 /// HTTP test client with cookie jar support
 pub struct TestHttpClient {
@@ -12,8 +11,8 @@ pub struct TestHttpClient {
 }
 
 impl TestHttpClient {
-    /// Create a new HTTP client for the given test server
-    pub fn new(server: &TestServer) -> Self {
+    /// Create a new HTTP client pointing at the given address
+    pub fn new(addr: SocketAddr) -> Self {
         let jar = Arc::new(reqwest::cookie::Jar::default());
         let client = Client::builder()
             .cookie_provider(jar)
@@ -23,7 +22,7 @@ impl TestHttpClient {
 
         Self {
             client,
-            base_url: server.http_url(),
+            base_url: format!("http://{}", addr),
             token: None,
         }
     }

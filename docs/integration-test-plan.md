@@ -15,74 +15,81 @@
 | 8 — Per-Crate Integration | **ALREADY EXISTS** | container, network, libvirt, template, topology all have tests |
 | 9 — Test Runner Script | **DONE** | `scripts/run-integration-tests.sh` |
 
-**Total server integration tests: 44 passing (0 failing)**
+**Total server integration tests: 49 passing (0 failing)**
 
 ---
 
 ## Environment Prerequisites
 
-The following must be set up before running integration tests:
+> **The installer script MUST be run before any integration tests.** Skipping it leaves the system without the required directories, SSH keypair, libvirt pool, Docker images, and SurrealDB instance. Tests will fail with confusing errors rather than a clear message.
 
-### SurrealDB (test database)
+### Step 1 — Rust toolchain
+
+The installer handles runtime dependencies but not the Rust toolchain needed to build and run tests:
+
 ```bash
-# Start with sherpa credentials (not default root/root)
-SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="Everest1953!" ./dev/testdb start
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
 ```
 
-### Docker infrastructure images
+### Step 2 — Run the installer (required)
+
+Run the installer to set up QEMU/KVM, libvirt, Docker, base `/opt/sherpa/` directories, the `sherpa` user/groups, the production SurrealDB container (`sherpa-db`) on port 8000, and pull `surrealdb:v3.0.0` and `sherpa-router`. The installer requires the DB password and server IP via environment variables:
+
 ```bash
-docker pull ghcr.io/bwks/sherpa-router:latest
-docker pull ghcr.io/bwks/webdir:latest
+sudo -E SHERPA_DB_PASSWORD="YourPassword" SHERPA_SERVER_IPV4="<server-ip>" \
+  ./scripts/sherpa_install.sh
+```
+
+This step is **required**. Without it, the following will be missing and tests will fail:
+- `/opt/sherpa/` directory structure
+- `ghcr.io/bwks/sherpa-router:latest` Docker image
+- `libvirtd` and KVM tooling
+- Production SurrealDB instance
+
+The installer also places `sherpad` in `/usr/local/bin` so it is available in `PATH` for the next step.
+
+### Step 3 — Run sherpad init (required)
+
+Run `sherpad init` to complete setup. This creates all `/opt/sherpa/` subdirectories (images, ssh, containers, bins, labs, etc.), generates the SSH keypair at `/opt/sherpa/ssh/sherpa_ssh_key`, writes `sherpa.toml`, creates the libvirt bridge network (`sherpa-bridge`) and storage pool (`sherpa-pool`), and applies the DB schema.
+
+```bash
+sudo sherpad init
+```
+
+This is **interactive** — it will prompt for an admin username and password for the production SurrealDB instance. The installer writes the DB password to `/opt/sherpa/env/sherpa.env` so no flags are needed.
+
+This step is **required**. Without it, the following will be missing and tests will fail:
+- `/opt/sherpa/ssh/sherpa_ssh_key.pub` — lab lifecycle tests fail without it
+- `/opt/sherpa/config/sherpa.toml` — container and VM lab tests fail without it
+- `sherpa-pool` libvirt storage pool — VM lab tests fail without it
+
+> **Note**: The installer starts a **production** SurrealDB (`sherpa-db`, port 8000, data at `/opt/sherpa/db`).
+> Integration tests use a **separate** dev DB (`sherpa-test-db`) started via `./dev/testdb` — do NOT use the production instance for tests.
+
+### Step 4 — Docker test images
+
+Pull the remaining images needed for lab lifecycle tests (the installer already pulled `sherpa-router`):
+
+```bash
 docker pull ghcr.io/nokia/srlinux:latest
 docker pull alpine:latest
 ```
 
-### Libvirt storage pool
-```bash
-sudo mkdir -p /opt/sherpa/libvirt/images
-sudo chown libvirt-qemu:kvm /opt/sherpa/libvirt /opt/sherpa/libvirt/images
-sudo chmod 775 /opt/sherpa/libvirt /opt/sherpa/libvirt/images
-virsh pool-define-as sherpa-pool dir --target /opt/sherpa/libvirt/images
-virsh pool-start sherpa-pool
-virsh pool-autostart sherpa-pool
-```
+### Step 5 — Ubuntu VM image
 
-### Sherpa SSH key
-```bash
-sudo mkdir -p /opt/sherpa/ssh
-sudo ssh-keygen -t ed25519 -f /opt/sherpa/ssh/sherpa_ssh_key -N "" -C "sherpa@test"
-sudo chown -R sherpa:sherpa /opt/sherpa/ssh
-```
+Required for `test_vm_lab_up_and_destroy`. Download takes ~700 MB:
 
-### Sherpa config file
 ```bash
-# /opt/sherpa/config/sherpa.toml
-cat > /opt/sherpa/config/sherpa.toml << 'EOF'
-name = "test-server"
-server_ipv4 = "127.0.0.1"
-ws_port = 8080
-http_port = 8081
-vm_provider = "libvirt"
-qemu_bin = "/usr/bin/qemu-system-x86_64"
-management_prefix_ipv4 = "10.200.0.0/16"
-images_dir = "/opt/sherpa/images"
-containers_dir = "/opt/sherpa/containers"
-bins_dir = "/opt/sherpa/bins"
-EOF
-```
-> **Note**: The management prefix MUST NOT overlap with host interfaces. `10.200.0.0/16` avoids the host `enp3s0` (`172.31.1.x`) and Docker (`172.17.0.0/16`).
-
-### Ubuntu VM image
-```bash
-mkdir -p /opt/sherpa/images/ubuntu_linux/24.04
-wget -O /opt/sherpa/images/ubuntu_linux/24.04/virtioa.qcow2 \
+sudo mkdir -p /opt/sherpa/images/ubuntu_linux/24.04
+sudo wget -O /opt/sherpa/images/ubuntu_linux/24.04/virtioa.qcow2 \
   https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img
 ```
 
-### Directory structure
+### Step 6 — Start the dev test DB
+
 ```bash
-sudo mkdir -p /opt/sherpa/{config,env,ssh,images,containers,bins,labs,run,logs,.certs,.secret}
-sudo chown -R sherpa:sherpa /opt/sherpa
+SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="Everest1953!" ./dev/testdb start
 ```
 
 ---
@@ -90,10 +97,10 @@ sudo chown -R sherpa:sherpa /opt/sherpa
 ## How to Run Tests
 
 ```bash
+# From the repo root
 export PATH="$HOME/.cargo/bin:$PATH"
-cd /home/sherpa/code/rust/sherpa
 
-# Ensure testdb is running with correct credentials
+# Ensure testdb is running with correct credentials (separate from production sherpa-db)
 SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="Everest1953!" ./dev/testdb start
 
 # 1. Unit tests (no external deps)
@@ -125,6 +132,42 @@ cargo test -p libvirt -- --ignored --test-threads=1
   # Libvirt networks
   virsh net-list | grep sherpa | awk '{print $1}' | xargs -I{} sh -c 'virsh net-destroy {}; virsh net-undefine {}'
   ```
+
+---
+
+## Code Coverage
+
+Coverage is measured using `cargo-llvm-cov`, mirroring what runs in CI (`.github/workflows/pr.yml`).
+
+### Setup
+
+```bash
+# llvm-tools Rust component (required by cargo-llvm-cov)
+rustup component add llvm-tools
+
+# cargo-llvm-cov binary
+cargo install cargo-llvm-cov
+```
+
+### Run coverage
+
+Match CI exactly — unit tests only, outputs `lcov.info`:
+```bash
+cargo llvm-cov --workspace --lcov --output-path lcov.info
+```
+
+> **Note**: CI runs only unit tests (no `--ignored` flag). Integration tests require live external
+> dependencies (Docker, libvirt, SurrealDB) that are not available in the CI runner.
+
+For a human-readable HTML report opened in the browser:
+```bash
+cargo llvm-cov --workspace --open
+```
+
+For a quick terminal summary:
+```bash
+cargo llvm-cov --workspace
+```
 
 ---
 
@@ -164,12 +207,12 @@ The Sherpa project has comprehensive test specifications in `test-specs/` but mo
 |-------|-------|
 | Unit tests (workspace) | ~600 |
 | DB integration tests | 177 |
-| Auth + HTTP (Phase 3) | 15 |
-| WebSocket RPC (Phase 4) | 6 |
-| User Management E2E (Phase 5) | 9 |
+| Auth + HTTP (Phase 3) | 18 |
+| WebSocket RPC (Phase 4) | 7 |
+| User Management E2E (Phase 5) | 10 |
 | Image Management E2E (Phase 6) | 7 |
 | Lab Lifecycle E2E (Phase 7) | 7 |
-| **Server integration total** | **44** |
+| **Server integration total** | **49** |
 
 ## Critical Files Reference
 
@@ -220,6 +263,23 @@ Existing tests in the following crates (already implemented, not new work):
 - `crates/libvirt/tests/` — VM lifecycle, disk, network, storage pool (needs libvirtd + KVM)
 - `crates/template/` — template rendering tests
 - `crates/topology/` — manifest parsing tests
+
+## Known Issues
+
+### TAP device creation — deferred (kernel 6.8+)
+
+**Affected tests** (in `crates/network/tests/integration_tests.rs`):
+- `test_create_tap`
+- `test_get_ifindex`
+- `test_ebpf_redirect_between_taps`
+
+**Root cause:** `create_tap()` uses `InfoKind::Tun` via rtnetlink. Kernel 6.8 rejects this with `EOPNOTSUPP`. The command `ip tuntap add dev <name> mode tap` (which uses ioctl on `/dev/net/tun`) works correctly, but the fix requires `libc` or unsafe code, neither of which is currently acceptable.
+
+**Current state:** All three tests detect the unsupported condition at runtime and skip gracefully with a printed message. They do not fail.
+
+**Fix:** Reimplement `create_tap()` using ioctl on `/dev/net/tun` without adding the `libc` crate. Tracked as a future task.
+
+---
 
 ## Test Runner Script (Phase 9)
 

@@ -65,41 +65,17 @@ impl TestWsClient {
 
     /// Send an RPC request and wait for the response
     pub async fn rpc_call(&mut self, method: &str, params: Value) -> Result<Value> {
-        let id = format!("test-{}", self.next_id);
-        self.next_id += 1;
-
-        let request = json!({
-            "type": "rpc_request",
-            "id": id,
-            "method": method,
-            "params": params,
-        });
-
-        self.sender
-            .send(Message::Text(serde_json::to_string(&request)?.into()))
-            .await
-            .context("Failed to send RPC request")?;
-
-        // Wait for the RPC response with matching ID
-        let response = timeout(DEFAULT_TIMEOUT, self.wait_for_rpc_response(&id))
-            .await
-            .context("Timeout waiting for RPC response")??;
-
+        let (_, response) = self
+            .rpc_call_streaming(method, params, DEFAULT_TIMEOUT)
+            .await?;
         Ok(response)
     }
 
-    /// Send an RPC request and collect status messages + final response
+    /// Send an RPC request and collect status messages + final response.
+    ///
+    /// Use this for operations that emit streaming status messages (e.g. lab up/destroy).
+    /// For simple request/response RPCs, use `rpc_call` instead.
     pub async fn rpc_call_streaming(
-        &mut self,
-        method: &str,
-        params: Value,
-    ) -> Result<(Vec<Value>, Value)> {
-        self.rpc_call_streaming_with_timeout(method, params, Duration::from_secs(120))
-            .await
-    }
-
-    /// Send a streaming RPC request with a custom timeout
-    pub async fn rpc_call_streaming_with_timeout(
         &mut self,
         method: &str,
         params: Value,
@@ -149,7 +125,6 @@ impl TestWsClient {
                             }
                         }
                         _ => {
-                            // Collect other messages as status
                             status_messages.push(parsed);
                         }
                     }
@@ -157,7 +132,10 @@ impl TestWsClient {
             }
         })
         .await
-        .context("Timeout waiting for streaming RPC response")??;
+        .context(format!(
+            "Timeout waiting for RPC response (connection: {})",
+            self.connection_id
+        ))??;
 
         Ok(result)
     }
@@ -188,29 +166,5 @@ impl TestWsClient {
             .to_string();
 
         Ok(token)
-    }
-
-    /// Wait for an RPC response with the given ID, skipping other messages
-    async fn wait_for_rpc_response(&mut self, expected_id: &str) -> Result<Value> {
-        loop {
-            let msg = self
-                .receiver
-                .next()
-                .await
-                .context("Stream ended before response")?
-                .context("WebSocket error")?;
-
-            if let Message::Text(text) = msg {
-                let parsed: Value = serde_json::from_str(&text)?;
-                let msg_type = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
-
-                if msg_type == "rpc_response" {
-                    let id = parsed.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    if id == expected_id {
-                        return Ok(parsed);
-                    }
-                }
-            }
-        }
     }
 }

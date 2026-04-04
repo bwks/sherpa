@@ -1,11 +1,13 @@
 mod helpers;
+#[path = "helpers/http_client.rs"]
+mod http_client;
 
 use anyhow::Result;
 use serde_json::json;
 
-use helpers::http_client::TestHttpClient;
 use helpers::test_server::TestServer;
 use helpers::ws_client::TestWsClient;
+use http_client::TestHttpClient;
 
 // ── JWT Authentication Tests ──
 
@@ -207,7 +209,7 @@ async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
 #[ignore]
 async fn test_cookie_login_valid() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let resp = client
         .post_form(
@@ -238,7 +240,7 @@ async fn test_cookie_login_valid() -> Result<()> {
 #[ignore]
 async fn test_cookie_login_invalid() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let status = client.login_form("admin", "WrongPass123!").await?;
 
@@ -258,7 +260,7 @@ async fn test_cookie_login_invalid() -> Result<()> {
 #[ignore]
 async fn test_health_check() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/health").await?;
     assert_eq!(response.status().as_u16(), 200);
@@ -270,7 +272,7 @@ async fn test_health_check() -> Result<()> {
 #[ignore]
 async fn test_login_page_renders() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/login").await?;
     assert_eq!(response.status().as_u16(), 200);
@@ -288,7 +290,7 @@ async fn test_login_page_renders() -> Result<()> {
 #[ignore]
 async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/").await?;
 
@@ -306,10 +308,96 @@ async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
 #[ignore]
 async fn test_api_spec_returns_json() -> Result<()> {
     let server = TestServer::start().await?;
-    let client = TestHttpClient::new(&server);
+    let client = TestHttpClient::new(server.addr);
 
     let response = client.get("/api/v1/spec").await?;
     assert_eq!(response.status().as_u16(), 200);
+
+    Ok(())
+}
+
+// ── HTTP REST API Tests ──
+
+#[tokio::test]
+#[ignore]
+async fn test_http_bearer_auth_list_users() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token);
+
+    let response = client.get("/api/v1/users").await?;
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "GET /api/v1/users with bearer token should return 200"
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_http_bearer_auth_create_user() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token.clone());
+
+    let response = client
+        .post_json(
+            "/api/v1/users",
+            &serde_json::json!({
+                "username": "httprestuser",
+                "password": "HttpPass123!",
+                "is_admin": false,
+                "token": token,
+            }),
+        )
+        .await?;
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "POST /api/v1/users should return 200, got: {}",
+        response.status()
+    );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_http_bearer_auth_delete_user() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    // Create a user to delete
+    ws.rpc_call(
+        "user.create",
+        serde_json::json!({
+            "token": token.clone(),
+            "username": "httpdel",
+            "password": "DelPass123!",
+            "is_admin": false,
+        }),
+    )
+    .await?;
+
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token);
+
+    let response = client.delete("/api/v1/users/httpdel").await?;
+    assert_eq!(
+        response.status().as_u16(),
+        200,
+        "DELETE /api/v1/users/httpdel should return 200, got: {}",
+        response.status()
+    );
 
     Ok(())
 }
