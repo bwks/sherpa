@@ -76,9 +76,7 @@
 - Rejects a hostname (e.g., "myserver.example.com") `[unit]` **P0**
 - Rejects an empty / whitespace-only string `[unit]` **P1**
 - Defaults to 0.0.0.0 when no input provided `[manual]` **P1**
-- Known gap: accepts out-of-range octets (e.g. `999.999.999.999`) `[unit]` **P1** *(documents existing behaviour — should fail once fixed)*
-
-**Known issue:** Regex `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` accepts invalid octets like `999.999.999.999`. Consider adding octet range validation.
+- Rejects out-of-range octets (e.g. `999.999.999.999`) `[unit]` **P1**
 
 ---
 
@@ -199,14 +197,14 @@
 
 ---
 
-## Documentation Bugs
+## Documentation Bugs (resolved)
 
-These are not test cases but issues found during review:
+These issues were found during review and have been fixed:
 
-1. **Dead `--db-pass` flag**: Header comment (line 18) mentions `--db-pass` but the arg parser (lines 1006-1022) only handles `--version` and `--help`. The env var `SHERPA_DB_PASSWORD` works, but the CLI flag does not exist.
-2. **Weak IPv4 validation**: Regex `^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$` accepts `999.999.999.999`. Should validate each octet is 0-255.
-3. **Password complexity gap**: Script only checks length (>= 8 chars). The Rust-side `validate_password_strength()` requires uppercase, lowercase, and special characters. Consider aligning the two.
-4. **Port check ordering**: `check_port_available` runs after `install_system_packages` and `install_docker`. If Docker or another package binds the target port, the user has already waited through a long apt install before being told the port is in use. Consider moving the port check to pre-flight.
-5. **`cleanup_on_error` calls `docker` without a guard**: When the install fails before Docker is installed (e.g., at the Ubuntu version check), `cleanup_on_error` runs `docker ps -a ...` which prints `docker: command not found` to stderr. The `2>/dev/null` on the pipe only silences `grep`'s stderr, not `docker`'s. Fix: add `2>/dev/null` to the `docker ps` call itself, or guard with `command -v docker >/dev/null 2>&1`.
-6. **`check_port_available` breaks idempotent re-runs**: When sherpa-db is already running and bound to `DB_PORT`, a second invocation of the installer fails at `check_port_available` before it can reach `stop_existing_container`. The fix is to check whether the port is held by the sherpa-db container itself and skip the error in that case (or move `stop_existing_container` before the port check).
-7. **`setup_sherpa_user` does not enforce shell on existing user**: If a user named `sherpa` already exists (e.g., as a regular login user with `/bin/bash`), the script detects the existing account and skips user creation, leaving the shell unchanged. On a fresh install the system user is created with `/usr/sbin/nologin`. Consider adding a check to update the shell if the existing account has an interactive shell.
+1. ~~**Dead `--db-pass` flag**: Header comment mentioned `--db-pass` but the arg parser only handles `--version` and `--help`.~~ **Fixed** — comment updated to show correct usage.
+2. ~~**Weak IPv4 validation**: Regex accepted `999.999.999.999`.~~ **Fixed** — added octet range validation (0-255).
+3. **Password complexity gap**: Script only checks length (>= 8 chars). The Rust-side `validate_password_strength()` requires uppercase, lowercase, and special characters. Consider aligning the two. *(Deferred — requires a design decision on whether to enforce complexity in the installer.)*
+4. ~~**Port check ordering**: `check_port_available` ran after `install_system_packages` and `install_docker`.~~ **Fixed** — moved to pre-flight, before package installation.
+5. ~~**`cleanup_on_error` calls `docker` without a guard**.~~ **Fixed** — guarded with `command -v docker >/dev/null 2>&1`.
+6. ~~**`check_port_available` breaks idempotent re-runs**.~~ **Fixed** — when sherpa-db container owns the port, the check passes and the container is replaced later.
+7. ~~**`setup_sherpa_user` does not enforce shell on existing user**.~~ **Fixed** — system users (uid < 1000) now get their shell updated to `/usr/sbin/nologin` if it differs.
