@@ -1,4 +1,5 @@
-{% extends "layout/base.html.jinja" %}
+{% extends "layouts/base.html.jinja" %}
+{% import "macros/icons.html.jinja" as icons %}
 
 {% block title %}Versions: {{ model }} ({{ kind }}) - Sherpa Labs{% endblock %}
 
@@ -38,24 +39,24 @@
         </div>
         {% else %}
         <table class="min-w-full divide-y divide-border">
-            <thead class="bg-surface">
+            <thead class="bg-table-head">
                 <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
                         Version
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
                         Default
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
                         CPU
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
                         Memory
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
                         OS Variant
                     </th>
-                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-muted uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-right text-xs font-medium text-table-head-text uppercase tracking-wider">
                         Actions
                     </th>
                 </tr>
@@ -87,12 +88,12 @@
                         {{ config.os_variant }}
                     </td>
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <div class="flex items-center justify-end space-x-2">
-                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" class="inline-block px-3 py-1 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded transition-colors">
-                                Edit
+                        <div class="flex items-center justify-end space-x-3">
+                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="text-muted hover:text-heading transition-colors" title="View">
+                                {% call icons::eye() %}
                             </a>
-                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="inline-block px-3 py-1 text-sm font-medium text-white bg-surface hover:bg-hover rounded transition-colors">
-                                View
+                            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" class="text-edit hover:text-edit-hover transition-colors" title="Edit">
+                                {% call icons::pencil() %}
                             </a>
                         </div>
                     </td>

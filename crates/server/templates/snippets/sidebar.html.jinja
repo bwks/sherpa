@@ -41,9 +41,9 @@
 
         <!-- Users -->
         {% if active_page == "admin_users" %}
-        <a href="/admin" class="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-accent/15 text-accent">
+        <a href="/admin/users" class="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors bg-accent/15 text-accent">
         {% else %}
-        <a href="/admin" class="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-header-link hover:text-header-link-hover hover:bg-white/5">
+        <a href="/admin/users" class="flex items-center space-x-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-header-link hover:text-header-link-hover hover:bg-white/5">
         {% endif %}
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
@@ -88,6 +88,7 @@
                 <option value="theme-stone-amber">Stone Amber</option>
                 <option value="theme-neon-cyber">Neon Cyber</option>
                 <option value="theme-neon-matrix">Neon Matrix</option>
+                <option value="theme-retro-nes">Retro NES</option>
             </select>
             <button onclick="toggleTheme()" class="text-muted hover:text-heading cursor-pointer transition-colors" title="Toggle dark mode">
                 <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">

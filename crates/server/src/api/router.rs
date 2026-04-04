@@ -106,7 +106,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/profile/ssh-keys", post(add_ssh_key_handler))
         .route("/profile/ssh-keys/{index}", delete(delete_ssh_key_handler))
         // Admin routes (require admin privileges)
-        .route("/admin", get(admin_dashboard_handler))
+        .route("/admin/users", get(admin_dashboard_handler))
         .route("/admin/labs", get(admin_labs_list_handler))
         .route("/admin/users/{username}", get(admin_user_edit_handler))
         .route("/admin/users/{username}", delete(admin_delete_user_handler))

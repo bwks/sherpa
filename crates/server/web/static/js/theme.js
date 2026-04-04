@@ -8,6 +8,7 @@
     "theme-stone-amber",
     "theme-neon-cyber",
     "theme-neon-matrix",
+    "theme-retro-nes",
   ];
 
   function applyTheme(dark) {
