@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.48] - 2026-04-04
+
+### Features
+
+- Kali linux node by @bwks ([df3cf37](https://github.com/bwks/sherpa/commit/df3cf3744b890a760cdbfe6dbf910bad2d514e3f))
+- Kali linux node by @bwks ([9798220](https://github.com/bwks/sherpa/commit/97982202b34f41a9d88b5a818f588e7106576220))
+
+### Miscellaneous
+
+- Merge pull request #201 from bwks/v0.3.48
+
+V0.3.48 by @bwks in [#201](https://github.com/bwks/sherpa/pull/201) ([3bbb01d](https://github.com/bwks/sherpa/commit/3bbb01d68927d701f1259aa70d7fd14626259274))
+- Obey clippy by @bwks ([732b059](https://github.com/bwks/sherpa/commit/732b059a9e4112bf6123b91a513983bcc8c1221b))
+- Merge pull request #202 from bwks/test-coverage-improvements
+
+test: additional tests by @bwks in [#202](https://github.com/bwks/sherpa/pull/202) ([01ed60f](https://github.com/bwks/sherpa/commit/01ed60f4da4e4046a030e492de47e8c69defa404))
+- Version bump by @bwks ([78fdfa5](https://github.com/bwks/sherpa/commit/78fdfa56080e4f686c0b3b29b25bf92b145322f4))
+- Merge pull request #200 from bwks/changelog/v0.3.47
+
+chore(release): update changelog for v0.3.47 by @github-actions[bot] in [#200](https://github.com/bwks/sherpa/pull/200) ([d133867](https://github.com/bwks/sherpa/commit/d13386787e6287b1636bd07ef5a3f3a648fdcef1))
+
+### Testing
+
+- Additional tests by @bwks ([29a0436](https://github.com/bwks/sherpa/commit/29a0436ebe96e7c316d3931c0422c73159136a57))
 ## [0.3.47] - 2026-04-04
 
 ### Miscellaneous
