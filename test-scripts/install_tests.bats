@@ -300,11 +300,23 @@ _source() {
 }
 
 @test "check_port_available: fails when target port is already in use" {
-    # Bind a random high port, then tell the script that is DB_PORT
+    # Bind a random high port, then tell the script that is DB_PORT.
+    # Use Python to open a TCP socket — works regardless of which nc variant
+    # is installed (OpenBSD nc vs GNU netcat have incompatible flags).
     local test_port=18999
-    # Start a listener in the background
-    bash -c "nc -l -p ${test_port} >/dev/null 2>&1 &"
-    sleep 0.3
+    python3 -c "
+import socket, time, os
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+s.bind(('0.0.0.0', ${test_port}))
+s.listen(1)
+# Write PID so parent can kill us
+with open('/tmp/sherpa_port_test.pid', 'w') as f:
+    f.write(str(os.getpid()))
+# Block until killed
+time.sleep(60)
+" &
+    sleep 0.5
     run bash -c "
         set +e
         source '${STRIPPED_SCRIPT}'
@@ -312,7 +324,8 @@ _source() {
         check_port_available
     "
     # Kill the listener
-    pkill -f "nc -l -p ${test_port}" 2>/dev/null || true
+    kill "$(cat /tmp/sherpa_port_test.pid 2>/dev/null)" 2>/dev/null || true
+    rm -f /tmp/sherpa_port_test.pid
     [ "$status" -eq 1 ]
     [[ "$output" == *"already in use"* ]]
 }
@@ -479,7 +492,7 @@ _source() {
     [[ "$output" == *"Invalid IPv4"* ]]
 }
 
-@test "get_server_ip: rejects an empty string" {
+@test "get_server_ip: rejects an empty / whitespace-only string" {
     run bash -c "
         set +e
         source '${STRIPPED_SCRIPT}'
@@ -487,20 +500,18 @@ _source() {
         get_server_ip
     "
     [ "$status" -eq 1 ]
+    [[ "$output" == *"Invalid IPv4"* ]]
 }
 
-@test "get_server_ip: known gap — accepts out-of-range octets (e.g. 999.999.999.999)" {
-    # The regex ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ does not validate octet range.
-    # This test documents the existing behaviour; it should be updated once
-    # stricter validation is added to the script (see Documentation Bugs in spec).
+@test "get_server_ip: rejects out-of-range octets (e.g. 999.999.999.999)" {
     run bash -c "
         set +e
         source '${STRIPPED_SCRIPT}'
         SERVER_IP='999.999.999.999'
         get_server_ip
     "
-    # Currently passes — this is the known gap, not desired behaviour.
-    [ "$status" -eq 0 ]
+    [ "$status" -eq 1 ]
+    [[ "$output" == *"Invalid IPv4"* ]]
 }
 
 # ============================================================
@@ -702,11 +713,8 @@ _require_container() {
     if [ -z "${SHERPA_DB_PASSWORD:-}" ] || [ -z "${SHERPA_SERVER_IPV4:-}" ]; then
         skip "set SHERPA_DB_PASSWORD and SHERPA_SERVER_IPV4 to run idempotency test"
     fi
-    # Known issue: check_port_available fails when sherpa-db is already running on DB_PORT.
-    # Stop the container first so the port check passes, then re-run (the install restarts it).
-    # See Documentation Bug #6 in the spec.
-    docker stop sherpa-db 2>/dev/null || true
-    docker rm sherpa-db 2>/dev/null || true
+    # check_port_available now detects when sherpa-db owns the port and skips the
+    # error, so no manual container teardown is needed before re-running.
     run bash -c "SHERPA_DB_PASSWORD='${SHERPA_DB_PASSWORD}' SHERPA_SERVER_IPV4='${SHERPA_SERVER_IPV4}' bash '${SCRIPT}'"
     [ "$status" -eq 0 ]
 }
