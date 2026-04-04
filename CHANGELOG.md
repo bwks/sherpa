@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.49] - 2026-04-04
+
+### Bug Fixes
+
+- Resolve 6 installer bugs identified in test spec review by @claude ([f697e05](https://github.com/bwks/sherpa/commit/f697e0597b2b8573b492fba3acfdb4b27f9503fe))
+
+### Documentation
+
+- Update project tasks by @bwks ([8972092](https://github.com/bwks/sherpa/commit/8972092c01613ba8dcee0da4cd406b1e1f71db0a))
+
+### Miscellaneous
+
+- Merge pull request #205 from bwks/v0.3.49
+
+V0.3.49 by @bwks in [#205](https://github.com/bwks/sherpa/pull/205) ([52aa1ca](https://github.com/bwks/sherpa/commit/52aa1ca84b65c872a8f685f3c48d0191ecd4f3ed))
+- Merge pull request #204 from bwks/fix/installer-bugs
+
+fix: resolve 6 installer bugs identified in test spec review by @bwks in [#204](https://github.com/bwks/sherpa/pull/204) ([3bb6ce9](https://github.com/bwks/sherpa/commit/3bb6ce9df7a93f911818c8f45cc0272e179ba322))
+- Version bump by @bwks ([1de988b](https://github.com/bwks/sherpa/commit/1de988b8cce3a6b271487797320869549f9fe79f))
+- Merge pull request #203 from bwks/changelog/v0.3.48
+
+chore(release): update changelog for v0.3.48 by @github-actions[bot] in [#203](https://github.com/bwks/sherpa/pull/203) ([07a7cfa](https://github.com/bwks/sherpa/commit/07a7cfaa99804b8b190821281ed8a3ffd6923ecf))
 ## [0.3.48] - 2026-04-04
 
 ### Features
