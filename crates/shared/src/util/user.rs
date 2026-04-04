@@ -55,34 +55,45 @@ pub fn sherpa_user() -> Result<User> {
 //     }
 // }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use std::env;
+#[cfg(test)]
+mod tests {
+    use std::env;
 
-//     #[test]
-//     fn test_get_username_from_user() {
-//         env::set_var("USER", "testuser");
-//         env::remove_var("USERNAME");
-//         let username = get_username().unwrap();
-//         assert_eq!(username, "testuser");
-//         env::remove_var("USER");
-//     }
+    use super::*;
 
-//     #[test]
-//     fn test_get_username_from_username() {
-//         env::remove_var("USER");
-//         env::set_var("USERNAME", "testuser");
-//         let username = get_username().unwrap();
-//         assert_eq!(username, "testuser");
-//         env::remove_var("USERNAME");
-//     }
+    #[test]
+    fn test_get_username_from_user() {
+        // SAFETY: single-threaded test; no other thread reads USER concurrently.
+        unsafe {
+            env::set_var("USER", "testuser");
+            env::remove_var("USERNAME");
+        }
+        let username = get_username().unwrap();
+        assert_eq!(username, "testuser");
+    }
 
-//     #[test]
-//     fn test_get_username_failure() {
-//         env::remove_var("USER");
-//         env::remove_var("USERNAME");
-//         let result = get_username();
-//         assert!(result.is_err());
-//     }
-// }
+    #[test]
+    fn test_get_username_from_username_fallback() {
+        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        unsafe {
+            env::remove_var("USER");
+            env::set_var("USERNAME", "fallbackuser");
+        }
+        let username = get_username().unwrap();
+        assert_eq!(username, "fallbackuser");
+        unsafe {
+            env::remove_var("USERNAME");
+        }
+    }
+
+    #[test]
+    fn test_get_username_failure_when_both_unset() {
+        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        unsafe {
+            env::remove_var("USER");
+            env::remove_var("USERNAME");
+        }
+        let result = get_username();
+        assert!(result.is_err());
+    }
+}

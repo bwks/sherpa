@@ -321,51 +321,213 @@ pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
     Ok(())
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use std::fs::{self};
-//     use tempfile::TempDir;
+#[cfg(test)]
+mod tests {
+    use std::fs;
 
-//     #[test]
-//     fn test_create_symlink() -> Result<()> {
-//         let temp_dir = TempDir::new()?;
-//         let source_path = temp_dir.path().join("source.txt");
-//         let target_path = temp_dir.path().join("target.txt");
+    use anyhow::Result;
+    use tempfile::TempDir;
 
-//         // Create source file
-//         fs::write(&source_path, "test content")?;
+    use super::*;
 
-//         // Create symlink
-//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+    #[test]
+    fn test_path_to_string() {
+        let path = std::path::Path::new("/tmp/test.txt");
+        assert_eq!(path_to_string(path), "/tmp/test.txt");
+    }
 
-//         // Verify symlink exists and points to source
-//         assert!(target_path.exists());
-//         assert!(target_path.is_symlink());
-//         assert_eq!(
-//             fs::read_to_string(&target_path)?,
-//             fs::read_to_string(&source_path)?
-//         );
+    #[test]
+    fn test_get_cwd_returns_a_path() {
+        let cwd = get_cwd().unwrap();
+        assert!(!cwd.is_empty());
+    }
 
-//         Ok(())
-//     }
+    #[test]
+    fn test_expand_path_no_tilde() {
+        let result = expand_path("/tmp/foo/bar");
+        assert_eq!(result, "/tmp/foo/bar");
+    }
 
-//     #[test]
-//     fn test_create_symlink_existing_target() -> Result<()> {
-//         let temp_dir = TempDir::new()?;
-//         let source_path = temp_dir.path().join("source.txt");
-//         let target_path = temp_dir.path().join("target.txt");
+    #[test]
+    fn test_expand_path_with_tilde() {
+        let result = expand_path("~/something");
+        // After expansion ~ should be replaced with the home directory
+        assert!(!result.starts_with('~'));
+        assert!(result.ends_with("something"));
+    }
 
-//         // Create source and initial target
-//         fs::write(&source_path, "source content")?;
-//         fs::write(&target_path, "target content")?;
+    #[test]
+    fn test_file_exists_false_for_nonexistent() {
+        assert!(!file_exists("/tmp/sherpa_nonexistent_file_12345.txt"));
+    }
 
-//         // Create symlink (should overwrite target)
-//         create_symlink(source_path.to_str().unwrap(), target_path.to_str().unwrap())?;
+    #[test]
+    fn test_file_exists_true_after_create() -> Result<()> {
+        let dir = TempDir::new()?;
+        let path = dir.path().join("exists.txt");
+        fs::write(&path, "hello")?;
+        assert!(file_exists(path.to_str().unwrap()));
+        Ok(())
+    }
 
-//         assert!(target_path.is_symlink());
-//         assert_eq!(fs::read_to_string(&target_path)?, "source content");
+    #[test]
+    fn test_file_exists_false_for_directory() -> Result<()> {
+        let dir = TempDir::new()?;
+        assert!(!file_exists(dir.path().to_str().unwrap()));
+        Ok(())
+    }
 
-//         Ok(())
-//     }
-// }
+    #[test]
+    fn test_dir_exists_false_for_nonexistent() {
+        assert!(!dir_exists("/tmp/sherpa_nonexistent_dir_12345"));
+    }
+
+    #[test]
+    fn test_dir_exists_true_for_existing() -> Result<()> {
+        let dir = TempDir::new()?;
+        assert!(dir_exists(dir.path().to_str().unwrap()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_dir_exists_false_for_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let path = dir.path().join("file.txt");
+        fs::write(&path, "data")?;
+        assert!(!dir_exists(path.to_str().unwrap()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_dir_and_verify() -> Result<()> {
+        let dir = TempDir::new()?;
+        let new_dir = dir.path().join("nested/deep");
+        create_dir(new_dir.to_str().unwrap())?;
+        assert!(new_dir.is_dir());
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_file_and_load_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let path = dir.path().join("hello.txt");
+        create_file(path.to_str().unwrap(), "hello world".to_string())?;
+        let content = load_file(path.to_str().unwrap())?;
+        assert_eq!(content, "hello world");
+        Ok(())
+    }
+
+    #[test]
+    fn test_load_file_nonexistent_returns_err() {
+        assert!(load_file("/tmp/sherpa_nonexistent_99999.txt").is_err());
+    }
+
+    #[test]
+    fn test_delete_file_removes_file() -> Result<()> {
+        let dir = TempDir::new()?;
+        let path = dir.path().join("to_delete.txt");
+        fs::write(&path, "data")?;
+        assert!(path.exists());
+        delete_file(path.to_str().unwrap())?;
+        assert!(!path.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete_file_nonexistent_is_ok() {
+        assert!(delete_file("/tmp/sherpa_nonexistent_delete.txt").is_ok());
+    }
+
+    #[test]
+    fn test_delete_dirs_removes_directory() -> Result<()> {
+        let dir = TempDir::new()?;
+        let sub = dir.path().join("subdir");
+        fs::create_dir(&sub)?;
+        fs::write(sub.join("file.txt"), "data")?;
+        assert!(sub.is_dir());
+        delete_dirs(sub.to_str().unwrap())?;
+        assert!(!sub.exists());
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete_dirs_nonexistent_is_ok() {
+        assert!(delete_dirs("/tmp/sherpa_nonexistent_dir_delete").is_ok());
+    }
+
+    #[test]
+    fn test_copy_file_copies_contents() -> Result<()> {
+        let dir = TempDir::new()?;
+        let src = dir.path().join("src.txt");
+        let dst = dir.path().join("dst.txt");
+        fs::write(&src, "copy me")?;
+        copy_file(src.to_str().unwrap(), dst.to_str().unwrap())?;
+        assert_eq!(fs::read_to_string(&dst)?, "copy me");
+        Ok(())
+    }
+
+    #[test]
+    fn test_copy_file_nonexistent_src_returns_err() {
+        assert!(copy_file("/tmp/sherpa_no_src.txt", "/tmp/sherpa_dst.txt").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_symlink() -> Result<()> {
+        let dir = TempDir::new()?;
+        let src = dir.path().join("source.txt");
+        let link = dir.path().join("link.txt");
+        fs::write(&src, "symlink content")?;
+        create_symlink(src.to_str().unwrap(), link.to_str().unwrap())?;
+        assert!(link.exists());
+        assert!(link.is_symlink());
+        assert_eq!(fs::read_to_string(&link)?, "symlink content");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_symlink_replaces_existing_target() -> Result<()> {
+        let dir = TempDir::new()?;
+        let src = dir.path().join("source.txt");
+        let link = dir.path().join("link.txt");
+        fs::write(&src, "new content")?;
+        fs::write(&link, "old content")?;
+        create_symlink(src.to_str().unwrap(), link.to_str().unwrap())?;
+        assert!(link.is_symlink());
+        assert_eq!(fs::read_to_string(&link)?, "new content");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fix_permissions_recursive_file() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new()?;
+        let file = dir.path().join("perms.txt");
+        fs::write(&file, "data")?;
+        fix_permissions_recursive(file.to_str().unwrap())?;
+        let mode = fs::metadata(&file)?.permissions().mode() & 0o777;
+        assert_eq!(mode, 0o660);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_fix_permissions_recursive_dir() -> Result<()> {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new()?;
+        let sub = dir.path().join("subdir");
+        fs::create_dir(&sub)?;
+        let file = sub.join("file.txt");
+        fs::write(&file, "data")?;
+        fix_permissions_recursive(sub.to_str().unwrap())?;
+        let dir_mode = fs::metadata(&sub)?.permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o775);
+        let file_mode = fs::metadata(&file)?.permissions().mode() & 0o777;
+        assert_eq!(file_mode, 0o660);
+        Ok(())
+    }
+}
