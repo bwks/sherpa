@@ -1,0 +1,122 @@
+{% extends "layouts/base.html.jinja" %}
+
+{% block title %}Tools - Sherpa Labs{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div>
+        <h2 class="text-3xl font-bold text-heading">Tools</h2>
+        <p class="mt-1 text-sm text-muted">Administrative maintenance tools</p>
+    </div>
+
+    <!-- Lab Clean -->
+    <div class="bg-card rounded-lg shadow-sm border border-border p-6">
+        <h3 class="text-lg font-semibold text-heading">Lab Clean</h3>
+        <p class="mt-1 text-sm text-muted">
+            Force-clean all resources for a lab by ID. This removes VMs, containers, networks,
+            interfaces, database records, and the lab directory without ownership checks.
+        </p>
+
+        <form id="clean-form" class="mt-4 flex items-end gap-3" onsubmit="submitClean(event)">
+            <div class="flex-1 max-w-sm">
+                <label for="lab-id" class="block text-sm font-medium text-body mb-1">Lab ID</label>
+                <input
+                    type="text"
+                    id="lab-id"
+                    name="lab_id"
+                    required
+                    placeholder="e.g. a10736e8"
+                    pattern="[a-f0-9]+"
+                    class="w-full px-3 py-2 bg-input border border-border rounded-lg text-body text-sm placeholder-muted focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent font-mono"
+                />
+            </div>
+            <button
+                type="submit"
+                id="clean-btn"
+                class="px-4 py-2 text-white bg-danger-solid text-sm font-medium rounded-lg hover:bg-danger-solid-hover transition-colors cursor-pointer"
+            >
+                Clean Lab
+            </button>
+        </form>
+
+        <!-- Confirmation -->
+        <div id="clean-confirm" class="hidden mt-4 p-4 bg-danger-bg/10 border border-danger-bg rounded-lg">
+            <p class="text-sm text-body">
+                Are you sure you want to clean lab <span id="confirm-lab-id" class="font-mono font-semibold"></span>?
+                This will destroy all associated resources and cannot be undone.
+            </p>
+            <div class="mt-3 flex gap-2">
+                <button
+                    onclick="executeClean()"
+                    class="px-4 py-2 text-white bg-danger-solid text-sm font-medium rounded-lg hover:bg-danger-solid-hover transition-colors cursor-pointer"
+                >
+                    Confirm Clean
+                </button>
+                <button
+                    onclick="cancelClean()"
+                    class="px-4 py-2 bg-card border border-border text-body text-sm font-medium rounded-lg hover:bg-hover transition-colors cursor-pointer"
+                >
+                    Cancel
+                </button>
+            </div>
+        </div>
+
+        <!-- Result -->
+        <div id="clean-result" class="hidden mt-4"></div>
+    </div>
+</div>
+
+<template id="clean-success-template">
+    <div class="p-4 bg-success-bg/10 border border-success-bg rounded-lg space-y-3">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-success-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span class="text-sm font-semibold text-success-text">Clean successful</span>
+        </div>
+        <div class="text-sm text-body space-y-1">
+            <p><span class="text-muted">Lab:</span> <span class="font-mono result-lab-name"></span> (<span class="font-mono result-lab-id"></span>)</p>
+            <p><span class="text-muted">Containers:</span> <span class="result-containers"></span></p>
+            <p><span class="text-muted">VMs:</span> <span class="result-vms"></span></p>
+            <p><span class="text-muted">Disks:</span> <span class="result-disks"></span></p>
+            <p><span class="text-muted">Docker networks:</span> <span class="result-docker-nets"></span></p>
+            <p><span class="text-muted">Libvirt networks:</span> <span class="result-libvirt-nets"></span></p>
+            <p><span class="text-muted">Interfaces:</span> <span class="result-interfaces"></span></p>
+            <p><span class="text-muted">Database:</span> <span class="result-database"></span></p>
+            <p><span class="text-muted">Directory:</span> <span class="result-directory"></span></p>
+        </div>
+    </div>
+</template>
+
+<template id="clean-partial-template">
+    <div class="p-4 bg-warning-bg/10 border border-warning-bg rounded-lg space-y-3">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-warning-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <span class="text-sm font-semibold text-warning-text">Clean completed with errors</span>
+        </div>
+        <div class="text-sm text-body space-y-1">
+            <p><span class="text-muted">Lab:</span> <span class="font-mono result-lab-name"></span> (<span class="font-mono result-lab-id"></span>)</p>
+        </div>
+        <div class="text-sm text-body">
+            <p class="text-muted font-medium mb-1">Errors:</p>
+            <ul class="result-errors list-disc list-inside space-y-0.5"></ul>
+        </div>
+    </div>
+</template>
+
+<template id="clean-error-template">
+    <div class="p-4 bg-danger-bg/10 border border-danger-bg rounded-lg">
+        <div class="flex items-center gap-2">
+            <svg class="w-5 h-5 text-danger-text" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            <span class="text-sm font-semibold text-danger-text result-message">Clean failed</span>
+        </div>
+    </div>
+</template>
+
+<script src="/static/js/admin-tools.js"></script>
+{% endblock %}

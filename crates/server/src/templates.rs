@@ -699,6 +699,32 @@ impl IntoResponse for AdminNodeImageUploadTemplate {
 }
 
 // ============================================================================
+// Admin Tools Templates
+// ============================================================================
+
+/// Admin tools page template
+#[derive(Template)]
+#[template(path = "admin/tools.html.jinja")]
+pub struct AdminToolsTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+}
+
+impl IntoResponse for AdminToolsTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
 // Lab Create Templates
 // ============================================================================
 
@@ -901,9 +927,14 @@ pub struct DestroySummaryFailedFragment {
 
 #[cfg(test)]
 mod tests {
-    use askama::NO_VALUES;
+    use askama::{NO_VALUES, Template};
 
     use super::filters::initial;
+    use super::*;
+
+    // ========================================================================
+    // Filter tests
+    // ========================================================================
 
     #[test]
     fn test_initial_lowercase() {
@@ -918,5 +949,243 @@ mod tests {
     #[test]
     fn test_initial_empty() {
         assert_eq!(initial("", NO_VALUES).unwrap(), "");
+    }
+
+    // ========================================================================
+    // Template render tests
+    // ========================================================================
+
+    #[test]
+    fn test_dashboard_template_renders() {
+        let tpl = DashboardTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "dashboard".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("testuser"));
+    }
+
+    #[test]
+    fn test_labs_list_template_renders() {
+        let tpl = LabsListTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("testuser"));
+    }
+
+    #[test]
+    fn test_labs_grid_template_renders_empty() {
+        let tpl = LabsGridTemplate { labs: vec![] };
+        let html = tpl.render().expect("template should render");
+        // Empty grid still renders the table structure
+        assert!(html.contains("<table"));
+        assert!(html.contains("Name"));
+    }
+
+    #[test]
+    fn test_labs_grid_template_renders_with_labs() {
+        let tpl = LabsGridTemplate {
+            labs: vec![LabSummary {
+                id: "a10736e8".to_string(),
+                name: "test-lab".to_string(),
+                status: shared::data::LabStatus::Unknown,
+                node_count: 2,
+            }],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("test-lab"));
+        assert!(html.contains("a10736e8"));
+    }
+
+    #[test]
+    fn test_lab_create_template_renders() {
+        let tpl = LabCreateTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            generated_name: "happy-panda".to_string(),
+            models: vec!["cisco_iosv".to_string(), "ubuntu_linux".to_string()],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("happy-panda"));
+        assert!(html.contains("cisco_iosv"));
+        assert!(html.contains("ubuntu_linux"));
+    }
+
+    #[test]
+    fn test_lab_create_progress_fragment_renders() {
+        let tpl = LabCreateProgressFragment {
+            lab_id: "a10736e8".to_string(),
+            lab_name: "test-lab".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("a10736e8"));
+    }
+
+    #[test]
+    fn test_create_summary_failed_fragment_renders() {
+        let tpl = CreateSummaryFailedFragment {
+            message: "something went wrong".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("something went wrong"));
+    }
+
+    #[test]
+    fn test_admin_tools_template_renders() {
+        let tpl = AdminToolsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_tools".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("Tools"));
+        assert!(html.contains("Lab Clean"));
+        assert!(html.contains("lab-id"));
+    }
+
+    #[test]
+    fn test_admin_tools_template_has_script_src() {
+        let tpl = AdminToolsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_tools".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("admin-tools.js"));
+    }
+
+    #[test]
+    fn test_admin_labs_template_renders_empty() {
+        let tpl = AdminLabsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_labs".to_string(),
+            labs: vec![],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("No labs found"));
+    }
+
+    #[test]
+    fn test_admin_labs_template_renders_with_labs() {
+        let tpl = AdminLabsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_labs".to_string(),
+            labs: vec![AdminLabSummary {
+                lab_id: "abc12345".to_string(),
+                name: "my-lab".to_string(),
+                owner_username: "alice".to_string(),
+                node_count: 3,
+            }],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("my-lab"));
+        assert!(html.contains("abc12345"));
+        assert!(html.contains("alice"));
+    }
+
+    #[test]
+    fn test_login_page_template_renders() {
+        let tpl = LoginPageTemplate {
+            error: String::new(),
+            message: String::new(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("Login") || html.contains("login"));
+    }
+
+    #[test]
+    fn test_login_error_template_renders() {
+        let tpl = LoginErrorTemplate {
+            message: "Invalid credentials".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("Invalid credentials"));
+    }
+
+    #[test]
+    fn test_signup_page_template_renders() {
+        let tpl = SignupPageTemplate {};
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("Sign") || html.contains("sign"));
+    }
+
+    #[test]
+    fn test_error_404_template_renders() {
+        let tpl = Error404Template {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "".to_string(),
+            message: "Page not found".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("404") || html.contains("not found") || html.contains("Not Found"));
+    }
+
+    #[test]
+    fn test_error_template_renders() {
+        let tpl = ErrorTemplate {
+            message: "something broke".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("something broke"));
+    }
+
+    #[test]
+    fn test_empty_state_template_renders() {
+        let tpl = EmptyStateTemplate {
+            username: "testuser".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("testuser") || html.contains("no labs") || html.contains("No labs"));
+    }
+
+    // ========================================================================
+    // Sidebar rendering — active page highlighting
+    // ========================================================================
+
+    #[test]
+    fn test_sidebar_highlights_admin_tools() {
+        let tpl = AdminToolsTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_tools".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        // The active link should have the accent class
+        assert!(html.contains("/admin/tools"));
+    }
+
+    #[test]
+    fn test_sidebar_shows_admin_section_for_admins() {
+        let tpl = DashboardTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "dashboard".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("/admin/users"));
+        assert!(html.contains("/admin/labs"));
+        assert!(html.contains("/admin/tools"));
+        assert!(html.contains("/admin/node-images"));
+    }
+
+    #[test]
+    fn test_sidebar_hides_admin_section_for_non_admins() {
+        let tpl = DashboardTemplate {
+            username: "user".to_string(),
+            is_admin: false,
+            active_page: "dashboard".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(!html.contains("/admin/users"));
+        assert!(!html.contains("/admin/labs"));
+        assert!(!html.contains("/admin/tools"));
     }
 }

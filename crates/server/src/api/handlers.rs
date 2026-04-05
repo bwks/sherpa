@@ -21,13 +21,13 @@ use crate::services::{
 };
 use crate::templates::{
     AdminDashboardTemplate, AdminNodeImageUploadTemplate, AdminPasswordErrorTemplate,
-    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
-    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
-    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminToolsTemplate,
+    AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate, Error403Template,
+    Error404Template, ErrorTemplate, LabCreateProgressFragment, LabCreateTemplate,
+    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
+    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, LoginErrorTemplate, LoginPageTemplate,
+    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
+    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -1329,6 +1329,39 @@ pub async fn admin_labs_list_handler(
         labs: lab_summaries,
     }
     .into_response())
+}
+
+/// Admin tools page
+///
+/// GET /admin/tools
+pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
+    AdminToolsTemplate {
+        username: admin.username,
+        is_admin: true,
+        active_page: "admin_tools".to_string(),
+    }
+}
+
+/// Admin lab clean - force-clean all resources for a lab
+///
+/// POST /admin/tools/clean/{lab_id}
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn admin_tools_clean_handler(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!(
+        admin = %admin.username,
+        lab_id = %lab_id,
+        "Admin triggering lab clean from tools page"
+    );
+
+    let response = clean::clean_lab(&lab_id, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
 }
 
 /// Admin user edit page - shows user details and allows editing
