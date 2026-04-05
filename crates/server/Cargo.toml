@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.57"
+version = "0.3.58"
 edition = "2024"
 
 [dependencies]
@@ -51,7 +51,8 @@ jsonwebtoken = "9"
 askama = "0.14.0"
 
 
-# Async
+# Async / Cancellation
+tokio-util = { version = "0.7", features = ["rt"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
 async-stream = "0.3"
