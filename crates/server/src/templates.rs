@@ -291,6 +291,7 @@ pub struct LabDetailTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
+    pub lab_id: String,
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
@@ -807,6 +808,7 @@ pub struct CreateSummaryFailedFragment {
 #[derive(Template)]
 #[template(path = "user/partials/nodes-table.html.jinja")]
 pub struct NodesTableFragment {
+    pub lab_id: String,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
 }

@@ -1,3 +1,4 @@
+{% import "macros/icons.html.jinja" as icons %}
 <h2 class="text-xl font-semibold text-heading mb-4">
     Nodes
     <span class="text-base font-normal text-muted">
@@ -41,7 +42,7 @@
         </thead>
         <tbody class="bg-card divide-y divide-border">
             {% for device in devices %}
-            <tr class="hover:bg-hover transition-colors">
+            <tr class="hover:bg-hover transition-colors" id="node-row-{{ device.name }}">
                 <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-heading">
                     {{ device.name }}
                 </td>
@@ -82,19 +83,24 @@
                 <td class="px-6 py-4 text-sm text-body font-mono">
                     {% if device.disks.is_empty() %}-{% else %}{{ device.disks.join(", ") }}{% endif %}
                 </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
-                    {% if device.state.to_string() == "running" %}
-                    <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-danger-solid rounded opacity-50 cursor-not-allowed">
-                        Stop
-                    </button>
-                    <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-accent rounded opacity-50 cursor-not-allowed">
-                        Console
-                    </button>
-                    {% else %}
-                    <button disabled title="Coming Soon" class="px-3 py-1 text-xs font-medium text-white bg-green-600 rounded opacity-50 cursor-not-allowed">
-                        Start
-                    </button>
-                    {% endif %}
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <div class="flex items-center space-x-2">
+                        {% if device.state.to_string() == "running" %}
+                        <button
+                            onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'stop', this)"
+                            class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                            title="Stop node">
+                            {% call icons::stop() %}
+                        </button>
+                        {% else %}
+                        <button
+                            onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'start', this)"
+                            class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
+                            title="Start node">
+                            {% call icons::play() %}
+                        </button>
+                        {% endif %}
+                    </div>
                 </td>
             </tr>
             {% endfor %}

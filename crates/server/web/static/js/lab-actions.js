@@ -120,6 +120,72 @@ async function labDetailAction(labId, action, btn) {
     }
 }
 
+// ============================================================================
+// Node actions — per-node stop/start (used on /labs/{id} nodes table)
+// ============================================================================
+
+async function nodeAction(labId, nodeName, action, btn) {
+    btn.disabled = true;
+    btn.classList.add("animate-spin");
+
+    try {
+        var url = "/labs/" + encodeURIComponent(labId) +
+            "/nodes/" + encodeURIComponent(nodeName) + "/" + action;
+        var response = await fetch(url, { method: "POST" });
+
+        if (!response.ok) {
+            var text = await response.text();
+            showNodeNotification(nodeName, "error",
+                nodeName + ": " + (text || action + " failed (HTTP " + response.status + ")"));
+            return;
+        }
+
+        var data = await response.json();
+        var result = data.results[0];
+
+        if (result && result.success) {
+            showNodeNotification(nodeName, "success", result.message);
+        } else {
+            showNodeNotification(nodeName, "error",
+                result ? result.message : "Unknown error");
+        }
+    } catch (err) {
+        showNodeNotification(nodeName, "error", "Request failed: " + err.message);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove("animate-spin");
+    }
+}
+
+function showNodeNotification(nodeName, type, message) {
+    var existing = document.getElementById("node-notification-" + nodeName);
+    if (existing) {
+        existing.remove();
+    }
+
+    var row = document.getElementById("node-row-" + nodeName);
+    if (!row) return;
+
+    var tr = document.createElement("tr");
+    tr.id = "node-notification-" + nodeName;
+
+    var td = document.createElement("td");
+    td.colSpan = 9;
+    td.className = "px-6 py-2";
+
+    var div = document.createElement("div");
+    div.className = type === "success"
+        ? "text-sm text-success-text bg-success rounded-md px-3 py-2"
+        : "text-sm text-danger-solid bg-danger rounded-md px-3 py-2";
+    div.textContent = message;
+
+    td.appendChild(div);
+    tr.appendChild(td);
+    row.after(tr);
+
+    setTimeout(function() { tr.remove(); }, 5000);
+}
+
 function showDetailResult(type, message) {
     var resultDiv = document.getElementById("lab-action-result");
     resultDiv.className = type === "success"
