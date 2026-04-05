@@ -9,7 +9,7 @@
                 <code class="block font-mono text-xs text-body whitespace-nowrap overflow-hidden text-ellipsis bg-card p-2 rounded border border-border">{{ ssh_key }}</code>
             </div>
             <button
-                class="px-3.5 py-1.5 text-xs font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover cursor-pointer active:scale-[0.98] transition-all"
+                class="btn-danger-sm"
                 hx-delete="/profile/ssh-keys/{{ loop.index0 }}"
                 hx-target="#ssh-keys-list"
                 hx-swap="outerHTML"

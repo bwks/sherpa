@@ -291,6 +291,7 @@ pub struct LabDetailTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
+    pub lab_id: String,
     pub lab_info: LabInfo,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
@@ -303,6 +304,37 @@ pub struct LabDetailTemplate {
 }
 
 impl IntoResponse for LabDetailTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
+// Node Detail Template
+// ============================================================================
+
+/// Node detail page template
+#[derive(Template)]
+#[template(path = "user/node-detail.html.jinja")]
+pub struct NodeDetailTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+    pub lab_id: String,
+    pub lab_name: String,
+    pub device: DeviceInfo,
+    pub node_config: NodeConfig,
+    pub mgmt_mac: Option<String>,
+}
+
+impl IntoResponse for NodeDetailTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -807,6 +839,7 @@ pub struct CreateSummaryFailedFragment {
 #[derive(Template)]
 #[template(path = "user/partials/nodes-table.html.jinja")]
 pub struct NodesTableFragment {
+    pub lab_id: String,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
 }

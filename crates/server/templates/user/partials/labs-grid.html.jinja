@@ -12,15 +12,27 @@
         </thead>
         <tbody>
             {% for lab in labs %}
-            <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors">
-                <td class="p-4 text-sm text-body font-medium">{{ lab.name }}</td>
+            <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors" id="lab-row-{{ lab.id }}">
+                <td class="p-4 text-sm font-medium"><a href="/labs/{{ lab.id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab.name }}</a></td>
                 <td class="p-4 text-sm text-muted font-mono">{{ lab.id }}</td>
                 <td class="p-4 text-sm">
                     <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-neutral-badge text-neutral-badge-text">{{ lab.status }}</span>
                 </td>
                 <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                 <td class="p-4 text-sm text-body">
-                    <div class="flex justify-end">
+                    <div class="flex items-center justify-end space-x-2">
+                        <button
+                            onclick="labStart('{{ lab.id }}', this)"
+                            class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
+                            title="Start all nodes">
+                            {% call icons::play() %}
+                        </button>
+                        <button
+                            onclick="labStop('{{ lab.id }}', this)"
+                            class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                            title="Stop all nodes">
+                            {% call icons::stop() %}
+                        </button>
                         <a href="/labs/{{ lab.id }}" class="text-muted hover:text-heading transition-colors" title="View">
                             {% call icons::eye() %}
                         </a>
@@ -31,3 +43,4 @@
         </tbody>
     </table>
 </div>
+<script src="/js/lab-actions.js"></script>

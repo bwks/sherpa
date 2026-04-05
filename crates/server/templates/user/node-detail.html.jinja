@@ -1,0 +1,256 @@
+{% extends "layouts/base.html.jinja" %}
+{% import "macros/icons.html.jinja" as icons %}
+
+{% block title %}{{ device.name }} - Node Details{% endblock %}
+
+{% block content %}
+<!-- Breadcrumb Navigation -->
+<nav class="flex items-center mb-6 text-sm text-muted">
+    <a href="/" class="text-accent hover:text-accent-hover hover:underline">Dashboard</a>
+    <span class="mx-2">/</span>
+    <a href="/labs" class="text-accent hover:text-accent-hover hover:underline">Labs</a>
+    <span class="mx-2">/</span>
+    <a href="/labs/{{ lab_id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab_name }}</a>
+    <span class="mx-2">/</span>
+    <span class="text-heading font-medium">{{ device.name }}</span>
+</nav>
+
+<!-- Node Header -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-semibold text-heading">{{ device.name }}</h1>
+            <p class="text-sm text-muted mt-1 font-mono">{{ device.model }} / {{ device.kind }}</p>
+        </div>
+        <div>
+            {% if device.state.to_string() == "running" %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-success text-success-text">
+                Running
+            </span>
+            {% elif device.state.to_string() == "created" || device.state.to_string() == "starting" %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-warning text-warning-text">
+                {{ device.state.to_string()|capitalize }}
+            </span>
+            {% elif device.state.to_string() == "failed" %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-danger text-danger-text">
+                Failed
+            </span>
+            {% else %}
+            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neutral-badge text-neutral-badge-text">
+                {{ device.state.to_string()|capitalize }}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Network Information -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Network</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Mgmt IPv4</span>
+            <span class="block text-base text-heading font-mono">{% if device.mgmt_ipv4 != "" %}{{ device.mgmt_ipv4 }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Mgmt IPv6</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(ipv6) = device.mgmt_ipv6 %}{{ ipv6 }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Mgmt MAC</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(mac) = mgmt_mac %}{{ mac }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">VNC Port</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(port) = device.vnc_port %}{{ port }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Mgmt Interface</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.management_interface }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Dedicated Mgmt Interface</span>
+            <span class="block text-base text-heading font-mono">{% if node_config.dedicated_management_interface %}Yes{% else %}No{% endif %}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Compute Information -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Compute</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">CPU Count</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cpu_count }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">CPU Architecture</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cpu_architecture }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">CPU Model</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cpu_model }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Memory (MB)</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.memory }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">BIOS</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.bios }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Machine Type</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.machine_type }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">VMX Enabled</span>
+            <span class="block text-base text-heading font-mono">{% if node_config.vmx_enabled %}Yes{% else %}No{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">OS Variant</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.os_variant }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- Storage Information -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Storage</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">HDD Bus</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.hdd_bus }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">CDROM</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(cdrom) = node_config.cdrom %}{{ cdrom }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">CDROM Bus</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.cdrom_bus }}</span>
+        </div>
+        <div class="flex flex-col gap-1 md:col-span-2 lg:col-span-3">
+            <span class="block text-sm font-medium text-muted mb-1">Disks</span>
+            {% if device.disks.is_empty() %}
+            <span class="block text-base text-heading font-mono">-</span>
+            {% else %}
+            <div class="flex flex-wrap gap-2">
+                {% for disk in device.disks %}
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neutral-badge text-neutral-badge-text font-mono">
+                    {{ disk }}
+                </span>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Interface Configuration -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Interfaces</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Data Interface Count</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.data_interface_count }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Interface Prefix</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.interface_prefix }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Interface Type</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.interface_type }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">MTU</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.interface_mtu }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">First Interface Index</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.first_interface_index }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Reserved Interfaces</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.reserved_interface_count }}</span>
+        </div>
+    </div>
+</div>
+
+<!-- ZTP Configuration -->
+{% if node_config.ztp_enable %}
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Zero-Touch Provisioning</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Method</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.ztp_method }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Username</span>
+            <span class="block text-base text-heading font-mono">{% if let Some(user) = node_config.ztp_username %}{{ user }}{% else %}-{% endif %}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Password Auth</span>
+            <span class="block text-base text-heading font-mono">{% if node_config.ztp_password_auth %}Enabled{% else %}Disabled{% endif %}</span>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Image Information -->
+<div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
+    <h2 class="text-xl font-semibold text-heading mb-4">Image</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Model</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.model }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Version</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.version }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Kind</span>
+            <span class="block text-base text-heading font-mono">{{ node_config.kind }}</span>
+        </div>
+        {% if let Some(repo) = node_config.repo %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Repository</span>
+            <span class="block text-base text-heading font-mono">{{ repo }}</span>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Actions -->
+<div class="flex items-start space-x-4" id="node-row-{{ device.name }}">
+    <a href="/labs/{{ lab_id }}" class="btn-cancel">
+        Back to Lab
+    </a>
+    {% if device.state.to_string() == "running" %}
+    <button
+        onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'stop', this)"
+        class="btn-danger cursor-pointer"
+    >
+        Stop Node
+    </button>
+    {% else %}
+    <button
+        onclick="nodeAction('{{ lab_id }}', '{{ device.name }}', 'start', this)"
+        class="btn-primary cursor-pointer"
+    >
+        Start Node
+    </button>
+    {% endif %}
+    <button
+        onclick="nodeRedeploy('{{ lab_id }}', '{{ device.name }}', this)"
+        class="btn-edit cursor-pointer"
+    >
+        Redeploy Node
+    </button>
+</div>
+
+<script src="/js/lab-actions.js"></script>
+{% endblock %}

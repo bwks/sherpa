@@ -25,9 +25,9 @@ use crate::templates::{
     DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
     LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
     LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
-    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodeDetailTemplate,
+    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
+    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -1122,6 +1122,152 @@ pub async fn get_labs_html(
     }
 }
 
+/// Stop all nodes in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/stop
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn lab_stop_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = down::shutdown_lab_nodes(&lab_id, None, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Start all nodes in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/start
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn lab_start_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = resume::start_lab_nodes(&lab_id, None, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Stop a single node in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/nodes/{node_name}/stop
+#[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
+pub async fn node_stop_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path((lab_id, node_name)): Path<(String, String)>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = down::shutdown_lab_nodes(&lab_id, Some(&node_name), &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Start a single node in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/nodes/{node_name}/start
+#[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
+pub async fn node_start_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path((lab_id, node_name)): Path<(String, String)>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = resume::start_lab_nodes(&lab_id, Some(&node_name), &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Redeploy a single node in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/nodes/{node_name}/redeploy
+#[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
+pub async fn node_redeploy_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path((lab_id, node_name)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    // Read the saved manifest from the lab directory
+    let manifest_path = format!(
+        "{}/{}/{}",
+        shared::konst::SHERPA_LABS_PATH,
+        lab_id,
+        shared::konst::SHERPA_MANIFEST_FILE
+    );
+    let manifest_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        tracing::error!("Failed to read manifest at {}: {:?}", manifest_path, e);
+        ApiError::internal("Lab manifest not found. Labs created before this feature cannot be redeployed from the web UI.")
+    })?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_str).map_err(|e| {
+        tracing::error!("Failed to parse manifest: {:?}", e);
+        ApiError::internal("Failed to parse lab manifest")
+    })?;
+
+    let request = RedeployRequest {
+        lab_id,
+        node_name: node_name.clone(),
+        manifest,
+        username: auth.username,
+    };
+
+    let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
+
+    let result = redeploy::redeploy_node(request, &state, progress)
+        .await
+        .map_err(|e| {
+            tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
+            ApiError::internal(format!("Redeploy failed: {}", e))
+        })?;
+
+    Ok(Json(json!({
+        "success": result.success,
+        "message": result.message,
+    })))
+}
+
 /// Lab detail page handler
 ///
 /// Displays detailed information about a specific lab including:
@@ -1177,7 +1323,8 @@ pub async fn lab_detail_handler(
             LabDetailTemplate {
                 username: auth.username.clone(),
                 is_admin: auth.is_admin,
-                active_page: "dashboard".to_string(),
+                active_page: "labs".to_string(),
+                lab_id: lab_id.clone(),
                 lab_info: response.lab_info,
                 devices: response.devices,
                 device_count,
@@ -1237,6 +1384,151 @@ pub async fn lab_detail_handler(
             }
         }
     }
+}
+
+// ============================================================================
+// Node Detail Handler
+// ============================================================================
+
+/// Node detail page (web UI handler, cookie auth)
+///
+/// GET /labs/{lab_id}/nodes/{node_name}
+#[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
+pub async fn node_detail_handler(
+    Path((lab_id, node_name)): Path<(String, String)>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Validate ownership
+    let owner = match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(o) => o,
+        Err(_) => {
+            return Error404Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: "Lab not found.".to_string(),
+            }
+            .into_response();
+        }
+    };
+    if !auth.is_admin && auth.username != owner {
+        return Error403Template {
+            username: auth.username,
+            is_admin: auth.is_admin,
+            active_page: String::new(),
+            message: "You don't have permission to view this lab.".to_string(),
+        }
+        .into_response();
+    }
+
+    // Inspect lab to get runtime device info (VNC port, disks, state)
+    let request = InspectRequest {
+        lab_id: lab_id.clone(),
+        username: auth.username.clone(),
+    };
+
+    let inspect_response = match inspect::inspect_lab(request, &state).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::error!("Failed to inspect lab '{}': {:?}", lab_id, e);
+            return Error404Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: "An error occurred loading lab data.".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // Find the specific device
+    let device = match inspect_response
+        .devices
+        .iter()
+        .find(|d| d.name == node_name)
+    {
+        Some(d) => d.clone(),
+        None => {
+            return Error404Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: format!("Node '{}' not found in lab.", node_name),
+            }
+            .into_response();
+        }
+    };
+
+    // Fetch DbNode for mgmt_mac and image reference
+    let db_lab = match db::get_lab(&state.db, &lab_id).await {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::error!("Failed to get lab from DB: {:?}", e);
+            return Error404Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: "Lab not found.".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    let lab_record_id = match db_lab.id {
+        Some(id) => id,
+        None => {
+            return ErrorTemplate {
+                message: "Lab missing record ID.".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    let db_node = match db::get_node_by_name_and_lab(&state.db, &node_name, lab_record_id).await {
+        Ok(n) => n,
+        Err(e) => {
+            tracing::error!("Failed to get node from DB: {:?}", e);
+            return Error404Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: format!("Node '{}' not found.", node_name),
+            }
+            .into_response();
+        }
+    };
+
+    // Fetch node image config
+    let node_config = match db::get_node_image_by_id(&state.db, db_node.image.clone()).await {
+        Ok(Some(config)) => config,
+        Ok(None) => {
+            tracing::error!("Node image not found for node '{}'", node_name);
+            return ErrorTemplate {
+                message: "Node image configuration not found.".to_string(),
+            }
+            .into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to fetch node image: {:?}", e);
+            return ErrorTemplate {
+                message: "Failed to load node image configuration.".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    NodeDetailTemplate {
+        username: auth.username,
+        is_admin: auth.is_admin,
+        active_page: "labs".to_string(),
+        lab_id: lab_id.clone(),
+        lab_name: inspect_response.lab_info.name.clone(),
+        device,
+        node_config,
+        mgmt_mac: db_node.mgmt_mac,
+    }
+    .into_response()
 }
 
 // ============================================================================
@@ -3154,6 +3446,7 @@ pub async fn lab_nodes_handler(
         Ok(response) => {
             let device_count = response.devices.len();
             NodesTableFragment {
+                lab_id,
                 devices: response.devices,
                 device_count,
             }
