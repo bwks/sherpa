@@ -15,17 +15,10 @@
             </a>
         </div>
 
-        <!-- Loading Indicator (hidden by default, shown by HTMX) -->
-        <div class="htmx-indicator items-center justify-center py-8">
-            <div class="w-6 h-6 border-3 border-accent/10 border-t-accent rounded-full animate-spin"></div>
-            <span class="ml-3 text-muted">Loading labs...</span>
-        </div>
-
         <!-- Labs Container (HTMX target) -->
         <div id="labs-container"
              hx-get="/labs/grid"
-             hx-trigger="load, every 30s"
-             hx-indicator=".htmx-indicator">
+             hx-trigger="load, every 30s">
             <!-- Labs will be loaded here by HTMX -->
         </div>
     </div>

@@ -1,3 +1,4 @@
+{% import "macros/icons.html.jinja" as icons %}
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200">
     <!-- Header -->
     <div class="flex items-start justify-between mb-4">
@@ -21,15 +22,15 @@
     </div>
 
     <!-- Actions -->
-    <div class="flex space-x-2 pt-4 border-t border-border">
+    <div class="flex items-center space-x-3 pt-4 border-t border-border">
         <a href="/labs/{{ lab.id }}" class="flex-1 px-3 py-2 text-sm font-medium text-accent-lt-txt bg-accent-light rounded-md hover:bg-accent-light transition-colors text-center">
             View
         </a>
-        <button class="px-3 py-2 text-sm font-medium text-muted bg-surface rounded-md hover:bg-hover transition-colors">
-            Start
+        <button onclick="labStart('{{ lab.id }}', this)" class="text-accent hover:text-accent-hover transition-colors cursor-pointer" title="Start all nodes">
+            {% call icons::play() %}
         </button>
-        <button class="px-3 py-2 text-sm font-medium text-muted bg-surface rounded-md hover:bg-hover transition-colors">
-            Stop
+        <button onclick="labStop('{{ lab.id }}', this)" class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer" title="Stop all nodes">
+            {% call icons::stop() %}
         </button>
     </div>
 </div>

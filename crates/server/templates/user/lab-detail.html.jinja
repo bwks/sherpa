@@ -200,18 +200,37 @@
 
 <!-- Actions -->
 <div class="mt-6 flex items-start space-x-4">
-    <a href="/" class="px-6 py-3 text-sm font-medium text-body bg-card border border-border-strong rounded-lg hover:bg-hover transition-colors">
-        Back to Dashboard
+    <a href="/labs" class="btn-cancel">
+        Back to Labs
     </a>
+    <button
+        id="lab-start-btn"
+        onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
+        class="btn-primary cursor-pointer"
+    >
+        Start Lab
+    </button>
+    <button
+        id="lab-stop-btn"
+        onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+        class="btn-danger cursor-pointer"
+    >
+        Stop Lab
+    </button>
     <div id="destroy-action">
         <button
             hx-get="/labs/{{ lab_info.id }}/destroy/confirm"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="px-6 py-3 text-sm font-medium text-danger-text bg-card border border-danger-text rounded-lg hover:text-white hover:bg-danger-solid cursor-pointer transition-colors"
+            class="btn-danger cursor-pointer"
         >
             Destroy Lab
         </button>
     </div>
 </div>
+
+<!-- Action Result -->
+<div id="lab-action-result" class="mt-4 hidden"></div>
+
+<script src="/js/lab-actions.js"></script>
 {% endblock %}

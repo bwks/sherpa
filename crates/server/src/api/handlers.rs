@@ -1122,6 +1122,52 @@ pub async fn get_labs_html(
     }
 }
 
+/// Stop all nodes in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/stop
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn lab_stop_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = down::shutdown_lab_nodes(&lab_id, None, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Start all nodes in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/start
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn lab_start_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<Json<LabNodeActionResponse>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    let response = resume::start_lab_nodes(&lab_id, None, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
 /// Lab detail page handler
 ///
 /// Displays detailed information about a specific lab including:
@@ -1177,7 +1223,7 @@ pub async fn lab_detail_handler(
             LabDetailTemplate {
                 username: auth.username.clone(),
                 is_admin: auth.is_admin,
-                active_page: "dashboard".to_string(),
+                active_page: "labs".to_string(),
                 lab_info: response.lab_info,
                 devices: response.devices,
                 device_count,
