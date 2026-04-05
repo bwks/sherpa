@@ -64,11 +64,30 @@
       }
     });
 
+  // Build an SVG favicon coloured with the current accent
+  function updateFavicon() {
+    var style = getComputedStyle(root);
+    var accent = style.getPropertyValue("--t-accent").trim();
+    if (!accent) {
+      return;
+    }
+    var svg =
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">' +
+      '<rect width="32" height="32" rx="7" fill="' + accent + '"/>' +
+      '<text x="16" y="23" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-weight="bold" font-size="20" fill="#fff">S</text>' +
+      '</svg>';
+    var link = document.querySelector('link[rel="icon"]');
+    if (link) {
+      link.href = "data:image/svg+xml," + encodeURIComponent(svg);
+    }
+  }
+
   // Global toggle function for dark/light
   window.toggleTheme = function () {
     var isDark = root.classList.contains("dark");
     applyTheme(!isDark);
     localStorage.setItem("theme", isDark ? "light" : "dark");
+    updateFavicon();
   };
 
   // Global palette setter
@@ -80,13 +99,15 @@
     for (var i = 0; i < selectors.length; i++) {
       selectors[i].value = name;
     }
+    updateFavicon();
   };
 
-  // Sync palette selectors on page load
+  // Sync palette selectors and favicon on page load
   document.addEventListener("DOMContentLoaded", function () {
     var selectors = document.querySelectorAll(".palette-selector");
     for (var i = 0; i < selectors.length; i++) {
       selectors[i].value = storedPalette;
     }
+    updateFavicon();
   });
 })();
