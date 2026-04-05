@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.57] - 2026-04-05
+
+### Features
+
+- Node detail page by @bwks ([60e3e1e](https://github.com/bwks/sherpa/commit/60e3e1e8516df22d4d3386a9111887d7ef76147a))
+- Node redeploy by @bwks ([2cc5975](https://github.com/bwks/sherpa/commit/2cc597533811a1778a15717a8d29fae2a2b0cfaf))
+- Node stop/start by @bwks ([5f6eb9d](https://github.com/bwks/sherpa/commit/5f6eb9da603f4564f92e91a41b69a46a8c33b9ef))
+- Lab actions by @bwks ([2f7c7bc](https://github.com/bwks/sherpa/commit/2f7c7bc35b00dc71977fd17e128db329c7d6e37a))
+
+### Miscellaneous
+
+- Merge pull request #222 from bwks/v0.3.57
+
+V0.3.57 by @bwks in [#222](https://github.com/bwks/sherpa/pull/222) ([c9c6421](https://github.com/bwks/sherpa/commit/c9c642180c16cbc33665339d1fa9c4442a292926))
+- Update buttons to use common settings by @bwks ([7fb6626](https://github.com/bwks/sherpa/commit/7fb66261f41754e0506be231101026318e0c3ae7))
+- Update project file by @bwks ([de8923a](https://github.com/bwks/sherpa/commit/de8923ab93d59f5387b521985200c16376ad4b55))
+- Add version bump skill by @bwks ([8100527](https://github.com/bwks/sherpa/commit/810052779a54977c5a52d0fe497e973b9ceb8ec2))
+- Version bump by @bwks ([e389dca](https://github.com/bwks/sherpa/commit/e389dca9d615db00af682b2ac4a8ec437fd7fec5))
+- Merge pull request #221 from bwks/changelog/v0.3.56
+
+chore(release): update changelog for v0.3.56 by @github-actions[bot] in [#221](https://github.com/bwks/sherpa/pull/221) ([ebdccd0](https://github.com/bwks/sherpa/commit/ebdccd0babdd9935c9635c85900490929217c219))
 ## [0.3.56] - 2026-04-05
 
 ### Features
