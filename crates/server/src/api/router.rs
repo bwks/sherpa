@@ -211,3 +211,40 @@ pub fn build_router() -> Router<AppState> {
         // Serve embedded static files
         .route("/{*path}", get(embedded_asset_handler))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_model_filter_js_is_embedded() {
+        let asset = StaticAssets::get("js/model-filter.js");
+        assert!(asset.is_some(), "js/model-filter.js should be embedded");
+        let file = asset.unwrap();
+        let content = std::str::from_utf8(&file.data).unwrap();
+        assert!(
+            content.contains("combobox-input"),
+            "model-filter.js should reference combobox-input element"
+        );
+        assert!(
+            content.contains("combobox-list"),
+            "model-filter.js should reference combobox-list element"
+        );
+        assert!(
+            content.contains("ArrowDown"),
+            "model-filter.js should handle keyboard navigation"
+        );
+    }
+
+    #[test]
+    fn test_theme_js_is_embedded() {
+        let asset = StaticAssets::get("js/theme.js");
+        assert!(asset.is_some(), "js/theme.js should be embedded");
+    }
+
+    #[test]
+    fn test_favicon_is_embedded() {
+        let asset = StaticAssets::get("favicon.svg");
+        assert!(asset.is_some(), "favicon.svg should be embedded");
+    }
+}

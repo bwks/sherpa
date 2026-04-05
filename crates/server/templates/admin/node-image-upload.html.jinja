@@ -26,15 +26,22 @@
             <h3 class="text-lg font-semibold text-heading mb-4">Image Details</h3>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                <!-- Model -->
+                <!-- Model (searchable combobox) -->
                 <div>
-                    <label for="model" class="block text-sm font-medium text-body mb-2">Model *</label>
-                    <select id="model" name="model" required class="w-full px-3 py-2 border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent">
-                        <option value="">Select a model...</option>
-                        {% for model in models %}
-                        <option value="{{ model }}">{{ model }}</option>
-                        {% endfor %}
-                    </select>
+                    <label class="block text-sm font-medium text-body mb-2">Model *</label>
+                    <input type="hidden" id="model" name="model" required>
+                    <div id="combobox" class="relative">
+                        <input type="text" id="combobox-input" placeholder="Search models..." autocomplete="off"
+                            class="w-full px-3 py-2 border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent cursor-pointer">
+                        <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                        <ul id="combobox-list" class="hidden absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-card border border-border-strong rounded-md shadow-lg">
+                            {% for model in models %}
+                            <li data-value="{{ model }}" class="px-3 py-2 text-sm text-body hover:bg-hover cursor-pointer">{{ model }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
                     <p class="mt-1 text-xs text-muted">The device model this image belongs to</p>
                 </div>
 
@@ -73,4 +80,6 @@
         </div>
     </form>
 </div>
+
+<script src="/js/model-filter.js"></script>
 {% endblock %}
