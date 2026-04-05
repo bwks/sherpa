@@ -1,7 +1,7 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
 
-{% block title %}Admin Dashboard - Sherpa Labs{% endblock %}
+{% block title %}Admin Users - Sherpa Labs{% endblock %}
 
 
 {% block content %}
@@ -34,9 +34,9 @@
                     <td class="p-4 text-sm text-body font-mono font-medium">{{ user.username }}</td>
                     <td class="p-4 text-sm text-center">
                         {% if user.is_admin %}
-                            <span class="text-success-text text-xl">✓</span>
+                            <span class="text-success-text text-xl">&#10003;</span>
                         {% else %}
-                            <span class="text-subtle text-xl">−</span>
+                            <span class="text-subtle text-xl">&#8722;</span>
                         {% endif %}
                     </td>
                     <td class="p-4 text-sm text-body text-center">{{ user.ssh_key_count }}</td>
