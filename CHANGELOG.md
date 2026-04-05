@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.55] - 2026-04-05
+
+### Documentation
+
+- Agent instructions by @bwks ([75f0bdf](https://github.com/bwks/sherpa/commit/75f0bdf923ac15f43c88769e6d9408d9c4618483))
+
+### Features
+
+- Image scan tool by @bwks ([fdfb923](https://github.com/bwks/sherpa/commit/fdfb923864ea84bc9ef77e94859ef05df7a16049))
+- Clean lab by @bwks ([0be8d0e](https://github.com/bwks/sherpa/commit/0be8d0e670ad69a8783f7feee90635416fbe3aff))
+
+### Miscellaneous
+
+- Merge pull request #217 from bwks/v0.3.55
+
+V0.3.55 by @bwks in [#217](https://github.com/bwks/sherpa/pull/217) ([de76dea](https://github.com/bwks/sherpa/commit/de76dea51d7f89e7f9af4aaf4fe64267b82b8e18))
+- Admin routes by @bwks ([22c212c](https://github.com/bwks/sherpa/commit/22c212c1d422b5b7a0fbc071b4fc2b4827244f93))
+- Version bump by @bwks ([853c150](https://github.com/bwks/sherpa/commit/853c1501565daffea09314953befaf465e4d248b))
+- Version bump by @bwks ([ef52250](https://github.com/bwks/sherpa/commit/ef5225094aeb848b9a0eff94993a04852eb16ee3))
+- Rename node-images to images by @bwks ([cc3cead](https://github.com/bwks/sherpa/commit/cc3cead959bb4ca01d1e5a1fdd31ccf1a0c1d06c))
+- Merge pull request #216 from bwks/changelog/v0.3.54
+
+chore(release): update changelog for v0.3.54 by @github-actions[bot] in [#216](https://github.com/bwks/sherpa/pull/216) ([a82a01e](https://github.com/bwks/sherpa/commit/a82a01e937d6abaa64e2fee9dca5fa75e1a7b35c))
 ## [0.3.54] - 2026-04-05
 
 ### Features
