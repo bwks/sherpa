@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.52] - 2026-04-05
+
+### Features
+
+- Web based image upload by @bwks ([af26588](https://github.com/bwks/sherpa/commit/af265883db83d5852bcfc22d60f49939063ea11f))
+- Image upload by @bwks ([023fee0](https://github.com/bwks/sherpa/commit/023fee0fde7d23d02ea21bdf809fc7b6c5b6d674))
+- Favicon by @bwks ([33fc67f](https://github.com/bwks/sherpa/commit/33fc67f6b297cb6b5563e5793ea3300dc456d324))
+- Web-ui themes by @bwks ([aafb770](https://github.com/bwks/sherpa/commit/aafb770842a2796f4225ce7d49e928083025421b))
+
+### Miscellaneous
+
+- Merge pull request #211 from bwks/v0.3.52
+
+V0.3.52 by @bwks in [#211](https://github.com/bwks/sherpa/pull/211) ([98bf398](https://github.com/bwks/sherpa/commit/98bf398c870b07ec3fe5f3f5d3e9d18c2e28d26a))
+- Chore version bump by @bwks ([071e2ad](https://github.com/bwks/sherpa/commit/071e2ad6ded2cf660a03d04c76c2c44dd2bad140))
+- Merge pull request #209 from bwks/v0.3.51
+
+feat: web-ui themes by @bwks in [#209](https://github.com/bwks/sherpa/pull/209) ([75442cb](https://github.com/bwks/sherpa/commit/75442cb9737b14a3385a24bf852b944a7cf18494))
+- Version bump by @bwks ([29c6741](https://github.com/bwks/sherpa/commit/29c6741b446478c477317cb4014ca112ac6098f0))
+- Merge pull request #208 from bwks/changelog/v0.3.50
+
+chore(release): update changelog for v0.3.50 by @github-actions[bot] in [#208](https://github.com/bwks/sherpa/pull/208) ([f242bb2](https://github.com/bwks/sherpa/commit/f242bb2d0a2bab7a5e43aa0de8965fe1689d2bb0))
 ## [0.3.50] - 2026-04-04
 
 ### Features
