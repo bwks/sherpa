@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.53] - 2026-04-05
+
+### Features
+
+- Favicon colour change. by @bwks ([73fac4e](https://github.com/bwks/sherpa/commit/73fac4efc33b52f6fc90e6a63c458b98badc0bbd))
+
+### Miscellaneous
+
+- Merge pull request #213 from bwks/v0.3.53
+
+V0.3.53 by @bwks in [#213](https://github.com/bwks/sherpa/pull/213) ([7cfdf40](https://github.com/bwks/sherpa/commit/7cfdf40d0f0f41bb3fa58da43bd6e1f0bb516adc))
+- Version bump by @bwks ([6ef5525](https://github.com/bwks/sherpa/commit/6ef55259f98ad1eab015d2fd6fd227c44c161b67))
+- Merge pull request #212 from bwks/changelog/v0.3.52
+
+chore(release): update changelog for v0.3.52 by @github-actions[bot] in [#212](https://github.com/bwks/sherpa/pull/212) ([74bf8e0](https://github.com/bwks/sherpa/commit/74bf8e06ea437f866301767e016ce7903a53a882))
 ## [0.3.52] - 2026-04-05
 
 ### Features
