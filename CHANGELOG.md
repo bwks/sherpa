@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.54] - 2026-04-05
+
+### Features
+
+- Lab create via web-ui by @bwks ([9104c56](https://github.com/bwks/sherpa/commit/9104c565a3bcdc4235535943c8eec7acf45a60cd))
+- Create lab web-ui by @bwks ([bd18543](https://github.com/bwks/sherpa/commit/bd18543289a66ab57b666c5dfeb1592dc55466ec))
+
+### Miscellaneous
+
+- Merge pull request #215 from bwks/v0.3.54
+
+V0.3.54 by @bwks in [#215](https://github.com/bwks/sherpa/pull/215) ([7861ea8](https://github.com/bwks/sherpa/commit/7861ea882382dcaacd18f2b78ed82fcf0c72588b))
+- Update tasks by @bwks ([476d1ba](https://github.com/bwks/sherpa/commit/476d1ba156243d4ca9824ae7c2efdc49b19fe53e))
+- Version bump by @bwks ([e968fe7](https://github.com/bwks/sherpa/commit/e968fe7044664f82497735552218cd15f21c7eb8))
+- Qc skill to run formating, clippy and tests by @bwks ([e9afe12](https://github.com/bwks/sherpa/commit/e9afe124a7f0d90ca75f81c7e6d6bd0d1f6ac825))
+- Qc skill to run formating, clippy and tests by @bwks ([dcdbc32](https://github.com/bwks/sherpa/commit/dcdbc3257d5b0b103bfd2d4a44f8a3b30913b67d))
+- Fix imports by @bwks ([5437164](https://github.com/bwks/sherpa/commit/5437164d5088872006f635999e3b96298ca0fd65))
+- Merge pull request #214 from bwks/changelog/v0.3.53
+
+chore(release): update changelog for v0.3.53 by @github-actions[bot] in [#214](https://github.com/bwks/sherpa/pull/214) ([d412936](https://github.com/bwks/sherpa/commit/d4129364542c45993a3add405d9bbf0013c466b7))
 ## [0.3.53] - 2026-04-05
 
 ### Features
