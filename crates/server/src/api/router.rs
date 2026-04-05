@@ -37,11 +37,11 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
 
 use super::handlers::{
     add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
-    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_labs_list_handler,
-    admin_node_image_detail_handler, admin_node_image_edit_page_handler,
-    admin_node_image_update_handler, admin_node_image_upload_handler,
-    admin_node_image_upload_page_handler, admin_node_image_versions_handler,
-    admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
+    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_image_detail_handler,
+    admin_image_edit_page_handler, admin_image_update_handler, admin_image_upload_handler,
+    admin_image_upload_page_handler, admin_image_versions_handler, admin_images_list_handler,
+    admin_labs_list_handler, admin_tools_clean_handler, admin_tools_handler,
+    admin_tools_scan_handler, admin_update_user_password_handler, admin_user_edit_handler,
     api_spec_handler, change_password_json, clean_lab_json, create_lab_json, create_user_json,
     dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
     delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
@@ -134,34 +134,37 @@ pub fn build_router() -> Router<AppState> {
             "/admin/users/{username}/ssh-keys/{index}",
             delete(admin_delete_ssh_key_handler),
         )
-        .route("/admin/node-images", get(admin_node_images_list_handler))
+        .route("/admin/tools", get(admin_tools_handler))
+        .route(
+            "/admin/tools/clean/{lab_id}",
+            post(admin_tools_clean_handler),
+        )
+        .route("/admin/tools/scan", post(admin_tools_scan_handler))
+        .route("/admin/images", get(admin_images_list_handler))
         // Upload route (must come before {model} catch-all)
         .route(
-            "/admin/node-images/upload",
-            get(admin_node_image_upload_page_handler).post(admin_node_image_upload_handler),
+            "/admin/images/upload",
+            get(admin_image_upload_page_handler).post(admin_image_upload_handler),
         )
         // Versions list route (most specific, must come first)
         .route(
-            "/admin/node-images/{model}/versions",
-            get(admin_node_image_versions_handler),
+            "/admin/images/{model}/versions",
+            get(admin_image_versions_handler),
         )
         // Version-specific routes (must come before non-version routes for proper matching)
         .route(
-            "/admin/node-images/{model}/{version}",
-            get(admin_node_image_detail_handler),
+            "/admin/images/{model}/{version}",
+            get(admin_image_detail_handler),
         )
         .route(
-            "/admin/node-images/{model}/{version}/edit",
-            get(admin_node_image_edit_page_handler).post(admin_node_image_update_handler),
+            "/admin/images/{model}/{version}/edit",
+            get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
         // Non-version routes (fallback to default version)
+        .route("/admin/images/{model}", get(admin_image_detail_handler))
         .route(
-            "/admin/node-images/{model}",
-            get(admin_node_image_detail_handler),
-        )
-        .route(
-            "/admin/node-images/{model}/edit",
-            get(admin_node_image_edit_page_handler).post(admin_node_image_update_handler),
+            "/admin/images/{model}/edit",
+            get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
@@ -184,7 +187,6 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/labs/{id}/nodes/{node_name}/redeploy",
             post(redeploy_node_json),
         )
-        .route("/api/v1/labs/{id}/clean", post(clean_lab_json))
         // Link API endpoints
         .route(
             "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
@@ -194,7 +196,6 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/v1/images", get(list_images_json))
         .route("/api/v1/images/import", post(import_image_json))
         .route("/api/v1/images/upload", post(upload_image_multipart))
-        .route("/api/v1/images/scan", post(scan_images_json))
         .route("/api/v1/images/pull", post(pull_image_json))
         .route("/api/v1/images/download", post(download_image_json))
         .route("/api/v1/images/{model}", get(show_image_json))
@@ -206,14 +207,20 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/images/{model}/{version}/default",
             post(set_default_image_json),
         )
-        // User API endpoints
-        .route("/api/v1/users", post(create_user_json).get(list_users_json))
+        // Admin API — Tools
+        .route("/api/v1/admin/tools/labs/clean/{id}", post(clean_lab_json))
+        .route("/api/v1/admin/tools/images/scan", post(scan_images_json))
+        // Admin API — Users
         .route(
-            "/api/v1/users/{username}",
+            "/api/v1/admin/users",
+            post(create_user_json).get(list_users_json),
+        )
+        .route(
+            "/api/v1/admin/users/{username}",
             get(get_user_info_json).delete(delete_user_json),
         )
         .route(
-            "/api/v1/users/{username}/password",
+            "/api/v1/admin/users/{username}/password",
             post(change_password_json),
         )
         // Apply middleware layers (outermost = first to process request)

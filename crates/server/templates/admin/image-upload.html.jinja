@@ -1,6 +1,6 @@
 {% extends "layouts/base.html.jinja" %}
 
-{% block title %}Upload Node Image - Sherpa Labs{% endblock %}
+{% block title %}Upload Image - Sherpa Labs{% endblock %}
 
 
 {% block content %}
@@ -8,10 +8,10 @@
     <!-- Page Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-3xl font-bold text-heading">Upload Node Image</h2>
+            <h2 class="text-3xl font-bold text-heading">Upload Image</h2>
             <p class="mt-1 text-sm text-muted">Upload a disk image (qcow2) or container archive (tar) to the server</p>
         </div>
-        <a href="/admin/node-images" class="inline-block px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded transition-colors">
+        <a href="/admin/images" class="inline-block px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded transition-colors">
             ← Back
         </a>
     </div>
@@ -20,7 +20,7 @@
     <div id="form-result"></div>
 
     <!-- Upload Form -->
-    <form id="upload-form" hx-post="/admin/node-images/upload" hx-target="#form-result" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-6">
+    <form id="upload-form" hx-post="/admin/images/upload" hx-target="#form-result" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-6">
 
         <div class="bg-card rounded-lg shadow-sm border border-border p-6">
             <h3 class="text-lg font-semibold text-heading mb-4">Image Details</h3>

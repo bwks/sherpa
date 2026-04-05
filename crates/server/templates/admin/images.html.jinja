@@ -1,7 +1,7 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
 
-{% block title %}Node Images - Sherpa Labs{% endblock %}
+{% block title %}Images - Sherpa Labs{% endblock %}
 
 
 {% block content %}
@@ -9,10 +9,10 @@
     <!-- Page Header -->
     <div class="flex items-center justify-between">
         <div>
-            <h2 class="text-3xl font-bold text-heading">Node Images</h2>
+            <h2 class="text-3xl font-bold text-heading">Images</h2>
             <p class="mt-1 text-sm text-muted">Default device templates and their specifications</p>
         </div>
-        <a href="/admin/node-images/upload" class="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-md transition-colors">
+        <a href="/admin/images/upload" class="px-4 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded-md transition-colors">
             Upload Image
         </a>
     </div>
@@ -53,10 +53,10 @@
                     <td class="p-4 text-sm text-body text-center">{{ config.data_interface_count }}</td>
                     <td class="p-4 text-sm text-body text-right">
                         <div class="flex items-center justify-end space-x-3">
-                            <a href="/admin/node-images/{{ config.model }}" class="text-muted hover:text-heading transition-colors" title="View">
+                            <a href="/admin/images/{{ config.model }}" class="text-muted hover:text-heading transition-colors" title="View">
                                 {% call icons::eye() %}
                             </a>
-                            <a href="/admin/node-images/{{ config.model }}/edit" class="text-edit hover:text-edit-hover transition-colors" title="Edit">
+                            <a href="/admin/images/{{ config.model }}/edit" class="text-edit hover:text-edit-hover transition-colors" title="Edit">
                                 {% call icons::pencil() %}
                             </a>
                         </div>

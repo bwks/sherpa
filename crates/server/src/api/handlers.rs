@@ -20,14 +20,14 @@ use crate::services::{
     resume, up,
 };
 use crate::templates::{
-    AdminDashboardTemplate, AdminNodeImageUploadTemplate, AdminPasswordErrorTemplate,
-    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
-    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
-    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
-    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminDashboardTemplate, AdminImageUploadTemplate, AdminPasswordErrorTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminToolsTemplate,
+    AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate, Error403Template,
+    Error404Template, ErrorTemplate, LabCreateProgressFragment, LabCreateTemplate,
+    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
+    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, LoginErrorTemplate, LoginPageTemplate,
+    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
+    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -1331,6 +1331,78 @@ pub async fn admin_labs_list_handler(
     .into_response())
 }
 
+/// Admin tools page
+///
+/// GET /admin/tools
+pub async fn admin_tools_handler(admin: AdminUser) -> impl IntoResponse {
+    AdminToolsTemplate {
+        username: admin.username,
+        is_admin: true,
+        active_page: "admin_tools".to_string(),
+    }
+}
+
+/// Admin lab clean - force-clean all resources for a lab
+///
+/// POST /admin/tools/clean/{lab_id}
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn admin_tools_clean_handler(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!(
+        admin = %admin.username,
+        lab_id = %lab_id,
+        "Admin triggering lab clean from tools page"
+    );
+
+    let response = clean::clean_lab(&lab_id, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Admin image scan - scan filesystem and Docker for discoverable images
+///
+/// POST /admin/tools/scan
+#[tracing::instrument(skip(state))]
+pub async fn admin_tools_scan_handler(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Form(form): Form<ScanForm>,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!(
+        admin = %admin.username,
+        dry_run = %form.dry_run(),
+        "Admin triggering image scan from tools page"
+    );
+
+    let request = ScanImagesRequest {
+        kind: None,
+        dry_run: form.dry_run(),
+    };
+
+    let response = import::scan_images(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Form data for image scan
+#[derive(Debug, Deserialize)]
+pub struct ScanForm {
+    pub dry_run: Option<String>,
+}
+
+impl ScanForm {
+    pub fn dry_run(&self) -> bool {
+        self.dry_run.as_deref() == Some("true")
+    }
+}
+
 /// Admin user edit page - shows user details and allows editing
 pub async fn admin_user_edit_handler(
     State(state): State<AppState>,
@@ -1714,16 +1786,16 @@ fn format_date_simple(dt: Datetime) -> String {
     }
 }
 
-/// Helper struct for extracting node image path parameters with optional version
+/// Helper struct for extracting image path parameters with optional version
 #[derive(Debug, Deserialize)]
-pub struct NodeImagePath {
+pub struct ImagePath {
     pub model: String,
     pub version: Option<String>,
 }
 
-/// Helper struct to summarize node image data for list view
+/// Helper struct to summarize image data for list view
 #[derive(Debug, Clone, Serialize)]
-pub struct NodeImageSummary {
+pub struct ImageSummary {
     pub model: String,
     pub kind: String,
     pub version: String,
@@ -1733,27 +1805,27 @@ pub struct NodeImageSummary {
     pub default: bool,
 }
 
-/// Admin handler to list all node imageurations
-pub async fn admin_node_images_list_handler(
+/// Admin handler to list all image configurations
+pub async fn admin_images_list_handler(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
-    tracing::debug!("Admin requesting node images list");
+    tracing::debug!("Admin requesting images list");
 
     // Fetch all node images from database
     let configs = db::list_node_images(&state.db).await.map_err(|e| {
-        tracing::error!("Failed to list node images: {:?}", e);
-        ApiError::internal("Failed to load node imageurations")
+        tracing::error!("Failed to list images: {:?}", e);
+        ApiError::internal("Failed to load image configurations")
     })?;
 
     // Group configs by model and pick the best representative:
     // - Prefer default=true, otherwise pick the first entry
-    let mut best_by_model: std::collections::HashMap<String, NodeImageSummary> =
+    let mut best_by_model: std::collections::HashMap<String, ImageSummary> =
         std::collections::HashMap::new();
 
     for config in configs {
         let model_key = config.model.to_string();
-        let summary = NodeImageSummary {
+        let summary = ImageSummary {
             model: model_key.clone(),
             kind: config.kind.to_string(),
             version: config.version,
@@ -1773,10 +1845,10 @@ pub async fn admin_node_images_list_handler(
         }
     }
 
-    let mut summaries: Vec<NodeImageSummary> = best_by_model.into_values().collect();
+    let mut summaries: Vec<ImageSummary> = best_by_model.into_values().collect();
     summaries.sort_by(|a, b| a.model.cmp(&b.model));
 
-    let template = crate::templates::AdminNodeImagesListTemplate {
+    let template = crate::templates::AdminImagesListTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
@@ -1786,14 +1858,14 @@ pub async fn admin_node_images_list_handler(
     Ok(template)
 }
 
-/// Admin handler to view a single node imageuration detail
-pub async fn admin_node_image_detail_handler(
+/// Admin handler to view a single image configuration detail
+pub async fn admin_image_detail_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeImagePath>,
+    Path(params): Path<ImagePath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
-        "Admin requesting node image detail: {} (version: {:?})",
+        "Admin requesting image detail: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -1801,7 +1873,7 @@ pub async fn admin_node_image_detail_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -1814,13 +1886,13 @@ pub async fn admin_node_image_detail_handler(
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node image for {}/{}: {:?}",
+                    "Failed to get image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1830,7 +1902,7 @@ pub async fn admin_node_image_detail_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1841,26 +1913,22 @@ pub async fn admin_node_image_detail_handler(
         db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
-                tracing::error!(
-                    "Failed to get default node image for {}: {:?}",
-                    params.model,
-                    e
-                );
+                tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node image not found for {}", params.model);
+                tracing::warn!("Default image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
     };
 
-    let template = crate::templates::AdminNodeImageDetailTemplate {
+    let template = crate::templates::AdminImageDetailTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
@@ -1870,14 +1938,14 @@ pub async fn admin_node_image_detail_handler(
     Ok(template)
 }
 
-/// Admin handler to render the edit page for a node imageuration
-pub async fn admin_node_image_edit_page_handler(
+/// Admin handler to render the edit page for an image configuration
+pub async fn admin_image_edit_page_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeImagePath>,
+    Path(params): Path<ImagePath>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     tracing::debug!(
-        "Admin requesting node image edit page: {} (version: {:?})",
+        "Admin requesting image edit page: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -1885,7 +1953,7 @@ pub async fn admin_node_image_edit_page_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -1898,13 +1966,13 @@ pub async fn admin_node_image_edit_page_handler(
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node image for {}/{}: {:?}",
+                    "Failed to get image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1914,7 +1982,7 @@ pub async fn admin_node_image_edit_page_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -1925,27 +1993,23 @@ pub async fn admin_node_image_edit_page_handler(
         db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
-                tracing::error!(
-                    "Failed to get default node image for {}: {:?}",
-                    params.model,
-                    e
-                );
+                tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node image not found for {}", params.model);
+                tracing::warn!("Default image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
     };
 
     // Generate enum options for dropdowns
-    let template = crate::templates::AdminNodeImageEditTemplate {
+    let template = crate::templates::AdminImageEditTemplate {
         username: _admin.username.clone(),
         is_admin: true,
         active_page: "admin_images".to_string(),
@@ -1963,9 +2027,9 @@ pub async fn admin_node_image_edit_page_handler(
     Ok(template)
 }
 
-/// Form data for updating a node imageuration
+/// Form data for updating an image configuration
 #[derive(Deserialize)]
-pub struct NodeImageForm {
+pub struct ImageForm {
     // Model, kind, and management_interface come from URL path/existing config, not form
     pub version: String,
     pub repo: Option<String>,
@@ -1995,15 +2059,15 @@ pub struct NodeImageForm {
     pub default: Option<String>, // checkbox
 }
 
-/// Admin handler to process node imageuration update
-pub async fn admin_node_image_update_handler(
+/// Admin handler to process image configuration update
+pub async fn admin_image_update_handler(
     State(state): State<AppState>,
-    Path(params): Path<NodeImagePath>,
+    Path(params): Path<ImagePath>,
     _admin: AdminUser,
-    Form(form): Form<NodeImageForm>,
+    Form(form): Form<ImageForm>,
 ) -> Result<Response, ApiError> {
     tracing::info!(
-        "Admin updating node image: {} (version: {:?})",
+        "Admin updating image: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -2011,7 +2075,7 @@ pub async fn admin_node_image_update_handler(
     // Parse model from URL string
     let node_model = NodeModel::from_str(&params.model).map_err(|e| {
         tracing::warn!("Invalid node model in URL: {} - {}", params.model, e);
-        ApiError::not_found("Node Image", format!("Invalid model: {}", params.model))
+        ApiError::not_found("Image", format!("Invalid model: {}", params.model))
     })?;
 
     // Derive kind from model
@@ -2024,13 +2088,13 @@ pub async fn admin_node_image_update_handler(
             .await
             .map_err(|e| {
                 tracing::error!(
-                    "Failed to get node image for {}/{}: {:?}",
+                    "Failed to get image for {}/{}: {:?}",
                     params.model,
                     version,
                     e
                 );
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -2040,7 +2104,7 @@ pub async fn admin_node_image_update_handler(
             .ok_or_else(|| {
                 tracing::warn!("Node config not found for {}/{}", params.model, version);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!(
                         "Configuration for {} version {} not found",
                         params.model, version
@@ -2051,20 +2115,16 @@ pub async fn admin_node_image_update_handler(
         db::get_default_node_image(&state.db, &node_model, &node_kind)
             .await
             .map_err(|e| {
-                tracing::error!(
-                    "Failed to get default node image for {}: {:?}",
-                    params.model,
-                    e
-                );
+                tracing::error!("Failed to get default image for {}: {:?}", params.model, e);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
             .ok_or_else(|| {
-                tracing::warn!("Default node image not found for {}", params.model);
+                tracing::warn!("Default image not found for {}", params.model);
                 ApiError::not_found(
-                    "Node Image",
+                    "Image",
                     format!("Default configuration for {} not found", params.model),
                 )
             })?
@@ -2205,12 +2265,12 @@ pub async fn admin_node_image_update_handler(
     db::update_node_image(&state.db, updated_config)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to update node image: {:?}", e);
+            tracing::error!("Failed to update image: {:?}", e);
             ApiError::internal(format!("Failed to update configuration: {}", e))
         })?;
 
     tracing::info!(
-        "Successfully updated node image: {} (version: {:?})",
+        "Successfully updated image: {} (version: {:?})",
         params.model,
         params.version
     );
@@ -2218,9 +2278,9 @@ pub async fn admin_node_image_update_handler(
     // Redirect to detail page using HX-Redirect header
     // Include version in URL if it was specified
     let redirect_url = if let Some(version) = &params.version {
-        format!("/admin/node-images/{}/{}", params.model, version)
+        format!("/admin/images/{}/{}", params.model, version)
     } else {
-        format!("/admin/node-images/{}", params.model)
+        format!("/admin/images/{}", params.model)
     };
 
     let mut response = Html("").into_response();
@@ -2234,8 +2294,8 @@ pub async fn admin_node_image_update_handler(
     Ok(response)
 }
 
-/// Handler for listing all versions of a node image (GET /admin/node-images/{model}/versions)
-pub async fn admin_node_image_versions_handler(
+/// Handler for listing all versions of an image (GET /admin/images/{model}/versions)
+pub async fn admin_image_versions_handler(
     State(state): State<AppState>,
     AdminUser { username }: AdminUser,
     Path(model): Path<String>,
@@ -2253,14 +2313,14 @@ pub async fn admin_node_image_versions_handler(
     let versions = db::get_node_image_versions(&state.db, &model_enum, &kind_enum)
         .await
         .map_err(|e| {
-            tracing::error!("Failed to fetch node image versions: {:?}", e);
+            tracing::error!("Failed to fetch image versions: {:?}", e);
             ApiError::internal(format!("Failed to fetch versions: {}", e))
         })?;
 
     tracing::debug!("Found {} versions for {}", versions.len(), model);
 
     // Create template and render
-    let template = crate::templates::AdminNodeImageVersionsTemplate {
+    let template = crate::templates::AdminImageVersionsTemplate {
         username,
         is_admin: true,
         active_page: "admin_images".to_string(),
@@ -2273,7 +2333,7 @@ pub async fn admin_node_image_versions_handler(
 }
 
 // =============================================================================
-// Admin — Node Image Upload
+// Admin — Image Upload
 // =============================================================================
 
 /// Parsed fields from a multipart upload form.
@@ -2379,14 +2439,14 @@ pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadField
     })
 }
 
-/// Admin handler to render the upload form (GET /admin/node-images/upload)
-pub async fn admin_node_image_upload_page_handler(
+/// Admin handler to render the image upload form (GET /admin/images/upload)
+pub async fn admin_image_upload_page_handler(
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
     let mut models: Vec<String> = NodeModel::to_vec().iter().map(|m| m.to_string()).collect();
     models.sort();
 
-    let template = AdminNodeImageUploadTemplate {
+    let template = AdminImageUploadTemplate {
         username: _admin.username,
         is_admin: true,
         active_page: "admin_images".to_string(),
@@ -2396,13 +2456,13 @@ pub async fn admin_node_image_upload_page_handler(
     Ok(template)
 }
 
-/// Admin handler to process image upload (POST /admin/node-images/upload)
-pub async fn admin_node_image_upload_handler(
+/// Admin handler to process image upload (POST /admin/images/upload)
+pub async fn admin_image_upload_handler(
     _admin: AdminUser,
     State(state): State<AppState>,
     multipart: Multipart,
 ) -> Result<Response, ApiError> {
-    tracing::info!("Admin uploading node image");
+    tracing::info!("Admin uploading image");
 
     // Parse multipart fields
     let fields = match parse_upload_fields(multipart).await {
@@ -2461,11 +2521,11 @@ pub async fn admin_node_image_upload_handler(
                 response.image_path
             );
 
-            // Redirect to the node images list
+            // Redirect to the images list
             let mut resp = Html("").into_response();
             resp.headers_mut().insert(
                 header::HeaderName::from_static("hx-redirect"),
-                header::HeaderValue::from_static("/admin/node-images"),
+                header::HeaderValue::from_static("/admin/images"),
             );
             Ok(resp)
         }
@@ -2644,7 +2704,7 @@ pub async fn redeploy_node_json(
 
 /// Force-clean a lab (admin only)
 ///
-/// POST /api/v1/labs/{lab_id}/clean
+/// POST /api/v1/admin/tools/labs/clean/{lab_id}
 pub async fn clean_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2836,7 +2896,7 @@ pub async fn set_default_image_json(
 
 /// Scan for images
 ///
-/// POST /api/v1/images/scan
+/// POST /api/v1/admin/tools/images/scan
 pub async fn scan_images_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2909,7 +2969,7 @@ pub async fn download_image_json(
 
 /// Create a user (admin only)
 ///
-/// POST /api/v1/users
+/// POST /api/v1/admin/users
 pub async fn create_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2936,7 +2996,7 @@ pub async fn create_user_json(
 
 /// List users (admin only)
 ///
-/// GET /api/v1/users
+/// GET /api/v1/admin/users
 pub async fn list_users_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2961,7 +3021,7 @@ pub async fn list_users_json(
 
 /// Delete a user (admin only)
 ///
-/// DELETE /api/v1/users/{username}
+/// DELETE /api/v1/admin/users/{username}
 pub async fn delete_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2993,7 +3053,7 @@ pub async fn delete_user_json(
 
 /// Change a user's password
 ///
-/// POST /api/v1/users/{username}/password
+/// POST /api/v1/admin/users/{username}/password
 pub async fn change_password_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -3025,7 +3085,7 @@ pub async fn change_password_json(
 
 /// Get user info
 ///
-/// GET /api/v1/users/{username}
+/// GET /api/v1/admin/users/{username}
 pub async fn get_user_info_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,

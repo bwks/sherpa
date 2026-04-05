@@ -11,7 +11,7 @@
             <h2 class="text-3xl font-bold text-heading">Edit {{ config.model }}</h2>
             <p class="mt-1 text-sm text-muted">Update device template configuration</p>
         </div>
-        <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="inline-block px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded transition-colors">
+        <a href="/admin/images/{{ config.model }}/{{ config.version }}" class="inline-block px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded transition-colors">
             ← Cancel
         </a>
     </div>
@@ -20,7 +20,7 @@
     <div id="form-result"></div>
 
     <!-- Edit Form -->
-    <form id="edit-form" hx-post="/admin/node-images/{{ config.model }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
+    <form id="edit-form" hx-post="/admin/images/{{ config.model }}/{{ config.version }}/edit" hx-target="#form-result" hx-swap="innerHTML" class="space-y-6">
 
         <!-- Basic Information Card -->
         <div class="bg-card rounded-lg shadow-sm border border-border p-6">
@@ -310,7 +310,7 @@
 
         <!-- Form Actions -->
         <div class="flex items-center justify-end space-x-4 bg-card rounded-lg shadow-sm border border-border p-6">
-            <a href="/admin/node-images/{{ config.model }}/{{ config.version }}" class="px-6 py-2 text-sm font-medium text-body bg-card border border-border-strong rounded-md hover:bg-hover transition-colors">
+            <a href="/admin/images/{{ config.model }}/{{ config.version }}" class="px-6 py-2 text-sm font-medium text-body bg-card border border-border-strong rounded-md hover:bg-hover transition-colors">
                 Cancel
             </a>
             <button type="submit" class="px-6 py-2 text-sm font-medium text-white bg-accent rounded-md hover:bg-accent-hover transition-colors">

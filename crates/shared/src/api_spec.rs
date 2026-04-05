@@ -52,6 +52,7 @@ pub struct OperationDef {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Category {
+    Admin,
     Auth,
     Lab,
     Link,
@@ -295,7 +296,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "lab.clean".to_string(),
             description: "Force-clean all resources for a lab without ownership check".to_string(),
-            category: Category::Lab,
+            category: Category::Admin,
             auth: AuthRequirement::Admin,
             streaming: false,
             request_schema: None,
@@ -303,7 +304,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Post,
-                    path: "/api/v1/labs/{id}/clean".to_string(),
+                    path: "/api/v1/admin/tools/labs/clean/{id}".to_string(),
                     path_params: vec!["id".to_string()],
                     stream_type: None,
                 },
@@ -458,7 +459,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "image.scan".to_string(),
             description: "Scan filesystem and Docker for discoverable images".to_string(),
-            category: Category::Image,
+            category: Category::Admin,
             auth: AuthRequirement::Admin,
             streaming: false,
             request_schema: Some("ScanImagesRequest".to_string()),
@@ -466,7 +467,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Post,
-                    path: "/api/v1/images/scan".to_string(),
+                    path: "/api/v1/admin/tools/images/scan".to_string(),
                     path_params: vec![],
                     stream_type: None,
                 },
@@ -526,7 +527,7 @@ fn build_operations() -> Vec<OperationDef> {
         },
         OperationDef {
             name: "image.upload".to_string(),
-            description: "Upload a node image file via multipart form data".to_string(),
+            description: "Upload an image file via multipart form data".to_string(),
             category: Category::Image,
             auth: AuthRequirement::Admin,
             streaming: false,
@@ -551,7 +552,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "user.create".to_string(),
             description: "Create a new user account".to_string(),
-            category: Category::User,
+            category: Category::Admin,
             auth: AuthRequirement::Admin,
             streaming: false,
             request_schema: Some("CreateUserRequest".to_string()),
@@ -559,7 +560,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Post,
-                    path: "/api/v1/users".to_string(),
+                    path: "/api/v1/admin/users".to_string(),
                     path_params: vec![],
                     stream_type: None,
                 },
@@ -574,7 +575,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "user.list".to_string(),
             description: "List all user accounts".to_string(),
-            category: Category::User,
+            category: Category::Admin,
             auth: AuthRequirement::Admin,
             streaming: false,
             request_schema: Some("ListUsersRequest".to_string()),
@@ -582,7 +583,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Get,
-                    path: "/api/v1/users".to_string(),
+                    path: "/api/v1/admin/users".to_string(),
                     path_params: vec![],
                     stream_type: None,
                 },
@@ -597,7 +598,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "user.delete".to_string(),
             description: "Delete a user account".to_string(),
-            category: Category::User,
+            category: Category::Admin,
             auth: AuthRequirement::Admin,
             streaming: false,
             request_schema: Some("DeleteUserRequest".to_string()),
@@ -605,7 +606,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Delete,
-                    path: "/api/v1/users/{username}".to_string(),
+                    path: "/api/v1/admin/users/{username}".to_string(),
                     path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
@@ -620,7 +621,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "user.passwd".to_string(),
             description: "Change a user's password".to_string(),
-            category: Category::User,
+            category: Category::Admin,
             auth: AuthRequirement::Authenticated,
             streaming: false,
             request_schema: Some("ChangePasswordRequest".to_string()),
@@ -628,7 +629,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Post,
-                    path: "/api/v1/users/{username}/password".to_string(),
+                    path: "/api/v1/admin/users/{username}/password".to_string(),
                     path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
@@ -643,7 +644,7 @@ fn build_operations() -> Vec<OperationDef> {
         OperationDef {
             name: "user.info".to_string(),
             description: "Get detailed information about a user".to_string(),
-            category: Category::User,
+            category: Category::Admin,
             auth: AuthRequirement::Authenticated,
             streaming: false,
             request_schema: Some("GetUserInfoRequest".to_string()),
@@ -651,7 +652,7 @@ fn build_operations() -> Vec<OperationDef> {
             transports: Transports {
                 rest: RestBinding {
                     method: HttpMethod::Get,
-                    path: "/api/v1/users/{username}".to_string(),
+                    path: "/api/v1/admin/users/{username}".to_string(),
                     path_params: vec!["username".to_string()],
                     stream_type: None,
                 },
@@ -822,6 +823,7 @@ pub fn build_openapi() -> serde_json::Value {
         };
 
         let category_tag = match op.category {
+            Category::Admin => "admin",
             Category::Auth => "auth",
             Category::Lab => "lab",
             Category::Link => "link",
