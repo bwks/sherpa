@@ -1,11 +1,13 @@
 use anyhow::Result;
 use axum::routing::get;
 use bollard::Docker;
+use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{
     Config, ConfigurationManagement, OtelConfig, ServerConnection, TlsConfig, VmProviders,
     ZtpServer,
 };
+use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -35,8 +37,8 @@ impl TestServer {
     pub async fn start_with_config(images_dir: Option<String>) -> Result<Self> {
         let namespace = generate_test_namespace();
 
-        let db_password = std::env::var("SHERPA_DB_PASSWORD")
-            .unwrap_or_else(|_| shared::konst::SHERPA_PASSWORD.to_string());
+        let db_password =
+            std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string());
         let db_port: u16 = std::env::var("SHERPA_DEV_DB_PORT")
             .unwrap_or_else(|_| "42069".to_string())
             .parse()?;
@@ -80,6 +82,7 @@ impl TestServer {
             config: Arc::new(config),
             jwt_secret: Arc::new(jwt_secret),
             metrics: Metrics::noop(),
+            pending_creations: Arc::new(DashMap::new()),
         };
 
         let app = build_router()
