@@ -14,6 +14,7 @@ use uuid::Uuid;
 use super::connection::Connection;
 use super::messages::{ClientMessage, ServerMessage};
 use crate::daemon::state::AppState;
+use shared::data::StatusKind;
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -118,7 +119,7 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Subscribed to logs".to_string(),
                 timestamp: jiff::Timestamp::now(),
-                kind: shared::data::StatusKind::Info,
+                kind: StatusKind::Info,
                 phase: None,
                 progress: None,
             };
@@ -137,7 +138,7 @@ async fn handle_client_message(
             let response = ServerMessage::Status {
                 message: "Unsubscribed from logs".to_string(),
                 timestamp: jiff::Timestamp::now(),
-                kind: shared::data::StatusKind::Info,
+                kind: StatusKind::Info,
                 phase: None,
                 progress: None,
             };

@@ -5086,6 +5086,7 @@ dependencies = [
  "ipnet",
  "jiff",
  "md5",
+ "petname",
  "rand 0.8.5",
  "regex",
  "reqwest 0.11.27",
@@ -5137,7 +5138,6 @@ dependencies = [
  "futures",
  "futures-util",
  "jiff",
- "petname",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "rpassword",
@@ -5187,7 +5187,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "petname",
  "rand 0.8.5",
  "rcgen",
  "regex",
@@ -6176,7 +6175,6 @@ name = "topology"
 version = "0.3.53"
 dependencies = [
  "anyhow",
- "petname",
  "serde",
  "serde_derive",
  "shared",

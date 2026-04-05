@@ -67,6 +67,7 @@ mod tests {
     use super::*;
     use crate::api::websocket::messages::LogLevel;
     use jiff::Timestamp;
+    use shared::data::StatusKind;
 
     #[tokio::test]
     async fn test_broadcast_to_empty_registry() {
@@ -75,7 +76,7 @@ mod tests {
         let message = ServerMessage::Status {
             message: "Test".to_string(),
             timestamp: Timestamp::now(),
-            kind: shared::data::StatusKind::Info,
+            kind: StatusKind::Info,
             phase: None,
             progress: None,
         };

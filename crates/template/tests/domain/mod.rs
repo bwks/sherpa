@@ -2,7 +2,7 @@ use askama::Template;
 
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, DiskBuses, DiskDevices, DiskDrivers,
-    DiskFormats, DiskTargets, Interface, InterfaceType, MachineType, NodeDisk,
+    DiskFormats, DiskTargets, Interface, InterfaceConnection, InterfaceType, MachineType, NodeDisk,
 };
 use template::DomainTemplate;
 
@@ -100,7 +100,7 @@ fn test_domain_renders_with_peer_interface() {
         mtu: 1500,
         mac_address: "52:54:00:dd:ee:ff".to_string(),
         connection_type: ConnectionTypes::Peer,
-        interface_connection: Some(shared::data::InterfaceConnection {
+        interface_connection: Some(InterfaceConnection {
             local_id: 0,
             local_port: 10001,
             local_loopback: "127.0.0.10".to_string(),

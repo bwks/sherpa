@@ -67,6 +67,7 @@ pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Resul
 mod tests {
     use super::*;
     use crate::user::{count_users, get_user};
+    use shared::konst::SHERPA_PASSWORD;
 
     fn test_db_port() -> u16 {
         std::env::var("SHERPA_DEV_DB_PORT")
@@ -83,7 +84,7 @@ mod tests {
             test_db_port(),
             "test_seed_admin",
             "test_db",
-            shared::konst::SHERPA_PASSWORD,
+            SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -113,7 +114,7 @@ mod tests {
             test_db_port(),
             "test_seed_admin_skip",
             "test_db",
-            shared::konst::SHERPA_PASSWORD,
+            SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -150,7 +151,7 @@ mod tests {
             test_db_port(),
             "test_seed_admin_validate",
             "test_db",
-            shared::konst::SHERPA_PASSWORD,
+            SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -180,7 +181,7 @@ mod tests {
             test_db_port(),
             "test_seed_admin_idem",
             "test_db",
-            shared::konst::SHERPA_PASSWORD,
+            SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;

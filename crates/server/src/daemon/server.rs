@@ -33,10 +33,14 @@ use crate::api::websocket;
 use crate::daemon::metrics::Metrics;
 use crate::daemon::state::AppState;
 use crate::tls::CertificateManager;
+use shared::data::OtelConfig;
 use shared::konst::{
     OTEL_METRIC_EXPORT_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH,
 };
-use shared::util::load_config;
+use shared::util::{
+    get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
+    load_config,
+};
 
 /// Holds OTel providers so pending data is flushed on drop.
 struct OtelGuard {
@@ -56,19 +60,19 @@ impl Drop for OtelGuard {
 }
 
 /// Resolve the OTLP endpoint, preferring the env var over config.
-fn otel_endpoint(otel_config: &shared::data::OtelConfig) -> String {
+fn otel_endpoint(otel_config: &OtelConfig) -> String {
     std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT").unwrap_or_else(|_| otel_config.endpoint.clone())
 }
 
 /// Build the shared OTel Resource (service identity) from config / env vars.
-fn otel_resource(otel_config: &shared::data::OtelConfig) -> Resource {
+fn otel_resource(otel_config: &OtelConfig) -> Resource {
     let service_name =
         std::env::var("OTEL_SERVICE_NAME").unwrap_or_else(|_| otel_config.service_name.clone());
     Resource::builder().with_service_name(service_name).build()
 }
 
 /// Build an OTLP tracer provider from config.
-fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTracerProvider> {
+fn init_tracer_provider(otel_config: &OtelConfig) -> Result<SdkTracerProvider> {
     let sampler = if (otel_config.sample_ratio - 1.0).abs() < f64::EPSILON {
         opentelemetry_sdk::trace::Sampler::AlwaysOn
     } else if otel_config.sample_ratio <= 0.0 {
@@ -93,7 +97,7 @@ fn init_tracer_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkTra
 }
 
 /// Build an OTLP meter provider from config.
-fn init_meter_provider(otel_config: &shared::data::OtelConfig) -> Result<SdkMeterProvider> {
+fn init_meter_provider(otel_config: &OtelConfig) -> Result<SdkMeterProvider> {
     let exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_tonic()
         .with_endpoint(otel_endpoint(otel_config))
@@ -330,7 +334,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         if san.is_empty() {
             if config.server_ipv4 == Ipv4Addr::UNSPECIFIED {
                 // Listening on 0.0.0.0 — add all non-loopback IPv4 interface addresses
-                match shared::util::get_non_loopback_ipv4_addresses() {
+                match get_non_loopback_ipv4_addresses() {
                     Ok(addrs) => {
                         for ip in &addrs {
                             san.push(format!("IP:{ip}"));
@@ -360,7 +364,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             if let Some(ipv6) = config.server_ipv6 {
                 if ipv6.is_unspecified() {
                     // Listening on [::] — add all non-loopback IPv6 interface addresses
-                    match shared::util::get_non_loopback_ipv6_addresses() {
+                    match get_non_loopback_ipv6_addresses() {
                         Ok(addrs) => {
                             for ip in &addrs {
                                 san.push(format!("IP:{ip}"));
@@ -385,12 +389,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             san.push("IP:::1".to_string());
 
             // Add hostname and FQDN
-            match shared::util::get_hostname() {
+            match get_hostname() {
                 Ok(hostname) => {
                     san.push(format!("DNS:{hostname}"));
                     // If hostname has no dots, try to resolve FQDN
                     if !hostname.contains('.')
-                        && let Some(fqdn) = shared::util::get_fqdn()
+                        && let Some(fqdn) = get_fqdn()
                         && fqdn != hostname
                     {
                         san.push(format!("DNS:{fqdn}"));

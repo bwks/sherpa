@@ -8,7 +8,7 @@ use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
 use shared::data::{ConfigurationManagement, NodeModel, ZtpServer};
-use shared::util::load_file as load_file_util;
+use shared::util::{generate_lab_name, load_file as load_file_util};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
@@ -30,8 +30,7 @@ pub struct Manifest {
 
 impl Manifest {
     pub fn example() -> Result<Self> {
-        let name =
-            petname::petname(2, "-").ok_or(anyhow::anyhow!("Failed to generate manifest name"))?;
+        let name = generate_lab_name()?;
 
         let dev01 = Node {
             name: "dev01".to_owned(),

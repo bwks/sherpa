@@ -33,17 +33,20 @@ use crate::templates::{
 use super::errors::ApiError;
 use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie};
 
+use shared::api_spec;
 use shared::auth::{password, ssh};
 use shared::data::{
     BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
     CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
     DestroyRequest, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
     InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
-    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
-    OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
-    UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
+    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
+    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
+    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
+    ZtpMethod,
 };
 use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
+use shared::util::{generate_lab_name, get_id_for_user};
 
 /// Authenticate user and issue JWT token
 ///
@@ -634,7 +637,7 @@ pub async fn add_ssh_key_handler(
     axum::Form(form): axum::Form<AddSshKeyForm>,
 ) -> impl IntoResponse {
     // 1. Validate SSH key format
-    if let Err(e) = shared::auth::ssh::validate_ssh_key(&form.ssh_key) {
+    if let Err(e) = ssh::validate_ssh_key(&form.ssh_key) {
         return SshKeyErrorTemplate {
             message: format!("Invalid SSH key: {}", e),
         }
@@ -2165,7 +2168,7 @@ pub async fn admin_node_image_update_handler(
     }
 
     // Create updated config (keeping id, model, kind, management_interface from existing)
-    let updated_config = shared::data::NodeConfig {
+    let updated_config = NodeConfig {
         id: config.id,
         model: config.model, // Keep original (read-only)
         kind: config.kind,   // Keep original (read-only)
@@ -2240,7 +2243,7 @@ pub async fn admin_node_image_versions_handler(
     tracing::debug!("Node config versions list request: model={}", model);
 
     // Parse model enum
-    let model_enum = shared::data::NodeModel::from_str(&model)
+    let model_enum = NodeModel::from_str(&model)
         .map_err(|_| ApiError::bad_request(format!("Invalid model: {}", model)))?;
 
     // Derive kind from model
@@ -3209,7 +3212,7 @@ pub async fn lab_destroy_stream_handler(
 ///
 /// GET /labs/create
 pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
-    let generated_name = shared::util::generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
+    let generated_name = generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
     let models: Vec<String> = NodeModel::iter().map(|m| m.to_string()).collect();
 
     LabCreateTemplate {
@@ -3268,7 +3271,7 @@ pub async fn lab_create_post_handler(
         }
     };
 
-    let lab_id = shared::util::get_id_for_user(&auth.username, &lab_name);
+    let lab_id = get_id_for_user(&auth.username, &lab_name);
 
     let request = UpRequest {
         lab_id: lab_id.clone(),
@@ -3330,7 +3333,7 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
         std::sync::OnceLock::new();
     let result = SPEC_JSON.get_or_init(|| {
-        let spec = shared::api_spec::build_spec();
+        let spec = api_spec::build_spec();
         serde_json::to_value(spec).map_err(|e| e.to_string())
     });
     match result {
@@ -3349,7 +3352,7 @@ pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
     static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
         std::sync::OnceLock::new();
     let result = OPENAPI_JSON.get_or_init(|| {
-        let doc = shared::api_spec::build_openapi();
+        let doc = api_spec::build_openapi();
         Ok(doc)
     });
     match result {

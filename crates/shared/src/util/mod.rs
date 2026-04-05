@@ -54,7 +54,7 @@ pub use output::{
     display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 pub use port::id_to_port;
-pub use random::get_id;
+pub use random::{generate_lab_name, get_id, get_id_for_user};
 pub use sanitizers::dasher;
 pub use ssh::{
     add_lab_ssh_include, find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key,

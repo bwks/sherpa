@@ -1,6 +1,8 @@
 /// UPDATE operation tests for user
 use anyhow::Result;
 use db::{create_user, get_user, update_user};
+use shared::data::DbUser;
+use surrealdb_types::{Datetime, RecordId};
 
 use crate::{setup_db, teardown_db};
 
@@ -103,10 +105,6 @@ async fn test_update_user_without_id_fails() -> Result<()> {
 #[ignore]
 async fn test_update_nonexistent_user_fails() -> Result<()> {
     let db = setup_db("test_update_nonexistent_user").await?;
-
-    use shared::data::DbUser;
-    use surrealdb_types::Datetime;
-    use surrealdb_types::RecordId;
 
     let fake_user = DbUser {
         id: Some(RecordId::new("user", "nonexistent")),
