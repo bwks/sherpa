@@ -50,10 +50,11 @@ use super::handlers::{
     lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
     lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, lab_start_handler,
     lab_stop_handler, labs_list_page_handler, list_images_json, list_users_json, login,
-    login_form_handler, login_page_handler, logout_handler, node_start_handler, node_stop_handler,
-    openapi_handler, profile_handler, pull_image_json, redeploy_node_json, resume_lab_json,
-    scan_images_json, set_default_image_json, show_image_json, signup_form_handler,
-    signup_page_handler, update_impairment_json, update_password_handler, upload_image_multipart,
+    login_form_handler, login_page_handler, logout_handler, node_redeploy_handler,
+    node_start_handler, node_stop_handler, openapi_handler, profile_handler, pull_image_json,
+    redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
+    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
+    upload_image_multipart,
 };
 
 /// Build the Axum router with all API routes
@@ -122,6 +123,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             "/labs/{lab_id}/nodes/{node_name}/start",
             post(node_start_handler),
+        )
+        .route(
+            "/labs/{lab_id}/nodes/{node_name}/redeploy",
+            post(node_redeploy_handler),
         )
         .route("/profile", get(profile_handler))
         .route("/profile/password", post(update_password_handler))

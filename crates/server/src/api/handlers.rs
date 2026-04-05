@@ -1214,6 +1214,60 @@ pub async fn node_start_handler(
     Ok(Json(response))
 }
 
+/// Redeploy a single node in a lab (web UI handler, cookie auth)
+///
+/// POST /labs/{lab_id}/nodes/{node_name}/redeploy
+#[tracing::instrument(skip(state), fields(%lab_id, %node_name))]
+pub async fn node_redeploy_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Path((lab_id, node_name)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden("You do not have access to this lab"));
+    }
+
+    // Read the saved manifest from the lab directory
+    let manifest_path = format!(
+        "{}/{}/{}",
+        shared::konst::SHERPA_LABS_PATH,
+        lab_id,
+        shared::konst::SHERPA_MANIFEST_FILE
+    );
+    let manifest_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
+        tracing::error!("Failed to read manifest at {}: {:?}", manifest_path, e);
+        ApiError::internal("Lab manifest not found. Labs created before this feature cannot be redeployed from the web UI.")
+    })?;
+    let manifest: serde_json::Value = serde_json::from_str(&manifest_str).map_err(|e| {
+        tracing::error!("Failed to parse manifest: {:?}", e);
+        ApiError::internal("Failed to parse lab manifest")
+    })?;
+
+    let request = RedeployRequest {
+        lab_id,
+        node_name: node_name.clone(),
+        manifest,
+        username: auth.username,
+    };
+
+    let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
+
+    let result = redeploy::redeploy_node(request, &state, progress)
+        .await
+        .map_err(|e| {
+            tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
+            ApiError::internal(format!("Redeploy failed: {}", e))
+        })?;
+
+    Ok(Json(json!({
+        "success": result.success,
+        "message": result.message,
+    })))
+}
+
 /// Lab detail page handler
 ///
 /// Displays detailed information about a specific lab including:

@@ -100,6 +100,12 @@
                             {% call icons::play() %}
                         </button>
                         {% endif %}
+                        <button
+                            onclick="nodeRedeploy('{{ lab_id }}', '{{ device.name }}', this)"
+                            class="text-edit hover:text-edit-hover transition-colors cursor-pointer"
+                            title="Redeploy node">
+                            {% call icons::redeploy() %}
+                        </button>
                     </div>
                 </td>
             </tr>

@@ -7,13 +7,13 @@ async function labAction(labId, btn, action) {
     btn.classList.add("animate-spin");
 
     try {
-        var response = await fetch("/labs/" + encodeURIComponent(labId) + "/" + action, {
+        var response = await fetch(`/labs/${encodeURIComponent(labId)}/${action}`, {
             method: "POST",
         });
 
         if (!response.ok) {
             var text = await response.text();
-            showLabNotification(labId, "error", text || action + " failed (HTTP " + response.status + ")");
+            showLabNotification(labId, "error", text || `${action} failed (HTTP ${response.status})`);
             return;
         }
 
@@ -21,14 +21,14 @@ async function labAction(labId, btn, action) {
         var failed = data.results.filter(function(r) { return !r.success; });
 
         if (failed.length === 0) {
-            showLabNotification(labId, "success",
-                (action === "start" ? "Started" : "Stopped") + " " + data.results.length + " node(s)");
+            var verb = action === "start" ? "Started" : "Stopped";
+            showLabNotification(labId, "success", `${verb} ${data.results.length} node(s)`);
         } else {
-            var msgs = failed.map(function(r) { return r.name + ": " + r.message; });
+            var msgs = failed.map(function(r) { return `${r.name}: ${r.message}`; });
             showLabNotification(labId, "error", msgs.join(", "));
         }
     } catch (err) {
-        showLabNotification(labId, "error", "Request failed: " + err.message);
+        showLabNotification(labId, "error", `Request failed: ${err.message}`);
     } finally {
         btn.disabled = false;
         btn.classList.remove("animate-spin");
@@ -44,16 +44,16 @@ function labStop(labId, btn) {
 }
 
 function showLabNotification(labId, type, message) {
-    var existing = document.getElementById("lab-notification-" + labId);
+    var existing = document.getElementById(`lab-notification-${labId}`);
     if (existing) {
         existing.remove();
     }
 
-    var row = document.getElementById("lab-row-" + labId);
+    var row = document.getElementById(`lab-row-${labId}`);
     if (!row) return;
 
     var tr = document.createElement("tr");
-    tr.id = "lab-notification-" + labId;
+    tr.id = `lab-notification-${labId}`;
 
     var td = document.createElement("td");
     td.colSpan = 5;
@@ -86,13 +86,13 @@ async function labDetailAction(labId, action, btn) {
     resultDiv.textContent = "";
 
     try {
-        var response = await fetch("/labs/" + encodeURIComponent(labId) + "/" + action, {
+        var response = await fetch(`/labs/${encodeURIComponent(labId)}/${action}`, {
             method: "POST",
         });
 
         if (!response.ok) {
             var text = await response.text();
-            showDetailResult("error", text || action + " failed (HTTP " + response.status + ")");
+            showDetailResult("error", text || `${action} failed (HTTP ${response.status})`);
             return;
         }
 
@@ -102,18 +102,19 @@ async function labDetailAction(labId, action, btn) {
 
         if (failed.length === 0) {
             var names = succeeded.map(function(r) { return r.name; }).join(", ");
-            showDetailResult("success",
-                (action === "start" ? "Started" : "Stopped") + " " + succeeded.length + " node(s): " + names);
+            var verb = action === "start" ? "Started" : "Stopped";
+            showDetailResult("success", `${verb} ${succeeded.length} node(s): ${names}`);
         } else {
-            var msgs = failed.map(function(r) { return r.name + ": " + r.message; });
+            var msgs = failed.map(function(r) { return `${r.name}: ${r.message}`; });
             if (succeeded.length > 0) {
                 var okNames = succeeded.map(function(r) { return r.name; }).join(", ");
-                msgs.unshift((action === "start" ? "Started" : "Stopped") + ": " + okNames);
+                var verb = action === "start" ? "Started" : "Stopped";
+                msgs.unshift(`${verb}: ${okNames}`);
             }
             showDetailResult("error", msgs.join(" | "));
         }
     } catch (err) {
-        showDetailResult("error", "Request failed: " + err.message);
+        showDetailResult("error", `Request failed: ${err.message}`);
     } finally {
         btn.disabled = false;
         btn.textContent = originalText;
@@ -121,7 +122,7 @@ async function labDetailAction(labId, action, btn) {
 }
 
 // ============================================================================
-// Node actions — per-node stop/start (used on /labs/{id} nodes table)
+// Node actions — per-node stop/start/redeploy (used on /labs/{id} nodes table)
 // ============================================================================
 
 async function nodeAction(labId, nodeName, action, btn) {
@@ -129,14 +130,13 @@ async function nodeAction(labId, nodeName, action, btn) {
     btn.classList.add("animate-spin");
 
     try {
-        var url = "/labs/" + encodeURIComponent(labId) +
-            "/nodes/" + encodeURIComponent(nodeName) + "/" + action;
+        var url = `/labs/${encodeURIComponent(labId)}/nodes/${encodeURIComponent(nodeName)}/${action}`;
         var response = await fetch(url, { method: "POST" });
 
         if (!response.ok) {
             var text = await response.text();
             showNodeNotification(nodeName, "error",
-                nodeName + ": " + (text || action + " failed (HTTP " + response.status + ")"));
+                text || `${action} failed (HTTP ${response.status})`);
             return;
         }
 
@@ -150,7 +150,37 @@ async function nodeAction(labId, nodeName, action, btn) {
                 result ? result.message : "Unknown error");
         }
     } catch (err) {
-        showNodeNotification(nodeName, "error", "Request failed: " + err.message);
+        showNodeNotification(nodeName, "error", `Request failed: ${err.message}`);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove("animate-spin");
+    }
+}
+
+async function nodeRedeploy(labId, nodeName, btn) {
+    btn.disabled = true;
+    btn.classList.add("animate-spin");
+
+    try {
+        var url = `/labs/${encodeURIComponent(labId)}/nodes/${encodeURIComponent(nodeName)}/redeploy`;
+        var response = await fetch(url, { method: "POST" });
+
+        if (!response.ok) {
+            var text = await response.text();
+            showNodeNotification(nodeName, "error",
+                text || `Redeploy failed (HTTP ${response.status})`);
+            return;
+        }
+
+        var data = await response.json();
+
+        if (data.success) {
+            showNodeNotification(nodeName, "success", data.message);
+        } else {
+            showNodeNotification(nodeName, "error", data.message);
+        }
+    } catch (err) {
+        showNodeNotification(nodeName, "error", `Request failed: ${err.message}`);
     } finally {
         btn.disabled = false;
         btn.classList.remove("animate-spin");
@@ -158,16 +188,16 @@ async function nodeAction(labId, nodeName, action, btn) {
 }
 
 function showNodeNotification(nodeName, type, message) {
-    var existing = document.getElementById("node-notification-" + nodeName);
+    var existing = document.getElementById(`node-notification-${nodeName}`);
     if (existing) {
         existing.remove();
     }
 
-    var row = document.getElementById("node-row-" + nodeName);
+    var row = document.getElementById(`node-row-${nodeName}`);
     if (!row) return;
 
     var tr = document.createElement("tr");
-    tr.id = "node-notification-" + nodeName;
+    tr.id = `node-notification-${nodeName}`;
 
     var td = document.createElement("td");
     td.colSpan = 9;
