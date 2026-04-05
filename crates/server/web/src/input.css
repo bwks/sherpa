@@ -2525,6 +2525,10 @@
   @apply px-4 py-2 text-sm font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover transition-colors cursor-pointer;
 }
 
+@utility btn-danger-sm {
+  @apply px-3.5 py-1.5 text-xs font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover transition-colors cursor-pointer;
+}
+
 @utility btn-edit {
   @apply px-4 py-2 text-sm font-medium text-white bg-edit rounded-md hover:bg-edit-hover transition-colors cursor-pointer;
 }

@@ -59,7 +59,7 @@
                 >
             </div>
 
-            <button type="submit" class="px-5 py-2.5 text-sm font-medium text-white bg-accent rounded-md hover:bg-accent-hover cursor-pointer active:scale-[0.98] transition-all" {% if is_self %}disabled{% endif %}>Update Password</button>
+            <button type="submit" class="btn-primary" {% if is_self %}disabled{% endif %}>Update Password</button>
         </form>
 
         {% if is_self %}</div>{% endif %}
@@ -85,7 +85,7 @@
                     Paste your SSH public key (ssh-rsa, ssh-ed25519, ecdsa-sha2-*)
                 </small>
             </div>
-            <button type="submit" class="px-5 py-2.5 text-sm font-medium text-white bg-accent rounded-md hover:bg-accent-hover cursor-pointer active:scale-[0.98] transition-all">Add Key</button>
+            <button type="submit" class="btn-primary">Add Key</button>
         </form>
 
         <!-- SSH Keys List (loaded via partial) -->
