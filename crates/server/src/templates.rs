@@ -317,6 +317,37 @@ impl IntoResponse for LabDetailTemplate {
 }
 
 // ============================================================================
+// Node Detail Template
+// ============================================================================
+
+/// Node detail page template
+#[derive(Template)]
+#[template(path = "user/node-detail.html.jinja")]
+pub struct NodeDetailTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+    pub lab_id: String,
+    pub lab_name: String,
+    pub device: DeviceInfo,
+    pub node_config: NodeConfig,
+    pub mgmt_mac: Option<String>,
+}
+
+impl IntoResponse for NodeDetailTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+// ============================================================================
 // Profile Management Templates
 // ============================================================================
 

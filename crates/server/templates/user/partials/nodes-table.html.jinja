@@ -43,8 +43,10 @@
         <tbody class="bg-card divide-y divide-border">
             {% for device in devices %}
             <tr class="hover:bg-hover transition-colors" id="node-row-{{ device.name }}">
-                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-heading">
-                    {{ device.name }}
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                    <a href="/labs/{{ lab_id }}/nodes/{{ device.name }}" class="text-accent hover:text-accent-hover hover:underline">
+                        {{ device.name }}
+                    </a>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-body font-mono">
                     {{ device.model }}
