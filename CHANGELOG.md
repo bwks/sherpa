@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.58] - 2026-04-05
+
+### Features
+
+- Status scanner service by @bwks in [#224](https://github.com/bwks/sherpa/pull/224) ([e54c8d1](https://github.com/bwks/sherpa/commit/e54c8d1351020958f16f9507c9718b85601a4f84))
+- Scanner service by @bwks ([ab56eb1](https://github.com/bwks/sherpa/commit/ab56eb1c07d70bdf3093e20d13e61545780e17fd))
+
+### Miscellaneous
+
+- Version bump by @bwks ([b11f165](https://github.com/bwks/sherpa/commit/b11f165f380f6fa7b7913f62f810770e50f42032))
+- Merge pull request #223 from bwks/changelog/v0.3.57
+
+chore(release): update changelog for v0.3.57 by @github-actions[bot] in [#223](https://github.com/bwks/sherpa/pull/223) ([08321a6](https://github.com/bwks/sherpa/commit/08321a6b18c000a581c696b6eb19cc98f895cd10))
 ## [0.3.57] - 2026-04-05
 
 ### Features
