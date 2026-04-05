@@ -1364,6 +1364,45 @@ pub async fn admin_tools_clean_handler(
     Ok(Json(response))
 }
 
+/// Admin image scan - scan filesystem and Docker for discoverable images
+///
+/// POST /admin/tools/scan
+#[tracing::instrument(skip(state))]
+pub async fn admin_tools_scan_handler(
+    admin: AdminUser,
+    State(state): State<AppState>,
+    Form(form): Form<ScanForm>,
+) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!(
+        admin = %admin.username,
+        dry_run = %form.dry_run(),
+        "Admin triggering image scan from tools page"
+    );
+
+    let request = ScanImagesRequest {
+        kind: None,
+        dry_run: form.dry_run(),
+    };
+
+    let response = import::scan_images(request, &state)
+        .await
+        .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Form data for image scan
+#[derive(Debug, Deserialize)]
+pub struct ScanForm {
+    pub dry_run: Option<String>,
+}
+
+impl ScanForm {
+    pub fn dry_run(&self) -> bool {
+        self.dry_run.as_deref() == Some("true")
+    }
+}
+
 /// Admin user edit page - shows user details and allows editing
 pub async fn admin_user_edit_handler(
     State(state): State<AppState>,

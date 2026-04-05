@@ -2513,3 +2513,53 @@
   --t-edit: #3185FC;
   --t-edit-hover: #66D7D1;
 }
+
+/* ============================================================================
+   Button utilities
+   ============================================================================ */
+@utility btn-primary {
+  @apply px-4 py-2 text-sm font-medium text-white bg-accent rounded-md hover:bg-accent-hover transition-colors cursor-pointer;
+}
+
+@utility btn-danger {
+  @apply px-4 py-2 text-sm font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover transition-colors cursor-pointer;
+}
+
+@utility btn-edit {
+  @apply px-4 py-2 text-sm font-medium text-white bg-edit rounded-md hover:bg-edit-hover transition-colors cursor-pointer;
+}
+
+@utility btn-outline {
+  @apply px-4 py-2 text-sm font-medium text-accent border border-accent rounded-md hover:text-accent-hover hover:border-accent-hover transition-colors cursor-pointer;
+}
+
+@utility btn-ghost {
+  @apply px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded-md transition-colors cursor-pointer;
+}
+
+@utility btn-cancel {
+  @apply px-4 py-2 text-sm font-medium text-body bg-card border border-border rounded-md hover:bg-hover transition-colors cursor-pointer;
+}
+
+/* ============================================================================
+   Badge utilities
+   ============================================================================ */
+@utility badge-success {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-success-text;
+}
+
+@utility badge-neutral {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-badge text-neutral-badge-text;
+}
+
+@utility badge-kind-vm {
+  @apply inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-vm text-kind-vm-text;
+}
+
+@utility badge-kind-container {
+  @apply inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-container text-kind-ctr-text;
+}
+
+@utility badge-kind-unikernel {
+  @apply inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-unikernel text-kind-uni-text;
+}
