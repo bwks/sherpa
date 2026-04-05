@@ -10,10 +10,26 @@ use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+
+use crate::api::build_router;
+use crate::api::websocket;
+use crate::daemon::metrics::Metrics;
+use crate::daemon::state::AppState;
+use crate::services::scanner::run_scanner;
+use crate::tls::CertificateManager;
+use shared::data::OtelConfig;
+use shared::konst::{
+    OTEL_METRIC_EXPORT_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH,
+};
+use shared::util::{
+    get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
+    load_config,
+};
 
 /// Custom time formatter that outputs UTC time with millisecond precision
 /// Format: 2026-02-17T00:59:15.920Z
@@ -27,20 +43,6 @@ impl FormatTime for MillisecondTime {
         write!(w, "{}", now.strftime("%Y-%m-%dT%H:%M:%S.%3fZ"))
     }
 }
-
-use crate::api::build_router;
-use crate::api::websocket;
-use crate::daemon::metrics::Metrics;
-use crate::daemon::state::AppState;
-use crate::tls::CertificateManager;
-use shared::data::OtelConfig;
-use shared::konst::{
-    OTEL_METRIC_EXPORT_INTERVAL_SECS, SHERPA_CONFIG_FILE_PATH, SHERPAD_LOG_FILE_PATH,
-};
-use shared::util::{
-    get_fqdn, get_hostname, get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses,
-    load_config,
-};
 
 /// Holds OTel providers so pending data is flushed on drop.
 struct OtelGuard {
@@ -307,6 +309,27 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         .await
         .context("Failed to initialize application state")?;
 
+    // Set up shutdown cancellation token for background services
+    let cancel_token = CancellationToken::new();
+
+    // Spawn a task that cancels the token when a shutdown signal is received
+    let shutdown_token = cancel_token.clone();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        shutdown_token.cancel();
+    });
+
+    // Start background scanner service if enabled
+    if config.scanner.enabled {
+        let scanner_state = state.clone();
+        let scanner_token = cancel_token.child_token();
+        tokio::spawn(async move {
+            run_scanner(scanner_state, scanner_token).await;
+        });
+    } else {
+        tracing::info!("Scanner service is disabled");
+    }
+
     // Clone state for HTTP /cert endpoints before moving into main router
     let http_state = state.clone();
     let ipv6_http_state = state.clone();
@@ -557,6 +580,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             .await
             .context("Failed to start server")?;
     }
+
+    // Ensure background services are stopped (idempotent if already cancelled)
+    cancel_token.cancel();
 
     tracing::info!("sherpad server stopped");
 

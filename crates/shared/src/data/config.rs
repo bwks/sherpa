@@ -184,6 +184,25 @@ impl Default for ClientConfig {
     }
 }
 
+/// Scanner service configuration for periodic node/lab state reconciliation.
+#[derive(Clone, Serialize, Deserialize, Debug)]
+#[serde(default)]
+pub struct ScannerConfig {
+    /// Enable the background scanner service
+    pub enabled: bool,
+    /// Interval between scan cycles in seconds
+    pub interval_secs: u64,
+}
+
+impl Default for ScannerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_secs: 30,
+        }
+    }
+}
+
 /// Full server configuration. All server-specific fields are required.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
@@ -217,6 +236,8 @@ pub struct Config {
     pub tls: TlsConfig,
     #[serde(default)]
     pub otel: OtelConfig,
+    #[serde(default)]
+    pub scanner: ScannerConfig,
 }
 
 fn default_server_ipv4() -> Ipv4Addr {
@@ -385,6 +406,59 @@ mod tests {
         let config: Config = toml::from_str(toml_str).expect("deserializes without otel section");
         assert!(!config.otel.enabled);
         assert_eq!(config.otel.endpoint, "http://localhost:4317");
+    }
+
+    #[test]
+    fn test_scanner_config_default() {
+        let scanner = ScannerConfig::default();
+        assert!(scanner.enabled);
+        assert_eq!(scanner.interval_secs, 30);
+    }
+
+    #[test]
+    fn test_scanner_config_serde_roundtrip() {
+        let scanner = ScannerConfig {
+            enabled: false,
+            interval_secs: 60,
+        };
+        let toml_str = toml::to_string_pretty(&scanner).expect("serializes");
+        let back: ScannerConfig = toml::from_str(&toml_str).expect("deserializes");
+        assert!(!back.enabled);
+        assert_eq!(back.interval_secs, 60);
+    }
+
+    #[test]
+    fn test_scanner_config_absent_from_toml() {
+        let toml_str = r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+        "#;
+        let config: Config =
+            toml::from_str(toml_str).expect("deserializes without scanner section");
+        assert!(config.scanner.enabled);
+        assert_eq!(config.scanner.interval_secs, 30);
+    }
+
+    #[test]
+    fn test_scanner_config_partial_section() {
+        let toml_str = r#"
+            name = "test"
+            vm_provider = "libvirt"
+            qemu_bin = "/usr/bin/qemu-system-x86_64"
+            images_dir = "/opt/sherpa/images"
+            containers_dir = "/opt/sherpa/containers"
+            bins_dir = "/opt/sherpa/bins"
+
+            [scanner]
+            enabled = false
+        "#;
+        let config: Config = toml::from_str(toml_str).expect("deserializes with partial scanner");
+        assert!(!config.scanner.enabled);
+        assert_eq!(config.scanner.interval_secs, 30);
     }
 
     #[test]

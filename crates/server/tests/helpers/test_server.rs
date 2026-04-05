@@ -70,6 +70,7 @@ impl TestServer {
             server_connection: ServerConnection::default(),
             tls: TlsConfig::default(),
             otel: OtelConfig::default(),
+            scanner: shared::data::ScannerConfig::default(),
         };
 
         let jwt_secret: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();

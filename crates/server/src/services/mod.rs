@@ -11,4 +11,5 @@ pub mod node_ops;
 pub mod progress;
 pub mod redeploy;
 pub mod resume;
+pub mod scanner;
 pub mod up;
