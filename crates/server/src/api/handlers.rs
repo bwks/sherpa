@@ -20,14 +20,14 @@ use crate::services::{
     resume, up,
 };
 use crate::templates::{
-    AdminDashboardTemplate, AdminImageUploadTemplate, AdminPasswordErrorTemplate,
-    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminToolsTemplate,
-    AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate, Error403Template,
-    Error404Template, ErrorTemplate, LabCreateProgressFragment, LabCreateTemplate,
-    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
-    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, LoginErrorTemplate, LoginPageTemplate,
-    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
-    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminImageUploadTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
+    AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
+    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
+    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
+    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
+    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
+    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
+    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -1022,14 +1022,39 @@ pub async fn get_labs_json(
 /// curl -b "sherpa_auth=..." https://server:3030/
 /// ```
 pub async fn dashboard_handler(
+    State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
 ) -> Result<DashboardTemplate, ApiError> {
     tracing::debug!("Serving dashboard for user '{}'", auth.username);
+
+    // Get user's lab count
+    let lab_count = match db::get_user(&state.db, &auth.username).await {
+        Ok(user) => {
+            if let Some(user_id) = user.id {
+                db::count_labs_by_user(&state.db, user_id)
+                    .await
+                    .unwrap_or(0)
+            } else {
+                0
+            }
+        }
+        Err(_) => 0,
+    };
+
+    let image_count = db::count_node_images(&state.db).await.unwrap_or(0);
+
+    // Check system status
+    let docker_ok = state.docker.ping().await.is_ok();
+    let libvirt_ok = state.qemu.connect().is_ok();
 
     Ok(DashboardTemplate {
         username: auth.username.clone(),
         is_admin: auth.is_admin,
         active_page: "dashboard".to_string(),
+        lab_count,
+        image_count,
+        docker_ok,
+        libvirt_ok,
     })
 }
 
@@ -1218,7 +1243,7 @@ pub async fn lab_detail_handler(
 // Admin User Management Handlers
 // ============================================================================
 
-/// Helper struct for displaying user information in admin dashboard
+/// Helper struct for displaying user information in admin users page
 #[derive(Debug, Clone)]
 pub struct UserSummary {
     pub username: String,
@@ -1228,12 +1253,14 @@ pub struct UserSummary {
     pub created_at_formatted: String,
 }
 
-/// Admin dashboard - lists all users
+/// Admin users page - lists all users
+///
+/// GET /admin/users
 pub async fn admin_dashboard_handler(
     State(state): State<AppState>,
     admin: AdminUser,
 ) -> Result<Response, ApiError> {
-    tracing::info!("Admin '{}' accessing admin dashboard", admin.username);
+    tracing::info!("Admin '{}' accessing admin users page", admin.username);
 
     // Get all users from database
     let users = db::list_users(&state.db).await.map_err(|e| {
@@ -1269,9 +1296,9 @@ pub async fn admin_dashboard_handler(
     // Sort users alphabetically by username
     user_summaries.sort_by(|a, b| a.username.cmp(&b.username));
 
-    tracing::debug!("Loaded {} users for admin dashboard", user_summaries.len(),);
+    tracing::debug!("Loaded {} users for admin users page", user_summaries.len());
 
-    Ok(AdminDashboardTemplate {
+    Ok(AdminUsersTemplate {
         username: admin.username,
         is_admin: true,
         active_page: "admin_users".to_string(),
@@ -1758,7 +1785,6 @@ fn format_date_simple(dt: Datetime) -> String {
     // Convert to jiff Timestamp
     match jiff::Timestamp::from_second(timestamp) {
         Ok(ts) => {
-            // Format as "Feb 17, 2025"
             // SAFETY: "UTC" is always a valid timezone
             #[allow(clippy::expect_used)]
             let zoned = ts.in_tz("UTC").expect("UTC timezone should always work");

@@ -22,6 +22,10 @@ pub struct DashboardTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
+    pub lab_count: usize,
+    pub image_count: usize,
+    pub docker_ok: bool,
+    pub libvirt_ok: bool,
 }
 
 impl IntoResponse for DashboardTemplate {
@@ -422,17 +426,17 @@ impl IntoResponse for SshKeyErrorTemplate {
 // Admin User Management Templates
 // ============================================================================
 
-/// Admin dashboard page template
+/// Admin users page template
 #[derive(Template)]
-#[template(path = "admin/dashboard.html.jinja")]
-pub struct AdminDashboardTemplate {
+#[template(path = "admin/users.html.jinja")]
+pub struct AdminUsersTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
     pub users: Vec<UserSummary>,
 }
 
-impl IntoResponse for AdminDashboardTemplate {
+impl IntoResponse for AdminUsersTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -961,6 +965,10 @@ mod tests {
             username: "testuser".to_string(),
             is_admin: false,
             active_page: "dashboard".to_string(),
+            lab_count: 3,
+            image_count: 12,
+            docker_ok: true,
+            libvirt_ok: true,
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("testuser"));
@@ -1168,6 +1176,10 @@ mod tests {
             username: "admin".to_string(),
             is_admin: true,
             active_page: "dashboard".to_string(),
+            lab_count: 5,
+            image_count: 10,
+            docker_ok: true,
+            libvirt_ok: true,
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("/admin/users"));
@@ -1182,10 +1194,45 @@ mod tests {
             username: "user".to_string(),
             is_admin: false,
             active_page: "dashboard".to_string(),
+            lab_count: 0,
+            image_count: 0,
+            docker_ok: true,
+            libvirt_ok: true,
         };
         let html = tpl.render().expect("template should render");
         assert!(!html.contains("/admin/users"));
         assert!(!html.contains("/admin/labs"));
         assert!(!html.contains("/admin/tools"));
+    }
+
+    #[test]
+    fn test_dashboard_shows_stats_cards() {
+        let tpl = DashboardTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "dashboard".to_string(),
+            lab_count: 7,
+            image_count: 15,
+            docker_ok: true,
+            libvirt_ok: true,
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("My Labs"));
+        assert!(html.contains("Node Images"));
+        assert!(html.contains(">7<"));
+        assert!(html.contains(">15<"));
+    }
+
+    #[test]
+    fn test_admin_users_page_renders() {
+        let tpl = AdminUsersTemplate {
+            username: "admin".to_string(),
+            is_admin: true,
+            active_page: "admin_users".to_string(),
+            users: vec![],
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("User Management"));
+        assert!(html.contains("No users found"));
     }
 }
