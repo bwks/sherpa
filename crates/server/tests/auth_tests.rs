@@ -328,11 +328,11 @@ async fn test_http_bearer_auth_list_users() -> Result<()> {
     let mut client = TestHttpClient::new(server.addr);
     client.set_token(token);
 
-    let response = client.get("/api/v1/users").await?;
+    let response = client.get("/api/v1/admin/users").await?;
     assert_eq!(
         response.status().as_u16(),
         200,
-        "GET /api/v1/users with bearer token should return 200"
+        "GET /api/v1/admin/users with bearer token should return 200"
     );
 
     Ok(())
@@ -350,7 +350,7 @@ async fn test_http_bearer_auth_create_user() -> Result<()> {
 
     let response = client
         .post_json(
-            "/api/v1/users",
+            "/api/v1/admin/users",
             &serde_json::json!({
                 "username": "httprestuser",
                 "password": "HttpPass123!",
@@ -362,7 +362,7 @@ async fn test_http_bearer_auth_create_user() -> Result<()> {
     assert_eq!(
         response.status().as_u16(),
         200,
-        "POST /api/v1/users should return 200, got: {}",
+        "POST /api/v1/admin/users should return 200, got: {}",
         response.status()
     );
 
@@ -391,11 +391,11 @@ async fn test_http_bearer_auth_delete_user() -> Result<()> {
     let mut client = TestHttpClient::new(server.addr);
     client.set_token(token);
 
-    let response = client.delete("/api/v1/users/httpdel").await?;
+    let response = client.delete("/api/v1/admin/users/httpdel").await?;
     assert_eq!(
         response.status().as_u16(),
         200,
-        "DELETE /api/v1/users/httpdel should return 200, got: {}",
+        "DELETE /api/v1/admin/users/httpdel should return 200, got: {}",
         response.status()
     );
 

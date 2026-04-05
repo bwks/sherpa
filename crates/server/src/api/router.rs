@@ -185,7 +185,6 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/labs/{id}/nodes/{node_name}/redeploy",
             post(redeploy_node_json),
         )
-        .route("/api/v1/labs/{id}/clean", post(clean_lab_json))
         // Link API endpoints
         .route(
             "/api/v1/labs/{lab_id}/links/{link_index}/impairment",
@@ -195,7 +194,6 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/v1/images", get(list_images_json))
         .route("/api/v1/images/import", post(import_image_json))
         .route("/api/v1/images/upload", post(upload_image_multipart))
-        .route("/api/v1/images/scan", post(scan_images_json))
         .route("/api/v1/images/pull", post(pull_image_json))
         .route("/api/v1/images/download", post(download_image_json))
         .route("/api/v1/images/{model}", get(show_image_json))
@@ -207,14 +205,20 @@ pub fn build_router() -> Router<AppState> {
             "/api/v1/images/{model}/{version}/default",
             post(set_default_image_json),
         )
-        // User API endpoints
-        .route("/api/v1/users", post(create_user_json).get(list_users_json))
+        // Admin API — Tools
+        .route("/api/v1/admin/tools/labs/clean/{id}", post(clean_lab_json))
+        .route("/api/v1/admin/tools/images/scan", post(scan_images_json))
+        // Admin API — Users
         .route(
-            "/api/v1/users/{username}",
+            "/api/v1/admin/users",
+            post(create_user_json).get(list_users_json),
+        )
+        .route(
+            "/api/v1/admin/users/{username}",
             get(get_user_info_json).delete(delete_user_json),
         )
         .route(
-            "/api/v1/users/{username}/password",
+            "/api/v1/admin/users/{username}/password",
             post(change_password_json),
         )
         // Apply middleware layers (outermost = first to process request)

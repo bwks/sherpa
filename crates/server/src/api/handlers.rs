@@ -2665,7 +2665,7 @@ pub async fn redeploy_node_json(
 
 /// Force-clean a lab (admin only)
 ///
-/// POST /api/v1/labs/{lab_id}/clean
+/// POST /api/v1/admin/tools/labs/clean/{lab_id}
 pub async fn clean_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2857,7 +2857,7 @@ pub async fn set_default_image_json(
 
 /// Scan for images
 ///
-/// POST /api/v1/images/scan
+/// POST /api/v1/admin/tools/images/scan
 pub async fn scan_images_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2930,7 +2930,7 @@ pub async fn download_image_json(
 
 /// Create a user (admin only)
 ///
-/// POST /api/v1/users
+/// POST /api/v1/admin/users
 pub async fn create_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2957,7 +2957,7 @@ pub async fn create_user_json(
 
 /// List users (admin only)
 ///
-/// GET /api/v1/users
+/// GET /api/v1/admin/users
 pub async fn list_users_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -2982,7 +2982,7 @@ pub async fn list_users_json(
 
 /// Delete a user (admin only)
 ///
-/// DELETE /api/v1/users/{username}
+/// DELETE /api/v1/admin/users/{username}
 pub async fn delete_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -3014,7 +3014,7 @@ pub async fn delete_user_json(
 
 /// Change a user's password
 ///
-/// POST /api/v1/users/{username}/password
+/// POST /api/v1/admin/users/{username}/password
 pub async fn change_password_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
@@ -3046,7 +3046,7 @@ pub async fn change_password_json(
 
 /// Get user info
 ///
-/// GET /api/v1/users/{username}
+/// GET /api/v1/admin/users/{username}
 pub async fn get_user_info_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,

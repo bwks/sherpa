@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "ebpf-redirect"
-version = "0.3.54"
+version = "0.3.55"
 dependencies = [
  "aya-ebpf",
 ]
