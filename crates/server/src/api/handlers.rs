@@ -11,7 +11,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use surrealdb_types::Datetime;
 
-use crate::api::sse::{destroy_progress_stream, json_progress_stream};
+use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -23,8 +23,9 @@ use crate::templates::{
     AdminDashboardTemplate, AdminNodeImageUploadTemplate, AdminPasswordErrorTemplate,
     AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
     DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
-    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
+    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
+    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
+    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
     PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
     SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
@@ -32,17 +33,20 @@ use crate::templates::{
 use super::errors::ApiError;
 use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie};
 
+use shared::api_spec;
 use shared::auth::{password, ssh};
 use shared::data::{
     BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
     CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
     DestroyRequest, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
     InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
-    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeModel,
-    OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest,
-    UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
+    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
+    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
+    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
+    ZtpMethod,
 };
 use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
+use shared::util::{generate_lab_name, get_id_for_user};
 
 /// Authenticate user and issue JWT token
 ///
@@ -633,7 +637,7 @@ pub async fn add_ssh_key_handler(
     axum::Form(form): axum::Form<AddSshKeyForm>,
 ) -> impl IntoResponse {
     // 1. Validate SSH key format
-    if let Err(e) = shared::auth::ssh::validate_ssh_key(&form.ssh_key) {
+    if let Err(e) = ssh::validate_ssh_key(&form.ssh_key) {
         return SshKeyErrorTemplate {
             message: format!("Invalid SSH key: {}", e),
         }
@@ -1027,6 +1031,17 @@ pub async fn dashboard_handler(
         is_admin: auth.is_admin,
         active_page: "dashboard".to_string(),
     })
+}
+
+/// Labs list full page handler
+///
+/// GET /labs/list
+pub async fn labs_list_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
+    LabsListTemplate {
+        username: auth.username,
+        is_admin: auth.is_admin,
+        active_page: "labs".to_string(),
+    }
 }
 
 /// Labs grid HTML fragment handler
@@ -2153,7 +2168,7 @@ pub async fn admin_node_image_update_handler(
     }
 
     // Create updated config (keeping id, model, kind, management_interface from existing)
-    let updated_config = shared::data::NodeConfig {
+    let updated_config = NodeConfig {
         id: config.id,
         model: config.model, // Keep original (read-only)
         kind: config.kind,   // Keep original (read-only)
@@ -2228,7 +2243,7 @@ pub async fn admin_node_image_versions_handler(
     tracing::debug!("Node config versions list request: model={}", model);
 
     // Parse model enum
-    let model_enum = shared::data::NodeModel::from_str(&model)
+    let model_enum = NodeModel::from_str(&model)
         .map_err(|_| ApiError::bad_request(format!("Invalid model: {}", model)))?;
 
     // Derive kind from model
@@ -3189,6 +3204,127 @@ pub async fn lab_destroy_stream_handler(
     axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
 }
 
+// ============================================================================
+// Lab Create Handlers (HTML)
+// ============================================================================
+
+/// Handler to show the create lab page
+///
+/// GET /labs/create
+pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
+    let generated_name = generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
+    let models: Vec<String> = NodeModel::iter().map(|m| m.to_string()).collect();
+
+    LabCreateTemplate {
+        username: auth.username,
+        is_admin: auth.is_admin,
+        active_page: "labs".to_string(),
+        generated_name,
+        models,
+    }
+}
+
+/// Handler to validate manifest and initiate lab creation
+///
+/// POST /labs/create
+pub async fn lab_create_post_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Form(form): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let manifest_toml = match form.get("manifest") {
+        Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+        _ => {
+            return ErrorTemplate {
+                message: "Manifest is required".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // Parse TOML to extract lab name and validate structure
+    let manifest_value: serde_json::Value = match toml::from_str::<toml::Value>(&manifest_toml) {
+        Ok(toml_val) => match serde_json::to_value(toml_val) {
+            Ok(json_val) => json_val,
+            Err(e) => {
+                return ErrorTemplate {
+                    message: format!("Failed to convert manifest: {}", e),
+                }
+                .into_response();
+            }
+        },
+        Err(e) => {
+            return ErrorTemplate {
+                message: format!("Invalid TOML: {}", e),
+            }
+            .into_response();
+        }
+    };
+
+    let lab_name = match manifest_value.get("name").and_then(|v| v.as_str()) {
+        Some(name) => name.to_string(),
+        None => {
+            return ErrorTemplate {
+                message: "Manifest must include a 'name' field".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    let lab_id = get_id_for_user(&auth.username, &lab_name);
+
+    let request = UpRequest {
+        lab_id: lab_id.clone(),
+        manifest: manifest_value,
+        username: auth.username,
+    };
+
+    // Store the request for the SSE stream handler to pick up
+    state.pending_creations.insert(lab_id.clone(), request);
+
+    LabCreateProgressFragment { lab_id, lab_name }.into_response()
+}
+
+/// Handler to stream lab creation progress via SSE
+///
+/// GET /labs/create/stream/{lab_id}
+pub async fn lab_create_stream_handler(
+    Path(lab_id): Path<String>,
+    _auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Retrieve and consume the pending creation request
+    let request = match state.pending_creations.remove(&lab_id) {
+        Some((_, req)) => req,
+        None => {
+            return axum::response::sse::Sse::new(up_progress_stream(
+                tokio::sync::mpsc::unbounded_channel().1,
+                {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let _ = tx.send(Err(anyhow::anyhow!(
+                        "No pending creation found for lab {}",
+                        lab_id
+                    )));
+                    rx
+                },
+            ))
+            .into_response();
+        }
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    // Spawn the lab creation operation
+    tokio::spawn(async move {
+        let result = up::up_lab(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    axum::response::sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
+}
+
 /// Serve the unified API specification
 ///
 /// GET /api/v1/spec
@@ -3197,7 +3333,7 @@ pub async fn api_spec_handler() -> Result<impl IntoResponse, ApiError> {
     static SPEC_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
         std::sync::OnceLock::new();
     let result = SPEC_JSON.get_or_init(|| {
-        let spec = shared::api_spec::build_spec();
+        let spec = api_spec::build_spec();
         serde_json::to_value(spec).map_err(|e| e.to_string())
     });
     match result {
@@ -3216,7 +3352,7 @@ pub async fn openapi_handler() -> Result<impl IntoResponse, ApiError> {
     static OPENAPI_JSON: std::sync::OnceLock<Result<serde_json::Value, String>> =
         std::sync::OnceLock::new();
     let result = OPENAPI_JSON.get_or_init(|| {
-        let doc = shared::api_spec::build_openapi();
+        let doc = api_spec::build_openapi();
         Ok(doc)
     });
     match result {

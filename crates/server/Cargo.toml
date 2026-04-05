@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.53"
+version = "0.3.54"
 edition = "2024"
 
 [dependencies]
@@ -50,8 +50,6 @@ jsonwebtoken = "9"
 # Templates
 askama = "0.14.0"
 
-# Random names
-petname = "2.0.2"
 
 # Async
 futures = "0.3.31"

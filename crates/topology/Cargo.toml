@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.3.53"
+version = "0.3.54"
 edition = "2024"
 
 [dependencies]
@@ -14,6 +14,3 @@ serde = "1.0.208"
 serde_derive = "1.0.208"
 toml = "0.8.19"
 toml_edit = "0.22.22"
-
-# Random names
-petname = "2.0.2"

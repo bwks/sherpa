@@ -1,5 +1,6 @@
 use std::net::Ipv4Addr;
 
+use shared::util::base64_decode;
 use template::{IgnitionConfig, IgnitionFile, IgnitionLink, IgnitionUnit, IgnitionUser};
 
 use crate::helpers;
@@ -116,7 +117,7 @@ fn test_ignition_ztp_interface_ipv4() {
         .source
         .strip_prefix("data:;base64,")
         .expect("has data uri prefix");
-    let decoded = shared::util::base64_decode(b64).expect("valid base64");
+    let decoded = base64_decode(b64).expect("valid base64");
     assert_eq!(decoded, EXPECTED_ZTP_IPV4);
 }
 
@@ -136,7 +137,7 @@ fn test_ignition_ztp_interface_dual_stack() {
         .source
         .strip_prefix("data:;base64,")
         .expect("has data uri prefix");
-    let decoded = shared::util::base64_decode(b64).expect("valid base64");
+    let decoded = base64_decode(b64).expect("valid base64");
     assert_eq!(decoded, EXPECTED_ZTP_DUAL_STACK);
 }
 

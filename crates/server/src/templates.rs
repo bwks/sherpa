@@ -37,6 +37,28 @@ impl IntoResponse for DashboardTemplate {
     }
 }
 
+/// User labs list full page template
+#[derive(Template)]
+#[template(path = "user/labs.html.jinja")]
+pub struct LabsListTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+}
+
+impl IntoResponse for LabsListTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 /// Labs grid partial template - displays all labs
 #[derive(Template)]
 #[template(path = "user/partials/labs-grid.html.jinja")]
@@ -674,6 +696,77 @@ impl IntoResponse for AdminNodeImageUploadTemplate {
                 .into_response(),
         }
     }
+}
+
+// ============================================================================
+// Lab Create Templates
+// ============================================================================
+
+/// Lab creation page template
+#[derive(Template)]
+#[template(path = "user/lab-create.html.jinja")]
+pub struct LabCreateTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+    pub generated_name: String,
+    pub models: Vec<String>,
+}
+
+impl IntoResponse for LabCreateTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Create progress fragment — SSE-connected container that streams creation progress
+#[derive(Template)]
+#[template(path = "user/partials/create-progress.html.jinja")]
+pub struct LabCreateProgressFragment {
+    pub lab_id: String,
+    pub lab_name: String,
+}
+
+impl IntoResponse for LabCreateProgressFragment {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
+/// Create success summary fragment
+#[derive(Template)]
+#[template(path = "user/partials/create-summary-success.html.jinja")]
+pub struct CreateSummarySuccessFragment {
+    pub lab_id: String,
+    pub lab_name: String,
+    pub containers: usize,
+    pub vms: usize,
+    pub unikernels: usize,
+    pub networks: usize,
+    pub bridges: usize,
+    pub interfaces: usize,
+    pub total_time_secs: u64,
+}
+
+/// Create failure fragment
+#[derive(Template)]
+#[template(path = "user/partials/create-summary-failed.html.jinja")]
+pub struct CreateSummaryFailedFragment {
+    pub message: String,
 }
 
 // ============================================================================

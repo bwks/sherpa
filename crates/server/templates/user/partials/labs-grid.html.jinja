@@ -1,5 +1,33 @@
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-    {% for lab in labs %}
-        {% include "user/partials/lab-card.html.jinja" %}
-    {% endfor %}
+{% import "macros/icons.html.jinja" as icons %}
+<div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">
+    <table class="w-full bg-card border-collapse">
+        <thead class="bg-table-head border-b border-border">
+            <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wide">Name</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wide">Lab ID</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wide">Status</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-table-head-text uppercase tracking-wide">Nodes</th>
+                <th class="px-4 py-3 text-right text-xs font-semibold text-table-head-text uppercase tracking-wide">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for lab in labs %}
+            <tr class="border-b border-border last:border-b-0 hover:bg-hover transition-colors">
+                <td class="p-4 text-sm text-body font-medium">{{ lab.name }}</td>
+                <td class="p-4 text-sm text-muted font-mono">{{ lab.id }}</td>
+                <td class="p-4 text-sm">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-neutral-badge text-neutral-badge-text">{{ lab.status }}</span>
+                </td>
+                <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
+                <td class="p-4 text-sm text-body">
+                    <div class="flex justify-end">
+                        <a href="/labs/{{ lab.id }}" class="text-muted hover:text-heading transition-colors" title="View">
+                            {% call icons::eye() %}
+                        </a>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>

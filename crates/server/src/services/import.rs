@@ -798,6 +798,7 @@ pub async fn download_image(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::util::file_exists;
 
     #[test]
     fn test_resolve_download_url_ubuntu() {
@@ -851,7 +852,6 @@ mod tests {
         // import_image should bail before touching Docker/DB when src doesn't exist.
         // We can't call import_image directly without AppState, but the validation
         // logic is the first thing checked — verify via file_exists.
-        use shared::util::file_exists;
         let fake_path = "/tmp/sherpa_test_nonexistent_image_12345.qcow2";
         assert!(!file_exists(fake_path));
     }

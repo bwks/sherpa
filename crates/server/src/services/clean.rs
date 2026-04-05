@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
-use shared::data::{DestroyError, DestroyResponse, DestroySummary};
+use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo};
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
 use shared::util::{dir_exists, load_file};
 
@@ -35,12 +35,7 @@ pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_name = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .ok()
-        .and_then(|content| {
-            content
-                .parse::<shared::data::LabInfo>()
-                .ok()
-                .map(|info| info.name)
-        })
+        .and_then(|content| content.parse::<LabInfo>().ok().map(|info| info.name))
         .unwrap_or_else(|| "unknown".to_string());
 
     tracing::debug!(

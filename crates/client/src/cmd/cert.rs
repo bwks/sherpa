@@ -5,7 +5,7 @@
 use anyhow::{Context, Result};
 use std::io::{self, Write};
 
-use shared::tls::{TrustStore, extract_cert_info, fetch_server_certificate};
+use shared::tls::{CertificateInfo, TrustStore, extract_cert_info, fetch_server_certificate};
 use shared::util::{
     CertificateTableInfo, render_certificates_table, term_msg_surround, term_msg_underline,
 };
@@ -301,7 +301,7 @@ fn normalize_server_url(input: &str) -> String {
 }
 
 /// Helper function to display certificate information
-fn display_certificate_info(cert_info: &shared::tls::CertificateInfo) -> Result<()> {
+fn display_certificate_info(cert_info: &CertificateInfo) -> Result<()> {
     term_msg_surround("Certificate Information");
     println!();
     println!("  Server:      {}", cert_info.server_url);

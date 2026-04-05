@@ -204,6 +204,8 @@ impl FromRequestParts<AppState> for AdminUser {
 mod tests {
     use super::*;
     use axum::http::HeaderMap;
+    use jsonwebtoken::{EncodingKey, Header, encode};
+    use shared::auth::jwt::Claims;
 
     const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
 
@@ -213,9 +215,6 @@ mod tests {
     }
 
     fn make_expired_token() -> String {
-        use jsonwebtoken::{EncodingKey, Header, encode};
-        use shared::auth::jwt::Claims;
-
         let now = jiff::Timestamp::now().as_second();
         let claims = Claims {
             sub: "expired_user".to_string(),

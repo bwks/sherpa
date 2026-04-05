@@ -1,6 +1,6 @@
 [package]
 name = "shared"
-version = "0.3.53"
+version = "0.3.54"
 edition = "2024"
 
 [dependencies]
@@ -27,6 +27,7 @@ ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
 
 # Random number generator
 rand = "0.8.5"
+petname = "2.0.2"
 
 # Authentication
 argon2 = "0.5"

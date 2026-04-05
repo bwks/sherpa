@@ -991,7 +991,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1216,7 +1216,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2757,7 +2757,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "askama",
@@ -3043,7 +3043,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "aya",
@@ -5073,7 +5073,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "argon2",
@@ -5086,6 +5086,7 @@ dependencies = [
  "ipnet",
  "jiff",
  "md5",
+ "petname",
  "rand 0.8.5",
  "regex",
  "reqwest 0.11.27",
@@ -5126,7 +5127,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "askama",
@@ -5137,7 +5138,6 @@ dependencies = [
  "futures",
  "futures-util",
  "jiff",
- "petname",
  "rand 0.8.5",
  "reqwest 0.11.27",
  "rpassword",
@@ -5163,7 +5163,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "askama",
@@ -5187,7 +5187,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "petname",
  "rand 0.8.5",
  "rcgen",
  "regex",
@@ -5786,7 +5785,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "askama",
@@ -6173,10 +6172,9 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
- "petname",
  "serde",
  "serde_derive",
  "shared",
@@ -6503,7 +6501,7 @@ dependencies = [
 
 [[package]]
 name = "validate"
-version = "0.3.53"
+version = "0.3.54"
 dependencies = [
  "anyhow",
  "shared",

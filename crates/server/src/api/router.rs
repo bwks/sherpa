@@ -46,12 +46,14 @@ use super::handlers::{
     dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
     delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
     get_labs_html, get_labs_json, get_user_info_json, health_check, import_image_json,
+    lab_create_page_handler, lab_create_post_handler, lab_create_stream_handler,
     lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
-    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, list_images_json,
-    list_users_json, login, login_form_handler, login_page_handler, logout_handler,
-    openapi_handler, profile_handler, pull_image_json, redeploy_node_json, resume_lab_json,
-    scan_images_json, set_default_image_json, show_image_json, signup_form_handler,
-    signup_page_handler, update_impairment_json, update_password_handler, upload_image_multipart,
+    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, labs_list_page_handler,
+    list_images_json, list_users_json, login, login_form_handler, login_page_handler,
+    logout_handler, openapi_handler, profile_handler, pull_image_json, redeploy_node_json,
+    resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
+    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
+    upload_image_multipart,
 };
 
 /// Build the Axum router with all API routes
@@ -86,7 +88,16 @@ pub fn build_router() -> Router<AppState> {
         .route("/logout", post(logout_handler))
         // Protected HTML routes (require cookie authentication)
         .route("/", get(dashboard_handler))
-        .route("/labs", get(get_labs_html))
+        .route("/labs", get(labs_list_page_handler))
+        .route("/labs/grid", get(get_labs_html))
+        .route(
+            "/labs/create",
+            get(lab_create_page_handler).post(lab_create_post_handler),
+        )
+        .route(
+            "/labs/create/stream/{lab_id}",
+            get(lab_create_stream_handler),
+        )
         .route("/labs/{lab_id}", get(lab_detail_handler))
         .route("/labs/{lab_id}/nodes", get(lab_nodes_handler))
         .route(

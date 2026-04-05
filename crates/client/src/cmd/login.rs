@@ -1,7 +1,7 @@
 //! Login command - authenticate user and save JWT token.
 
 use anyhow::{Context, Result};
-use shared::data::{ClientConfig, LoginRequest, LoginResponse};
+use shared::data::{ClientConfig, LoginRequest, LoginResponse, ValidateResponse};
 use shared::util::{emoji_error, emoji_success};
 use std::io::{self, Write};
 use std::time::Duration;
@@ -166,7 +166,7 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
 
     // Parse response
     let result = response.result.context("No result in response")?;
-    let validate_response: shared::data::ValidateResponse =
+    let validate_response: ValidateResponse =
         serde_json::from_value(result).context("Failed to parse validation response")?;
 
     if !validate_response.valid {

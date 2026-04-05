@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use bollard::Docker;
+use dashmap::DashMap;
 use libvirt::Qemu;
-use shared::data::Config;
+use shared::data::{Config, UpRequest};
 use shared::konst::{
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
@@ -38,6 +39,9 @@ pub struct AppState {
     pub jwt_secret: Arc<Vec<u8>>,
     /// OpenTelemetry metrics instruments
     pub metrics: Metrics,
+    /// Pending lab creation requests awaiting SSE stream pickup.
+    /// Keyed by lab_id, consumed once by the stream handler.
+    pub pending_creations: Arc<DashMap<String, UpRequest>>,
 }
 
 impl AppState {
@@ -128,6 +132,7 @@ impl AppState {
             config: Arc::new(config),
             jwt_secret: Arc::new(jwt_secret),
             metrics,
+            pending_creations: Arc::new(DashMap::new()),
         })
     }
 }

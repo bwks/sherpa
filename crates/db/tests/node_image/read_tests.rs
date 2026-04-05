@@ -4,7 +4,7 @@ use db::{
     count_node_images, create_node_image, get_node_image_by_id,
     get_node_image_by_model_kind_version, list_node_images,
 };
-use shared::data::NodeModel;
+use shared::data::{NodeKind, NodeModel};
 
 use crate::{create_test_config, setup_db, teardown_db};
 
@@ -90,7 +90,7 @@ async fn test_get_nonexistent_config() -> Result<()> {
     let result: Option<_> = get_node_image_by_model_kind_version(
         &db,
         &NodeModel::WindowsServer,
-        &shared::data::NodeKind::VirtualMachine,
+        &NodeKind::VirtualMachine,
         "nonexistent_version",
     )
     .await?;
