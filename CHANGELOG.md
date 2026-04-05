@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.56] - 2026-04-05
+
+### Features
+
+- Version bump by @bwks ([5de19b9](https://github.com/bwks/sherpa/commit/5de19b9e26d9e09c79b2b574e4f2caa362d20c55))
+- Dashboards by @bwks ([16ba40f](https://github.com/bwks/sherpa/commit/16ba40fc507f65d5dc80ee50323092bb75779b76))
+
+### Miscellaneous
+
+- Merge pull request #220 from bwks/v0.3.56
+
+V0.3.56 by @bwks in [#220](https://github.com/bwks/sherpa/pull/220) ([6bec95c](https://github.com/bwks/sherpa/commit/6bec95caa2b029c5d6da748f7629e19ecd8cedcd))
+- Merge pull request #218 from bwks/changelog/v0.3.55
+
+chore(release): update changelog for v0.3.55 by @github-actions[bot] in [#218](https://github.com/bwks/sherpa/pull/218) ([2134381](https://github.com/bwks/sherpa/commit/213438103640495a7f5172ebb3ab2442accbec6f))
 ## [0.3.55] - 2026-04-05
 
 ### Documentation
