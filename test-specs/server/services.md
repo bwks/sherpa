@@ -112,6 +112,20 @@
 - Show: returns error when specified version not found `[integration]` **P1**
 - Pull container: Docker pull with progress, DB upsert `[integration]` **P0**
 
+### Web UI Upload (multipart)
+
+- Upload via multipart: file written to temp path, import service invoked, image tracked in DB `[integration]` **P0**
+- Upload with missing file field returns error `[unit]` **P0**
+- Upload with missing model field returns error `[unit]` **P0**
+- Upload with missing version field returns error `[unit]` **P0**
+- Upload with empty version string returns error `[unit]` **P0**
+- Upload with invalid model string returns error `[unit]` **P0**
+- Upload default field absent defaults to false `[unit]` **P1**
+- Upload default field "on" sets default to true `[unit]` **P1**
+- Upload temp file cleaned up after successful import `[integration]` **P1**
+- Upload temp file cleaned up after failed import `[integration]` **P1**
+- Upload rejects non-admin users `[integration]` **P0**
+
 ---
 
 ## Admin Lab Cleanup (`clean`)

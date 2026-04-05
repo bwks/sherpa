@@ -1,0 +1,85 @@
+{% extends "layouts/base.html.jinja" %}
+
+{% block title %}Upload Node Image - Sherpa Labs{% endblock %}
+
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Page Header -->
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-3xl font-bold text-heading">Upload Node Image</h2>
+            <p class="mt-1 text-sm text-muted">Upload a disk image (qcow2) or container archive (tar) to the server</p>
+        </div>
+        <a href="/admin/node-images" class="inline-block px-4 py-2 text-sm font-medium text-muted hover:text-heading hover:bg-hover rounded transition-colors">
+            ← Back
+        </a>
+    </div>
+
+    <!-- Form Result Div for HTMX responses -->
+    <div id="form-result"></div>
+
+    <!-- Upload Form -->
+    <form id="upload-form" hx-post="/admin/node-images/upload" hx-target="#form-result" hx-swap="innerHTML" hx-encoding="multipart/form-data" class="space-y-6">
+
+        <div class="bg-card rounded-lg shadow-sm border border-border p-6">
+            <h3 class="text-lg font-semibold text-heading mb-4">Image Details</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <!-- Model (searchable combobox) -->
+                <div>
+                    <label class="block text-sm font-medium text-body mb-2">Model *</label>
+                    <input type="hidden" id="model" name="model" required>
+                    <div id="combobox" class="relative">
+                        <input type="text" id="combobox-input" placeholder="Search models..." autocomplete="off"
+                            class="w-full px-3 py-2 border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent cursor-pointer">
+                        <svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                        <ul id="combobox-list" class="hidden absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-card border border-border-strong rounded-md shadow-lg">
+                            {% for model in models %}
+                            <li data-value="{{ model }}" class="px-3 py-2 text-sm text-body hover:bg-hover cursor-pointer">{{ model }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    <p class="mt-1 text-xs text-muted">The device model this image belongs to</p>
+                </div>
+
+                <!-- Version -->
+                <div>
+                    <label for="version" class="block text-sm font-medium text-body mb-2">Version *</label>
+                    <input type="text" id="version" name="version" required placeholder="e.g. 4.32.0F, 17.12.01, 24.04" class="w-full px-3 py-2 border border-border-strong rounded-md bg-card text-body focus:ring-accent focus:border-accent">
+                    <p class="mt-1 text-xs text-muted">Version string (must be at least 5 characters)</p>
+                </div>
+
+                <!-- Default Checkbox -->
+                <div class="flex items-center">
+                    <input type="checkbox" id="default" name="default" class="h-4 w-4 text-accent focus:ring-accent border-border-strong rounded">
+                    <label for="default" class="ml-2 block text-sm font-medium text-body">Set as Default Version</label>
+                    <p class="ml-2 text-xs text-muted">(first image for a model is always default)</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-card rounded-lg shadow-sm border border-border p-6">
+            <h3 class="text-lg font-semibold text-heading mb-4">Image File</h3>
+
+            <!-- File Upload -->
+            <div>
+                <label for="file" class="block text-sm font-medium text-body mb-2">Image File *</label>
+                <input type="file" id="file" name="file" required accept=".qcow2,.img,.tar,.tar.gz,.tgz" class="w-full px-3 py-2 border border-border-strong rounded-md bg-card text-body file:mr-4 file:py-1 file:px-3 file:rounded file:border-0 file:text-sm file:font-medium file:bg-accent file:text-white file:cursor-pointer hover:file:opacity-90">
+                <p class="mt-1 text-xs text-muted">Supported formats: qcow2, img (VMs/Unikernels), tar, tar.gz (Containers)</p>
+            </div>
+        </div>
+
+        <!-- Submit Button -->
+        <div class="flex justify-end">
+            <button type="submit" class="px-6 py-2 bg-accent hover:bg-accent-hover text-white font-medium rounded-md transition-colors cursor-pointer">
+                Upload Image
+            </button>
+        </div>
+    </form>
+</div>
+
+<script src="/js/model-filter.js"></script>
+{% endblock %}

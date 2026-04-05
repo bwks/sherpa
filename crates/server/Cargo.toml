@@ -1,10 +1,10 @@
 [package]
 name = "sherpad"
-version = "0.3.51"
+version = "0.3.52"
 edition = "2024"
 
 [dependencies]
-axum = { version = "0.8.8", features = ["ws"] }
+axum = { version = "0.8.8", features = ["ws", "multipart"] }
 tokio = { version = "1.0", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
