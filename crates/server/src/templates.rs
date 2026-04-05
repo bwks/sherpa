@@ -652,6 +652,30 @@ impl IntoResponse for AdminNodeImageVersionsTemplate {
     }
 }
 
+/// Admin node image upload page template
+#[derive(Template)]
+#[template(path = "admin/node-image-upload.html.jinja")]
+#[allow(dead_code)]
+pub struct AdminNodeImageUploadTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+    pub models: Vec<String>,
+}
+
+impl IntoResponse for AdminNodeImageUploadTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 // ============================================================================
 // Lab Nodes Polling Fragment
 // ============================================================================

@@ -39,7 +39,8 @@ use super::handlers::{
     add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
     admin_delete_ssh_key_handler, admin_delete_user_handler, admin_labs_list_handler,
     admin_node_image_detail_handler, admin_node_image_edit_page_handler,
-    admin_node_image_update_handler, admin_node_image_versions_handler,
+    admin_node_image_update_handler, admin_node_image_upload_handler,
+    admin_node_image_upload_page_handler, admin_node_image_versions_handler,
     admin_node_images_list_handler, admin_update_user_password_handler, admin_user_edit_handler,
     api_spec_handler, change_password_json, clean_lab_json, create_lab_json, create_user_json,
     dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
@@ -50,7 +51,7 @@ use super::handlers::{
     list_users_json, login, login_form_handler, login_page_handler, logout_handler,
     openapi_handler, profile_handler, pull_image_json, redeploy_node_json, resume_lab_json,
     scan_images_json, set_default_image_json, show_image_json, signup_form_handler,
-    signup_page_handler, update_impairment_json, update_password_handler,
+    signup_page_handler, update_impairment_json, update_password_handler, upload_image_multipart,
 };
 
 /// Build the Axum router with all API routes
@@ -123,6 +124,11 @@ pub fn build_router() -> Router<AppState> {
             delete(admin_delete_ssh_key_handler),
         )
         .route("/admin/node-images", get(admin_node_images_list_handler))
+        // Upload route (must come before {model} catch-all)
+        .route(
+            "/admin/node-images/upload",
+            get(admin_node_image_upload_page_handler).post(admin_node_image_upload_handler),
+        )
         // Versions list route (most specific, must come first)
         .route(
             "/admin/node-images/{model}/versions",
@@ -176,6 +182,7 @@ pub fn build_router() -> Router<AppState> {
         // Image API endpoints
         .route("/api/v1/images", get(list_images_json))
         .route("/api/v1/images/import", post(import_image_json))
+        .route("/api/v1/images/upload", post(upload_image_multipart))
         .route("/api/v1/images/scan", post(scan_images_json))
         .route("/api/v1/images/pull", post(pull_image_json))
         .route("/api/v1/images/download", post(download_image_json))

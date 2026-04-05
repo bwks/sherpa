@@ -43,6 +43,10 @@
 - `GET /admin/node-images` renders image management `[integration]` **P0**
 - Admin routes reject non-admin users with 403 `[integration]` **P0**
 - Admin CRUD operations (create/update/delete users, images) `[integration]` **P1**
+- `GET /admin/node-images/upload` renders upload form with model dropdown `[integration]` **P0**
+- `POST /admin/node-images/upload` accepts multipart form data and imports image `[integration]` **P0**
+- Upload routes reject non-admin users with 403 `[integration]` **P0**
+- Upload routes reject unauthenticated requests `[integration]` **P0**
 
 ---
 

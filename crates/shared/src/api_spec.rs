@@ -524,6 +524,29 @@ fn build_operations() -> Vec<OperationDef> {
                 },
             },
         },
+        OperationDef {
+            name: "image.upload".to_string(),
+            description: "Upload a node image file via multipart form data".to_string(),
+            category: Category::Image,
+            auth: AuthRequirement::Admin,
+            streaming: false,
+            request_schema: None,
+            response_schema: Some("ImportResponse".to_string()),
+            transports: Transports {
+                rest: RestBinding {
+                    method: HttpMethod::Post,
+                    path: "/api/v1/images/upload".to_string(),
+                    path_params: vec![],
+                    stream_type: None,
+                },
+                rpc: RpcBinding {
+                    method: "image.upload".to_string(),
+                },
+                cli: CliBinding {
+                    command: "sherpa server image upload".to_string(),
+                },
+            },
+        },
         // User operations
         OperationDef {
             name: "user.create".to_string(),
@@ -959,9 +982,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_23_operations() {
+    fn test_build_spec_has_24_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 23);
+        assert_eq!(spec.operations.len(), 24);
     }
 
     #[test]
@@ -1027,6 +1050,7 @@ mod tests {
             "image.scan",
             "image.pull",
             "image.download",
+            "image.upload",
             "user.create",
             "user.list",
             "user.delete",

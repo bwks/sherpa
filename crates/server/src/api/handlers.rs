@@ -1,5 +1,5 @@
 use askama::Template;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::{Form, Json};
@@ -20,13 +20,13 @@ use crate::services::{
     resume, up,
 };
 use crate::templates::{
-    AdminDashboardTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
-    AdminSshKeysListTemplate, AdminUserEditTemplate, DashboardTemplate, EmptyStateTemplate,
-    Error403Template, Error404Template, ErrorTemplate, LabDestroyButtonFragment,
-    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LoginErrorTemplate, LoginPageTemplate, NodesTableFragment, PasswordErrorTemplate,
-    PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate, SignupPageTemplate,
-    SshKeyErrorTemplate, SshKeysListTemplate,
+    AdminDashboardTemplate, AdminNodeImageUploadTemplate, AdminPasswordErrorTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
+    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
+    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
+    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
+    PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
+    SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -2258,6 +2258,214 @@ pub async fn admin_node_image_versions_handler(
 }
 
 // =============================================================================
+// Admin — Node Image Upload
+// =============================================================================
+
+/// Parsed fields from a multipart upload form.
+#[derive(Debug)]
+pub struct UploadFields {
+    pub model: NodeModel,
+    pub version: String,
+    pub file_data: Vec<u8>,
+    pub default: bool,
+}
+
+/// Raw string fields extracted from multipart before validation.
+pub struct RawUploadFields {
+    pub model: Option<String>,
+    pub version: Option<String>,
+    pub file_data: Option<Vec<u8>>,
+    pub default: Option<String>,
+}
+
+/// Validate raw upload fields and convert to typed UploadFields.
+///
+/// Checks that all required fields are present and valid.
+pub fn validate_upload_fields(raw: RawUploadFields) -> Result<UploadFields, String> {
+    let model_str = raw.model.ok_or("Missing required field: model")?;
+    let parsed_model =
+        NodeModel::from_str(&model_str).map_err(|_| format!("Invalid model: {}", model_str))?;
+
+    let version_str = raw.version.ok_or("Missing required field: version")?;
+    if version_str.is_empty() {
+        return Err("Version cannot be empty".to_string());
+    }
+
+    let data = raw.file_data.ok_or("Missing required field: file")?;
+
+    let default = raw.default.as_deref() == Some("on");
+
+    Ok(UploadFields {
+        model: parsed_model,
+        version: version_str,
+        file_data: data,
+        default,
+    })
+}
+
+/// Parse multipart form fields for image upload.
+///
+/// Extracts model, version, file, and default fields from the multipart stream.
+/// Returns an error if any required field is missing or invalid.
+pub async fn parse_upload_fields(mut multipart: Multipart) -> Result<UploadFields, String> {
+    let mut model: Option<String> = None;
+    let mut version: Option<String> = None;
+    let mut file_data: Option<Vec<u8>> = None;
+    let mut default: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| format!("Failed to read form field: {}", e))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        match name.as_str() {
+            "model" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| format!("Failed to read model field: {}", e))?;
+                model = Some(text);
+            }
+            "version" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| format!("Failed to read version field: {}", e))?;
+                version = Some(text);
+            }
+            "file" => {
+                let bytes = field
+                    .bytes()
+                    .await
+                    .map_err(|e| format!("Failed to read file data: {}", e))?;
+                if !bytes.is_empty() {
+                    file_data = Some(bytes.to_vec());
+                }
+            }
+            "default" => {
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| format!("Failed to read default field: {}", e))?;
+                default = Some(text);
+            }
+            _ => {
+                tracing::debug!("Ignoring unknown upload field: {}", name);
+            }
+        }
+    }
+
+    validate_upload_fields(RawUploadFields {
+        model,
+        version,
+        file_data,
+        default,
+    })
+}
+
+/// Admin handler to render the upload form (GET /admin/node-images/upload)
+pub async fn admin_node_image_upload_page_handler(
+    _admin: AdminUser,
+) -> Result<impl IntoResponse, ApiError> {
+    let mut models: Vec<String> = NodeModel::to_vec().iter().map(|m| m.to_string()).collect();
+    models.sort();
+
+    let template = AdminNodeImageUploadTemplate {
+        username: _admin.username,
+        is_admin: true,
+        active_page: "admin_images".to_string(),
+        models,
+    };
+
+    Ok(template)
+}
+
+/// Admin handler to process image upload (POST /admin/node-images/upload)
+pub async fn admin_node_image_upload_handler(
+    _admin: AdminUser,
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<Response, ApiError> {
+    tracing::info!("Admin uploading node image");
+
+    // Parse multipart fields
+    let fields = match parse_upload_fields(multipart).await {
+        Ok(f) => f,
+        Err(e) => {
+            tracing::warn!("Upload form validation failed: {}", e);
+            return Ok(
+                Html(format!(r#"<div class="notification-error">{}</div>"#, e)).into_response(),
+            );
+        }
+    };
+
+    // Write file data to a temp file
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!(
+        "sherpa_upload_{}_{}_{}",
+        fields.model,
+        fields.version,
+        uuid::Uuid::new_v4()
+    ));
+    let temp_path = temp_file.to_string_lossy().to_string();
+
+    if let Err(e) = tokio::fs::write(&temp_file, &fields.file_data).await {
+        tracing::error!("Failed to write temp file {}: {:?}", temp_path, e);
+        return Ok(Html(format!(
+            r#"<div class="notification-error">Failed to save uploaded file: {}</div>"#,
+            e
+        ))
+        .into_response());
+    }
+
+    // Construct import request and call the import service
+    let request = ImportRequest {
+        model: fields.model,
+        version: fields.version,
+        src: temp_path.clone(),
+        default: fields.default,
+    };
+
+    let (progress_tx, _progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    let result = import::import_image(request, &state, progress).await;
+
+    // Clean up temp file regardless of result
+    if let Err(e) = tokio::fs::remove_file(&temp_file).await {
+        tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
+    }
+
+    match result {
+        Ok(response) => {
+            tracing::info!(
+                "Image upload successful: {} {} -> {}",
+                response.model,
+                response.version,
+                response.image_path
+            );
+
+            // Redirect to the node images list
+            let mut resp = Html("").into_response();
+            resp.headers_mut().insert(
+                header::HeaderName::from_static("hx-redirect"),
+                header::HeaderValue::from_static("/admin/node-images"),
+            );
+            Ok(resp)
+        }
+        Err(e) => {
+            tracing::error!("Image upload failed: {:?}", e);
+            Ok(Html(format!(
+                r#"<div class="notification-error">Import failed: {}</div>"#,
+                e
+            ))
+            .into_response())
+        }
+    }
+}
+
+// =============================================================================
 // REST API — Lab Management
 // =============================================================================
 
@@ -2507,6 +2715,58 @@ pub async fn import_image_json(
         progress_rx,
         result_rx,
     )))
+}
+
+/// Upload an image via multipart form data
+///
+/// POST /api/v1/images/upload
+pub async fn upload_image_multipart(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    multipart: Multipart,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    require_admin_auth(&auth)?;
+
+    let fields = parse_upload_fields(multipart)
+        .await
+        .map_err(ApiError::bad_request)?;
+
+    // Write file data to a temp file
+    let temp_dir = std::env::temp_dir();
+    let temp_file = temp_dir.join(format!(
+        "sherpa_upload_{}_{}_{}",
+        fields.model,
+        fields.version,
+        uuid::Uuid::new_v4()
+    ));
+    let temp_path = temp_file.to_string_lossy().to_string();
+
+    tokio::fs::write(&temp_file, &fields.file_data)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to write temp file: {}", e)))?;
+
+    let request = ImportRequest {
+        model: fields.model,
+        version: fields.version,
+        src: temp_path.clone(),
+        default: fields.default,
+    };
+
+    let (progress_tx, _progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    let result = import::import_image(request, &state, progress).await;
+
+    // Clean up temp file regardless of result
+    if let Err(e) = tokio::fs::remove_file(&temp_file).await {
+        tracing::warn!("Failed to clean up temp file {}: {:?}", temp_path, e);
+    }
+
+    let response = result.map_err(|e| ApiError::internal(format!("Import failed: {}", e)))?;
+
+    Ok(Json(serde_json::to_value(&response).map_err(|e| {
+        ApiError::internal(format!("Failed to serialize response: {e}"))
+    })?))
 }
 
 /// Delete an image
@@ -3011,4 +3271,126 @@ pub struct CreateUser {
 pub struct User {
     pub id: u64,
     pub username: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn raw_fields(
+        model: Option<&str>,
+        version: Option<&str>,
+        file_data: Option<Vec<u8>>,
+        default: Option<&str>,
+    ) -> RawUploadFields {
+        RawUploadFields {
+            model: model.map(|s| s.to_string()),
+            version: version.map(|s| s.to_string()),
+            file_data,
+            default: default.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn test_validate_upload_fields_valid() {
+        let result = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            Some("24.04"),
+            Some(vec![0x00, 0x01, 0x02]),
+            Some("on"),
+        ));
+        let fields = result.expect("should succeed");
+        assert_eq!(fields.model, NodeModel::UbuntuLinux);
+        assert_eq!(fields.version, "24.04");
+        assert_eq!(fields.file_data, vec![0x00, 0x01, 0x02]);
+        assert!(fields.default);
+    }
+
+    #[test]
+    fn test_validate_upload_fields_missing_model() {
+        let result =
+            validate_upload_fields(raw_fields(None, Some("24.04"), Some(vec![0x01]), None));
+        let err = result.unwrap_err();
+        assert!(err.contains("model"), "expected model error, got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_upload_fields_missing_version() {
+        let result = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            None,
+            Some(vec![0x01]),
+            None,
+        ));
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("version"),
+            "expected version error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_upload_fields_missing_file() {
+        let result =
+            validate_upload_fields(raw_fields(Some("ubuntu_linux"), Some("24.04"), None, None));
+        let err = result.unwrap_err();
+        assert!(err.contains("file"), "expected file error, got: {}", err);
+    }
+
+    #[test]
+    fn test_validate_upload_fields_invalid_model() {
+        let result = validate_upload_fields(raw_fields(
+            Some("not_a_real_model"),
+            Some("24.04"),
+            Some(vec![0x01]),
+            None,
+        ));
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Invalid model"),
+            "expected invalid model error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_upload_fields_empty_version() {
+        let result = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            Some(""),
+            Some(vec![0x01]),
+            None,
+        ));
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("empty"),
+            "expected empty version error, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validate_upload_fields_default_absent() {
+        let result = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            Some("24.04"),
+            Some(vec![0x01]),
+            None,
+        ));
+        let fields = result.expect("should succeed");
+        assert!(!fields.default);
+    }
+
+    #[test]
+    fn test_validate_upload_fields_default_on() {
+        let result = validate_upload_fields(raw_fields(
+            Some("ubuntu_linux"),
+            Some("24.04"),
+            Some(vec![0x01]),
+            Some("on"),
+        ));
+        let fields = result.expect("should succeed");
+        assert!(fields.default);
+    }
 }
