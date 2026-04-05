@@ -125,6 +125,9 @@ Instrumentation:
 - Do not apply inline styles in HTML.
 - Do not create custom CSS classes, use tailwind css utility classes.
 
+## Javascript Code Style
+- Do not define inline javascipt in templates.
+
 ## Askama Templates
 - Do not use inline templates, all templates much use files.
 
