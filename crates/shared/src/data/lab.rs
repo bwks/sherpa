@@ -7,7 +7,7 @@ use ipnet::{Ipv4Net, Ipv6Net};
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
-use super::{BridgeKind, DbNode, NodeKind, NodeModel};
+use super::{BridgeKind, DbNode, NodeKind, NodeModel, NodeState};
 
 #[derive(Clone, Debug)]
 pub enum PeerSide {
@@ -167,17 +167,63 @@ pub struct LabReservedNetwork {
     pub bridge_name: String,
 }
 
-/// Lab status enumeration for displaying current state
-#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema)]
+/// Lab status enumeration for displaying current state.
+///
+/// Derived from the aggregate state of all nodes in the lab.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum LabStatus {
+    /// All nodes are running
+    Running,
+    /// All nodes are stopped
+    Stopped,
+    /// Mix of running, stopped, or other states
+    Partial,
+    /// At least one node is starting, none failed
+    Starting,
+    /// At least one node has failed
+    Failed,
+    /// Lab has no nodes
+    Empty,
     /// Status cannot be determined
     Unknown,
+}
+
+impl LabStatus {
+    /// Derive the aggregate lab status from the states of its nodes.
+    pub fn derive(states: &[NodeState]) -> Self {
+        if states.is_empty() {
+            return LabStatus::Empty;
+        }
+
+        let all_running = states.iter().all(|s| *s == NodeState::Running);
+        let all_stopped = states.iter().all(|s| *s == NodeState::Stopped);
+        let any_failed = states.contains(&NodeState::Failed);
+        let any_starting = states.contains(&NodeState::Starting);
+
+        if all_running {
+            LabStatus::Running
+        } else if all_stopped {
+            LabStatus::Stopped
+        } else if any_failed {
+            LabStatus::Failed
+        } else if any_starting {
+            LabStatus::Starting
+        } else {
+            LabStatus::Partial
+        }
+    }
 }
 
 impl fmt::Display for LabStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            LabStatus::Running => write!(f, "running"),
+            LabStatus::Stopped => write!(f, "stopped"),
+            LabStatus::Partial => write!(f, "partial"),
+            LabStatus::Starting => write!(f, "starting"),
+            LabStatus::Failed => write!(f, "failed"),
+            LabStatus::Empty => write!(f, "empty"),
             LabStatus::Unknown => write!(f, "unknown"),
         }
     }
@@ -246,19 +292,72 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_status_display_unknown() {
+    fn test_lab_status_display() {
+        assert_eq!(LabStatus::Running.to_string(), "running");
+        assert_eq!(LabStatus::Stopped.to_string(), "stopped");
+        assert_eq!(LabStatus::Partial.to_string(), "partial");
+        assert_eq!(LabStatus::Starting.to_string(), "starting");
+        assert_eq!(LabStatus::Failed.to_string(), "failed");
+        assert_eq!(LabStatus::Empty.to_string(), "empty");
         assert_eq!(LabStatus::Unknown.to_string(), "unknown");
     }
 
     #[test]
-    fn test_lab_status_serde_serializes_lowercase() {
-        let json = serde_json::to_string(&LabStatus::Unknown).unwrap();
-        assert_eq!(json, r#""unknown""#);
+    fn test_lab_status_serde_round_trip() {
+        let variants = vec![
+            LabStatus::Running,
+            LabStatus::Stopped,
+            LabStatus::Partial,
+            LabStatus::Starting,
+            LabStatus::Failed,
+            LabStatus::Empty,
+            LabStatus::Unknown,
+        ];
+        for status in variants {
+            let json = serde_json::to_string(&status).unwrap();
+            let parsed: LabStatus = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, status);
+        }
     }
 
     #[test]
-    fn test_lab_status_serde_deserializes() {
-        let status: LabStatus = serde_json::from_str(r#""unknown""#).unwrap();
-        assert!(matches!(status, LabStatus::Unknown));
+    fn test_lab_status_derive_empty() {
+        assert_eq!(LabStatus::derive(&[]), LabStatus::Empty);
+    }
+
+    #[test]
+    fn test_lab_status_derive_all_running() {
+        let states = vec![NodeState::Running, NodeState::Running, NodeState::Running];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Running);
+    }
+
+    #[test]
+    fn test_lab_status_derive_all_stopped() {
+        let states = vec![NodeState::Stopped, NodeState::Stopped];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Stopped);
+    }
+
+    #[test]
+    fn test_lab_status_derive_any_failed() {
+        let states = vec![NodeState::Running, NodeState::Failed];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Failed);
+    }
+
+    #[test]
+    fn test_lab_status_derive_any_starting() {
+        let states = vec![NodeState::Running, NodeState::Starting];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Starting);
+    }
+
+    #[test]
+    fn test_lab_status_derive_partial() {
+        let states = vec![NodeState::Running, NodeState::Stopped];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Partial);
+    }
+
+    #[test]
+    fn test_lab_status_derive_mixed_unknown_and_running() {
+        let states = vec![NodeState::Running, NodeState::Unknown];
+        assert_eq!(LabStatus::derive(&states), LabStatus::Partial);
     }
 }

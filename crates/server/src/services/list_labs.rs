@@ -41,16 +41,18 @@ pub async fn list_labs(username: &str, state: &AppState) -> Result<ListLabsRespo
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?;
 
-        // Count nodes in this lab
-        let node_count = db::count_nodes_by_lab(&state.db, lab_record_id)
+        // Fetch nodes to get both count and states for status derivation
+        let nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
             .await
-            .unwrap_or(0);
+            .unwrap_or_default();
+
+        let node_states: Vec<shared::data::NodeState> = nodes.iter().map(|n| n.state).collect();
 
         lab_summaries.push(LabSummary {
             id: lab.lab_id.clone(),
             name: lab.name.clone(),
-            node_count,
-            status: LabStatus::Unknown, // Always unknown for now
+            node_count: nodes.len(),
+            status: LabStatus::derive(&node_states),
         });
     }
 
