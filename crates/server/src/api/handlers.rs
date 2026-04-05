@@ -11,7 +11,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 use surrealdb_types::Datetime;
 
-use crate::api::sse::{destroy_progress_stream, json_progress_stream};
+use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
@@ -23,8 +23,9 @@ use crate::templates::{
     AdminDashboardTemplate, AdminNodeImageUploadTemplate, AdminPasswordErrorTemplate,
     AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminUserEditTemplate,
     DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDestroyProgressFragment,
-    LabDetailTemplate, LabsGridTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
+    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
+    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
+    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodesTableFragment,
     PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate, SignupErrorTemplate,
     SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
@@ -1027,6 +1028,17 @@ pub async fn dashboard_handler(
         is_admin: auth.is_admin,
         active_page: "dashboard".to_string(),
     })
+}
+
+/// Labs list full page handler
+///
+/// GET /labs/list
+pub async fn labs_list_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
+    LabsListTemplate {
+        username: auth.username,
+        is_admin: auth.is_admin,
+        active_page: "labs".to_string(),
+    }
 }
 
 /// Labs grid HTML fragment handler
@@ -3187,6 +3199,127 @@ pub async fn lab_destroy_stream_handler(
     });
 
     axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
+}
+
+// ============================================================================
+// Lab Create Handlers (HTML)
+// ============================================================================
+
+/// Handler to show the create lab page
+///
+/// GET /labs/create
+pub async fn lab_create_page_handler(auth: AuthenticatedUserFromCookie) -> impl IntoResponse {
+    let generated_name = shared::util::generate_lab_name().unwrap_or_else(|_| "my-lab".to_string());
+    let models: Vec<String> = NodeModel::iter().map(|m| m.to_string()).collect();
+
+    LabCreateTemplate {
+        username: auth.username,
+        is_admin: auth.is_admin,
+        active_page: "labs".to_string(),
+        generated_name,
+        models,
+    }
+}
+
+/// Handler to validate manifest and initiate lab creation
+///
+/// POST /labs/create
+pub async fn lab_create_post_handler(
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+    Form(form): Form<HashMap<String, String>>,
+) -> impl IntoResponse {
+    let manifest_toml = match form.get("manifest") {
+        Some(m) if !m.trim().is_empty() => m.trim().to_string(),
+        _ => {
+            return ErrorTemplate {
+                message: "Manifest is required".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    // Parse TOML to extract lab name and validate structure
+    let manifest_value: serde_json::Value = match toml::from_str::<toml::Value>(&manifest_toml) {
+        Ok(toml_val) => match serde_json::to_value(toml_val) {
+            Ok(json_val) => json_val,
+            Err(e) => {
+                return ErrorTemplate {
+                    message: format!("Failed to convert manifest: {}", e),
+                }
+                .into_response();
+            }
+        },
+        Err(e) => {
+            return ErrorTemplate {
+                message: format!("Invalid TOML: {}", e),
+            }
+            .into_response();
+        }
+    };
+
+    let lab_name = match manifest_value.get("name").and_then(|v| v.as_str()) {
+        Some(name) => name.to_string(),
+        None => {
+            return ErrorTemplate {
+                message: "Manifest must include a 'name' field".to_string(),
+            }
+            .into_response();
+        }
+    };
+
+    let lab_id = shared::util::get_id_for_user(&auth.username, &lab_name);
+
+    let request = UpRequest {
+        lab_id: lab_id.clone(),
+        manifest: manifest_value,
+        username: auth.username,
+    };
+
+    // Store the request for the SSE stream handler to pick up
+    state.pending_creations.insert(lab_id.clone(), request);
+
+    LabCreateProgressFragment { lab_id, lab_name }.into_response()
+}
+
+/// Handler to stream lab creation progress via SSE
+///
+/// GET /labs/create/stream/{lab_id}
+pub async fn lab_create_stream_handler(
+    Path(lab_id): Path<String>,
+    _auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Retrieve and consume the pending creation request
+    let request = match state.pending_creations.remove(&lab_id) {
+        Some((_, req)) => req,
+        None => {
+            return axum::response::sse::Sse::new(up_progress_stream(
+                tokio::sync::mpsc::unbounded_channel().1,
+                {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let _ = tx.send(Err(anyhow::anyhow!(
+                        "No pending creation found for lab {}",
+                        lab_id
+                    )));
+                    rx
+                },
+            ))
+            .into_response();
+        }
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
+    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+    let progress = ProgressSender::new(progress_tx);
+
+    // Spawn the lab creation operation
+    tokio::spawn(async move {
+        let result = up::up_lab(request, &state, progress).await;
+        let _ = result_tx.send(result);
+    });
+
+    axum::response::sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
 }
 
 /// Serve the unified API specification

@@ -1,2 +1,6 @@
 /* Custom styles for Sherpa Labs Dashboard */
 /* Only includes styles that cannot be expressed with Tailwind utility classes */
+
+/* HTMX indicator: hidden by default, shown as flex during requests */
+.htmx-indicator { display: none; }
+.htmx-request .htmx-indicator, .htmx-request.htmx-indicator { display: flex; }
