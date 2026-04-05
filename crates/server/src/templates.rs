@@ -5,7 +5,7 @@ use shared::data::{
     BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig,
 };
 
-use crate::api::handlers::{NodeImageSummary, UserSummary};
+use crate::api::handlers::{ImageSummary, UserSummary};
 
 mod filters {
     pub fn initial(s: &str, _: &dyn askama::Values) -> askama::Result<String> {
@@ -565,21 +565,21 @@ impl IntoResponse for AdminPasswordErrorTemplate {
 }
 
 // ============================================================================
-// Admin Node Image Templates
+// Admin Image Templates
 // ============================================================================
 
-/// Admin node images list page template
+/// Admin images list page template
 #[derive(Template)]
-#[template(path = "admin/node-images.html.jinja")]
+#[template(path = "admin/images.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeImagesListTemplate {
+pub struct AdminImagesListTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
-    pub configs: Vec<NodeImageSummary>,
+    pub configs: Vec<ImageSummary>,
 }
 
-impl IntoResponse for AdminNodeImagesListTemplate {
+impl IntoResponse for AdminImagesListTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -592,18 +592,18 @@ impl IntoResponse for AdminNodeImagesListTemplate {
     }
 }
 
-/// Admin node image detail page template
+/// Admin image detail page template
 #[derive(Template)]
-#[template(path = "admin/node-image-detail.html.jinja")]
+#[template(path = "admin/image-detail.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeImageDetailTemplate {
+pub struct AdminImageDetailTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
     pub config: NodeConfig,
 }
 
-impl IntoResponse for AdminNodeImageDetailTemplate {
+impl IntoResponse for AdminImageDetailTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -616,11 +616,11 @@ impl IntoResponse for AdminNodeImageDetailTemplate {
     }
 }
 
-/// Admin node image edit page template
+/// Admin image edit page template
 #[derive(Template)]
-#[template(path = "admin/node-image-edit.html.jinja")]
+#[template(path = "admin/image-edit.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeImageEditTemplate {
+pub struct AdminImageEditTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
@@ -635,7 +635,7 @@ pub struct AdminNodeImageEditTemplate {
     pub interface_types: Vec<String>,
 }
 
-impl IntoResponse for AdminNodeImageEditTemplate {
+impl IntoResponse for AdminImageEditTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -648,11 +648,11 @@ impl IntoResponse for AdminNodeImageEditTemplate {
     }
 }
 
-/// Admin node image versions list page template
+/// Admin image versions list page template
 #[derive(Template)]
-#[template(path = "admin/node-image-versions.html.jinja")]
+#[template(path = "admin/image-versions.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeImageVersionsTemplate {
+pub struct AdminImageVersionsTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
@@ -661,7 +661,7 @@ pub struct AdminNodeImageVersionsTemplate {
     pub versions: Vec<NodeConfig>,
 }
 
-impl IntoResponse for AdminNodeImageVersionsTemplate {
+impl IntoResponse for AdminImageVersionsTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -674,18 +674,18 @@ impl IntoResponse for AdminNodeImageVersionsTemplate {
     }
 }
 
-/// Admin node image upload page template
+/// Admin image upload page template
 #[derive(Template)]
-#[template(path = "admin/node-image-upload.html.jinja")]
+#[template(path = "admin/image-upload.html.jinja")]
 #[allow(dead_code)]
-pub struct AdminNodeImageUploadTemplate {
+pub struct AdminImageUploadTemplate {
     pub username: String,
     pub is_admin: bool,
     pub active_page: String,
     pub models: Vec<String>,
 }
 
-impl IntoResponse for AdminNodeImageUploadTemplate {
+impl IntoResponse for AdminImageUploadTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -1173,7 +1173,7 @@ mod tests {
         assert!(html.contains("/admin/users"));
         assert!(html.contains("/admin/labs"));
         assert!(html.contains("/admin/tools"));
-        assert!(html.contains("/admin/node-images"));
+        assert!(html.contains("/admin/images"));
     }
 
     #[test]

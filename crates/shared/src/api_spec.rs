@@ -526,7 +526,7 @@ fn build_operations() -> Vec<OperationDef> {
         },
         OperationDef {
             name: "image.upload".to_string(),
-            description: "Upload a node image file via multipart form data".to_string(),
+            description: "Upload an image file via multipart form data".to_string(),
             category: Category::Image,
             auth: AuthRequirement::Admin,
             streaming: false,

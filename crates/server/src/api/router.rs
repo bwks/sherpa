@@ -37,11 +37,10 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
 
 use super::handlers::{
     add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
-    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_labs_list_handler,
-    admin_node_image_detail_handler, admin_node_image_edit_page_handler,
-    admin_node_image_update_handler, admin_node_image_upload_handler,
-    admin_node_image_upload_page_handler, admin_node_image_versions_handler,
-    admin_node_images_list_handler, admin_tools_clean_handler, admin_tools_handler,
+    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_image_detail_handler,
+    admin_image_edit_page_handler, admin_image_update_handler, admin_image_upload_handler,
+    admin_image_upload_page_handler, admin_image_versions_handler, admin_images_list_handler,
+    admin_labs_list_handler, admin_tools_clean_handler, admin_tools_handler,
     admin_update_user_password_handler, admin_user_edit_handler, api_spec_handler,
     change_password_json, clean_lab_json, create_lab_json, create_user_json, dashboard_handler,
     delete_image_json, delete_lab_json, delete_ssh_key_handler, delete_user_json, down_lab_json,
@@ -139,34 +138,31 @@ pub fn build_router() -> Router<AppState> {
             "/admin/tools/clean/{lab_id}",
             post(admin_tools_clean_handler),
         )
-        .route("/admin/node-images", get(admin_node_images_list_handler))
+        .route("/admin/images", get(admin_images_list_handler))
         // Upload route (must come before {model} catch-all)
         .route(
-            "/admin/node-images/upload",
-            get(admin_node_image_upload_page_handler).post(admin_node_image_upload_handler),
+            "/admin/images/upload",
+            get(admin_image_upload_page_handler).post(admin_image_upload_handler),
         )
         // Versions list route (most specific, must come first)
         .route(
-            "/admin/node-images/{model}/versions",
-            get(admin_node_image_versions_handler),
+            "/admin/images/{model}/versions",
+            get(admin_image_versions_handler),
         )
         // Version-specific routes (must come before non-version routes for proper matching)
         .route(
-            "/admin/node-images/{model}/{version}",
-            get(admin_node_image_detail_handler),
+            "/admin/images/{model}/{version}",
+            get(admin_image_detail_handler),
         )
         .route(
-            "/admin/node-images/{model}/{version}/edit",
-            get(admin_node_image_edit_page_handler).post(admin_node_image_update_handler),
+            "/admin/images/{model}/{version}/edit",
+            get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
         // Non-version routes (fallback to default version)
+        .route("/admin/images/{model}", get(admin_image_detail_handler))
         .route(
-            "/admin/node-images/{model}",
-            get(admin_node_image_detail_handler),
-        )
-        .route(
-            "/admin/node-images/{model}/edit",
-            get(admin_node_image_edit_page_handler).post(admin_node_image_update_handler),
+            "/admin/images/{model}/edit",
+            get(admin_image_edit_page_handler).post(admin_image_update_handler),
         )
         // Public API endpoints (no authentication required)
         .route("/health", get(health_check))
