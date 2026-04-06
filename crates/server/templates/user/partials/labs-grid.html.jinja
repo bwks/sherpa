@@ -21,18 +21,42 @@
                 <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                 <td class="p-4 text-sm text-body">
                     <div class="flex items-center justify-end space-x-2">
-                        <button
-                            onclick="labStart('{{ lab.id }}', this)"
-                            class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
-                            title="Start all nodes">
-                            {% call icons::play() %}
-                        </button>
-                        <button
-                            onclick="labStop('{{ lab.id }}', this)"
-                            class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
-                            title="Stop all nodes">
-                            {% call icons::stop() %}
-                        </button>
+                        {% match lab.status %}
+                            {% when LabStatus::Running %}
+                            <button
+                                onclick="labStop('{{ lab.id }}', this)"
+                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                                title="Stop all nodes">
+                                {% call icons::stop() %}
+                            </button>
+                            {% when LabStatus::Partial %}
+                            <button
+                                onclick="labStart('{{ lab.id }}', this)"
+                                class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
+                                title="Start all nodes">
+                                {% call icons::play() %}
+                            </button>
+                            <button
+                                onclick="labStop('{{ lab.id }}', this)"
+                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                                title="Stop all nodes">
+                                {% call icons::stop() %}
+                            </button>
+                            {% when LabStatus::Starting %}
+                            <button
+                                onclick="labStop('{{ lab.id }}', this)"
+                                class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
+                                title="Stop all nodes">
+                                {% call icons::stop() %}
+                            </button>
+                            {% else %}
+                            <button
+                                onclick="labStart('{{ lab.id }}', this)"
+                                class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
+                                title="Start all nodes">
+                                {% call icons::play() %}
+                            </button>
+                        {% endmatch %}
                         <a href="/labs/{{ lab.id }}" class="text-muted hover:text-heading transition-colors" title="View">
                             {% call icons::eye() %}
                         </a>
