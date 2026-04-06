@@ -869,6 +869,7 @@ pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
         Json(json!({
             "status": "ok",
             "service": "sherpad",
+            "version": env!("CARGO_PKG_VERSION"),
             "tls": tls_status,
         })),
     )
