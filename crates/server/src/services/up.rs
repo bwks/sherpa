@@ -27,9 +27,9 @@ use shared::konst::{
     CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
     LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
     NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
-    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
+    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
@@ -766,7 +766,9 @@ pub async fn up_lab(
         // Save the manifest for future redeploy operations
         let manifest_json = serde_json::to_string_pretty(&manifest)
             .context("Failed to serialize manifest for saving")?;
-        util::create_file(&format!("{lab_dir}/{SHERPA_MANIFEST_FILE}"), manifest_json)?;
+        let manifest_path = format!("{lab_dir}/{SHERPA_LAB_MANIFEST_FILE}");
+        util::create_file(&manifest_path, manifest_json)?;
+        util::set_file_permissions(&manifest_path, 0o600)?;
 
         let mgmt_net = data::SherpaNetwork {
             v4: data::NetworkV4 {

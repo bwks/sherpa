@@ -1,6 +1,7 @@
 pub const SHERPA_BASE_DIR: &str = "/opt/sherpa";
 pub const SHERPA_CONFIG_FILE: &str = "sherpa.toml";
 pub const SHERPA_MANIFEST_FILE: &str = "manifest.toml";
+pub const SHERPA_LAB_MANIFEST_FILE: &str = "manifest.json";
 pub const SHERPA_CONFIG_DIR: &str = "config";
 pub const SHERPA_ENV_DIR: &str = "env";
 pub const SHERPA_ENV_FILE: &str = "sherpa.env";

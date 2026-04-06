@@ -1236,7 +1236,7 @@ pub async fn node_redeploy_handler(
         "{}/{}/{}",
         shared::konst::SHERPA_LABS_PATH,
         lab_id,
-        shared::konst::SHERPA_MANIFEST_FILE
+        shared::konst::SHERPA_LAB_MANIFEST_FILE
     );
     let manifest_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
         tracing::error!("Failed to read manifest at {}: {:?}", manifest_path, e);
