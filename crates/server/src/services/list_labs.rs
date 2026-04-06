@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
-use shared::data::{LabStatus, LabSummary, ListLabsResponse};
+use shared::data::{LabSummary, ListLabsResponse};
 
 /// List all labs for a specific user
 ///
@@ -32,7 +32,7 @@ pub async fn list_labs(username: &str, state: &AppState) -> Result<ListLabsRespo
         .await
         .context("Failed to list labs for user")?;
 
-    // Build lab summaries
+    // Build lab summaries — status is read directly from the lab record
     let mut lab_summaries = Vec::new();
 
     for lab in labs {
@@ -41,18 +41,15 @@ pub async fn list_labs(username: &str, state: &AppState) -> Result<ListLabsRespo
             .clone()
             .ok_or_else(|| anyhow::anyhow!("Lab has no ID"))?;
 
-        // Fetch nodes to get both count and states for status derivation
-        let nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
+        let node_count = db::count_nodes_by_lab(&state.db, lab_record_id)
             .await
-            .unwrap_or_default();
-
-        let node_states: Vec<shared::data::NodeState> = nodes.iter().map(|n| n.state).collect();
+            .unwrap_or(0);
 
         lab_summaries.push(LabSummary {
             id: lab.lab_id.clone(),
             name: lab.name.clone(),
-            node_count: nodes.len(),
-            status: LabStatus::derive(&node_states),
+            node_count,
+            status: lab.status,
         });
     }
 

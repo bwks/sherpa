@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, DbUser};
+use shared::data::{DbLab, DbUser, LabState};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -110,6 +110,7 @@ pub async fn create_lab(
             gateway_ipv6: None,
             router_ipv6: None,
             loopback_network_v6: None,
+            status: LabState::default(),
         })
         .await
         .context(format!("Failed to create lab: '{}'", name))?;
@@ -157,6 +158,7 @@ pub async fn create_lab(
 ///     gateway_ipv6: None,
 ///     router_ipv6: None,
 ///     loopback_network_v6: None,
+///     status: LabState::default(),
 /// };
 /// let result = upsert_lab(&db, lab).await?;
 /// # Ok(())

@@ -2,7 +2,8 @@ use askama::Template;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use shared::data::{
-    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabSummary, LinkInfo, NodeConfig,
+    BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabState, LabSummary, LinkInfo,
+    NodeConfig,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
@@ -293,6 +294,7 @@ pub struct LabDetailTemplate {
     pub active_page: String,
     pub lab_id: String,
     pub lab_info: LabInfo,
+    pub lab_state: LabState,
     pub devices: Vec<DeviceInfo>,
     pub device_count: usize,
     pub inactive_devices: Vec<String>,
@@ -1021,7 +1023,7 @@ mod tests {
             labs: vec![LabSummary {
                 id: "a10736e8".to_string(),
                 name: "test-lab".to_string(),
-                status: shared::data::LabStatus::Unknown,
+                status: LabState::Unknown,
                 node_count: 2,
             }],
         };

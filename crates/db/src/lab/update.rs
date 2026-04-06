@@ -1,8 +1,9 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::DbLab;
+use shared::data::{DbLab, LabState};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
+use surrealdb_types::RecordId;
 use tracing::instrument;
 
 use crate::lab::validate_lab_id;
@@ -76,4 +77,36 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
         .context(format!("Failed to update lab: {}", lab.name))?;
 
     updated.ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
+}
+
+/// Update the status field of an existing lab
+///
+/// # Arguments
+/// * `db` - Database connection
+/// * `lab_id` - Record ID of the lab to update
+/// * `state` - New lab state
+///
+/// # Returns
+/// The updated DbLab record
+#[instrument(skip(db), level = "debug")]
+pub async fn update_lab_state(
+    db: &Arc<Surreal<Client>>,
+    lab_id: RecordId,
+    state: LabState,
+) -> Result<DbLab> {
+    let mut lab: DbLab = db
+        .select(lab_id.clone())
+        .await
+        .context(format!("Failed to fetch lab: {:?}", lab_id))?
+        .ok_or_else(|| anyhow!("Lab not found: {:?}", lab_id))?;
+
+    lab.status = state;
+
+    let updated: Option<DbLab> = db
+        .update(lab_id.clone())
+        .content(lab.clone())
+        .await
+        .context(format!("Failed to update state for lab: {}", lab.name))?;
+
+    updated.ok_or_else(|| anyhow!("Lab state update failed: {}", lab.name))
 }

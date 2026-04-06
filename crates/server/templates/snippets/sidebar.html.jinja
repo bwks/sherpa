@@ -94,7 +94,7 @@
     <div class="border-t border-header-border px-3 py-4 space-y-3">
         <!-- Theme Controls -->
         <div class="flex items-center justify-between px-3">
-            <select onchange="setPalette(this.value)" class="palette-selector text-xs bg-header border border-header-border text-header-text rounded px-1.5 py-1 cursor-pointer">
+            <select id="palette-select" hx-preserve="true" onchange="setPalette(this.value)" class="palette-selector text-xs bg-header border border-header-border text-header-text rounded px-1.5 py-1 cursor-pointer">
                 <option value="theme-zinc-emerald">Zinc Emerald</option>
                 <option value="theme-stone-amber">Stone Amber</option>
                 <option value="theme-neon-cyber">Neon Cyber</option>

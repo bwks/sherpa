@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use crate::data::{LabInfo, NodeKind, NodeModel, NodeState};
+use crate::data::{LabInfo, LabState, NodeKind, NodeModel, NodeState};
 
 /// Request type for inspecting a lab
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -17,6 +17,7 @@ pub struct InspectRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct InspectResponse {
     pub lab_info: LabInfo,
+    pub lab_state: LabState,
     pub devices: Vec<DeviceInfo>,
     pub inactive_devices: Vec<String>,
     pub links: Vec<LinkInfo>,

@@ -1,4 +1,5 @@
 {% extends "layouts/base.html.jinja" %}
+{% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}{{ lab_info.name }} - Lab Details{% endblock %}
 
@@ -8,7 +9,7 @@
 <nav class="flex items-center mb-6 text-sm text-muted">
     <a href="/" class="text-accent hover:text-accent-hover hover:underline">Dashboard</a>
     <span class="mx-2">/</span>
-    <a href="/" class="text-accent hover:text-accent-hover hover:underline">Labs</a>
+    <a href="/labs" class="text-accent hover:text-accent-hover hover:underline">Labs</a>
     <span class="mx-2">/</span>
     <span class="text-heading font-medium">{{ lab_info.name }}</span>
 </nav>
@@ -40,6 +41,10 @@
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">IPv4 Router</span>
             <span class="block text-base text-heading font-mono">{{ lab_info.ipv4_router }}</span>
+        </div>
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">State</span>
+            <span class="block text-base">{% call badges::lab_state_lg(lab_state) %}</span>
         </div>
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Loopback Network</span>
@@ -203,26 +208,53 @@
     <a href="/labs" class="btn-cancel">
         Back to Labs
     </a>
-    <button
-        id="lab-start-btn"
-        onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
-        class="btn-primary cursor-pointer"
-    >
-        Start Lab
-    </button>
-    <button
-        id="lab-stop-btn"
-        onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
-        class="btn-danger cursor-pointer"
-    >
-        Stop Lab
-    </button>
+    {% match lab_state %}
+        {% when LabState::Running %}
+        <button
+            id="lab-stop-btn"
+            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            class="btn-danger cursor-pointer"
+        >
+            Stop Lab
+        </button>
+        {% when LabState::Partial %}
+        <button
+            id="lab-start-btn"
+            onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
+            class="btn-primary cursor-pointer"
+        >
+            Start Lab
+        </button>
+        <button
+            id="lab-stop-btn"
+            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            class="btn-danger cursor-pointer"
+        >
+            Stop Lab
+        </button>
+        {% when LabState::Starting %}
+        <button
+            id="lab-stop-btn"
+            onclick="labDetailAction('{{ lab_info.id }}', 'stop', this)"
+            class="btn-danger cursor-pointer"
+        >
+            Stop Lab
+        </button>
+        {% else %}
+        <button
+            id="lab-start-btn"
+            onclick="labDetailAction('{{ lab_info.id }}', 'start', this)"
+            class="btn-primary cursor-pointer"
+        >
+            Start Lab
+        </button>
+    {% endmatch %}
     <div id="destroy-action">
         <button
             hx-get="/labs/{{ lab_info.id }}/destroy/confirm"
             hx-target="#destroy-action"
             hx-swap="innerHTML"
-            class="btn-danger cursor-pointer"
+            class="btn-danger-outline cursor-pointer"
         >
             Destroy Lab
         </button>

@@ -2529,6 +2529,10 @@
   @apply px-3.5 py-1.5 text-xs font-medium text-white bg-danger-solid rounded-md hover:bg-danger-solid-hover transition-colors cursor-pointer;
 }
 
+@utility btn-danger-outline {
+  @apply px-4 py-2 text-sm font-medium text-danger-solid border border-danger-solid rounded-md hover:bg-danger-solid hover:text-white transition-colors cursor-pointer;
+}
+
 @utility btn-edit {
   @apply px-4 py-2 text-sm font-medium text-white bg-edit rounded-md hover:bg-edit-hover transition-colors cursor-pointer;
 }
@@ -2548,14 +2552,42 @@
 /* ============================================================================
    Badge utilities
    ============================================================================ */
+
+/* State badges — small (table rows) */
 @utility badge-success {
   @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-success-text;
+}
+
+@utility badge-warning {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning text-warning-text;
+}
+
+@utility badge-danger {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-danger text-danger-text;
 }
 
 @utility badge-neutral {
   @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-badge text-neutral-badge-text;
 }
 
+/* State badges — large (detail page headers) */
+@utility badge-success-lg {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-success text-success-text;
+}
+
+@utility badge-warning-lg {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-warning text-warning-text;
+}
+
+@utility badge-danger-lg {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-danger text-danger-text;
+}
+
+@utility badge-neutral-lg {
+  @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neutral-badge text-neutral-badge-text;
+}
+
+/* Kind badges */
 @utility badge-kind-vm {
   @apply inline-block px-3 py-1 text-xs font-semibold rounded-full uppercase tracking-wide bg-kind-vm text-kind-vm-text;
 }

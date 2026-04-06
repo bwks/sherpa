@@ -15,4 +15,4 @@ pub use read::{
     get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
     get_used_management_networks, list_labs, list_labs_by_user,
 };
-pub use update::update_lab;
+pub use update::{update_lab, update_lab_state};

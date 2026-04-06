@@ -209,6 +209,7 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
 
     Ok(InspectResponse {
         lab_info,
+        lab_state: db_lab.status,
         devices,
         inactive_devices: Vec::new(), // Keep field for API compatibility
         links,
