@@ -1,4 +1,7 @@
-use anyhow::Result;
+use std::str::FromStr;
+use std::time::Duration;
+
+use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
 
 use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
@@ -17,7 +20,10 @@ use super::ssh::ssh;
 use super::up::up;
 use super::validate::validate_manifest;
 
-use shared::data::{ClientConfig, LabIdentity, LabInfo, Sherpa};
+use crate::token::load_token;
+use crate::ws_client::{RpcRequest, WebSocketClient};
+
+use shared::data::{ClientConfig, InspectResponse, LabIdentity, LabInfo, Sherpa};
 use shared::konst::{LAB_FILE_NAME, SHERPA_MANIFEST_FILE};
 use shared::util::{
     build_client_websocket_url, file_exists, get_cwd, get_id, get_server_url, load_client_config,
@@ -64,6 +70,64 @@ fn resolve_server_url(cli_url: Option<String>, config: &ClientConfig) -> String 
     cli_url
         .or_else(get_server_url)
         .unwrap_or_else(|| build_client_websocket_url(config))
+}
+
+/// Resolve lab info: try lab-info.toml first, fall back to inspect RPC.
+async fn resolve_lab_info(
+    lab_id: &str,
+    server_url: &str,
+    config: &ClientConfig,
+) -> Result<LabInfo> {
+    // Fast path: try local lab-info.toml
+    if let Ok(cwd) = get_cwd() {
+        let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
+        if file_exists(&lab_info_path)
+            && let Ok(content) = load_file(&lab_info_path)
+            && let Ok(lab_info) = LabInfo::from_str(&content)
+        {
+            return Ok(lab_info);
+        }
+    }
+
+    // Slow path: fetch from server via inspect RPC
+    let token = load_token()
+        .context("lab-info.toml not found and no auth token available. Run: sherpa login")?;
+
+    let timeout = Duration::from_secs(config.server_connection.timeout_secs);
+    let ws_client = WebSocketClient::new(
+        server_url.to_string(),
+        timeout,
+        config.server_connection.clone(),
+    );
+
+    let mut rpc_client = ws_client
+        .connect()
+        .await
+        .context("lab-info.toml not found and failed to connect to server")?;
+
+    let request = RpcRequest::new(
+        "inspect",
+        serde_json::json!({
+            "lab_id": lab_id,
+            "token": token,
+        }),
+    );
+
+    let response = rpc_client
+        .call(request)
+        .await
+        .context("RPC inspect call failed")?;
+    rpc_client.close().await.ok();
+
+    if let Some(error) = response.error {
+        bail!("Failed to fetch lab info from server: {}", error.message);
+    }
+
+    let result = response.result.context("No result in inspect response")?;
+    let inspect_data: InspectResponse =
+        serde_json::from_value(result).context("Failed to parse inspect response")?;
+
+    Ok(inspect_data.lab_info)
 }
 
 /// Resolve the Sherpa client base directory (~/.sherpa)
@@ -331,7 +395,17 @@ impl Cli {
             }
             Commands::Console { name } => {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
-                console(name, &manifest_obj)?;
+                let lab_id = get_id(&manifest_obj.name)?;
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                let lab_info = resolve_lab_info(&lab_id, &server_url, &config).await?;
+                console(name, &manifest_obj, &lab_info)?;
             }
             Commands::Ssh { name } => {
                 let lab = resolve_lab_identity()?;
