@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.63] - 2026-04-06
+
+### Bug Fixes
+
+- Console available before up completes by @bwks ([8726d8a](https://github.com/bwks/sherpa/commit/8726d8ae2092e0219d6e91c5fba8250a61f6cefb))
+- Api docs route by @bwks ([4b0c43c](https://github.com/bwks/sherpa/commit/4b0c43cfc47886273de58a803d0b02e4aa663b65))
+
+### Miscellaneous
+
+- Merge pull request #237 from bwks/v0.3.63
+
+V0.3.63 by @bwks in [#237](https://github.com/bwks/sherpa/pull/237) ([3120659](https://github.com/bwks/sherpa/commit/3120659fb853603d09bcf3018d0f5efabe8fb0fd))
+- Version bump by @bwks ([de43daf](https://github.com/bwks/sherpa/commit/de43daf3f528d0da4c1dc62d98b9fd4307070580))
+- Merge pull request #236 from bwks/changelog/v0.3.62
+
+chore(release): update changelog for v0.3.62 by @github-actions[bot] in [#236](https://github.com/bwks/sherpa/pull/236) ([446cf1d](https://github.com/bwks/sherpa/commit/446cf1df9c092c1eb87bc719c9a4e30f5705aa6c))
 ## [0.3.62] - 2026-04-06
 
 ### Miscellaneous
