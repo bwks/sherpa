@@ -46,15 +46,15 @@ use super::handlers::{
     dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
     delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
     get_labs_html, get_labs_json, get_user_info_json, health_check, import_image_json,
-    lab_create_page_handler, lab_create_post_handler, lab_create_stream_handler,
+    job_page_handler, job_stream_handler, lab_create_page_handler, lab_create_post_handler,
     lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
-    lab_destroy_stream_handler, lab_detail_handler, lab_nodes_handler, lab_start_handler,
-    lab_stop_handler, labs_list_page_handler, list_images_json, list_users_json, login,
-    login_form_handler, login_page_handler, logout_handler, node_detail_handler,
-    node_redeploy_handler, node_start_handler, node_stop_handler, openapi_handler, profile_handler,
-    pull_image_json, redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json,
-    show_image_json, signup_form_handler, signup_page_handler, update_impairment_json,
-    update_password_handler, upload_image_multipart,
+    lab_detail_handler, lab_nodes_handler, lab_start_handler, lab_stop_handler,
+    labs_list_page_handler, list_images_json, list_users_json, login, login_form_handler,
+    login_page_handler, logout_handler, node_detail_handler, node_redeploy_handler,
+    node_start_handler, node_stop_handler, openapi_handler, profile_handler, pull_image_json,
+    redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
+    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
+    upload_image_multipart,
 };
 
 /// Build the Axum router with all API routes
@@ -95,10 +95,8 @@ pub fn build_router() -> Router<AppState> {
             "/labs/create",
             get(lab_create_page_handler).post(lab_create_post_handler),
         )
-        .route(
-            "/labs/create/stream/{lab_id}",
-            get(lab_create_stream_handler),
-        )
+        .route("/jobs/{job_id}", get(job_page_handler))
+        .route("/jobs/{job_id}/stream", get(job_stream_handler))
         .route("/labs/{lab_id}", get(lab_detail_handler))
         .route("/labs/{lab_id}/nodes", get(lab_nodes_handler))
         .route("/labs/{lab_id}/nodes/{node_name}", get(node_detail_handler))
@@ -109,10 +107,6 @@ pub fn build_router() -> Router<AppState> {
         .route(
             "/labs/{lab_id}/destroy/button",
             get(lab_destroy_button_handler),
-        )
-        .route(
-            "/labs/{lab_id}/destroy/stream",
-            get(lab_destroy_stream_handler),
         )
         .route("/labs/{lab_id}/destroy", post(lab_destroy_post_handler))
         .route("/labs/{lab_id}/stop", post(lab_stop_handler))

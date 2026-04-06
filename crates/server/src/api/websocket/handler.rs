@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::connection::Connection;
 use super::messages::{ClientMessage, ServerMessage};
 use crate::daemon::state::AppState;
-use shared::data::StatusKind;
+use shared::data::{ConnectedMsg, StatusKind};
 
 /// WebSocket upgrade handler
 pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> Response {
@@ -41,8 +41,9 @@ async fn handle_socket_inner(socket: WebSocket, state: AppState, conn_id: Uuid) 
     state.metrics.ws_connections.add(1, &[]);
 
     // Send connected confirmation
-    let connected_msg = ServerMessage::Connected {
+    let connected_msg = ConnectedMsg {
         connection_id: conn_id.to_string(),
+        server_version: env!("CARGO_PKG_VERSION").to_string(),
     };
 
     if let Ok(json) = serde_json::to_string(&connected_msg)

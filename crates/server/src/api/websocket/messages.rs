@@ -49,9 +49,6 @@ pub enum ServerMessage {
         data: Option<serde_json::Value>,
     },
 
-    /// Connection established confirmation
-    Connected { connection_id: String },
-
     /// Ping for keepalive
     #[allow(dead_code)]
     Ping,
@@ -109,16 +106,19 @@ pub enum ClientMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ConnectedMsg;
 
     #[test]
-    fn test_server_message_serialization() {
-        let msg = ServerMessage::Connected {
+    fn test_connected_message_serialization() {
+        let msg = ConnectedMsg {
             connection_id: "test-123".to_string(),
+            server_version: "0.3.58".to_string(),
         };
 
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("\"type\":\"connected\""));
         assert!(json.contains("\"connection_id\":\"test-123\""));
+        assert!(json.contains("\"server_version\":\"0.3.58\""));
     }
 
     #[test]

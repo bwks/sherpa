@@ -60,6 +60,7 @@ mod up;
 mod user;
 mod user_management;
 mod vm_action;
+mod ws;
 mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
@@ -114,6 +115,7 @@ pub use user_management::{
     ListUsersRequest, ListUsersResponse, UserInfo,
 };
 pub use vm_action::{LabNodeActionResponse, NodeActionResult};
+pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
 
 // Re-export SurrealDB types for convenience

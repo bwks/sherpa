@@ -139,6 +139,15 @@ pub fn create_symlink(src: &str, target: &str) -> Result<()> {
     Ok(())
 }
 
+/// Set Unix file permissions on a single file.
+#[cfg(unix)]
+#[tracing::instrument(level = "debug")]
+pub fn set_file_permissions(path: &str, mode: u32) -> Result<()> {
+    let perms = std::fs::Permissions::from_mode(mode);
+    fs::set_permissions(path, perms).context(format!("Failed to set permissions on {path}"))?;
+    Ok(())
+}
+
 /// Set permissions for all files in a folder subtree.
 /// Sets files to read-write and removes executable bit for users/groups.
 #[cfg(unix)]

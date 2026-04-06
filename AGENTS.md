@@ -15,6 +15,10 @@ database in use is SurrealDB.
   Formatting and linting must pass first. CI will fail if formatting is wrong, so catch it locally
   before committing.
 
+## Code Navigation
+Use LSP operations (goToDefinition, findReferences, hover) for all code navigation 
+in preference to grep/glob. Only fall back to grep when LSP returns no results.
+
 ## Project Tasks
 - Features to implement are tracked in the PROJECT.md file.
 - This file is a record of task/features that are outstanding.

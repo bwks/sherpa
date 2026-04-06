@@ -1,7 +1,6 @@
 use anyhow::{Context, Result, bail};
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
-use shared::data::ServerConnection;
+use shared::data::{ConnectedMsg, ServerConnection};
 use std::time::Duration;
 use tokio_tungstenite::{
     Connector, MaybeTlsStream, WebSocketStream, connect_async, connect_async_tls_with_config,
@@ -82,20 +81,28 @@ impl WebSocketClient {
             let msg = msg.context("Failed to read initial message")?;
             if let Message::Text(text) = msg {
                 tracing::debug!("Received initial message: {}", text);
-                // Parse to verify it's a connected message
-                #[derive(Deserialize)]
-                struct ConnectedMsg {
-                    r#type: String,
-                }
-                if let Ok(connected) = serde_json::from_str::<ConnectedMsg>(&text)
-                    && connected.r#type != "connected"
-                {
-                    tracing::warn!("Expected 'connected' message, got: {}", connected.r#type);
+                // Parse the connected message and check version
+                match serde_json::from_str::<ConnectedMsg>(&text) {
+                    Ok(msg) => check_version_compatibility(&msg.server_version),
+                    Err(e) => tracing::warn!("Failed to parse connected message: {}", e),
                 }
             }
         }
 
         Ok(RpcClient { write, read })
+    }
+}
+
+/// Check client/server version compatibility and warn on mismatch.
+fn check_version_compatibility(server_version: &str) {
+    let client_version = env!("CARGO_PKG_VERSION");
+    if server_version != client_version {
+        eprintln!(
+            "WARNING: Version mismatch - client: {}, server: {}",
+            client_version, server_version
+        );
+    } else {
+        tracing::debug!("Client and server versions match: {}", client_version);
     }
 }
 

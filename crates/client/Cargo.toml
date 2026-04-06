@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.58"
+version = "0.3.60"
 edition = "2024"
 
 [dependencies]
