@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.3.59"
+version = "0.3.60"
 edition = "2024"
 
 [dependencies]
