@@ -1,5 +1,6 @@
 {% extends "layouts/base.html.jinja" %}
 {% import "macros/icons.html.jinja" as icons %}
+{% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}{{ device.name }} - Node Details{% endblock %}
 
@@ -23,23 +24,7 @@
             <p class="text-sm text-muted mt-1 font-mono">{{ device.model }} / {{ device.kind }}</p>
         </div>
         <div>
-            {% if device.state.to_string() == "running" %}
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-success text-success-text">
-                Running
-            </span>
-            {% elif device.state.to_string() == "created" || device.state.to_string() == "starting" %}
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-warning text-warning-text">
-                {{ device.state.to_string()|capitalize }}
-            </span>
-            {% elif device.state.to_string() == "failed" %}
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-danger text-danger-text">
-                Failed
-            </span>
-            {% else %}
-            <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-neutral-badge text-neutral-badge-text">
-                {{ device.state.to_string()|capitalize }}
-            </span>
-            {% endif %}
+            {% call badges::node_state_lg(device.state) %}
         </div>
     </div>
 </div>

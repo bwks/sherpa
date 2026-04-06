@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{count_labs, create_lab, create_user, get_lab, upsert_lab, validate_lab_id};
-use shared::data::DbLab;
+use shared::data::{DbLab, LabState};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -328,6 +328,7 @@ async fn test_upsert_lab_creates_new() -> Result<()> {
         gateway_ipv6: None,
         router_ipv6: None,
         loopback_network_v6: None,
+        status: LabState::default(),
     };
 
     let result = upsert_lab(&db, lab).await?;
@@ -375,6 +376,7 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         gateway_ipv6: None,
         router_ipv6: None,
         loopback_network_v6: None,
+        status: LabState::default(),
     };
 
     let result = upsert_lab(&db, updated_lab).await?;

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{create_lab, create_user, get_lab, update_lab};
-use shared::data::{DbLab, RecordId};
+use shared::data::{DbLab, LabState, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
 
@@ -54,6 +54,7 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         gateway_ipv6: None,
         router_ipv6: None,
         loopback_network_v6: None,
+        status: LabState::default(),
     };
 
     let result = update_lab(&db, lab).await;
@@ -86,6 +87,7 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         gateway_ipv6: None,
         router_ipv6: None,
         loopback_network_v6: None,
+        status: LabState::default(),
     };
 
     let result = update_lab(&db, lab).await;

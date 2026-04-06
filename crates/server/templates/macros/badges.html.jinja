@@ -1,0 +1,55 @@
+{# Node state badge (small — for table rows) #}
+{% macro node_state(state) %}
+    {% if state.to_string() == "running" %}
+    <span class="badge-success">Running</span>
+    {% elif state.to_string() == "created" || state.to_string() == "starting" %}
+    <span class="badge-warning">{{ state.to_string()|capitalize }}</span>
+    {% elif state.to_string() == "failed" %}
+    <span class="badge-danger">Failed</span>
+    {% else %}
+    <span class="badge-neutral">{{ state.to_string()|capitalize }}</span>
+    {% endif %}
+{% endmacro %}
+
+{# Node state badge (large — for detail page headers) #}
+{% macro node_state_lg(state) %}
+    {% if state.to_string() == "running" %}
+    <span class="badge-success-lg">Running</span>
+    {% elif state.to_string() == "created" || state.to_string() == "starting" %}
+    <span class="badge-warning-lg">{{ state.to_string()|capitalize }}</span>
+    {% elif state.to_string() == "failed" %}
+    <span class="badge-danger-lg">Failed</span>
+    {% else %}
+    <span class="badge-neutral-lg">{{ state.to_string()|capitalize }}</span>
+    {% endif %}
+{% endmacro %}
+
+{# Lab state badge (small — for table rows) #}
+{% macro lab_state(state) %}
+    {% if state.to_string() == "running" %}
+    <span class="badge-success">Running</span>
+    {% elif state.to_string() == "starting" || state.to_string() == "partial" %}
+    <span class="badge-warning">{{ state.to_string()|capitalize }}</span>
+    {% elif state.to_string() == "failed" %}
+    <span class="badge-danger">Failed</span>
+    {% elif state.to_string() == "stopped" %}
+    <span class="badge-neutral">Stopped</span>
+    {% else %}
+    <span class="badge-neutral">{{ state.to_string()|capitalize }}</span>
+    {% endif %}
+{% endmacro %}
+
+{# Lab state badge (large — for detail page headers) #}
+{% macro lab_state_lg(state) %}
+    {% if state.to_string() == "running" %}
+    <span class="badge-success-lg">Running</span>
+    {% elif state.to_string() == "starting" || state.to_string() == "partial" %}
+    <span class="badge-warning-lg">{{ state.to_string()|capitalize }}</span>
+    {% elif state.to_string() == "failed" %}
+    <span class="badge-danger-lg">Failed</span>
+    {% elif state.to_string() == "stopped" %}
+    <span class="badge-neutral-lg">Stopped</span>
+    {% else %}
+    <span class="badge-neutral-lg">{{ state.to_string()|capitalize }}</span>
+    {% endif %}
+{% endmacro %}

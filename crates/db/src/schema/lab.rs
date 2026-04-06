@@ -29,6 +29,8 @@
 //! The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user is
 //! deleted, all their labs are automatically deleted by the database.
 
+use shared::data::LabState;
+
 /// Generate the lab table schema.
 ///
 /// Creates the lab table with unique constraints on both the lab_id (business key)
@@ -62,7 +64,10 @@
 /// db.query(&schema).await?;
 /// ```
 pub(crate) fn generate_lab_schema() -> String {
-    r#"
+    let lab_states = super::helpers::vec_to_str(LabState::to_vec());
+
+    format!(
+        r#"
 DEFINE TABLE OVERWRITE lab SCHEMAFULL;
 DEFINE FIELD OVERWRITE lab_id ON TABLE lab TYPE string
     ASSERT string::len($value) >= 1;
@@ -76,6 +81,9 @@ DEFINE FIELD OVERWRITE management_network_v6 ON TABLE lab TYPE option<string>;
 DEFINE FIELD OVERWRITE loopback_network_v6 ON TABLE lab TYPE option<string>;
 DEFINE FIELD OVERWRITE gateway_ipv6 ON TABLE lab TYPE option<string>;
 DEFINE FIELD OVERWRITE router_ipv6 ON TABLE lab TYPE option<string>;
+DEFINE FIELD OVERWRITE status ON TABLE lab TYPE string
+    ASSERT $value IN [{lab_states}]
+    DEFAULT "unknown";
 
 DEFINE FIELD OVERWRITE nodes ON TABLE lab COMPUTED <~(node FIELD lab);
 DEFINE FIELD OVERWRITE links ON TABLE lab COMPUTED <~(link FIELD lab);
@@ -86,5 +94,5 @@ DEFINE INDEX OVERWRITE unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
 DEFINE INDEX OVERWRITE unique_lab_name_user
   ON TABLE lab FIELDS name, user UNIQUE;
 "#
-    .to_string()
+    )
 }

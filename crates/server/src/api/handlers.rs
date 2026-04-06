@@ -1328,6 +1328,7 @@ pub async fn lab_detail_handler(
                 active_page: "labs".to_string(),
                 lab_id: lab_id.clone(),
                 lab_info: response.lab_info,
+                lab_state: response.lab_state,
                 devices: response.devices,
                 device_count,
                 inactive_devices: response.inactive_devices,

@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bollard::secret::ContainerSummaryStateEnum;
-use shared::data::{NodeKind, NodeState};
+use shared::data::{DbLab, LabState, NodeKind, NodeState, RecordId};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING, VIR_DOMAIN_SHUTOFF};
@@ -94,7 +94,7 @@ async fn scan_cycle(state: &AppState) -> Result<()> {
 #[instrument(skip_all, fields(lab_id = %lab.lab_id), level = "debug")]
 async fn scan_lab(
     state: &AppState,
-    lab: &shared::data::DbLab,
+    lab: &DbLab,
     vm_states: &HashMap<String, u32>,
     container_states: &HashMap<String, ContainerSummaryStateEnum>,
 ) -> Result<()> {
@@ -109,19 +109,21 @@ async fn scan_lab(
     }
 
     // Batch-fetch node images to determine NodeKind
-    let mut image_ids: Vec<shared::data::RecordId> =
-        nodes.iter().map(|n| n.image.clone()).collect();
+    let mut image_ids: Vec<RecordId> = nodes.iter().map(|n| n.image.clone()).collect();
     image_ids.dedup();
 
     let node_images = db::list_node_images_by_ids(&state.db, image_ids)
         .await
         .context("Failed to batch fetch node images")?;
 
+    let mut current_node_states = Vec::with_capacity(nodes.len());
+
     for node in &nodes {
         let node_id = match &node.id {
             Some(id) => id,
             None => {
                 tracing::warn!(node_name = %node.name, "Node missing record ID, skipping");
+                current_node_states.push(node.state);
                 continue;
             }
         };
@@ -152,6 +154,28 @@ async fn scan_lab(
                     "Failed to update node state"
                 );
             }
+        }
+
+        current_node_states.push(detected_state);
+    }
+
+    // Derive and persist lab state from current node states
+    let derived_lab_state = LabState::derive(&current_node_states);
+    if derived_lab_state != lab.status {
+        tracing::info!(
+            lab_id = %lab.lab_id,
+            old_state = %lab.status,
+            new_state = %derived_lab_state,
+            "Lab state changed"
+        );
+        if let Err(e) =
+            db::update_lab_state(&state.db, lab_record_id.clone(), derived_lab_state).await
+        {
+            tracing::warn!(
+                lab_id = %lab.lab_id,
+                error = %e,
+                "Failed to update lab state"
+            );
         }
     }
 

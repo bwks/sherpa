@@ -1,4 +1,5 @@
 {% import "macros/icons.html.jinja" as icons %}
+{% import "macros/badges.html.jinja" as badges %}
 <h2 class="text-xl font-semibold text-heading mb-4">
     Nodes
     <span class="text-base font-normal text-muted">
@@ -55,23 +56,7 @@
                     {{ device.kind }}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                    {% if device.state.to_string() == "running" %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-success text-success-text">
-                        Running
-                    </span>
-                    {% elif device.state.to_string() == "created" || device.state.to_string() == "starting" %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-warning text-warning-text">
-                        {{ device.state.to_string()|capitalize }}
-                    </span>
-                    {% elif device.state.to_string() == "failed" %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-danger text-danger-text">
-                        Failed
-                    </span>
-                    {% else %}
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-neutral-badge text-neutral-badge-text">
-                        {{ device.state.to_string()|capitalize }}
-                    </span>
-                    {% endif %}
+                    {% call badges::node_state(device.state) %}
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-body font-mono">
                     {% if device.mgmt_ipv4 != "" %}{{ device.mgmt_ipv4 }}{% else %}-{% endif %}

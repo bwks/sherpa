@@ -1,4 +1,5 @@
 {% import "macros/icons.html.jinja" as icons %}
+{% import "macros/badges.html.jinja" as badges %}
 <div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">
     <table class="w-full bg-card border-collapse">
         <thead class="bg-table-head border-b border-border">
@@ -16,20 +17,20 @@
                 <td class="p-4 text-sm font-medium"><a href="/labs/{{ lab.id }}" class="text-accent hover:text-accent-hover hover:underline">{{ lab.name }}</a></td>
                 <td class="p-4 text-sm text-muted font-mono">{{ lab.id }}</td>
                 <td class="p-4 text-sm">
-                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wide bg-neutral-badge text-neutral-badge-text">{{ lab.status }}</span>
+                    {% call badges::lab_state(lab.status) %}
                 </td>
                 <td class="p-4 text-sm text-body text-center">{{ lab.node_count }}</td>
                 <td class="p-4 text-sm text-body">
                     <div class="flex items-center justify-end space-x-2">
                         {% match lab.status %}
-                            {% when LabStatus::Running %}
+                            {% when LabState::Running %}
                             <button
                                 onclick="labStop('{{ lab.id }}', this)"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"
                                 title="Stop all nodes">
                                 {% call icons::stop() %}
                             </button>
-                            {% when LabStatus::Partial %}
+                            {% when LabState::Partial %}
                             <button
                                 onclick="labStart('{{ lab.id }}', this)"
                                 class="text-accent hover:text-accent-hover transition-colors cursor-pointer"
@@ -42,7 +43,7 @@
                                 title="Stop all nodes">
                                 {% call icons::stop() %}
                             </button>
-                            {% when LabStatus::Starting %}
+                            {% when LabState::Starting %}
                             <button
                                 onclick="labStop('{{ lab.id }}', this)"
                                 class="text-danger-solid hover:text-danger-solid-hover transition-colors cursor-pointer"

@@ -93,7 +93,7 @@ pub use interface::{
 };
 pub use lab::{
     BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabIdentity,
-    LabInfo, LabIsolatedNetwork, LabLinkData, LabNodeData, LabReservedNetwork, LabStatus,
+    LabInfo, LabIsolatedNetwork, LabLinkData, LabNodeData, LabReservedNetwork, LabState,
     LabSummary, ListLabsResponse, NodeInterface, NodeSetupData, PeerInterface, PeerSide,
 };
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
