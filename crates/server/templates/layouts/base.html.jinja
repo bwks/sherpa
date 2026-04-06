@@ -3,8 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="dark light">
     <title>{% block title %}Sherpa Labs{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+
+    <!-- Anti-flash: set color-scheme before any external resources load -->
+    <script src="/js/anti-flash.js"></script>
 
     <!-- Tailwind CSS -->
     <link rel="stylesheet" href="/css/tailwind.css">
@@ -19,7 +23,7 @@
     <!-- Custom Styles -->
     <link rel="stylesheet" href="/css/styles.css">
 </head>
-<body class="bg-page min-h-screen">
+<body class="bg-page min-h-screen" hx-boost="true">
     <!-- Sidebar -->
     {% include "snippets/sidebar.html.jinja" %}
 

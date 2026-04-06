@@ -103,11 +103,14 @@
   };
 
   // Sync palette selectors and favicon on page load
-  document.addEventListener("DOMContentLoaded", function () {
+  function syncSelectors() {
+    var current = localStorage.getItem("palette") || "theme-zinc-emerald";
     var selectors = document.querySelectorAll(".palette-selector");
     for (var i = 0; i < selectors.length; i++) {
-      selectors[i].value = storedPalette;
+      selectors[i].value = current;
     }
     updateFavicon();
-  });
+  }
+
+  document.addEventListener("DOMContentLoaded", syncSelectors);
 })();

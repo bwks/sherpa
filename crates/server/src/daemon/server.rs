@@ -312,13 +312,6 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     // Set up shutdown cancellation token for background services
     let cancel_token = CancellationToken::new();
 
-    // Spawn a task that cancels the token when a shutdown signal is received
-    let shutdown_token = cancel_token.clone();
-    tokio::spawn(async move {
-        shutdown_signal().await;
-        shutdown_token.cancel();
-    });
-
     // Start background scanner service if enabled
     if config.scanner.enabled {
         let scanner_state = state.clone();
@@ -351,6 +344,16 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         // TLS-enabled server
         let cert_mgr =
             CertificateManager::new(&config.tls).context("Failed to create certificate manager")?;
+
+        // Create a handle for graceful shutdown of axum-server
+        let handle = axum_server::Handle::new();
+        let shutdown_handle = handle.clone();
+        let shutdown_token = cancel_token.clone();
+        tokio::spawn(async move {
+            shutdown_signal().await;
+            shutdown_token.cancel();
+            shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
+        });
 
         // Determine SANs from config or auto-detect
         let mut san = config.tls.san.clone();
@@ -525,9 +528,11 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             let ipv6_addr = SocketAddr::new(ipv6.into(), config.ws_port);
             let ipv6_tls_config = tls_config.clone();
             let ipv6_app = app.clone();
+            let ipv6_handle = handle.clone();
             tokio::spawn(async move {
                 tracing::info!("Starting IPv6 TLS listener on wss://[{}]", ipv6_addr);
                 if let Err(e) = axum_server::bind_rustls(ipv6_addr, ipv6_tls_config)
+                    .handle(ipv6_handle)
                     .serve(ipv6_app.into_make_service())
                     .await
                 {
@@ -538,6 +543,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
         // Use axum-server with TLS for main server
         axum_server::bind_rustls(addr, tls_config)
+            .handle(handle)
             .serve(app.into_make_service())
             .await
             .context("Failed to start TLS server")?;
@@ -575,8 +581,12 @@ pub async fn run_server(foreground: bool) -> Result<()> {
             });
         }
 
+        let shutdown_token = cancel_token.clone();
         axum::serve(listener, app)
-            .with_graceful_shutdown(shutdown_signal())
+            .with_graceful_shutdown(async move {
+                shutdown_signal().await;
+                shutdown_token.cancel();
+            })
             .await
             .context("Failed to start server")?;
     }
