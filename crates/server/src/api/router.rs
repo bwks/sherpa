@@ -8,9 +8,43 @@ use tower_http::trace::TraceLayer;
 
 use crate::daemon::state::AppState;
 
+use super::handlers::{
+    add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
+    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_image_detail_handler,
+    admin_image_edit_page_handler, admin_image_update_handler, admin_image_upload_handler,
+    admin_image_upload_page_handler, admin_image_versions_handler, admin_images_list_handler,
+    admin_labs_list_handler, admin_tools_clean_handler, admin_tools_handler,
+    admin_tools_scan_handler, admin_update_user_password_handler, admin_user_edit_handler,
+    api_spec_handler, change_password_json, clean_lab_json, create_lab_json, create_user_json,
+    dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
+    delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
+    get_labs_html, get_labs_json, get_user_info_json, health_check, import_image_json,
+    job_page_handler, job_stream_handler, lab_create_page_handler, lab_create_post_handler,
+    lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
+    lab_detail_handler, lab_nodes_handler, lab_start_handler, lab_stop_handler,
+    labs_list_page_handler, list_images_json, list_users_json, login, login_form_handler,
+    login_page_handler, logout_handler, node_detail_handler, node_redeploy_handler,
+    node_start_handler, node_stop_handler, openapi_handler, profile_handler, pull_image_json,
+    redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
+    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
+    upload_image_multipart,
+};
+
 #[derive(Embed)]
 #[folder = "web/static"]
 struct StaticAssets;
+
+async fn api_docs_handler() -> Response {
+    match StaticAssets::get("swagger/index.html") {
+        Some(file) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html")],
+            file.data,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
 
 async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
     match StaticAssets::get(&path) {
@@ -34,28 +68,6 @@ async fn embedded_asset_handler(Path(path): Path<String>) -> Response {
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
-
-use super::handlers::{
-    add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
-    admin_delete_ssh_key_handler, admin_delete_user_handler, admin_image_detail_handler,
-    admin_image_edit_page_handler, admin_image_update_handler, admin_image_upload_handler,
-    admin_image_upload_page_handler, admin_image_versions_handler, admin_images_list_handler,
-    admin_labs_list_handler, admin_tools_clean_handler, admin_tools_handler,
-    admin_tools_scan_handler, admin_update_user_password_handler, admin_user_edit_handler,
-    api_spec_handler, change_password_json, clean_lab_json, create_lab_json, create_user_json,
-    dashboard_handler, delete_image_json, delete_lab_json, delete_ssh_key_handler,
-    delete_user_json, down_lab_json, download_image_json, get_certificate_handler, get_lab,
-    get_labs_html, get_labs_json, get_user_info_json, health_check, import_image_json,
-    job_page_handler, job_stream_handler, lab_create_page_handler, lab_create_post_handler,
-    lab_destroy_button_handler, lab_destroy_confirm_handler, lab_destroy_post_handler,
-    lab_detail_handler, lab_nodes_handler, lab_start_handler, lab_stop_handler,
-    labs_list_page_handler, list_images_json, list_users_json, login, login_form_handler,
-    login_page_handler, logout_handler, node_detail_handler, node_redeploy_handler,
-    node_start_handler, node_stop_handler, openapi_handler, profile_handler, pull_image_json,
-    redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json, show_image_json,
-    signup_form_handler, signup_page_handler, update_impairment_json, update_password_handler,
-    upload_image_multipart,
-};
 
 /// Build the Axum router with all API routes
 pub fn build_router() -> Router<AppState> {
@@ -181,10 +193,7 @@ pub fn build_router() -> Router<AppState> {
         .route("/cert", get(get_certificate_handler))
         .route("/api/v1/spec", get(api_spec_handler))
         .route("/api/v1/openapi.json", get(openapi_handler))
-        .route(
-            "/api/docs",
-            get(|| async { axum::response::Redirect::permanent("/swagger/index.html") }),
-        )
+        .route("/api/docs", get(api_docs_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
         .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)

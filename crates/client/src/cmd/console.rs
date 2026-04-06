@@ -1,23 +1,15 @@
 use std::collections::HashMap;
 use std::process::Command;
-use std::str::FromStr;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use shared::data::LabInfo;
-use shared::konst::{BOOT_SERVER_NAME, LAB_FILE_NAME, TELNET_PORT};
-use shared::util::{get_cwd, get_ip, load_file, term_msg_surround};
+use shared::konst::{BOOT_SERVER_NAME, TELNET_PORT};
+use shared::util::{get_ip, term_msg_surround};
 use topology::Manifest;
 
-pub fn console(name: &str, manifest: &Manifest) -> Result<()> {
+pub fn console(name: &str, manifest: &Manifest, lab_info: &LabInfo) -> Result<()> {
     term_msg_surround(&format!("Connecting to: {name}"));
-
-    // Load lab-info.toml to get the lab's loopback network
-    let cwd = get_cwd().context("Failed to determine working directory")?;
-    let lab_info_path = format!("{}/{}", cwd, LAB_FILE_NAME);
-    let lab_info_content = load_file(&lab_info_path)
-        .context("Failed to load lab-info.toml. Has the lab been started?")?;
-    let lab_info = LabInfo::from_str(&lab_info_content).context("Failed to parse lab-info.toml")?;
 
     let dev_id_map: HashMap<String, u8> = manifest
         .nodes
