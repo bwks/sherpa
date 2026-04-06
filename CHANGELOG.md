@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.60] - 2026-04-06
+
+### Bug Fixes
+
+- Name saved manifest as .json by @bwks ([881825c](https://github.com/bwks/sherpa/commit/881825ce76c94faf1f74830262163588abcb815e))
+
+### Documentation
+
+- Use Rust LSP server by @bwks ([1e701d9](https://github.com/bwks/sherpa/commit/1e701d97e9c6b2aab4c4b50057d0fc82f8ac4cbe))
+
+### Features
+
+- Jobs page by @bwks ([5a7222b](https://github.com/bwks/sherpa/commit/5a7222ba86c8d60ec04290d152c2a90b1218b389))
+- Client/server version comparison check by @bwks ([a21e30b](https://github.com/bwks/sherpa/commit/a21e30b120d8b3ce5f2f92a292c2d8cf58da2f8f))
+
+### Miscellaneous
+
+- Merge pull request #230 from bwks/v0.3.60
+
+V0.3.60 by @bwks in [#230](https://github.com/bwks/sherpa/pull/230) ([4ecb5c3](https://github.com/bwks/sherpa/commit/4ecb5c3ae82535610ad7f55d77bb042d699a4354))
+- Version bump by @bwks ([497b61a](https://github.com/bwks/sherpa/commit/497b61a1db5ff184fe072136539313f586f6a23e))
+- Version bump by @bwks ([4cd3bff](https://github.com/bwks/sherpa/commit/4cd3bff25451706eb684f5d8c43073a09b5e8438))
+- Merge pull request #226 from bwks/changelog/v0.3.58
+
+chore(release): update changelog for v0.3.58 by @github-actions[bot] in [#226](https://github.com/bwks/sherpa/pull/226) ([2ac1ae4](https://github.com/bwks/sherpa/commit/2ac1ae48198705b37f01c2f41c2f24186766b65e))
 ## [0.3.58] - 2026-04-05
 
 ### Features
