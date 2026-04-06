@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
-use axum::response::{Html, IntoResponse, Response};
+use axum::response::{Html, IntoResponse, Response, sse};
 use axum::{Form, Json};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -14,6 +14,7 @@ use surrealdb_types::Datetime;
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
+use crate::daemon::state::{Job, JobType};
 use crate::services::progress::ProgressSender;
 use crate::services::{
     clean, container_pull, delete, destroy, down, impairment, import, inspect, list_labs, redeploy,
@@ -23,11 +24,11 @@ use crate::templates::{
     AdminImageUploadTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
     AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
     DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    LabCreateProgressFragment, LabCreateTemplate, LabDestroyButtonFragment,
-    LabDestroyConfirmFragment, LabDestroyProgressFragment, LabDetailTemplate, LabsGridTemplate,
-    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodeDetailTemplate,
-    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
-    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
+    JobPageTemplate, LabCreateTemplate, LabDestroyButtonFragment, LabDestroyConfirmFragment,
+    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, LoginErrorTemplate, LoginPageTemplate,
+    NodeDetailTemplate, NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate,
+    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
+    SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -2914,7 +2915,7 @@ pub async fn create_lab_json(
         let _ = result_tx.send(result);
     });
 
-    axum::response::sse::Sse::new(json_progress_stream(progress_rx, result_rx))
+    sse::Sse::new(json_progress_stream(progress_rx, result_rx))
 }
 
 /// Destroy a lab (SSE streaming)
@@ -2941,10 +2942,7 @@ pub async fn delete_lab_json(
         let _ = result_tx.send(result);
     });
 
-    Ok(axum::response::sse::Sse::new(json_progress_stream(
-        progress_rx,
-        result_rx,
-    )))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Stop lab nodes
@@ -3015,10 +3013,7 @@ pub async fn redeploy_node_json(
         let _ = result_tx.send(result);
     });
 
-    Ok(axum::response::sse::Sse::new(json_progress_stream(
-        progress_rx,
-        result_rx,
-    )))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Force-clean a lab (admin only)
@@ -3105,10 +3100,7 @@ pub async fn import_image_json(
         let _ = result_tx.send(result);
     });
 
-    Ok(axum::response::sse::Sse::new(json_progress_stream(
-        progress_rx,
-        result_rx,
-    )))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Upload an image via multipart form data
@@ -3251,10 +3243,7 @@ pub async fn pull_image_json(
         let _ = result_tx.send(result);
     });
 
-    Ok(axum::response::sse::Sse::new(json_progress_stream(
-        progress_rx,
-        result_rx,
-    )))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Download a VM image (SSE streaming)
@@ -3276,10 +3265,7 @@ pub async fn download_image_json(
         let _ = result_tx.send(result);
     });
 
-    Ok(axum::response::sse::Sse::new(json_progress_stream(
-        progress_rx,
-        result_rx,
-    )))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 // =============================================================================
@@ -3500,88 +3486,138 @@ pub async fn lab_destroy_button_handler(
     LabDestroyButtonFragment { lab_id }
 }
 
-/// Handler to initiate destroy and return the SSE progress container
+/// Handler to initiate destroy — creates a job and redirects to the jobs page
 ///
 /// POST /labs/{lab_id}/destroy
 pub async fn lab_destroy_post_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
-) -> impl IntoResponse {
-    // Validate ownership before returning the SSE container
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner) => {
-            if owner != auth.username {
-                return ErrorTemplate {
-                    message: "Permission denied: you do not own this lab".to_string(),
-                }
-                .into_response();
-            }
-        }
-        Err(e) => {
-            return ErrorTemplate {
-                message: format!("Lab not found: {}", e),
-            }
-            .into_response();
-        }
+) -> Result<Response, ApiError> {
+    // Validate ownership and get lab name
+    let db_lab = db::get_lab(&state.db, &lab_id)
+        .await
+        .map_err(|e| ApiError::not_found("lab", format!("Lab not found: {}", e)))?;
+
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check ownership: {}", e)))?;
+
+    if owner != auth.username && !auth.is_admin {
+        return Err(ApiError::forbidden(
+            "Permission denied: you do not own this lab",
+        ));
     }
 
-    LabDestroyProgressFragment { lab_id }.into_response()
-}
-
-/// Handler to stream destroy progress via SSE
-///
-/// GET /labs/{lab_id}/destroy/stream
-pub async fn lab_destroy_stream_handler(
-    Path(lab_id): Path<String>,
-    auth: AuthenticatedUserFromCookie,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    // Validate ownership
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner) => {
-            if owner != auth.username {
-                return axum::response::sse::Sse::new(destroy_progress_stream(
-                    tokio::sync::mpsc::unbounded_channel().1,
-                    {
-                        let (tx, rx) = tokio::sync::oneshot::channel();
-                        let _ = tx.send(Err(anyhow::anyhow!("Permission denied")));
-                        rx
-                    },
-                ))
-                .into_response();
-            }
-        }
-        Err(e) => {
-            return axum::response::sse::Sse::new(destroy_progress_stream(
-                tokio::sync::mpsc::unbounded_channel().1,
-                {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let _ = tx.send(Err(anyhow::anyhow!("Lab not found: {}", e)));
-                    rx
-                },
-            ))
-            .into_response();
-        }
-    }
-
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-
+    let job_id = uuid::Uuid::new_v4().to_string();
     let request = DestroyRequest {
         lab_id,
         username: auth.username,
     };
 
+    state.pending_jobs.insert(
+        job_id.clone(),
+        Job {
+            lab_name: db_lab.name,
+            job_type: JobType::Destroy { request },
+        },
+    );
+
+    let redirect_url = format!("/jobs/{}", job_id);
+    let mut response = Html("").into_response();
+    response.headers_mut().insert(
+        header::HeaderName::from_static("hx-redirect"),
+        header::HeaderValue::from_str(&redirect_url)
+            .map_err(|e| ApiError::internal(format!("Failed to create redirect header: {}", e)))?,
+    );
+
+    Ok(response)
+}
+
+// ============================================================================
+// Job Handlers (HTML)
+// ============================================================================
+
+/// Handler to render the job progress page
+///
+/// GET /jobs/{job_id}
+pub async fn job_page_handler(
+    Path(job_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Peek at the job to get display info (don't remove it — stream handler consumes it)
+    match state.pending_jobs.get(&job_id) {
+        Some(job) => {
+            let action = match &job.job_type {
+                JobType::Create { .. } => "Creating".to_string(),
+                JobType::Destroy { .. } => "Destroying".to_string(),
+            };
+            JobPageTemplate {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: "labs".to_string(),
+                job_id,
+                lab_name: job.lab_name.clone(),
+                action,
+            }
+            .into_response()
+        }
+        None => Error404Template {
+            username: auth.username,
+            is_admin: auth.is_admin,
+            active_page: String::new(),
+            message: "Job not found or already completed".to_string(),
+        }
+        .into_response(),
+    }
+}
+
+/// Handler to stream job progress via SSE
+///
+/// GET /jobs/{job_id}/stream
+pub async fn job_stream_handler(
+    Path(job_id): Path<String>,
+    _auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    // Consume the pending job
+    let job = match state.pending_jobs.remove(&job_id) {
+        Some((_, job)) => job,
+        None => {
+            return sse::Sse::new(destroy_progress_stream(
+                tokio::sync::mpsc::unbounded_channel().1,
+                {
+                    let (tx, rx) = tokio::sync::oneshot::channel();
+                    let _ = tx.send(Err(anyhow::anyhow!("Job not found or already consumed")));
+                    rx
+                },
+            ))
+            .into_response();
+        }
+    };
+
+    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
-    // Spawn the destroy operation
-    tokio::spawn(async move {
-        let result = destroy::destroy_lab(request, &state, progress).await;
-        let _ = result_tx.send(result);
-    });
-
-    axum::response::sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
+    match job.job_type {
+        JobType::Destroy { request } => {
+            let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let result = destroy::destroy_lab(request, &state, progress).await;
+                let _ = result_tx.send(result);
+            });
+            sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
+        }
+        JobType::Create { request } => {
+            let (result_tx, result_rx) = tokio::sync::oneshot::channel();
+            tokio::spawn(async move {
+                let result = up::up_lab(request, &state, progress).await;
+                let _ = result_tx.send(result);
+            });
+            sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
+        }
+    }
 }
 
 // ============================================================================
@@ -3654,55 +3690,29 @@ pub async fn lab_create_post_handler(
     let lab_id = get_id_for_user(&auth.username, &lab_name);
 
     let request = UpRequest {
-        lab_id: lab_id.clone(),
+        lab_id,
         manifest: manifest_value,
         username: auth.username,
     };
 
-    // Store the request for the SSE stream handler to pick up
-    state.pending_creations.insert(lab_id.clone(), request);
+    let job_id = uuid::Uuid::new_v4().to_string();
+    state.pending_jobs.insert(
+        job_id.clone(),
+        Job {
+            lab_name,
+            job_type: JobType::Create { request },
+        },
+    );
 
-    LabCreateProgressFragment { lab_id, lab_name }.into_response()
-}
+    let redirect_url = format!("/jobs/{}", job_id);
+    let mut response = Html("").into_response();
+    if let Ok(val) = header::HeaderValue::from_str(&redirect_url) {
+        response
+            .headers_mut()
+            .insert(header::HeaderName::from_static("hx-redirect"), val);
+    }
 
-/// Handler to stream lab creation progress via SSE
-///
-/// GET /labs/create/stream/{lab_id}
-pub async fn lab_create_stream_handler(
-    Path(lab_id): Path<String>,
-    _auth: AuthenticatedUserFromCookie,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
-    // Retrieve and consume the pending creation request
-    let request = match state.pending_creations.remove(&lab_id) {
-        Some((_, req)) => req,
-        None => {
-            return axum::response::sse::Sse::new(up_progress_stream(
-                tokio::sync::mpsc::unbounded_channel().1,
-                {
-                    let (tx, rx) = tokio::sync::oneshot::channel();
-                    let _ = tx.send(Err(anyhow::anyhow!(
-                        "No pending creation found for lab {}",
-                        lab_id
-                    )));
-                    rx
-                },
-            ))
-            .into_response();
-        }
-    };
-
-    let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
-    let (result_tx, result_rx) = tokio::sync::oneshot::channel();
-    let progress = ProgressSender::new(progress_tx);
-
-    // Spawn the lab creation operation
-    tokio::spawn(async move {
-        let result = up::up_lab(request, &state, progress).await;
-        let _ = result_tx.send(result);
-    });
-
-    axum::response::sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
+    response
 }
 
 /// Serve the unified API specification

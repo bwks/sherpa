@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
-use shared::data::{Config, UpRequest};
+use shared::data::{Config, DestroyRequest, UpRequest};
 use shared::konst::{
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
@@ -13,6 +13,18 @@ use surrealdb::engine::remote::ws::Client;
 use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::jwt;
 use crate::daemon::metrics::Metrics;
+
+/// The type of operation a job represents.
+pub enum JobType {
+    Create { request: UpRequest },
+    Destroy { request: DestroyRequest },
+}
+
+/// A pending job waiting for an SSE stream handler to pick it up.
+pub struct Job {
+    pub lab_name: String,
+    pub job_type: JobType,
+}
 
 /// Application state shared across the server.
 ///
@@ -39,9 +51,9 @@ pub struct AppState {
     pub jwt_secret: Arc<Vec<u8>>,
     /// OpenTelemetry metrics instruments
     pub metrics: Metrics,
-    /// Pending lab creation requests awaiting SSE stream pickup.
-    /// Keyed by lab_id, consumed once by the stream handler.
-    pub pending_creations: Arc<DashMap<String, UpRequest>>,
+    /// Pending jobs awaiting SSE stream pickup.
+    /// Keyed by job_id, consumed once by the stream handler.
+    pub pending_jobs: Arc<DashMap<String, Job>>,
 }
 
 impl AppState {
@@ -132,7 +144,7 @@ impl AppState {
             config: Arc::new(config),
             jwt_secret: Arc::new(jwt_secret),
             metrics,
-            pending_creations: Arc::new(DashMap::new()),
+            pending_jobs: Arc::new(DashMap::new()),
         })
     }
 }

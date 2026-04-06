@@ -83,7 +83,7 @@ impl TestServer {
             config: Arc::new(config),
             jwt_secret: Arc::new(jwt_secret),
             metrics: Metrics::noop(),
-            pending_creations: Arc::new(DashMap::new()),
+            pending_jobs: Arc::new(DashMap::new()),
         };
 
         let app = build_router()

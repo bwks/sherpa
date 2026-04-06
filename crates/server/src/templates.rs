@@ -788,27 +788,6 @@ impl IntoResponse for LabCreateTemplate {
     }
 }
 
-/// Create progress fragment — SSE-connected container that streams creation progress
-#[derive(Template)]
-#[template(path = "user/partials/create-progress.html.jinja")]
-pub struct LabCreateProgressFragment {
-    pub lab_id: String,
-    pub lab_name: String,
-}
-
-impl IntoResponse for LabCreateProgressFragment {
-    fn into_response(self) -> Response {
-        match self.render() {
-            Ok(html) => Html(html).into_response(),
-            Err(err) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to render template: {}", err),
-            )
-                .into_response(),
-        }
-    }
-}
-
 /// Create success summary fragment
 #[derive(Template)]
 #[template(path = "user/partials/create-summary-success.html.jinja")]
@@ -903,14 +882,23 @@ impl IntoResponse for LabDestroyConfirmFragment {
     }
 }
 
-/// Destroy progress fragment — SSE-connected container that streams progress
+// ============================================================================
+// Job Page Template
+// ============================================================================
+
+/// Full-page job progress view — SSE-connected page for streaming operation progress
 #[derive(Template)]
-#[template(path = "user/partials/destroy-progress.html.jinja")]
-pub struct LabDestroyProgressFragment {
-    pub lab_id: String,
+#[template(path = "user/job.html.jinja")]
+pub struct JobPageTemplate {
+    pub username: String,
+    pub is_admin: bool,
+    pub active_page: String,
+    pub job_id: String,
+    pub lab_name: String,
+    pub action: String,
 }
 
-impl IntoResponse for LabDestroyProgressFragment {
+impl IntoResponse for JobPageTemplate {
     fn into_response(self) -> Response {
         match self.render() {
             Ok(html) => Html(html).into_response(),
@@ -1058,13 +1046,19 @@ mod tests {
     }
 
     #[test]
-    fn test_lab_create_progress_fragment_renders() {
-        let tpl = LabCreateProgressFragment {
-            lab_id: "a10736e8".to_string(),
+    fn test_job_page_template_renders() {
+        let tpl = JobPageTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            job_id: "abc-123".to_string(),
             lab_name: "test-lab".to_string(),
+            action: "Creating".to_string(),
         };
         let html = tpl.render().expect("template should render");
-        assert!(html.contains("a10736e8"));
+        assert!(html.contains("abc-123"));
+        assert!(html.contains("test-lab"));
+        assert!(html.contains("Creating"));
     }
 
     #[test]
