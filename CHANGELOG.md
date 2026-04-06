@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.61] - 2026-04-06
+
+### Bug Fixes
+
+- Graceful shutdown fix by @bwks ([fe80198](https://github.com/bwks/sherpa/commit/fe80198cd0742fb4baa61653f4b533da9e07925a))
+
+### Miscellaneous
+
+- Merge pull request #233 from bwks/v0.3.61
+
+V0.3.61 by @bwks in [#233](https://github.com/bwks/sherpa/pull/233) ([3d15f8a](https://github.com/bwks/sherpa/commit/3d15f8a6798a3863c990f00ebb74ed757339ce3c))
+- Version bump by @bwks ([128fe73](https://github.com/bwks/sherpa/commit/128fe7383a05b46054f619e23a8190dac06cade4))
+- Merge pull request #231 from bwks/changelog/v0.3.60
+
+chore(release): update changelog for v0.3.60 by @github-actions[bot] in [#231](https://github.com/bwks/sherpa/pull/231) ([5ab355f](https://github.com/bwks/sherpa/commit/5ab355f6a9f8d8542320862718e176c8a8f1310b))
 ## [0.3.60] - 2026-04-06
 
 ### Bug Fixes
