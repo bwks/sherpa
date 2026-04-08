@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.64] - 2026-04-08
+
+### Features
+
+- Lab download by @bwks ([84033a3](https://github.com/bwks/sherpa/commit/84033a34f2c5e95170ee562ad1c3c298d40235cb))
+
+### Miscellaneous
+
+- Merge pull request #239 from bwks/v0.3.64
+
+V0.3.64 by @bwks in [#239](https://github.com/bwks/sherpa/pull/239) ([3c02394](https://github.com/bwks/sherpa/commit/3c0239470de53b8cf43439cd631eb7f46e8874be))
+- Version bump by @bwks ([5056d97](https://github.com/bwks/sherpa/commit/5056d9735d1c5bd25cd42196bd831d36b362768a))
+- Merge pull request #238 from bwks/changelog/v0.3.63
+
+chore(release): update changelog for v0.3.63 by @github-actions[bot] in [#238](https://github.com/bwks/sherpa/pull/238) ([d8cceb6](https://github.com/bwks/sherpa/commit/d8cceb62741e0c09805b6cb015c9ba52d07759f3))
 ## [0.3.63] - 2026-04-06
 
 ### Bug Fixes
