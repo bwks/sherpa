@@ -259,6 +259,14 @@ pub const CONTAINER_MONGO_DB_REPO: &str = "mongo";
 pub const CONTAINER_MONGO_DB_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_MONGO_DB_COMMANDS: &[&str] = &[];
 
+pub const CONTAINER_NATS_REPO: &str = "nats";
+pub const CONTAINER_NATS_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_NATS_COMMANDS: &[&str] = &[];
+
+pub const CONTAINER_FORGEJO_REPO: &str = "codeberg.org/forgejo/forgejo";
+pub const CONTAINER_FORGEJO_ENV_VARS: &[&str] = &[];
+pub const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
+
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
 pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
 pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
