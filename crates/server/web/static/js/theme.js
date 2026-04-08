@@ -14,7 +14,7 @@
     "theme-ctp-macchiato",
     "theme-ctp-mocha",
     "theme-gruvbox",
-    "theme-fizzy",
+    "theme-sodapop",
     "theme-nord",
     "theme-rose-pine",
     "theme-rose-pine-moon",
