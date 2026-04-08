@@ -12,8 +12,8 @@ use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, impairment, import, inspect, progress, redeploy,
-    resume, up,
+    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, progress,
+    redeploy, resume, up,
 };
 use shared::auth::password;
 use shared::data;
@@ -184,6 +184,7 @@ pub async fn handle_rpc_request(
         "auth.login" => handle_auth_login(id, params, state).await,
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
+        "download" => handle_download(id, params, state).await,
         "down" => handle_down(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         "resume" => handle_resume(id, params, state).await,
@@ -446,6 +447,113 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 error: Some(RpcError {
                     code: RpcErrorCode::ServerError,
                     message: RPC_MSG_LAB_INSPECT_FAILED.to_string(),
+                    context: Some(error_chain),
+                }),
+            }
+        }
+    }
+}
+
+/// Handle "download" RPC call — return lab files for CLI use
+///
+/// Expected params: {"lab_id": "string", "token": "string"}
+async fn handle_download(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for download: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    match db::get_lab_owner_username(&state.db, &lab_id).await {
+        Ok(owner_username) => {
+            if !auth_ctx.can_access(&owner_username) {
+                tracing::warn!(
+                    "User '{}' attempted to download lab '{}' owned by '{}'",
+                    auth_ctx.username,
+                    lab_id,
+                    owner_username
+                );
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::AccessDenied,
+                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
+                        context: None,
+                    }),
+                };
+            }
+        }
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::NotFound,
+                    message: format!("Lab not found: {}", lab_id),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    }
+
+    match download::download_lab_files(&lab_id, &auth_ctx.username, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' downloaded lab files for '{}'",
+                    auth_ctx.username,
+                    lab_id
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: "Failed to serialize response".to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => {
+            let error_chain = format!("{:?}", e);
+            ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::ServerError,
+                    message: "Failed to download lab files".to_string(),
                     context: Some(error_chain),
                 }),
             }
