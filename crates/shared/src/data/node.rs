@@ -12,9 +12,10 @@ use super::cpu::CpuModels;
 use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
-    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO,
+    CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO,
+    CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT,
+    MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -97,6 +98,7 @@ pub enum NodeModel {
     OpenBsd,
 
     // Application
+    ForgejoForge,
     GitlabCe,
     JenkinsServer,
     NautobotServer,
@@ -182,6 +184,7 @@ impl fmt::Display for NodeModel {
             NodeModel::WindowsServer => write!(f, "windows_server"),
 
             // Application
+            NodeModel::ForgejoForge => write!(f, "forgejo_forge"),
             NodeModel::GitlabCe => write!(f, "gitlab_ce"),
             NodeModel::JenkinsServer => write!(f, "jenkins_server"),
             NodeModel::NautobotServer => write!(f, "nautobot_server"),
@@ -277,6 +280,7 @@ impl std::str::FromStr for NodeModel {
             "windows_server" => Ok(NodeModel::WindowsServer),
 
             // Application
+            "forgejo_forge" => Ok(NodeModel::ForgejoForge),
             "gitlab_ce" => Ok(NodeModel::GitlabCe),
             "jenkins_server" => Ok(NodeModel::JenkinsServer),
             "nautobot_server" => Ok(NodeModel::NautobotServer),
@@ -810,6 +814,7 @@ impl NodeConfig {
             NodeModel::WindowsServer => NodeConfig::windows_server(),
 
             // Application
+            NodeModel::ForgejoForge => NodeConfig::forgejo_forge(),
             NodeModel::GitlabCe => NodeConfig::gitlab_ce(),
             NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
             NodeModel::NautobotServer => NodeConfig::nautobot_server(),
@@ -2227,6 +2232,31 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+        }
+    }
+    pub fn forgejo_forge() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::ForgejoForge,
+            repo: Some(CONTAINER_FORGEJO_REPO.to_string()),
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
         }
     }
     pub fn gitlab_ce() -> NodeConfig {

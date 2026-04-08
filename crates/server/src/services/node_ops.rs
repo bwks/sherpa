@@ -16,7 +16,8 @@ use shared::konst::{
     CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
     CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
     CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
-    CONTAINER_DISK_NAME, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
+    CONTAINER_DISK_NAME, CONTAINER_FORGEJO_COMMANDS, CONTAINER_FORGEJO_REPO,
+    CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
     CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
     CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
     CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
@@ -378,6 +379,16 @@ pub fn generate_container_ztp(
         data::NodeModel::Nats => {
             image = CONTAINER_NATS_REPO.to_string();
             commands = CONTAINER_NATS_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
+            node.image = Some(image.clone());
+            node.commands = Some(commands.clone());
+        }
+        data::NodeModel::ForgejoForge => {
+            image = CONTAINER_FORGEJO_REPO.to_string();
+            commands = CONTAINER_FORGEJO_COMMANDS
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
