@@ -107,7 +107,7 @@ pub enum NodeModel {
     VirtServer,
 
     // Messaging
-    Nats,
+    NatsBus,
 
     // SQL
     SurrealDb,
@@ -193,7 +193,7 @@ impl fmt::Display for NodeModel {
             NodeModel::VirtServer => write!(f, "virt_server"),
 
             // Messaging
-            NodeModel::Nats => write!(f, "nats"),
+            NodeModel::NatsBus => write!(f, "nats_bus"),
 
             // SQL
             NodeModel::SurrealDb => write!(f, "surreal_db"),
@@ -289,7 +289,7 @@ impl std::str::FromStr for NodeModel {
             "virt_server" => Ok(NodeModel::VirtServer),
 
             // Messaging
-            "nats" => Ok(NodeModel::Nats),
+            "nats_bus" => Ok(NodeModel::NatsBus),
 
             // SQL
             "surreal_db" => Ok(NodeModel::SurrealDb),
@@ -823,7 +823,7 @@ impl NodeConfig {
             NodeModel::VirtServer => NodeConfig::virt_server(),
 
             // Messaging
-            NodeModel::Nats => NodeConfig::nats(),
+            NodeModel::NatsBus => NodeConfig::nats_bus(),
 
             // SQL
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
@@ -2384,10 +2384,10 @@ impl NodeConfig {
             ..Default::default()
         }
     }
-    pub fn nats() -> NodeConfig {
+    pub fn nats_bus() -> NodeConfig {
         NodeConfig {
             id: None,
-            model: NodeModel::Nats,
+            model: NodeModel::NatsBus,
             repo: Some(CONTAINER_NATS_REPO.to_string()),
             version: "0.0.0".to_owned(),
             kind: NodeKind::Container,

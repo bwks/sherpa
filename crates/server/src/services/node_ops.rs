@@ -376,7 +376,7 @@ pub fn generate_container_ztp(
             node.image = Some(image.clone());
             node.commands = Some(commands.clone());
         }
-        data::NodeModel::Nats => {
+        data::NodeModel::NatsBus => {
             image = CONTAINER_NATS_REPO.to_string();
             commands = CONTAINER_NATS_COMMANDS
                 .iter()
