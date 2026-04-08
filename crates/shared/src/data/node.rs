@@ -13,8 +13,8 @@ use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_REPO,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
 };
 
 #[derive(
@@ -104,6 +104,9 @@ pub enum NodeModel {
     SignozServer,
     VirtServer,
 
+    // Messaging
+    Nats,
+
     // SQL
     SurrealDb,
     MysqlDb,
@@ -185,6 +188,9 @@ impl fmt::Display for NodeModel {
             NodeModel::NetboxServer => write!(f, "netbox_server"),
             NodeModel::SignozServer => write!(f, "signoz_server"),
             NodeModel::VirtServer => write!(f, "virt_server"),
+
+            // Messaging
+            NodeModel::Nats => write!(f, "nats"),
 
             // SQL
             NodeModel::SurrealDb => write!(f, "surreal_db"),
@@ -277,6 +283,9 @@ impl std::str::FromStr for NodeModel {
             "netbox_server" => Ok(NodeModel::NetboxServer),
             "signoz_server" => Ok(NodeModel::SignozServer),
             "virt_server" => Ok(NodeModel::VirtServer),
+
+            // Messaging
+            "nats" => Ok(NodeModel::Nats),
 
             // SQL
             "surreal_db" => Ok(NodeModel::SurrealDb),
@@ -807,6 +816,9 @@ impl NodeConfig {
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
             NodeModel::SignozServer => NodeConfig::signoz_server(),
             NodeModel::VirtServer => NodeConfig::virt_server(),
+
+            // Messaging
+            NodeModel::Nats => NodeConfig::nats(),
 
             // SQL
             NodeModel::MysqlDb => NodeConfig::mysql_db(),
@@ -2329,6 +2341,31 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
+    pub fn nats() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::Nats,
+            repo: Some(CONTAINER_NATS_REPO.to_string()),
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 1,
+            memory: 512,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,
