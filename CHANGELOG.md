@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.65] - 2026-04-08
+
+### Features
+
+- Nats container by @bwks ([86b6f68](https://github.com/bwks/sherpa/commit/86b6f685cc25fe5bd33be6eb2c6bb408215b1f4e))
+- Forgejo container by @bwks ([a882edb](https://github.com/bwks/sherpa/commit/a882edb3207b40d15174e43be3aa7e96a0a42a20))
+- Nats container by @bwks ([b2fa1bb](https://github.com/bwks/sherpa/commit/b2fa1bbc5545b738656171f7c3a0aa6eed01818b))
+
+### Miscellaneous
+
+- Merge pull request #241 from bwks/v0.3.65
+
+V0.3.65 by @bwks in [#241](https://github.com/bwks/sherpa/pull/241) ([456d3e6](https://github.com/bwks/sherpa/commit/456d3e64c985c9cf25b4726792b279c07456acf9))
+- Version bump by @bwks ([8ecb0b5](https://github.com/bwks/sherpa/commit/8ecb0b5b5c424704f717a2b7445f1eda4cbf1e23))
+- Merge pull request #240 from bwks/changelog/v0.3.64
+
+chore(release): update changelog for v0.3.64 by @github-actions[bot] in [#240](https://github.com/bwks/sherpa/pull/240) ([efb9731](https://github.com/bwks/sherpa/commit/efb9731bc1a892969501bf819b44d6f3c79f9ed0))
 ## [0.3.64] - 2026-04-08
 
 ### Features
