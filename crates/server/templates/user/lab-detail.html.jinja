@@ -1,4 +1,5 @@
 {% extends "layouts/base.html.jinja" %}
+{% import "macros/icons.html.jinja" as icons %}
 {% import "macros/badges.html.jinja" as badges %}
 
 {% block title %}{{ lab_info.name }} - Lab Details{% endblock %}
@@ -16,7 +17,17 @@
 
 <!-- Lab Metadata Card -->
 <div class="bg-card rounded-lg shadow-sm border border-border p-6 mb-6">
-    <h2 class="text-xl font-semibold text-heading mb-4">Lab Information</h2>
+    <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-semibold text-heading">Lab Information</h2>
+        {% match lab_state %}
+            {% when LabState::Unknown %}
+            {% when LabState::Empty %}
+            {% else %}
+            <a href="/labs/{{ lab_info.id }}/download" hx-boost="false" class="text-muted hover:text-heading transition-colors" title="Download lab files for CLI use">
+                {% call icons::download() %}
+            </a>
+        {% endmatch %}
+    </div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <div class="flex flex-col gap-1">
             <span class="block text-sm font-medium text-muted mb-1">Name</span>

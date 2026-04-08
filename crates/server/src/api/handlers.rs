@@ -3447,6 +3447,97 @@ pub async fn lab_nodes_handler(
     }
 }
 
+/// Download lab files as a zip archive
+///
+/// GET /labs/{lab_id}/download
+///
+/// Returns a zip containing lab-info.toml, sherpa_ssh_key, and sherpa_ssh_config.
+/// These files allow CLI tools (sherpa ssh, sherpa console) to work with the lab.
+#[tracing::instrument(skip(state), fields(%lab_id))]
+pub async fn lab_download_handler(
+    Path(lab_id): Path<String>,
+    auth: AuthenticatedUserFromCookie,
+    State(state): State<AppState>,
+) -> Result<Response, ApiError> {
+    let db_lab = db::get_lab(&state.db, &lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("lab", format!("Lab not found: {lab_id}")))?;
+
+    let owner = db::get_lab_owner_username(&state.db, &lab_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("Failed to check ownership: {e}")))?;
+
+    if !auth.is_admin && auth.username != owner {
+        return Err(ApiError::forbidden(
+            "Permission denied: you do not own this lab",
+        ));
+    }
+
+    let lab_dir = format!("{}/{}", shared::konst::SHERPA_LABS_PATH, lab_id);
+    let lab_info_path = format!("{}/{}", lab_dir, shared::konst::LAB_FILE_NAME);
+    let ssh_config_path = format!("{}/{}", lab_dir, shared::konst::SHERPA_SSH_CONFIG_FILE);
+    let ssh_key_path = shared::konst::SHERPA_SSH_PRIVATE_KEY_PATH;
+
+    let lab_info_content = tokio::fs::read(&lab_info_path).await.map_err(|_| {
+        ApiError::not_found(
+            "lab files",
+            "Lab files not found. Has the lab been started?".to_string(),
+        )
+    })?;
+
+    let ssh_config_content = tokio::fs::read(&ssh_config_path).await.map_err(|_| {
+        ApiError::not_found(
+            "lab files",
+            "SSH config not found. Has the lab been started?".to_string(),
+        )
+    })?;
+
+    let ssh_key_content = tokio::fs::read(ssh_key_path)
+        .await
+        .map_err(|_| ApiError::internal("SSH key not found on server".to_string()))?;
+
+    let mut buf = std::io::Cursor::new(Vec::new());
+    {
+        let mut zip = zip::ZipWriter::new(&mut buf);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        zip.start_file(shared::konst::LAB_FILE_NAME, options)
+            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
+        std::io::Write::write_all(&mut zip, &lab_info_content)
+            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+
+        zip.start_file(shared::konst::SHERPA_SSH_CONFIG_FILE, options)
+            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
+        std::io::Write::write_all(&mut zip, &ssh_config_content)
+            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+
+        zip.start_file(shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE, options)
+            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
+        std::io::Write::write_all(&mut zip, &ssh_key_content)
+            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+
+        zip.finish()
+            .map_err(|e| ApiError::internal(format!("Failed to finalize zip: {e}")))?;
+    }
+
+    let zip_bytes = buf.into_inner();
+    let filename = format!("{}-{}.zip", db_lab.name, lab_id);
+
+    Ok((
+        StatusCode::OK,
+        [
+            (header::CONTENT_TYPE, "application/zip".to_string()),
+            (
+                header::CONTENT_DISPOSITION,
+                format!("attachment; filename=\"{filename}\""),
+            ),
+        ],
+        zip_bytes,
+    )
+        .into_response())
+}
+
 /// Handler to return the destroy confirmation panel
 ///
 /// GET /labs/{lab_id}/destroy/confirm

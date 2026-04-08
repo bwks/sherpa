@@ -8,6 +8,7 @@ use super::cert::{cert_delete, cert_list, cert_show, cert_trust};
 use super::console::console;
 use super::destroy::destroy;
 use super::down::down;
+use super::download::download;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
@@ -207,6 +208,15 @@ enum Commands {
     #[default]
     Inspect,
 
+    /// Download lab files (SSH config, SSH key, lab-info) for CLI use
+    Download {
+        /// Lab ID to download files for
+        lab_id: String,
+        /// Overwrite existing lab files if they exist
+        #[arg(short, long, action = clap::ArgAction::SetTrue)]
+        force: bool,
+    },
+
     /// Validate configurations
     Validate,
 
@@ -389,6 +399,17 @@ impl Cli {
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 inspect(&lab.name, &lab.id, &server_url, &config).await?;
+            }
+            Commands::Download { lab_id, force } => {
+                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+
+                if cli.insecure {
+                    config.server_connection.insecure = true;
+                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                }
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                download(lab_id, *force, &server_url, &config).await?;
             }
             Commands::Validate => {
                 validate_manifest(SHERPA_MANIFEST_FILE)?;

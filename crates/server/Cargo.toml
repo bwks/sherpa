@@ -40,6 +40,7 @@ strum = "0.27"
 
 # De/Compression
 async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 # Random number generator
 rand = "0.8.5"

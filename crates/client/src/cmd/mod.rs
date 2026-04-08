@@ -3,6 +3,7 @@ mod cli;
 mod console;
 mod destroy;
 mod down;
+mod download;
 mod image;
 mod init;
 mod inspect;
