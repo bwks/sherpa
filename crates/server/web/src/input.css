@@ -1475,10 +1475,10 @@
    Palette: #071013 #0CCE6B #F7CE5B #EF2D56 #ED7D3A + #00A6FB
    ============================================================================ */
 :root.theme-sodapop {
-  --t-page: #f5f5f4;
+  --t-page: #fdffff;
   --t-card: #fefefe;
   --t-surface: #eceae9;
-  --t-hover: #e2dfde;
+  --t-hover: #f5f8f8;
   --t-heading: #071013;
   --t-body: #2a3538;
   --t-body-secondary: #47585c;
@@ -1490,7 +1490,7 @@
   --t-accent-hover: #0088d4;
   --t-accent-light: #e6f5fe;
   --t-accent-lt-txt: #0072b5;
-  --t-header: #eceae9;
+  --t-header: #fdffff;
   --t-header-border: #dddadb;
   --t-header-text: #071013;
   --t-header-link: #7a8b8f;
@@ -1522,7 +1522,7 @@
   --t-alert-error: #fdebef;
   --t-alert-error-text: #d1234a;
   --t-alert-error-border: #f7a0b3;
-  --t-auth-from: #f5f5f4;
+  --t-auth-from: #fdffff;
   --t-auth-to: #e6f5fe;
   --t-table-head: transparent;
   --t-table-head-text: #071013;
@@ -1534,7 +1534,7 @@
   --t-page: #071013;
   --t-card: #0a1518;
   --t-surface: #071013;
-  --t-hover: #1e3035;
+  --t-hover: #0e1c20;
   --t-heading: #eef3f4;
   --t-body: #c5d0d2;
   --t-body-secondary: #9aabae;
