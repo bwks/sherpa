@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.66] - 2026-04-09
+
+### Features
+
+- Sodapop theme by @bwks ([5ee0d13](https://github.com/bwks/sherpa/commit/5ee0d134aa1e5878c022513519c4ec4cfa08923d))
+
+### Miscellaneous
+
+- Merge pull request #243 from bwks/v0.3.66
+
+V0.3.66 by @bwks in [#243](https://github.com/bwks/sherpa/pull/243) ([aa688e0](https://github.com/bwks/sherpa/commit/aa688e0a88f06dec24f3604050de7b8f1322d5ec))
+- Version bump by @bwks ([a3fc297](https://github.com/bwks/sherpa/commit/a3fc29754a57ffe7cabe021c88177e5773e5462e))
+- Theme dropdown ordering by @bwks ([fe484bf](https://github.com/bwks/sherpa/commit/fe484bf25ff68bd76c272f9f4e243a110a5e55df))
+- Merge pull request #242 from bwks/changelog/v0.3.65
+
+chore(release): update changelog for v0.3.65 by @github-actions[bot] in [#242](https://github.com/bwks/sherpa/pull/242) ([6eaa4c2](https://github.com/bwks/sherpa/commit/6eaa4c2eeb8fb7507e95d57c105eada3e07f022a))
 ## [0.3.65] - 2026-04-08
 
 ### Features
