@@ -23,7 +23,7 @@
             {% when LabState::Unknown %}
             {% when LabState::Empty %}
             {% else %}
-            <a href="/labs/{{ lab_info.id }}/download" hx-boost="false" class="text-muted hover:text-heading transition-colors" title="Download lab files for CLI use">
+            <a href="/labs/{{ lab_info.id }}/download" hx-boost="false" class="text-accent hover:text-accent-hover transition-colors" title="Download lab files for CLI use">
                 {% call icons::download() %}
             </a>
         {% endmatch %}
@@ -122,19 +122,19 @@
         <table class="min-w-full divide-y divide-border">
             <thead class="bg-table-head">
                 <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Node A
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Interface A
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Node B
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Interface B
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Type
                     </th>
                 </tr>
@@ -181,13 +181,13 @@
         <table class="min-w-full divide-y divide-border">
             <thead class="bg-table-head">
                 <tr>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Bridge Name
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Network Name
                     </th>
-                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-table-head-text uppercase tracking-wider">
+                    <th scope="col" class="px-6 py-3 text-left text-xs font-semibold text-table-head-text uppercase tracking-wider">
                         Connected Nodes
                     </th>
                 </tr>
