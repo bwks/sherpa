@@ -11,6 +11,8 @@ use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use surrealdb::Surreal;
+use surrealdb::engine::remote::ws::Client;
 use tokio::net::TcpListener;
 
 use sherpad::api::build_router;
@@ -24,6 +26,7 @@ pub const TEST_ADMIN_PASSWORD: &str = "TestPass123!";
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
     pub addr: SocketAddr,
+    pub db: Arc<Surreal<Client>>,
     _namespace: String,
 }
 
@@ -99,6 +102,7 @@ impl TestServer {
 
         Ok(Self {
             addr,
+            db: db.clone(),
             _namespace: namespace,
         })
     }
