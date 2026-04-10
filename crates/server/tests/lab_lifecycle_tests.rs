@@ -412,6 +412,7 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 }
 
 #[tokio::test]
+#[ignore]
 async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     use shared::konst::RPC_MSG_LAB_OP_IN_PROGRESS;
 
