@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.67] - 2026-04-10
+
+### Bug Fixes
+
+- Concurrent lab operation detection by @bwks ([30bea68](https://github.com/bwks/sherpa/commit/30bea68bb8fa6e2521974ee2869f7416d07c1c78))
+
+### Miscellaneous
+
+- Merge pull request #245 from bwks/v0.3.67
+
+V0.3.67 by @bwks in [#245](https://github.com/bwks/sherpa/pull/245) ([f223628](https://github.com/bwks/sherpa/commit/f223628b8119f2929d9255b1f64d20d4744070ba))
+- Version bump by @bwks ([5b5c6f5](https://github.com/bwks/sherpa/commit/5b5c6f542d45bb7373bf7d47fcd819b7f1e3c963))
+- Merge pull request #244 from bwks/changelog/v0.3.66
+
+chore(release): update changelog for v0.3.66 by @github-actions[bot] in [#244](https://github.com/bwks/sherpa/pull/244) ([dea6df4](https://github.com/bwks/sherpa/commit/dea6df4a0b7eb1d150d11ad2a9b571b1d567b79e))
+
+### Testing
+
+- Duplicate lab action test by @bwks ([4105de9](https://github.com/bwks/sherpa/commit/4105de9efe787bbba67ead7877d60769a1e88c87))
+- Duplicate lab action test by @bwks ([bb11e9f](https://github.com/bwks/sherpa/commit/bb11e9f7049482a65de825c7696bba0766546f22))
 ## [0.3.66] - 2026-04-09
 
 ### Features
