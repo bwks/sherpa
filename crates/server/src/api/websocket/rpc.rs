@@ -37,11 +37,11 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
     RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN,
     RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
-    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_OP_IN_PROGRESS, RPC_MSG_LAB_RESUME_FAILED,
+    RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED,
+    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE,
+    RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED,
+    RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -2026,28 +2026,26 @@ async fn handle_up(
         }
     };
 
-    // Check if lab already exists and verify ownership
+    // Reject if lab already exists in the database.
+    // A DB record means a previous `up` created it and the lab is still active
+    // (or a concurrent `up` just created it). The user must destroy first.
     if let Ok(owner_username) = db::get_lab_owner_username(&state.db, &lab_id).await {
-        // Lab exists - check authorization
-        if !auth_ctx.can_access(&owner_username) {
-            tracing::warn!(
-                "User '{}' attempted to up lab '{}' owned by '{}'",
-                auth_ctx.username,
-                lab_id,
-                owner_username
-            );
-            send_rpc_error(
-                connection,
-                id,
-                RpcErrorCode::AccessDenied,
-                RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                None,
-            )
-            .await;
-            return;
-        }
+        tracing::warn!(
+            lab_id = %lab_id,
+            user = %auth_ctx.username,
+            owner = %owner_username,
+            "Rejected up request: lab already exists in database"
+        );
+        send_rpc_error(
+            connection,
+            id,
+            RpcErrorCode::ServerError,
+            RPC_MSG_LAB_OP_IN_PROGRESS.to_string(),
+            None,
+        )
+        .await;
+        return;
     }
-    // If lab doesn't exist yet, it will be created and owned by the authenticated user
 
     // Create progress channel
     let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
