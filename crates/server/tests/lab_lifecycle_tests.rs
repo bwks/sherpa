@@ -410,3 +410,65 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
+    use shared::konst::RPC_MSG_LAB_OP_IN_PROGRESS;
+
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+
+    // Seed a lab record directly in the DB to simulate an in-progress lab
+    let admin_user = db::get_user(&server.db, "admin").await?;
+    let lab_id = "dupetest";
+    db::create_lab(
+        &server.db,
+        "duplicate-test-lab",
+        lab_id,
+        &admin_user,
+        "10.0.0.0/24",
+        "10.0.1.0/24",
+        "10.0.1.1",
+        "10.0.1.254",
+    )
+    .await?;
+
+    // Attempt to `up` a lab with the same lab_id — should be rejected
+    let manifest = json!({
+        "name": "duplicate-test-lab",
+        "nodes": [
+            {
+                "name": "srl1",
+                "model": "nokia_srlinux",
+            }
+        ]
+    });
+
+    let (_statuses, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({
+                "token": token,
+                "lab_id": lab_id,
+                "manifest": manifest,
+            }),
+            Duration::from_secs(10),
+        )
+        .await?;
+
+    // Should get an RPC error
+    let error = response
+        .get("error")
+        .expect("Expected RPC error for duplicate lab_id");
+    let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
+
+    assert_eq!(
+        error_message, RPC_MSG_LAB_OP_IN_PROGRESS,
+        "Expected lab-in-progress error, got: {}",
+        error_message
+    );
+
+    Ok(())
+}
