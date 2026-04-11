@@ -352,7 +352,6 @@ pub const RPC_MSG_LAB_INSPECT_FAILED: &str = "Inspect operation failed";
 pub const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
 pub const RPC_MSG_LAB_CLEAN_FAILED: &str = "Clean operation failed";
 pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
-pub const RPC_MSG_LAB_OP_IN_PROGRESS: &str = "An operation is already in progress for this lab. Wait for it to complete before starting another.";
 pub const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
 pub const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
 

@@ -37,11 +37,11 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
     RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN,
     RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_OP_IN_PROGRESS, RPC_MSG_LAB_RESUME_FAILED,
-    RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED,
-    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE,
-    RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED,
-    RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
+    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
+    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -2029,21 +2029,18 @@ async fn handle_up(
     // Reject if lab already exists in the database.
     // A DB record means a previous `up` created it and the lab is still active
     // (or a concurrent `up` just created it). The user must destroy first.
-    if let Ok(owner_username) = db::get_lab_owner_username(&state.db, &lab_id).await {
+    if let Ok(existing_lab) = db::get_lab(&state.db, &lab_id).await {
         tracing::warn!(
             lab_id = %lab_id,
             user = %auth_ctx.username,
-            owner = %owner_username,
+            status = %existing_lab.status,
             "Rejected up request: lab already exists in database"
         );
-        send_rpc_error(
-            connection,
-            id,
-            RpcErrorCode::ServerError,
-            RPC_MSG_LAB_OP_IN_PROGRESS.to_string(),
-            None,
-        )
-        .await;
+        let msg = format!(
+            "Lab already exists with status '{}'. Destroy it before starting a new one.",
+            existing_lab.status
+        );
+        send_rpc_error(connection, id, RpcErrorCode::ServerError, msg, None).await;
         return;
     }
 
