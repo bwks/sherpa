@@ -414,13 +414,11 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
-    use shared::konst::RPC_MSG_LAB_OP_IN_PROGRESS;
-
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
     let token = ws.login_admin().await?;
 
-    // Seed a lab record directly in the DB to simulate an in-progress lab
+    // Seed a lab record directly in the DB to simulate an already-running lab
     let admin_user = db::get_user(&server.db, "admin").await?;
     let lab_id = "dupetest";
     db::create_lab(
@@ -464,9 +462,9 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         .expect("Expected RPC error for duplicate lab_id");
     let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("");
 
-    assert_eq!(
-        error_message, RPC_MSG_LAB_OP_IN_PROGRESS,
-        "Expected lab-in-progress error, got: {}",
+    assert!(
+        error_message.contains("Lab already exists with status"),
+        "Expected lab-already-exists error, got: {}",
         error_message
     );
 
