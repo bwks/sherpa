@@ -10,7 +10,7 @@ use shared::data::{
     ShowImageResponse, StatusKind,
 };
 use shared::konst::SHERPA_IMAGES_PATH;
-use shared::util::{copy_file, create_dir, file_exists};
+use shared::util::{copy_file, create_dir, file_exists, image_filename};
 
 use tracing::instrument;
 
@@ -122,6 +122,8 @@ pub async fn import_image(
             db_config.default = make_default;
             db_config.id = None;
 
+            let filename = image_filename(&kind, db_config.boot_mode.as_ref());
+
             db::upsert_node_image(&state.db, db_config)
                 .await
                 .context(format!(
@@ -141,7 +143,7 @@ pub async fn import_image(
             let images_dir = SHERPA_IMAGES_PATH.to_owned();
             let model_dir = format!("{images_dir}/{}", request.model);
             let version_dir = format!("{model_dir}/{}", request.version);
-            let version_disk = format!("{version_dir}/virtioa.qcow2");
+            let version_disk = format!("{version_dir}/{filename}");
 
             create_dir(&version_dir).context("Failed to create version directory")?;
 
@@ -350,12 +352,14 @@ pub async fn scan_images(
             }
 
             let version = version_entry.file_name().to_string_lossy().to_string();
-            let disk_path = format!("{}/{}/virtioa.qcow2", model_dir, version);
+            let filename = image_filename(&kind, config.boot_mode.as_ref());
+            let disk_path = format!("{}/{}/{}", model_dir, version, filename);
 
-            // Check if virtioa.qcow2 exists in this version directory
+            // Check if image file exists in this version directory
             if !file_exists(&disk_path) {
                 tracing::debug!(
-                    "No virtioa.qcow2 found for model={} version={}",
+                    "No {} found for model={} version={}",
+                    filename,
                     model,
                     version
                 );
@@ -657,7 +661,8 @@ pub async fn download_image(
     let images_dir = SHERPA_IMAGES_PATH.to_owned();
     let model_dir = format!("{images_dir}/{}", request.model);
     let version_dir = format!("{model_dir}/{}", request.version);
-    let version_disk = format!("{version_dir}/virtioa.qcow2");
+    let filename = image_filename(&kind, config.boot_mode.as_ref());
+    let version_disk = format!("{version_dir}/{filename}");
 
     // Create version directory
     create_dir(&version_dir).context("Failed to create version directory")?;

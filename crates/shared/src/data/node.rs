@@ -122,6 +122,10 @@ pub enum NodeModel {
     GenericContainer,
     GenericUnikernel,
     GenericVm,
+
+    // Unikernels
+    UnikraftUnikernel,
+    NanosUnikernel,
 }
 impl fmt::Display for NodeModel {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -212,6 +216,10 @@ impl fmt::Display for NodeModel {
             NodeModel::GenericContainer => write!(f, "generic_container"),
             NodeModel::GenericUnikernel => write!(f, "generic_unikernel"),
             NodeModel::GenericVm => write!(f, "generic_vm"),
+
+            // Unikernels
+            NodeModel::UnikraftUnikernel => write!(f, "unikraft_unikernel"),
+            NodeModel::NanosUnikernel => write!(f, "nanos_unikernel"),
         }
     }
 }
@@ -308,6 +316,10 @@ impl std::str::FromStr for NodeModel {
             "generic_container" => Ok(NodeModel::GenericContainer),
             "generic_unikernel" => Ok(NodeModel::GenericUnikernel),
             "generic_vm" => Ok(NodeModel::GenericVm),
+
+            // Unikernels
+            "unikraft_unikernel" => Ok(NodeModel::UnikraftUnikernel),
+            "nanos_unikernel" => Ok(NodeModel::NanosUnikernel),
 
             _ => Err(format!("Unknown node model: {}", s)),
         }
@@ -539,6 +551,39 @@ impl BiosTypes {
 impl_surreal_value_for_enum!(BiosTypes);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum UnikernelBootMode {
+    #[default]
+    DirectKernel,
+    DiskBoot,
+}
+impl fmt::Display for UnikernelBootMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            UnikernelBootMode::DirectKernel => write!(f, "direct_kernel"),
+            UnikernelBootMode::DiskBoot => write!(f, "disk_boot"),
+        }
+    }
+}
+impl std::str::FromStr for UnikernelBootMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "direct_kernel" => Ok(UnikernelBootMode::DirectKernel),
+            "disk_boot" => Ok(UnikernelBootMode::DiskBoot),
+            _ => Err(format!("Unknown unikernel boot mode: {}", s)),
+        }
+    }
+}
+impl UnikernelBootMode {
+    pub fn to_vec() -> Vec<UnikernelBootMode> {
+        UnikernelBootMode::iter().collect()
+    }
+}
+impl_surreal_value_for_enum!(UnikernelBootMode);
+
+#[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ZtpMethod {
     #[default]
@@ -709,6 +754,7 @@ pub struct NodeConfig {
     pub management_interface: MgmtInterfaces,
     pub reserved_interface_count: u8,
     pub default: bool,
+    pub boot_mode: Option<UnikernelBootMode>,
 }
 
 impl Default for NodeConfig {
@@ -735,7 +781,7 @@ impl Default for NodeConfig {
             ztp_username: None,
             ztp_password: None,
             ztp_password_auth: false,
-            data_interface_count: 1,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::default(),
             interface_mtu: 1500,
@@ -744,6 +790,7 @@ impl Default for NodeConfig {
             management_interface: MgmtInterfaces::default(),
             reserved_interface_count: 0,
             default: false,
+            boot_mode: None,
         }
     }
 }
@@ -838,6 +885,10 @@ impl NodeConfig {
             NodeModel::GenericContainer => NodeConfig::generic_container(),
             NodeModel::GenericUnikernel => NodeConfig::generic_unikernel(),
             NodeModel::GenericVm => NodeConfig::generic_vm(),
+
+            // Unikernels
+            NodeModel::UnikraftUnikernel => NodeConfig::unikraft_unikernel(),
+            NodeModel::NanosUnikernel => NodeConfig::nanos_unikernel(),
         }
     }
     pub fn arista_veos() -> NodeConfig {
@@ -872,6 +923,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Management1,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn arista_ceos() -> NodeConfig {
@@ -906,6 +958,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn aruba_aoscx() -> NodeConfig {
@@ -940,6 +993,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Mgmt,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_asav() -> NodeConfig {
@@ -974,6 +1028,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_csr1000v() -> NodeConfig {
@@ -1008,6 +1063,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_cat8000v() -> NodeConfig {
@@ -1042,6 +1098,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::GigabitEthernet1,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_cat9000v() -> NodeConfig {
@@ -1076,6 +1133,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_iosxrv9000() -> NodeConfig {
@@ -1110,6 +1168,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::MgmtEth0Rp0Cpu0_0,
             reserved_interface_count: 2,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_nexus9300v() -> NodeConfig {
@@ -1144,6 +1203,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_iosv() -> NodeConfig {
@@ -1178,6 +1238,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_iosvl2() -> NodeConfig {
@@ -1212,6 +1273,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::GigabitEthernet0_0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_ise() -> NodeConfig {
@@ -1246,6 +1308,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cisco_ftdv() -> NodeConfig {
@@ -1280,6 +1343,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Management0_0,
             reserved_interface_count: 1,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn juniper_vrouter() -> NodeConfig {
@@ -1314,6 +1378,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn juniper_vswitch() -> NodeConfig {
@@ -1348,6 +1413,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn juniper_vevolved() -> NodeConfig {
@@ -1382,6 +1448,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Re0Mgmt0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn juniper_vsrxv3() -> NodeConfig {
@@ -1416,6 +1483,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Fxp0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn alma_linux() -> NodeConfig {
@@ -1450,6 +1518,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn rocky_linux() -> NodeConfig {
@@ -1484,6 +1553,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn alpine_linux() -> NodeConfig {
@@ -1518,6 +1588,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn cumulus_linux() -> NodeConfig {
@@ -1552,6 +1623,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn nokia_srlinux() -> NodeConfig {
@@ -1586,6 +1658,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Mgmt0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn centos_linux() -> NodeConfig {
@@ -1620,6 +1693,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn devbox_linux() -> NodeConfig {
@@ -1654,6 +1728,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn fedora_linux() -> NodeConfig {
@@ -1688,6 +1763,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn redhat_linux() -> NodeConfig {
@@ -1722,6 +1798,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn suse_linux() -> NodeConfig {
@@ -1756,6 +1833,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn opensuse_linux() -> NodeConfig {
@@ -1790,6 +1868,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn ubuntu_linux() -> NodeConfig {
@@ -1824,6 +1903,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn kali_linux() -> NodeConfig {
@@ -1858,6 +1938,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn sonic_linux() -> NodeConfig {
@@ -1892,6 +1973,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn flatcar_linux() -> NodeConfig {
@@ -1926,6 +2008,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn free_bsd() -> NodeConfig {
@@ -1960,6 +2043,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn open_bsd() -> NodeConfig {
@@ -1994,6 +2078,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn devbox_windows() -> NodeConfig {
@@ -2028,6 +2113,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn windows_server() -> NodeConfig {
@@ -2062,6 +2148,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn jenkins_server() -> NodeConfig {
@@ -2096,6 +2183,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn nautobot_server() -> NodeConfig {
@@ -2130,6 +2218,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn virt_server() -> NodeConfig {
@@ -2164,6 +2253,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn netbox_server() -> NodeConfig {
@@ -2198,6 +2288,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn signoz_server() -> NodeConfig {
@@ -2232,6 +2323,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn forgejo_forge() -> NodeConfig {
@@ -2466,6 +2558,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Ether1,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn paloalto_panos() -> NodeConfig {
@@ -2500,6 +2593,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Management,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn frr_linux() -> NodeConfig {
@@ -2534,6 +2628,7 @@ impl NodeConfig {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: None,
         }
     }
     pub fn generic_container() -> NodeConfig {
@@ -2568,21 +2663,74 @@ impl NodeConfig {
             repo: None,
             version: "0.0.0".to_owned(),
             kind: NodeKind::Unikernel,
-            data_interface_count: 1,
+            data_interface_count: 0,
             interface_prefix: "eth".to_owned(),
             interface_type: InterfaceType::Virtio,
             cpu_count: 1,
-            memory: 1024,
-            ztp_enable: true,
+            memory: 512,
+            ztp_enable: false,
             ztp_username: None,
             ztp_password: None,
-            ztp_method: ZtpMethod::CloudInit,
+            ztp_method: ZtpMethod::None,
             ztp_password_auth: false,
             first_interface_index: 0,
             dedicated_management_interface: false,
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: true,
+            boot_mode: Some(UnikernelBootMode::DirectKernel),
+            ..Default::default()
+        }
+    }
+    pub fn unikraft_unikernel() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::UnikraftUnikernel,
+            repo: None,
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Unikernel,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            cpu_count: 1,
+            memory: 512,
+            ztp_enable: false,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            boot_mode: Some(UnikernelBootMode::DirectKernel),
+            ..Default::default()
+        }
+    }
+    pub fn nanos_unikernel() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::NanosUnikernel,
+            repo: None,
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Unikernel,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            cpu_count: 1,
+            memory: 512,
+            ztp_enable: false,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            boot_mode: Some(UnikernelBootMode::DiskBoot),
             ..Default::default()
         }
     }
@@ -2619,7 +2767,6 @@ mod tests {
 
     #[test]
     fn test_all_variants_are_unique() {
-        // Ensure no duplicates in the all_variants list
         use std::collections::HashSet;
         let variants = NodeModel::to_vec();
         let unique: HashSet<String> = variants.iter().map(|v| v.to_string()).collect();
@@ -2628,5 +2775,159 @@ mod tests {
             unique.len(),
             "all_variants contains duplicates"
         );
+    }
+
+    // =========================================================================
+    // UnikernelBootMode enum tests
+    // =========================================================================
+
+    #[test]
+    fn test_unikernel_boot_mode_display() {
+        assert_eq!(UnikernelBootMode::DirectKernel.to_string(), "direct_kernel");
+        assert_eq!(UnikernelBootMode::DiskBoot.to_string(), "disk_boot");
+    }
+
+    #[test]
+    fn test_unikernel_boot_mode_from_str() {
+        assert_eq!(
+            "direct_kernel".parse::<UnikernelBootMode>().unwrap(),
+            UnikernelBootMode::DirectKernel
+        );
+        assert_eq!(
+            "disk_boot".parse::<UnikernelBootMode>().unwrap(),
+            UnikernelBootMode::DiskBoot
+        );
+        assert!("invalid".parse::<UnikernelBootMode>().is_err());
+    }
+
+    #[test]
+    fn test_unikernel_boot_mode_serde_roundtrip() {
+        let modes = vec![UnikernelBootMode::DirectKernel, UnikernelBootMode::DiskBoot];
+        for mode in modes {
+            let json = serde_json::to_string(&mode).unwrap();
+            let deserialized: UnikernelBootMode = serde_json::from_str(&json).unwrap();
+            assert_eq!(mode, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_unikernel_boot_mode_default() {
+        assert_eq!(
+            UnikernelBootMode::default(),
+            UnikernelBootMode::DirectKernel
+        );
+    }
+
+    #[test]
+    fn test_unikernel_boot_mode_to_vec() {
+        let variants = UnikernelBootMode::to_vec();
+        assert_eq!(variants.len(), 2);
+        assert!(variants.contains(&UnikernelBootMode::DirectKernel));
+        assert!(variants.contains(&UnikernelBootMode::DiskBoot));
+    }
+
+    // =========================================================================
+    // Unikernel NodeModel variant tests
+    // =========================================================================
+
+    #[test]
+    fn test_unikernel_model_display_and_from_str() {
+        let models = vec![
+            (NodeModel::GenericUnikernel, "generic_unikernel"),
+            (NodeModel::UnikraftUnikernel, "unikraft_unikernel"),
+            (NodeModel::NanosUnikernel, "nanos_unikernel"),
+        ];
+        for (model, expected_str) in models {
+            assert_eq!(model.to_string(), expected_str);
+            assert_eq!(expected_str.parse::<NodeModel>().unwrap(), model);
+        }
+    }
+
+    #[test]
+    fn test_unikernel_model_kind_mapping() {
+        let unikernel_models = vec![
+            NodeModel::GenericUnikernel,
+            NodeModel::UnikraftUnikernel,
+            NodeModel::NanosUnikernel,
+        ];
+        for model in unikernel_models {
+            let config = NodeConfig::get_model(model);
+            assert_eq!(
+                config.kind,
+                NodeKind::Unikernel,
+                "Model {} should be Unikernel kind",
+                model
+            );
+        }
+    }
+
+    #[test]
+    fn test_unikernel_config_boot_modes() {
+        // DirectKernel models
+        for model in [NodeModel::GenericUnikernel, NodeModel::UnikraftUnikernel] {
+            let config = NodeConfig::get_model(model);
+            assert_eq!(
+                config.boot_mode,
+                Some(UnikernelBootMode::DirectKernel),
+                "Model {} should default to DirectKernel",
+                model
+            );
+        }
+
+        // DiskBoot model
+        let nanos_config = NodeConfig::get_model(NodeModel::NanosUnikernel);
+        assert_eq!(
+            nanos_config.boot_mode,
+            Some(UnikernelBootMode::DiskBoot),
+            "NanosUnikernel should default to DiskBoot"
+        );
+    }
+
+    #[test]
+    fn test_unikernel_config_no_ztp() {
+        let unikernel_models = vec![
+            NodeModel::GenericUnikernel,
+            NodeModel::UnikraftUnikernel,
+            NodeModel::NanosUnikernel,
+        ];
+        for model in unikernel_models {
+            let config = NodeConfig::get_model(model);
+            assert!(
+                !config.ztp_enable,
+                "Model {} should have ZTP disabled",
+                model
+            );
+            assert_eq!(
+                config.ztp_method,
+                ZtpMethod::None,
+                "Model {} should have ZTP method None",
+                model
+            );
+        }
+    }
+
+    #[test]
+    fn test_unikernel_config_defaults() {
+        let config = NodeConfig::get_model(NodeModel::UnikraftUnikernel);
+        assert_eq!(config.memory, 512);
+        assert_eq!(config.cpu_count, 1);
+        assert_eq!(config.interface_type.to_string(), "virtio");
+    }
+
+    #[test]
+    fn test_non_unikernel_models_have_no_boot_mode() {
+        let vm_models = vec![
+            NodeModel::CiscoNexus9300v,
+            NodeModel::AristaVeos,
+            NodeModel::UbuntuLinux,
+        ];
+        for model in vm_models {
+            let config = NodeConfig::get_model(model);
+            assert_eq!(
+                config.boot_mode, None,
+                "VM model {} should not have boot_mode set",
+                model
+            );
+        }
     }
 }

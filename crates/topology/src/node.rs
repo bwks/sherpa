@@ -37,6 +37,8 @@ pub struct Node {
     pub user_scripts_data: Option<Vec<StartupScript>>,
     #[serde(default)]
     pub text_files_data: Option<Vec<TextFileData>>,
+    pub kernel_cmdline: Option<String>,
+    pub ready_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -66,6 +68,8 @@ pub struct NodeExpanded {
     pub ztp_config: Option<String>,
     pub startup_scripts: Option<Vec<StartupScript>>,
     pub user_scripts: Option<Vec<StartupScript>>,
+    pub kernel_cmdline: Option<String>,
+    pub ready_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

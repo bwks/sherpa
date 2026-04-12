@@ -2579,7 +2579,8 @@ pub async fn admin_image_update_handler(
         dedicated_management_interface,
         management_interface: config.management_interface, // Keep original (read-only)
         reserved_interface_count: form.reserved_interface_count,
-        default: form_default, // Use value from form checkbox
+        default: form_default,       // Use value from form checkbox
+        boot_mode: config.boot_mode, // Keep original
     };
 
     // Update in database

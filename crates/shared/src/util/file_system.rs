@@ -9,6 +9,9 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
+use crate::data::{NodeKind, UnikernelBootMode};
+use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};
+
 /// Convert a `Path` to an owned `String`, using lossy UTF-8 conversion.
 pub fn path_to_string(path: &Path) -> String {
     path.to_string_lossy().to_string()
@@ -328,6 +331,21 @@ pub fn _convert_iso_qcow2(src_iso: &str, dst_disk: &str) -> Result<()> {
         .args(["convert", "-O", "qcow2", src_iso, dst_disk])
         .status()?;
     Ok(())
+}
+
+/// Return the expected image filename for a given node kind and boot mode.
+///
+/// - VMs: `virtioa.qcow2`
+/// - Unikernel DirectKernel: `kernel.elf`
+/// - Unikernel DiskBoot: `disk.qcow2`
+pub fn image_filename(kind: &NodeKind, boot_mode: Option<&UnikernelBootMode>) -> &'static str {
+    match kind {
+        NodeKind::Unikernel => match boot_mode {
+            Some(UnikernelBootMode::DiskBoot) => UNIKERNEL_DISK_FILENAME,
+            _ => UNIKERNEL_KERNEL_FILENAME,
+        },
+        _ => VM_DISK_FILENAME,
+    }
 }
 
 #[cfg(test)]

@@ -27,6 +27,9 @@ pub const SHERPA_BLANK_DISK_EXT4_2G: &str = "ext4-2g.img";
 pub const SHERPA_BLANK_DISK_EXT4_3G: &str = "ext4-3g.img";
 pub const SHERPA_BLANK_DISK_EXT4_4G: &str = "ext4-4g.img";
 pub const SHERPA_BLANK_DISK_EXT4_5G: &str = "ext4-5g.img";
+pub const VM_DISK_FILENAME: &str = "virtioa.qcow2";
+pub const UNIKERNEL_KERNEL_FILENAME: &str = "kernel.elf";
+pub const UNIKERNEL_DISK_FILENAME: &str = "disk.qcow2";
 // ============================================================================
 // Full directory paths
 // ============================================================================

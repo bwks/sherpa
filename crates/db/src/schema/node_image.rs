@@ -30,7 +30,7 @@
 
 use shared::data::{
     BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType, MgmtInterfaces,
-    NodeKind, NodeModel, OsVariant, ZtpMethod,
+    NodeKind, NodeModel, OsVariant, UnikernelBootMode, ZtpMethod,
 };
 
 use super::helpers::vec_to_str;
@@ -86,6 +86,7 @@ pub(crate) fn generate_node_image_schema() -> String {
     let ztp_methods = vec_to_str(ZtpMethod::to_vec());
     let interface_types = vec_to_str(InterfaceType::to_vec());
     let mgmt_interfaces = vec_to_str(MgmtInterfaces::to_vec());
+    let boot_modes = vec_to_str(UnikernelBootMode::to_vec());
 
     format!(
         r#"
@@ -146,6 +147,9 @@ DEFINE FIELD OVERWRITE reserved_interface_count ON TABLE node_image TYPE number
 
 DEFINE FIELD OVERWRITE default ON TABLE node_image TYPE bool;
 
+DEFINE FIELD OVERWRITE boot_mode ON TABLE node_image TYPE option<string>
+    ASSERT $value == NONE OR $value IN [{}];
+
 DEFINE FIELD OVERWRITE nodes ON TABLE node_image COMPUTED <~(node FIELD image);
 
 DEFINE INDEX OVERWRITE unique_node_image_model_kind_version
@@ -163,5 +167,6 @@ DEFINE INDEX OVERWRITE unique_node_image_model_kind_version
         ztp_methods,
         interface_types,
         mgmt_interfaces,
+        boot_modes,
     )
 }
