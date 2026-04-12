@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.69] - 2026-04-12
+
+### Features
+
+- Unikernel support by @bwks ([93681ea](https://github.com/bwks/sherpa/commit/93681ea5021b17b0ca5c43ca294ecf7cb2f66ca7))
+
+### Miscellaneous
+
+- Merge pull request #250 from bwks/v0.3.69
+
+V0.3.69 by @bwks in [#250](https://github.com/bwks/sherpa/pull/250) ([44aa8af](https://github.com/bwks/sherpa/commit/44aa8af3bde7f4f60b2a737772bb8a620a9d464f))
+- Version bump by @bwks ([7444875](https://github.com/bwks/sherpa/commit/7444875dec1e72961ea6937086cd1230e5f1bf6d))
+- Merge pull request #248 from bwks/changelog/v0.3.68
+
+chore(release): update changelog for v0.3.68 by @github-actions[bot] in [#248](https://github.com/bwks/sherpa/pull/248) ([752d926](https://github.com/bwks/sherpa/commit/752d9260ed9e1c93a15b58efc397dd6f18d8d300))
 ## [0.3.68] - 2026-04-11
 
 ### Miscellaneous
