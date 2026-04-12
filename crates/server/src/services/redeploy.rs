@@ -90,6 +90,8 @@ pub async fn redeploy_node(
             ztp_config: node.ztp_config.clone(),
             startup_scripts: node.startup_scripts_data.clone(),
             user_scripts: node.user_scripts_data.clone(),
+            kernel_cmdline: node.kernel_cmdline.clone(),
+            ready_port: node.ready_port,
         })
         .collect();
 

@@ -102,7 +102,7 @@ pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, Qemu
 pub use network::{BridgeKind, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
-    NodeState, OsVariant, ZtpMethod,
+    NodeState, OsVariant, UnikernelBootMode, ZtpMethod,
 };
 pub use provider::VmProviders;
 pub use redeploy::{RedeployRequest, RedeployResponse};

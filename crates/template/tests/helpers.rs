@@ -88,5 +88,6 @@ pub fn test_node_config(model: NodeModel) -> NodeConfig {
         management_interface: MgmtInterfaces::Eth0,
         reserved_interface_count: 0,
         default: false,
+        boot_mode: None,
     }
 }

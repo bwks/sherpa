@@ -170,6 +170,8 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             ztp_config: node.ztp_config.clone(),
             startup_scripts: node.startup_scripts_data.clone(),
             user_scripts: node.user_scripts_data.clone(),
+            kernel_cmdline: node.kernel_cmdline.clone(),
+            ready_port: node.ready_port,
         })
         .collect()
 }
@@ -557,6 +559,7 @@ pub async fn up_lab(
         let mut vm_nodes: Vec<topology::NodeExpanded> = vec![];
         let mut clone_disks: Vec<data::CloneDisk> = vec![];
         let mut domains: Vec<template::DomainTemplate> = vec![];
+        let mut unikernel_domains: Vec<template::UnikernelDomainTemplate> = vec![];
 
         let mut lab_node_data = vec![];
         let mut node_setup_data = vec![];
@@ -686,7 +689,12 @@ pub async fn up_lab(
                     data::NodeKind::Container => {
                         network::create_bridge(&network.bridge_name, &network.network_name).await?;
                     }
-                    _ => {}
+                    data::NodeKind::Unikernel => {
+                        tracing::warn!(
+                            node_name = %node.name,
+                            "Skipping isolated network creation for unikernel node"
+                        );
+                    }
                 }
             }
 
@@ -1618,6 +1626,226 @@ pub async fn up_lab(
             domains.push(domain);
         }
 
+        // Unikernel nodes: IP allocation, TLS certs, interface building, setup, and domain template
+        if !unikernel_nodes.is_empty() {
+            tracing::info!(
+                lab_id = %lab_id,
+                unikernel_count = unikernel_nodes.len(),
+                "Processing unikernel nodes"
+            );
+
+            for node in &mut unikernel_nodes {
+                let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
+                let node_idx = node_data.index;
+                let node_ip_idx = 10 + node_idx as u32;
+
+                let node_image =
+                    get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+                let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
+                node.ipv4_address = Some(node_ipv4_address);
+
+                // Assign IPv6 management address
+                if let Some(ref v6) = mgmt_net.v6 {
+                    let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
+                    node.ipv6_address = Some(addr);
+                }
+
+                // Persist management IPs to the database
+                if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
+                    let record_id = db::get_node_id(&node_data.record)?;
+                    db::update_node_mgmt_ipv4(
+                        &db,
+                        record_id.clone(),
+                        &node_ipv4_address.to_string(),
+                    )
+                    .await?;
+                    if let Some(ipv6) = node.ipv6_address {
+                        db::update_node_mgmt_ipv6(&db, record_id, &ipv6.to_string()).await?;
+                    }
+                }
+
+                // Generate per-node TLS certificate
+                let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
+                let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
+                tls::generator::generate_node_certificate(
+                    &node_cert_path,
+                    &node_key_path,
+                    &lab_ca,
+                    &node.name,
+                    &node_ipv4_address.to_string(),
+                    LAB_CERT_VALIDITY_DAYS,
+                )
+                .with_context(|| {
+                    format!(
+                        "Failed to generate TLS certificate for unikernel node '{}'",
+                        node.name
+                    )
+                })?;
+
+                // Generate unikernel setup (disk clone or kernel path)
+                let setup_result = node_ops::generate_unikernel_setup(
+                    node,
+                    &node_image,
+                    lab_id,
+                    &config.images_dir,
+                )?;
+
+                // Persist management MAC to the database
+                if let Some(node_data) = lab_node_data.iter().find(|n| n.name == node.name) {
+                    let record_id = db::get_node_id(&node_data.record)?;
+                    db::update_node_mgmt_mac(&db, record_id, &setup_result.mac_address).await?;
+                }
+
+                // Create ZTP record for DHCP static binding (MAC -> IP)
+                // Unikernels use ZtpMethod::None — no boot file, just the DHCP host entry
+                ztp_records.push(data::ZtpRecord {
+                    node_name: node.name.clone(),
+                    config_file: String::new(),
+                    ipv4_address: node_ipv4_address,
+                    ipv6_address: node.ipv6_address,
+                    mac_address: setup_result.mac_address.clone(),
+                    ztp_method: data::ZtpMethod::None,
+                    ssh_port: SSH_PORT,
+                });
+
+                clone_disks.extend(setup_result.clone_disks);
+
+                // Build interfaces list (same pattern as VMs)
+                let mut interfaces: Vec<data::Interface> = vec![];
+                for interface in node_data.interfaces.iter() {
+                    match &interface.data {
+                        data::NodeInterface::Management => {
+                            interfaces.push(data::Interface {
+                                name: util::dasher(&node_image.management_interface.to_string()),
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: setup_result.mac_address.clone(),
+                                connection_type: data::ConnectionTypes::Management,
+                                interface_connection: None,
+                            });
+                        }
+                        data::NodeInterface::Reserved => {
+                            interfaces.push(data::Interface {
+                                name: format!("int{}", interface.index),
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::Reserved,
+                                interface_connection: None,
+                            });
+                        }
+                        data::NodeInterface::Bridge(bridge) => {
+                            interfaces.push(data::Interface {
+                                name: bridge.name.clone(),
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::PrivateBridge,
+                                interface_connection: None,
+                            });
+                        }
+                        data::NodeInterface::Peer(peer) => {
+                            let local_id = peer.this_node_index as u8;
+                            let source_id = peer.peer_node_index as u8;
+                            let interface_connection = data::InterfaceConnection {
+                                local_id: peer.this_node_index,
+                                local_port: util::id_to_port(local_id),
+                                local_loopback: util::get_ip(&loopback_subnet, local_id)
+                                    .to_string(),
+                                source_id: peer.peer_node_index,
+                                source_port: util::id_to_port(source_id),
+                                source_loopback: util::get_ip(&loopback_subnet, source_id)
+                                    .to_string(),
+                            };
+                            if peer.p2p {
+                                let tap_name = match peer.this_side {
+                                    data::PeerSide::A => {
+                                        format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                    }
+                                    data::PeerSide::B => {
+                                        format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                    }
+                                };
+                                interfaces.push(data::Interface {
+                                    name: tap_name,
+                                    num: interface.index,
+                                    mtu: node_image.interface_mtu,
+                                    mac_address: util::random_mac(KVM_OUI),
+                                    connection_type: data::ConnectionTypes::P2p,
+                                    interface_connection: Some(interface_connection),
+                                });
+                            } else {
+                                let bridge_name = match peer.this_side {
+                                    data::PeerSide::A => {
+                                        format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                                    }
+                                    data::PeerSide::B => {
+                                        format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
+                                    }
+                                };
+                                interfaces.push(data::Interface {
+                                    name: bridge_name,
+                                    num: interface.index,
+                                    mtu: node_image.interface_mtu,
+                                    mac_address: util::random_mac(KVM_OUI),
+                                    connection_type: data::ConnectionTypes::PeerBridge,
+                                    interface_connection: Some(interface_connection),
+                                });
+                            }
+                        }
+                        data::NodeInterface::Disabled => {
+                            interfaces.push(data::Interface {
+                                name: util::dasher(&util::interface_from_idx(
+                                    &node.model,
+                                    interface.index,
+                                )?),
+                                num: interface.index,
+                                mtu: node_image.interface_mtu,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::Disabled,
+                                interface_connection: None,
+                            });
+                        }
+                    }
+                }
+
+                // Get network names
+                let management_network = node_data.management_network.clone();
+                let isolated_network_name = node_data
+                    .isolated_network
+                    .as_ref()
+                    .map(|net| net.network_name.clone())
+                    .unwrap_or_default();
+                let reserved_network = node_data
+                    .reserved_network
+                    .as_ref()
+                    .map(|net| net.network_name.clone())
+                    .unwrap_or_default();
+
+                // Build unikernel domain template with auto IP injection
+                let domain = node_ops::build_unikernel_domain_template(
+                    node,
+                    &node_image,
+                    lab_id,
+                    &config.qemu_bin,
+                    setup_result.disks,
+                    interfaces,
+                    setup_result.kernel_path,
+                    util::get_ip(&loopback_subnet, node_idx as u8).to_string(),
+                    management_network,
+                    isolated_network_name,
+                    reserved_network,
+                    &mgmt_net,
+                );
+                unikernel_domains.push(domain);
+
+                let _ = progress.send_status(
+                    format!("Unikernel node {} configured", node.name),
+                    StatusKind::Done,
+                );
+            }
+        }
+
         phases_completed.push("ZtpGeneration".to_string());
 
         // ========================================================================
@@ -1736,9 +1964,9 @@ pub async fn up_lab(
         phases_completed.push("Sherpa Router".to_string());
 
         // ========================================================================
-        // PHASE 10: Disk Cloning (For VMs)
+        // PHASE 10: Disk Cloning (For VMs and Unikernels)
         // ========================================================================
-        let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning VM disks".to_string());
+        let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string());
 
         node_ops::clone_node_disks(qemu_conn.clone(), clone_disks, lab_id, &progress).await?;
 
@@ -1778,6 +2006,35 @@ pub async fn up_lab(
         }
 
         phases_completed.push("VmCreation".to_string());
+
+        // Unikernel creation (uses same libvirt API as VMs)
+        if !unikernel_domains.is_empty() {
+            let uk_count = unikernel_domains.len();
+            let _ = progress.send_status(
+                format!("Creating {} unikernels in parallel", uk_count),
+                StatusKind::Progress,
+            );
+
+            let tasks: Vec<_> = unikernel_domains
+                .into_iter()
+                .map(|domain| {
+                    let conn = Arc::clone(&qemu_conn);
+                    let progress_clone = progress.clone();
+                    tokio::task::spawn(async move {
+                        node_ops::create_unikernel(conn, domain, &progress_clone).await
+                    })
+                })
+                .collect();
+
+            for task in tasks {
+                task.await.context("Unikernel creation task failed")??;
+            }
+
+            let _ = progress.send_status(
+                "All unikernels created successfully".to_string(),
+                StatusKind::Done,
+            );
+        }
 
         // ========================================================================
         // PHASE 11b: Attach eBPF redirect on P2p links
@@ -1853,14 +2110,14 @@ pub async fn up_lab(
         // After VM creation, set isolated network bridges DOWN to remove carrier
         // from disabled VM interfaces. This ensures disabled interfaces show as
         // "not connected" on the VM side.
-        for vm in &vm_nodes {
-            let nsd = node_setup_data.iter().find(|n| n.name == vm.name);
+        for node in vm_nodes.iter().chain(unikernel_nodes.iter()) {
+            let nsd = node_setup_data.iter().find(|n| n.name == node.name);
             if let Some(nsd) = nsd
                 && let Some(ref iso_net) = nsd.isolated_network
             {
                 tracing::info!(
                     lab_id = %lab_id,
-                    node_name = %vm.name,
+                    node_name = %node.name,
                     bridge_name = %iso_net.bridge_name,
                     "Setting isolated bridge DOWN to remove carrier from disabled interfaces"
                 );
@@ -2346,6 +2603,63 @@ pub async fn up_lab(
                                 StatusKind::Waiting,
                             );
                         }
+                    }
+                }
+            }
+
+            // Check unikernels for readiness
+            for uk in &unikernel_nodes {
+                if connected_nodes.contains(&uk.name) {
+                    continue;
+                }
+
+                let domain_name = format!("{}-{}", uk.name, lab_id);
+                let mgmt_ip = uk.ipv4_address.map(|a| a.to_string());
+
+                match node_ops::check_unikernel_ready(
+                    &qemu_conn,
+                    &domain_name,
+                    uk.ready_port,
+                    mgmt_ip.as_deref(),
+                )? {
+                    true => {
+                        tracing::info!(
+                            lab_id = %lab_id,
+                            node_name = %uk.name,
+                            node_kind = "Unikernel",
+                            "Unikernel ready"
+                        );
+                        let _ = progress.send_status(
+                            format!("Node {} - Ready (Unikernel running)", uk.name),
+                            StatusKind::Done,
+                        );
+                        connected_nodes.insert(uk.name.clone());
+
+                        // Update node state in DB to Running
+                        if let Some(node_data) = lab_node_data.iter().find(|n| n.name == uk.name) {
+                            let record_id = db::get_node_id(&node_data.record)?;
+                            db::update_node_state(&db, record_id, NodeState::Running).await?;
+                        }
+
+                        node_info_list.push(data::NodeInfo {
+                            name: uk.name.clone(),
+                            kind: "Unikernel".to_string(),
+                            model: uk.model,
+                            status: NodeState::Running,
+                            ip_address: mgmt_ip,
+                            ssh_port: None,
+                        });
+                    }
+                    false => {
+                        tracing::debug!(
+                            lab_id = %lab_id,
+                            node_name = %uk.name,
+                            "Waiting for unikernel to become ready"
+                        );
+                        let _ = progress.send_status(
+                            format!("Node {} - Waiting for unikernel", uk.name),
+                            StatusKind::Waiting,
+                        );
                     }
                 }
             }

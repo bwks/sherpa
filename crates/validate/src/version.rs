@@ -2,7 +2,8 @@ use anyhow::{Context, Result, anyhow, bail};
 use std::collections::HashMap;
 use std::path::Path;
 
-use shared::data::{NodeConfig, NodeKind, NodeModel};
+use shared::data::{NodeConfig, NodeKind, NodeModel, UnikernelBootMode};
+use shared::util::image_filename;
 use topology::Node;
 
 /// Validate and resolve node versions, checking that images exist
@@ -90,12 +91,15 @@ pub fn validate_and_resolve_node_versions(
                     docker_images,
                 )?;
             }
-            NodeKind::VirtualMachine => {
-                validate_vm_disk(&node.name, &node.model, &resolved_version, images_dir)?;
-            }
-            NodeKind::Unikernel => {
-                // Unikernels use same disk structure as VMs
-                validate_vm_disk(&node.name, &node.model, &resolved_version, images_dir)?;
+            NodeKind::VirtualMachine | NodeKind::Unikernel => {
+                validate_disk_image(
+                    &node.name,
+                    &node.model,
+                    &resolved_version,
+                    images_dir,
+                    &node_image.kind,
+                    node_image.boot_mode.as_ref(),
+                )?;
             }
         }
 
@@ -180,28 +184,31 @@ fn validate_container_image(
     }
 }
 
-/// Validate VM disk file exists on filesystem
-fn validate_vm_disk(
+/// Validate disk image file exists on filesystem for VMs and unikernels.
+fn validate_disk_image(
     node_name: &str,
     model: &NodeModel,
     version: &str,
     images_dir: &str,
+    kind: &NodeKind,
+    boot_mode: Option<&UnikernelBootMode>,
 ) -> Result<()> {
-    let disk_path = format!("{}/{}/{}/virtioa.qcow2", images_dir, model, version);
+    let filename = image_filename(kind, boot_mode);
+    let disk_path = format!("{}/{}/{}/{}", images_dir, model, version, filename);
     let path = Path::new(&disk_path);
 
     if path.exists() {
         tracing::debug!(
             node = %node_name,
             disk_path = %disk_path,
-            "VM disk image found on filesystem"
+            "Disk image found on filesystem"
         );
         Ok(())
     } else {
         bail!(
-            "VM disk image not found for node '{}' (model: {}, version: {})\n\
+            "Disk image not found for node '{}' (model: {}, version: {})\n\
             Expected path: {}\n\
-            Hint: Ensure the VM image is installed in the correct directory",
+            Hint: Ensure the image is installed in the correct directory",
             node_name,
             model,
             version,
@@ -250,6 +257,7 @@ mod tests {
             management_interface: MgmtInterfaces::Eth0,
             reserved_interface_count: 0,
             default: false,
+            boot_mode: None,
         }
     }
 
@@ -348,31 +356,69 @@ mod tests {
     }
 
     // ============================================================================
-    // validate_vm_disk tests
+    // validate_disk_image tests
     // ============================================================================
 
     #[test]
-    fn test_validate_vm_disk_not_found() {
-        let result = validate_vm_disk(
+    fn test_validate_disk_image_vm_not_found() {
+        let result = validate_disk_image(
             "vm1",
             &NodeModel::AristaVeos,
             "4.28.0F",
             "/tmp/nonexistent_sherpa_images",
+            &NodeKind::VirtualMachine,
+            None,
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("VM disk image not found"));
+        assert!(error_msg.contains("Disk image not found"));
         assert!(error_msg.contains("vm1"));
         assert!(error_msg.contains("virtioa.qcow2"));
     }
 
     #[test]
-    fn test_validate_vm_disk_path_format() {
-        // Verify the expected path format appears in the error
-        let result = validate_vm_disk("vm1", &NodeModel::RockyLinux, "9.3", "/opt/images");
+    fn test_validate_disk_image_vm_path_format() {
+        let result = validate_disk_image(
+            "vm1",
+            &NodeModel::RockyLinux,
+            "9.3",
+            "/opt/images",
+            &NodeKind::VirtualMachine,
+            None,
+        );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
         assert!(error_msg.contains("/opt/images/rocky_linux/9.3/virtioa.qcow2"));
+    }
+
+    #[test]
+    fn test_validate_disk_image_unikernel_direct_kernel() {
+        let result = validate_disk_image(
+            "uk1",
+            &NodeModel::UnikraftUnikernel,
+            "latest",
+            "/opt/images",
+            &NodeKind::Unikernel,
+            Some(&UnikernelBootMode::DirectKernel),
+        );
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("kernel.elf"));
+    }
+
+    #[test]
+    fn test_validate_disk_image_unikernel_disk_boot() {
+        let result = validate_disk_image(
+            "uk1",
+            &NodeModel::NanosUnikernel,
+            "latest",
+            "/opt/images",
+            &NodeKind::Unikernel,
+            Some(&UnikernelBootMode::DiskBoot),
+        );
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+        assert!(error_msg.contains("disk.qcow2"));
     }
 
     // ============================================================================

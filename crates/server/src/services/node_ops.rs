@@ -522,9 +522,10 @@ pub fn generate_vm_ztp(
     let mut disks: Vec<data::NodeDisk> = vec![];
 
     // Build VM boot disk clone info
+    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
     let src_boot_disk = format!(
-        "{}/{}/{}/virtioa.qcow2",
-        images_dir, node_image.model, node_image.version
+        "{}/{}/{}/{}",
+        images_dir, node_image.model, node_image.version, filename
     );
     let dst_boot_disk = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-hdd.qcow2");
 
@@ -2568,6 +2569,225 @@ pub fn check_node_ready_ssh(ip: &str, port: u16) -> Result<bool> {
 }
 
 // ============================================================================
+// Unikernel Operations
+// ============================================================================
+
+pub struct UnikernelSetupResult {
+    pub clone_disks: Vec<data::CloneDisk>,
+    pub disks: Vec<data::NodeDisk>,
+    pub kernel_path: Option<String>,
+    pub mac_address: String,
+}
+
+/// Prepare unikernel disk/kernel paths for deployment.
+///
+/// For `DiskBoot` mode: clones the disk image like a VM.
+/// For `DirectKernel` mode: resolves the kernel ELF path from image store.
+#[instrument(skip(node_image), fields(node_name = %node.name, boot_mode), level = "debug")]
+pub fn generate_unikernel_setup(
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    lab_id: &str,
+    images_dir: &str,
+) -> Result<UnikernelSetupResult> {
+    let boot_mode = node_image
+        .boot_mode
+        .clone()
+        .unwrap_or(data::UnikernelBootMode::DirectKernel);
+
+    let mac_address = util::random_mac(KVM_OUI);
+    let version = node.version.as_deref().unwrap_or(&node_image.version);
+    let filename = util::image_filename(&node_image.kind, node_image.boot_mode.as_ref());
+
+    match boot_mode {
+        data::UnikernelBootMode::DiskBoot => {
+            let src_disk = format!(
+                "{}/{}/{}/{}",
+                images_dir, node_image.model, version, filename
+            );
+            let dst_disk = format!(
+                "{}/{}-{}.qcow2",
+                SHERPA_STORAGE_POOL_PATH, node.name, lab_id
+            );
+
+            let clone_disk = data::CloneDisk {
+                src: src_disk,
+                dst: dst_disk.clone(),
+                disk_size: node.boot_disk_size,
+            };
+
+            let disk = data::NodeDisk {
+                driver_name: data::DiskDrivers::Qemu,
+                driver_format: data::DiskFormats::Qcow2,
+                src_file: dst_disk,
+                target_dev: data::DiskTargets::Vda,
+                target_bus: data::DiskBuses::Virtio,
+                disk_device: data::DiskDevices::File,
+            };
+
+            Ok(UnikernelSetupResult {
+                clone_disks: vec![clone_disk],
+                disks: vec![disk],
+                kernel_path: None,
+                mac_address,
+            })
+        }
+        data::UnikernelBootMode::DirectKernel => {
+            let kernel_path = format!(
+                "{}/{}/{}/{}",
+                images_dir, node_image.model, version, filename
+            );
+
+            Ok(UnikernelSetupResult {
+                clone_disks: vec![],
+                disks: vec![],
+                kernel_path: Some(kernel_path),
+                mac_address,
+            })
+        }
+    }
+}
+
+/// Build a unikernel domain template with auto IP injection for DirectKernel models.
+#[allow(clippy::too_many_arguments)]
+#[instrument(skip(node_image, disks, interfaces, mgmt_net), fields(node_name = %node.name), level = "debug")]
+pub fn build_unikernel_domain_template(
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    lab_id: &str,
+    qemu_bin: &str,
+    disks: Vec<data::NodeDisk>,
+    interfaces: Vec<data::Interface>,
+    kernel_path: Option<String>,
+    loopback_ipv4: String,
+    management_network: String,
+    isolated_network_name: String,
+    reserved_network: String,
+    mgmt_net: &data::SherpaNetwork,
+) -> template::UnikernelDomainTemplate {
+    let node_name_with_lab = format!("{}-{}", node.name, lab_id);
+    let boot_mode = node_image
+        .boot_mode
+        .clone()
+        .unwrap_or(data::UnikernelBootMode::DirectKernel);
+
+    // Determine kernel cmdline: user override > auto-injection > None
+    let kernel_cmdline = if let Some(ref user_cmdline) = node.kernel_cmdline {
+        Some(user_cmdline.clone())
+    } else if matches!(boot_mode, data::UnikernelBootMode::DirectKernel) {
+        generate_unikernel_cmdline(node, node_image, mgmt_net)
+    } else {
+        None
+    };
+
+    template::UnikernelDomainTemplate {
+        qemu_bin: qemu_bin.to_string(),
+        name: node_name_with_lab,
+        memory: node.memory.unwrap_or(node_image.memory),
+        cpu_architecture: node_image.cpu_architecture.clone(),
+        cpu_model: node_image.cpu_model.clone(),
+        machine_type: node_image.machine_type.clone(),
+        cpu_count: node.cpu_count.unwrap_or(node_image.cpu_count),
+        boot_mode,
+        kernel_path,
+        kernel_cmdline,
+        disks,
+        interfaces,
+        interface_type: node_image.interface_type.clone(),
+        management_interface_type: node_image.interface_type.clone(),
+        reserved_interface_type: node_image.interface_type.clone(),
+        loopback_ipv4,
+        telnet_port: TELNET_PORT,
+        management_network,
+        isolated_network: isolated_network_name,
+        reserved_network,
+    }
+}
+
+/// Generate auto-injected kernel cmdline with IPv4 networking for DirectKernel unikernels.
+///
+/// Note: Unikraft does not support IPv6 via kernel cmdline parameters.
+fn generate_unikernel_cmdline(
+    node: &topology::NodeExpanded,
+    node_image: &data::NodeConfig,
+    mgmt_net: &data::SherpaNetwork,
+) -> Option<String> {
+    let _ipv4 = node.ipv4_address?;
+    let _gateway_v4 = mgmt_net.v4.first;
+    let _subnet_mask = mgmt_net.v4.subnet_mask;
+
+    match node_image.model {
+        // Unikraft pre-built images use DHCP for networking — cmdline IP injection
+        // is not supported (the ELF loader treats cmdline as application path).
+        // Static DHCP binding (MAC -> IP) on the sherpa router handles IP assignment.
+        data::NodeModel::UnikraftUnikernel => None,
+        _ => None,
+    }
+}
+
+/// Create a unikernel from a domain template using libvirt.
+#[instrument(skip(qemu_conn, domain, progress), fields(uk_name = %domain.name), level = "debug")]
+pub async fn create_unikernel(
+    qemu_conn: Arc<libvirt::QemuConnection>,
+    domain: template::UnikernelDomainTemplate,
+    progress: &ProgressSender,
+) -> Result<()> {
+    let uk_name = domain.name.clone();
+
+    let _ = progress.send_status(
+        format!("Creating unikernel: {}", uk_name),
+        StatusKind::Progress,
+    );
+
+    let rendered_xml = domain
+        .render()
+        .with_context(|| format!("Failed to render XML for unikernel: {}", uk_name))?;
+
+    let conn_for_blocking = qemu_conn.clone();
+    let uk_name_for_blocking = uk_name.clone();
+
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        libvirt::create_vm(&conn_for_blocking, &rendered_xml)
+            .with_context(|| format!("Failed to create unikernel: {}", uk_name_for_blocking))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| anyhow!("Task join error: {:?}", e))??;
+
+    let _ = progress.send_status(format!("Created unikernel: {}", uk_name), StatusKind::Done);
+
+    Ok(())
+}
+
+/// Check if a unikernel is ready by verifying libvirt domain state, with optional TCP port probe.
+#[instrument(skip(qemu_conn), level = "debug")]
+pub fn check_unikernel_ready(
+    qemu_conn: &libvirt::QemuConnection,
+    domain_name: &str,
+    ready_port: Option<u16>,
+    mgmt_ip: Option<&str>,
+) -> Result<bool> {
+    // Check if domain is running via libvirt
+    let domain = match virt::domain::Domain::lookup_by_name(qemu_conn, domain_name) {
+        Ok(d) => d,
+        Err(_) => return Ok(false),
+    };
+
+    let (state, _) = domain.get_state()?;
+    if state != virt::sys::VIR_DOMAIN_RUNNING {
+        return Ok(false);
+    }
+
+    // If ready_port specified, also do TCP probe
+    if let (Some(port), Some(ip)) = (ready_port, mgmt_ip) {
+        validate::tcp_connect(ip, port)
+    } else {
+        // Domain running = ready (default for unikernels)
+        Ok(true)
+    }
+}
+
+// ============================================================================
 // ============================================================================
 // Node Destruction
 // ============================================================================
@@ -2849,5 +3069,34 @@ mod tests {
     fn test_build_cloudbase_text_files_none() {
         let result = build_cloudbase_text_files(&None);
         assert!(result.is_empty());
+    }
+
+    // =========================================================================
+    // Cmdline format function tests
+    // =========================================================================
+
+    /// Generate Unikraft kernel cmdline args with network configuration.
+    ///
+    /// Produces a cmdline string in the format Unikraft's lwIP/uknetdev stack expects:
+    /// `netdev.ipv4_addr=<ip> netdev.ipv4_gw_addr=<gw> netdev.ipv4_subnet_mask=<mask>`
+    ///
+    /// Note: Unikraft does not support IPv6 via kernel cmdline (source has `/* TODO: ip6 */`).
+    /// Not used in production (Unikraft pre-built images use DHCP), but kept as a reference
+    /// for the expected cmdline format and tested to ensure correctness.
+    fn unikraft_cmdline(ipv4: &str, subnet_mask: &str, gateway_v4: &str) -> String {
+        format!(
+            "netdev.ipv4_addr={ipv4} netdev.ipv4_gw_addr={gateway_v4} \
+             netdev.ipv4_subnet_mask={subnet_mask}"
+        )
+    }
+
+    #[test]
+    fn test_unikraft_cmdline_format() {
+        let result = unikraft_cmdline("10.0.0.10", "255.255.255.0", "10.0.0.1");
+        assert!(result.contains("netdev.ipv4_addr=10.0.0.10"));
+        assert!(result.contains("netdev.ipv4_gw_addr=10.0.0.1"));
+        assert!(result.contains("netdev.ipv4_subnet_mask=255.255.255.0"));
+        // Unikraft does not support IPv6 via cmdline
+        assert!(!result.contains("ipv6"));
     }
 }

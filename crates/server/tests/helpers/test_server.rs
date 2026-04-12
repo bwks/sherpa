@@ -26,6 +26,8 @@ pub const TEST_ADMIN_PASSWORD: &str = "TestPass123!";
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
     pub addr: SocketAddr,
+    /// Used by lab_lifecycle_tests but not all test binaries, triggering a false positive warning.
+    #[allow(dead_code)]
     pub db: Arc<Surreal<Client>>,
     _namespace: String,
 }
