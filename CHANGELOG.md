@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.70] - 2026-04-13
+
+### Bug Fixes
+
+- Use unique namespaces in seed admin user tests by @claude ([bc7bffd](https://github.com/bwks/sherpa/commit/bc7bffd419062225b55e90e0e76ab5564ccfa8d9))
+
+### Miscellaneous
+
+- Merge pull request #253 from bwks/v0.3.70
+
+V0.3.70 by @bwks in [#253](https://github.com/bwks/sherpa/pull/253) ([1b44303](https://github.com/bwks/sherpa/commit/1b44303fb21e145126975d22611388919d05d63f))
+- Adopt cargo-nextest and add dev/testdeps script by @claude ([f1dcbbb](https://github.com/bwks/sherpa/commit/f1dcbbb396dc124c4eb4da14c5ea5ff6f194495d))
+- Version bump 0.3.69 → 0.3.70 by @claude ([6343c09](https://github.com/bwks/sherpa/commit/6343c09f4867da7f6fd45b31b77b70b238173ea0))
+- Add gh-branch, gh-commit, and gh-push skills by @claude ([50592fd](https://github.com/bwks/sherpa/commit/50592fdc9644f25875c00a1a8b8e92c206694ef5))
+- Remove code examples from docstrings by @claude ([4941ff1](https://github.com/bwks/sherpa/commit/4941ff103df200a5a2e4237a2d6604fe2622ee2d))
+- Merge pull request #251 from bwks/changelog/v0.3.69
+
+chore(release): update changelog for v0.3.69 by @github-actions[bot] in [#251](https://github.com/bwks/sherpa/pull/251) ([d5f0a77](https://github.com/bwks/sherpa/commit/d5f0a77f0c2f21cc97b13b6c89d8651bc1558e10))
+
+### Testing
+
+- Integration test runs by @bwks ([53fa3d2](https://github.com/bwks/sherpa/commit/53fa3d28f9b01b96a2a1760ca557f6016af31bc5))
 ## [0.3.69] - 2026-04-12
 
 ### Features
