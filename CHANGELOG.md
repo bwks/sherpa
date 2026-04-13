@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.71] - 2026-04-13
+
+### Features
+
+- Clone unikraft ELF per-lab and allow zero data interfaces by @claude ([03962a5](https://github.com/bwks/sherpa/commit/03962a58f942f71c594024e22a2fcee4155b4eb2))
+
+### Miscellaneous
+
+- Merge pull request #258 from bwks/v0.3.71
+
+V0.3.71 by @bwks in [#258](https://github.com/bwks/sherpa/pull/258) ([d37bdc5](https://github.com/bwks/sherpa/commit/d37bdc5d57dc531a582dfcc7d005b5ee00c40738))
+- Version bump 0.3.70 → 0.3.71 by @claude ([4a51487](https://github.com/bwks/sherpa/commit/4a5148770cc08cbd74dcc0993fdd02cc1e70a64e))
+- Integration test manifest by @bwks ([609d379](https://github.com/bwks/sherpa/commit/609d379df307571cf3b9ae5de8e1d92b4b30d0be))
+- Merge pull request #255 from bwks/changelog/v0.3.70
+
+chore(release): update changelog for v0.3.70 by @github-actions[bot] in [#255](https://github.com/bwks/sherpa/pull/255) ([ca6076e](https://github.com/bwks/sherpa/commit/ca6076e4a43b6f3784c1c6d233b78ff2cd8e2b3d))
 ## [0.3.70] - 2026-04-13
 
 ### Bug Fixes
