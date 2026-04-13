@@ -25,22 +25,6 @@ use crate::user::{create_user, get_user};
 /// This function should only be called during server initialization with a password
 /// provided via secure means (environment variable, not config file).
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, seed_admin_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let password = std::env::var("SHERPA_ADMIN_PASSWORD")?;
-///
-/// if seed_admin_user(&db, &password).await? {
-///     println!("Admin user created successfully");
-/// } else {
-///     println!("Admin user already exists");
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db, password), level = "debug")]
 pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Result<bool> {
     // Check if admin user already exists
@@ -68,6 +52,7 @@ mod tests {
     use super::*;
     use crate::user::{count_users, get_user};
     use shared::konst::SHERPA_PASSWORD;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_db_port() -> u16 {
         std::env::var("SHERPA_DEV_DB_PORT")
@@ -76,21 +61,27 @@ mod tests {
             .expect("SHERPA_DEV_DB_PORT must be a valid port number")
     }
 
+    /// Generate a unique namespace per test invocation to avoid index collisions
+    fn unique_ns(test_name: &str) -> String {
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_nanos();
+        format!("test_ns_{ts}_{test_name}")
+    }
+
     #[tokio::test]
     #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
         let db = crate::connect(
             "localhost",
             test_db_port(),
-            "test_seed_admin",
+            &unique_ns("seed_admin_empty"),
             "test_db",
             SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
-
-        // Clean up any existing users
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         let created = seed_admin_user(&db, "AdminPass123!").await?;
         assert!(created, "Should create admin user when database is empty");
@@ -99,9 +90,6 @@ mod tests {
         let admin = get_user(&db, "admin").await?;
         assert_eq!(admin.username, "admin");
         assert!(admin.is_admin, "User should have admin privileges");
-
-        // Clean up
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         Ok(())
     }
@@ -112,15 +100,12 @@ mod tests {
         let db = crate::connect(
             "localhost",
             test_db_port(),
-            "test_seed_admin_skip",
+            &unique_ns("seed_admin_others"),
             "test_db",
             SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
-
-        // Clean up any existing users
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         // Create a regular user first
         create_user(&db, "alice".to_string(), "AlicePass123!", false, vec![]).await?;
@@ -137,9 +122,6 @@ mod tests {
         assert_eq!(admin.username, "admin");
         assert!(admin.is_admin, "User should have admin privileges");
 
-        // Clean up
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
-
         Ok(())
     }
 
@@ -149,15 +131,12 @@ mod tests {
         let db = crate::connect(
             "localhost",
             test_db_port(),
-            "test_seed_admin_validate",
+            &unique_ns("seed_admin_validate"),
             "test_db",
             SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
-
-        // Clean up any existing users
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         // Try with invalid password
         let result = seed_admin_user(&db, "weak").await;
@@ -179,15 +158,12 @@ mod tests {
         let db = crate::connect(
             "localhost",
             test_db_port(),
-            "test_seed_admin_idem",
+            &unique_ns("seed_admin_idem"),
             "test_db",
             SHERPA_PASSWORD,
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
-
-        // Clean up any existing users
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         // First call should create
         let created1 = seed_admin_user(&db, "AdminPass123!").await?;
@@ -200,9 +176,6 @@ mod tests {
         // Should still have exactly 1 user
         let user_count = count_users(&db).await?;
         assert_eq!(user_count, 1, "Should have exactly one user");
-
-        // Clean up
-        let _: Vec<crate::DbUser> = db.delete("user").await?;
 
         Ok(())
     }
