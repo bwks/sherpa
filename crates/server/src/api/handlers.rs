@@ -2495,7 +2495,6 @@ pub async fn admin_image_update_handler(
     if let Err(e) = validate::validate_node_image_update(
         form.cpu_count,
         form.memory,
-        form.data_interface_count,
         form.interface_mtu,
         &form.version,
         &form.interface_prefix,
