@@ -4,7 +4,6 @@ use anyhow::{Result, bail};
 pub fn validate_node_image_update(
     cpu_count: u8,
     memory: u16,
-    data_interface_count: u8,
     interface_mtu: u16,
     version: &str,
     interface_prefix: &str,
@@ -12,7 +11,6 @@ pub fn validate_node_image_update(
     // Validate numeric ranges
     validate_cpu_count(cpu_count)?;
     validate_memory(memory)?;
-    validate_interface_count(data_interface_count)?;
     validate_interface_mtu(interface_mtu)?;
 
     // Validate string fields
@@ -32,13 +30,6 @@ fn validate_cpu_count(count: u8) -> Result<()> {
 fn validate_memory(mb: u16) -> Result<()> {
     if mb < 64 {
         bail!("Memory must be at least 64 MB");
-    }
-    Ok(())
-}
-
-fn validate_interface_count(count: u8) -> Result<()> {
-    if count < 1 {
-        bail!("Data interface count must be at least 1");
     }
     Ok(())
 }
@@ -87,13 +78,6 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_interface_count() {
-        assert!(validate_interface_count(1).is_ok());
-        assert!(validate_interface_count(255).is_ok());
-        assert!(validate_interface_count(0).is_err());
-    }
-
-    #[test]
     fn test_validate_interface_mtu() {
         assert!(validate_interface_mtu(576).is_ok());
         assert!(validate_interface_mtu(1500).is_ok());
@@ -124,53 +108,41 @@ mod tests {
 
     #[test]
     fn test_validate_node_image_update_all_valid() {
-        let result = validate_node_image_update(2, 1024, 4, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(2, 1024, 1500, "1.0.0", "eth");
         assert!(result.is_ok());
     }
 
     #[test]
     fn test_validate_node_image_update_cpu_zero() {
-        let result = validate_node_image_update(0, 1024, 4, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(0, 1024, 1500, "1.0.0", "eth");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("CPU count"));
     }
 
     #[test]
     fn test_validate_node_image_update_memory_too_low() {
-        let result = validate_node_image_update(1, 32, 4, 1500, "1.0.0", "eth");
+        let result = validate_node_image_update(1, 32, 1500, "1.0.0", "eth");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Memory"));
     }
 
     #[test]
-    fn test_validate_node_image_update_interface_count_zero() {
-        let result = validate_node_image_update(1, 1024, 0, 1500, "1.0.0", "eth");
-        assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Data interface count")
-        );
-    }
-
-    #[test]
     fn test_validate_node_image_update_mtu_out_of_range() {
-        let result = validate_node_image_update(1, 1024, 4, 100, "1.0.0", "eth");
+        let result = validate_node_image_update(1, 1024, 100, "1.0.0", "eth");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("MTU"));
     }
 
     #[test]
     fn test_validate_node_image_update_empty_version() {
-        let result = validate_node_image_update(1, 1024, 4, 1500, "", "eth");
+        let result = validate_node_image_update(1, 1024, 1500, "", "eth");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Version"));
     }
 
     #[test]
     fn test_validate_node_image_update_empty_prefix() {
-        let result = validate_node_image_update(1, 1024, 4, 1500, "1.0.0", "");
+        let result = validate_node_image_update(1, 1024, 1500, "1.0.0", "");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Interface prefix"));
     }
@@ -178,7 +150,7 @@ mod tests {
     #[test]
     fn test_validate_node_image_update_boundary_values() {
         // All fields at minimum valid values
-        let result = validate_node_image_update(1, 64, 1, 576, "abcde", "e");
+        let result = validate_node_image_update(1, 64, 576, "abcde", "e");
         assert!(result.is_ok());
     }
 }

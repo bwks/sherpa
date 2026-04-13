@@ -2582,7 +2582,7 @@ pub struct UnikernelSetupResult {
 /// Prepare unikernel disk/kernel paths for deployment.
 ///
 /// For `DiskBoot` mode: clones the disk image like a VM.
-/// For `DirectKernel` mode: resolves the kernel ELF path from image store.
+/// For `DirectKernel` mode: clones the kernel ELF to the storage pool.
 #[instrument(skip(node_image), fields(node_name = %node.name, boot_mode), level = "debug")]
 pub fn generate_unikernel_setup(
     node: &topology::NodeExpanded,
@@ -2633,15 +2633,22 @@ pub fn generate_unikernel_setup(
             })
         }
         data::UnikernelBootMode::DirectKernel => {
-            let kernel_path = format!(
+            let src_kernel = format!(
                 "{}/{}/{}/{}",
                 images_dir, node_image.model, version, filename
             );
+            let dst_kernel = format!("{}/{}-{}.elf", SHERPA_STORAGE_POOL_PATH, node.name, lab_id);
+
+            let clone_disk = data::CloneDisk {
+                src: src_kernel,
+                dst: dst_kernel.clone(),
+                disk_size: None,
+            };
 
             Ok(UnikernelSetupResult {
-                clone_disks: vec![],
+                clone_disks: vec![clone_disk],
                 disks: vec![],
-                kernel_path: Some(kernel_path),
+                kernel_path: Some(dst_kernel),
                 mac_address,
             })
         }

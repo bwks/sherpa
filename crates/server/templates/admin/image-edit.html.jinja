@@ -252,8 +252,8 @@
                 <!-- Data Interface Count -->
                 <div>
                     <label for="data_interface_count" class="block text-sm font-medium text-body mb-2">Data Interface Count *</label>
-                    <input type="number" id="data_interface_count" name="data_interface_count" value="{{ config.data_interface_count }}" min="1" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
-                    <p class="mt-1 text-xs text-muted">Range: 1-255</p>
+                    <input type="number" id="data_interface_count" name="data_interface_count" value="{{ config.data_interface_count }}" min="0" max="255" required class="w-full px-3 py-2 border border-border-strong rounded-md focus:ring-accent focus:border-accent bg-card text-heading">
+                    <p class="mt-1 text-xs text-muted">Range: 0-255</p>
                 </div>
 
                 <!-- Interface Prefix -->

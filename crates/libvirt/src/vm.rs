@@ -35,6 +35,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
         "json" => "raw",
         "ign" => "raw",
         "img" => "raw",
+        "elf" => "raw",
         "qcow2" => "qcow2",
         _ => {
             return Err(anyhow::anyhow!(
