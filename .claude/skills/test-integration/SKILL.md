@@ -66,11 +66,11 @@ command from the table below.
 
 | Order | Crate | Command |
 |-------|-------|---------|
-| 1 | db | `cargo test -p db -- --ignored --test-threads=1` |
-| 2 | container | `cargo test -p container -- --ignored --test-threads=1` |
-| 3 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` |
-| 4 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` |
-| 5 | server | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --test-threads=1` |
+| 1 | db | `cargo nextest run -p db --run-ignored ignored-only -j 1` |
+| 2 | container | `cargo nextest run -p container --run-ignored ignored-only -j 1` |
+| 3 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo nextest run -p network --run-ignored ignored-only -j 1` |
+| 4 | libvirt | `cargo nextest run -p libvirt --run-ignored ignored-only -j 1` |
+| 5 | server | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo nextest run -p sherpad --run-ignored ignored-only -j 1` |
 
 Note: `network` and `server` require sudo for network capabilities.
 
