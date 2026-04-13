@@ -34,12 +34,6 @@ use super::user::generate_user_schema;
 /// * `Ok(())` if the schema was applied successfully
 /// * `Err` if the schema application failed
 ///
-/// # Examples
-///
-/// ```ignore
-/// let user_schema = generate_user_schema();
-/// apply_schema_section(&db, "user", &user_schema).await?;
-/// ```
 async fn apply_schema_section(
     db: &Arc<Surreal<Client>>,
     section_name: &str,
@@ -89,19 +83,6 @@ async fn apply_schema_section(
 /// schema operations are idempotent, you can safely retry the operation
 /// after fixing any issues.
 ///
-/// # Examples
-///
-/// ```no_run
-/// use db::{connect, apply_schema};
-/// use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-///
-/// #[tokio::main]
-/// async fn main() -> anyhow::Result<()> {
-///     let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///     apply_schema(&db).await?;
-///     Ok(())
-/// }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
     // Generate schemas dynamically from individual schema modules

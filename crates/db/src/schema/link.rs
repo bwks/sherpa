@@ -64,12 +64,6 @@ use super::helpers::vec_to_str;
 /// so that when a node or lab is deleted, all associated links are automatically
 /// removed by the database.
 ///
-/// # Examples
-///
-/// ```ignore
-/// let schema = generate_link_schema();
-/// db.query(&schema).await?;
-/// ```
 pub(crate) fn generate_link_schema() -> String {
     let bridge_kinds = vec_to_str(BridgeKind::to_vec());
 

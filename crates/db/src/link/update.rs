@@ -28,22 +28,6 @@ use crate::link::read::get_link;
 /// - If unique constraints are violated (node_a, node_b, int_a, int_b combination)
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_link, update_link};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("link", "abc123");
-/// let mut link = get_link(&db, id).await?;
-/// link.int_a = "eth1".to_string();
-/// link.int_b = "eth1".to_string();
-/// let updated = update_link(&db, link).await?;
-/// assert_eq!(updated.int_a, "eth1");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn update_link(db: &Arc<Surreal<Client>>, link: DbLink) -> Result<DbLink> {
     // Require id field for updates

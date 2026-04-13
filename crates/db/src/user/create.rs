@@ -54,17 +54,6 @@ fn validate_username(username: &str) -> Result<()> {
 /// - If username already exists (unique constraint violation)
 /// - If there's a database error during creation
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "SecurePass123!", false, vec![]).await?;
-/// assert_eq!(user.username, "alice");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db, password), level = "debug")]
 #[instrument(skip(db), level = "debug")]
 pub async fn create_user(
@@ -123,21 +112,6 @@ pub async fn create_user(
 /// - If password validation fails
 /// - If there's a database error during the operation
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, upsert_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///
-/// // First call creates the user
-/// let user1 = upsert_user(&db, "bob".to_string(), "Pass123!", false, vec!["key1".to_string()]).await?;
-///
-/// // Second call updates the existing user
-/// let user2 = upsert_user(&db, "bob".to_string(), "NewPass123!", false, vec!["key1".to_string(), "key2".to_string()]).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db, password), level = "debug")]
 #[instrument(skip(db), level = "debug")]
 pub async fn upsert_user(

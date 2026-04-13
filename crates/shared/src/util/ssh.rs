@@ -136,13 +136,6 @@ pub fn generate_ssh_keypair(directory: &str, keyname: &str, algorithm: Algorithm
 /// Returns a vector of key contents as raw strings (suitable for database storage).
 /// Returns an empty vector if no keys are found.
 ///
-/// # Example
-/// ```no_run
-/// use shared::util::find_user_ssh_keys;
-///
-/// let keys = find_user_ssh_keys();
-/// println!("Found {} SSH keys", keys.len());
-/// ```
 pub fn find_user_ssh_keys() -> Vec<String> {
     let mut keys = Vec::new();
 

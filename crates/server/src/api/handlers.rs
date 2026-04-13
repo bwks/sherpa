@@ -52,23 +52,7 @@ use shared::util::{generate_lab_name, get_id_for_user};
 /// Authenticate user and issue JWT token
 ///
 /// # Request Body
-/// ```json
-/// {
-///   "username": "alice",
-///   "password": "SecurePass123!"
-/// }
-/// ```
-///
 /// # Response (200 OK)
-/// ```json
-/// {
-///   "token": "eyJhbGc...",
-///   "username": "alice",
-///   "is_admin": false,
-///   "expires_at": 1234567890
-/// }
-/// ```
-///
 /// # Errors
 /// - `401 Unauthorized` - Invalid username or password
 /// - `500 Internal Server Error` - Server error during authentication
@@ -804,11 +788,6 @@ async fn fetch_and_render_ssh_keys(state: &AppState, username: &str) -> Response
 /// - `404 Not Found` - Lab doesn't exist
 /// - `500 Internal Server Error` - Server-side error
 ///
-/// # Example
-/// ```bash
-/// curl -H "Authorization: Bearer <token>" \
-///      https://server:3030/api/v1/labs/my-lab
-/// ```
 pub async fn get_lab(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
@@ -851,13 +830,6 @@ pub async fn get_lab(
 /// Always publicly accessible (no authentication required).
 ///
 /// # Response (200 OK)
-/// ```json
-/// {
-///   "status": "ok",
-///   "service": "sherpad",
-///   "tls": "enabled"
-/// }
-/// ```
 pub async fn health_check(State(state): State<AppState>) -> impl IntoResponse {
     let tls_status = if state.config.tls.enabled {
         "enabled"
@@ -973,10 +945,6 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
 /// - `404 Not Found` - User doesn't exist
 /// - `500 Internal Server Error` - Database error
 ///
-/// # Example
-/// ```bash
-/// curl https://server:3030/api/v1/labs?username=bradmin
-/// ```
 pub async fn get_labs_json(
     State(state): State<AppState>,
     Query(params): Query<ListLabsQuery>,
@@ -1019,10 +987,6 @@ pub async fn get_labs_json(
 /// # Response (200 OK)
 /// Returns HTML page rendered from dashboard template
 ///
-/// # Example
-/// ```bash
-/// curl -b "sherpa_auth=..." https://server:3030/
-/// ```
 pub async fn dashboard_handler(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
@@ -1081,10 +1045,6 @@ pub async fn labs_list_page_handler(auth: AuthenticatedUserFromCookie) -> impl I
 /// # Response (200 OK)
 /// Returns HTML fragment with labs grid, empty state, or error message
 ///
-/// # Example
-/// ```bash
-/// curl -b "sherpa_auth=..." https://server:3030/labs
-/// ```
 pub async fn get_labs_html(
     State(state): State<AppState>,
     auth: AuthenticatedUserFromCookie,
@@ -1289,10 +1249,6 @@ pub async fn node_redeploy_handler(
 /// - `404 Not Found` - Lab doesn't exist
 /// - `500 Internal Server Error` - Server error while fetching lab details
 ///
-/// # Example
-/// ```bash
-/// curl -b "sherpa_auth=..." https://server:3030/labs/550e8400-e29b-41d4-a716-446655440000
-/// ```
 pub async fn lab_detail_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,

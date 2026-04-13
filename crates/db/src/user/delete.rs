@@ -24,22 +24,6 @@ use crate::helpers::get_user_id;
 /// - If the record doesn't exist
 /// - If there's a database error during deletion
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_user, delete_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///
-/// // Create a user
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let user_id = user.id.expect("User should have ID");
-///
-/// // Delete it (will cascade delete all labs owned by this user)
-/// delete_user(&db, user_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
@@ -71,20 +55,6 @@ pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// - If the user is not found
 /// - If there's a database error during deletion
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_user, delete_user_by_username};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///
-/// create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-///
-/// // Delete by username
-/// delete_user_by_username(&db, "alice").await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) -> Result<()> {
     // First get the user to obtain their ID
@@ -121,26 +91,6 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 /// - If the record doesn't exist
 /// - If there's a database error during the operation
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_user, create_lab, delete_user_safe};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let user_id = user.id.clone().expect("User should have ID");
-///
-/// // Create a lab for this user
-/// create_lab(&db, "test-lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
-///
-/// // This will fail because user owns a lab
-/// let result = delete_user_safe(&db, user_id).await;
-/// assert!(result.is_err());
-/// assert!(result.unwrap_err().to_string().contains("owns 1 lab"));
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // First check if the user exists

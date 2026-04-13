@@ -1,0 +1,71 @@
+#! /usr/bin/bash
+
+set -euo pipefail
+
+DOCKER_IMAGES=(
+    "surrealdb/surrealdb:v3.0.0"
+    "alpine:latest"
+)
+
+CARGO_TOOLS=(
+    "cargo-nextest"
+    "cargo-llvm-cov"
+)
+
+usage() {
+    echo "Usage: $(basename "$0") [install]"
+    echo ""
+    echo "Install test dependencies for the Sherpa project."
+    echo ""
+    echo "Dependencies installed:"
+    echo "  Docker images: ${DOCKER_IMAGES[*]}"
+    echo "  Cargo tools:   ${CARGO_TOOLS[*]}"
+    echo ""
+    echo "Commands:"
+    echo "  install  Install all test dependencies (default)"
+}
+
+check_and_pull_image() {
+    local image="$1"
+    if docker image inspect "$image" > /dev/null 2>&1; then
+        echo "[ok]      docker image: $image"
+    else
+        echo "[pull]    docker image: $image"
+        docker pull "$image"
+    fi
+}
+
+check_and_install_cargo_tool() {
+    local tool="$1"
+    local cmd="${tool#cargo-}"
+    if cargo "$cmd" --version > /dev/null 2>&1; then
+        echo "[ok]      cargo tool: $tool"
+    else
+        echo "[install] cargo tool: $tool"
+        cargo install "$tool" --locked
+    fi
+}
+
+install_all() {
+    echo "Checking test dependencies..."
+    echo ""
+
+    echo "Docker images:"
+    for image in "${DOCKER_IMAGES[@]}"; do
+        check_and_pull_image "$image"
+    done
+
+    echo ""
+    echo "Cargo tools:"
+    for tool in "${CARGO_TOOLS[@]}"; do
+        check_and_install_cargo_tool "$tool"
+    done
+
+    echo ""
+    echo "Done."
+}
+
+case "${1:-install}" in
+    install) install_all ;;
+    *)       usage; exit 1 ;;
+esac

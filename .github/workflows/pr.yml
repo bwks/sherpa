@@ -25,6 +25,9 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -40,7 +43,7 @@ jobs:
         run: cargo clippy --workspace -- -D warnings
 
       - name: Run tests with coverage
-        run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+        run: cargo llvm-cov nextest --workspace --lcov --output-path lcov.info
 
       - name: Generate coverage summary
         run: cargo llvm-cov report --summary-only 2>&1 | tee coverage-summary.txt

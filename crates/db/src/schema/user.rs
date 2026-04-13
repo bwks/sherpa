@@ -43,12 +43,6 @@
 /// - **Indexes**:
 ///   - `unique_username`: Ensures username uniqueness
 ///
-/// # Examples
-///
-/// ```ignore
-/// let schema = generate_user_schema();
-/// db.query(&schema).await?;
-/// ```
 pub(crate) fn generate_user_schema() -> String {
     r#"
 DEFINE TABLE OVERWRITE user SCHEMAFULL;

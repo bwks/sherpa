@@ -18,18 +18,6 @@ use tracing::instrument;
 /// - If link with id not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_link};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("link", "abc123");
-/// let link = get_link(&db, id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
     let link: Option<DbLink> = db
@@ -73,19 +61,6 @@ pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// - If link not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_link_by_peers};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let node_a_id= RecordId::new("node", "node1");
-/// let node_b_id= RecordId::new("node", "node2");
-/// let link = get_link_by_peers(&db, node_a_id, node_b_id, "eth0", "eth0").await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn get_link_by_peers(
     db: &Arc<Surreal<Client>>,
@@ -131,17 +106,6 @@ pub async fn get_link_by_peers(
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, list_links};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let links = list_links(&db).await?;
-/// println!("Found {} links", links.len());
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
     let links: Vec<DbLink> = db
@@ -164,19 +128,6 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, list_links_by_lab};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let lab_id= RecordId::new("lab", "lab1");
-/// let links = list_links_by_lab(&db, lab_id).await?;
-/// println!("Lab contains {} links", links.len());
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbLink>> {
     let mut response = db
@@ -203,19 +154,6 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, list_links_by_node};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let node_id= RecordId::new("node", "node1");
-/// let links = list_links_by_node(&db, node_id).await?;
-/// println!("Node has {} links", links.len());
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn list_links_by_node(
     db: &Arc<Surreal<Client>>,
@@ -242,17 +180,6 @@ pub async fn list_links_by_node(
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, count_links};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let count = count_links(&db).await?;
-/// println!("Total links: {}", count);
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
@@ -276,19 +203,6 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, count_links_by_lab};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let lab_id= RecordId::new("lab", "lab1");
-/// let count = count_links_by_lab(&db, lab_id).await?;
-/// println!("Lab contains {} links", count);
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
@@ -315,19 +229,6 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, count_links_by_node};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let node_id= RecordId::new("node", "node1");
-/// let count = count_links_by_node(&db, node_id).await?;
-/// println!("Node has {} links", count);
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn count_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<usize> {
     let mut response = db

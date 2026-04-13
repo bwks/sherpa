@@ -26,13 +26,13 @@ cargo clippy --workspace -- -D warnings
 
 ### 3. Tests with Coverage
 
-Run tests via `cargo-llvm-cov` to produce a coverage summary:
+Run tests via `cargo-llvm-cov` with `cargo-nextest` to produce a coverage summary:
 
 ```
-cargo llvm-cov --workspace
+cargo llvm-cov nextest --workspace
 ```
 
-This runs all workspace tests and prints a per-file coverage table to stdout.
+This runs all workspace tests through nextest and prints a per-file coverage table to stdout.
 
 ### Report
 
