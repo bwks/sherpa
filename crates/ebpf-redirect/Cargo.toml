@@ -1,6 +1,6 @@
 [package]
 name = "ebpf-redirect"
-version = "0.3.69"
+version = "0.3.70"
 edition = "2021"
 
 [dependencies]
