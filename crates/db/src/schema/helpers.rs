@@ -7,13 +7,6 @@
 /// Takes a vector of enum values (that implement Display) and converts them into
 /// a format suitable for SurrealDB ASSERT IN clauses.
 ///
-/// # Example
-///
-/// ```ignore
-/// let bridge_kinds = vec_to_str(BridgeKind::to_vec());
-/// // Returns: "ovs", "linux"
-/// ```
-///
 /// # Parameters
 ///
 /// * `vec` - A vector of values that implement Display (typically enums)

@@ -28,21 +28,6 @@ use crate::node::read::get_node;
 /// - If unique constraints are violated (name+lab, index+lab)
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_node, update_node};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("node", "abc123");
-/// let mut node = get_node(&db, id).await?;
-/// node.name = "updated-node".to_string();
-/// let updated = update_node(&db, node).await?;
-/// assert_eq!(updated.name, "updated-node");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNode> {
     // Require id field for updates

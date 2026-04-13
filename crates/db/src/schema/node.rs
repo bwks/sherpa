@@ -69,12 +69,6 @@ use super::helpers::vec_to_str;
 /// - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
 ///   all its nodes are automatically removed by the database.
 ///
-/// # Examples
-///
-/// ```ignore
-/// let schema = generate_node_schema();
-/// db.query(&schema).await?;
-/// ```
 pub(crate) fn generate_node_schema() -> String {
     let node_states = vec_to_str(NodeState::to_vec());
 

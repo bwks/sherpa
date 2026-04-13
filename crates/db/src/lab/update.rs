@@ -28,19 +28,6 @@ use crate::lab::validate_lab_id;
 /// - If unique constraints are violated (lab_id, name+user)
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_lab, update_lab};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let mut lab = get_lab(&db, "lab-0001").await?;
-/// lab.name = "Updated Lab Name".to_string();
-/// let updated = update_lab(&db, lab).await?;
-/// assert_eq!(updated.name, "Updated Lab Name");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Require id field for updates

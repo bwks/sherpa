@@ -67,12 +67,6 @@ use super::helpers::vec_to_str;
 /// - `InterfaceType`: Network interface types (virtio, e1000, etc.)
 /// - `MgmtInterfaces`: Management interface types
 ///
-/// # Examples
-///
-/// ```ignore
-/// let schema = generate_node_image_schema();
-/// db.query(&schema).await?;
-/// ```
 pub(crate) fn generate_node_image_schema() -> String {
     // Generate ASSERT lists from enums using their to_vec() methods
     let models = vec_to_str(NodeModel::to_vec());

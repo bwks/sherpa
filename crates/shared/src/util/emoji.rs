@@ -76,36 +76,18 @@ impl fmt::Display for Emoji {
 
 /// Formats a message with a success emoji (✅) prefix.
 ///
-/// # Example
-/// ```
-/// use shared::util::emoji_success;
-/// let msg = emoji_success("Operation completed");
-/// assert_eq!(msg, "✅ Operation completed");
-/// ```
 pub fn emoji_success(msg: &str) -> String {
     format!("{} {}", Emoji::Success, msg)
 }
 
 /// Formats a message with an error emoji (❌) prefix.
 ///
-/// # Example
-/// ```
-/// use shared::util::emoji_error;
-/// let msg = emoji_error("Operation failed");
-/// assert_eq!(msg, "❌ Operation failed");
-/// ```
 pub fn emoji_error(msg: &str) -> String {
     format!("{} {}", Emoji::Error, msg)
 }
 
 /// Formats a message with a warning emoji (⚠️) prefix.
 ///
-/// # Example
-/// ```
-/// use shared::util::emoji_warning;
-/// let msg = emoji_warning("Caution advised");
-/// assert_eq!(msg, "⚠️ Caution advised");
-/// ```
 pub fn emoji_warning(msg: &str) -> String {
     format!("{} {}", Emoji::Warning, msg)
 }

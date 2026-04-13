@@ -25,16 +25,6 @@ use crate::lab::get_lab;
 /// - If lab not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// delete_lab(&db, "lab-0001").await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
@@ -62,18 +52,6 @@ pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
 /// - If lab not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab_by_id};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("lab", "abc123");
-/// delete_lab_by_id(&db, id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     let _deleted: Option<DbLab> = db
@@ -98,16 +76,6 @@ pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result
 /// - If lab not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab_nodes};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// delete_lab_nodes(&db, "lab-0001").await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
@@ -137,16 +105,6 @@ pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 /// - If lab not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab_links};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// delete_lab_links(&db, "lab-0001").await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
@@ -176,17 +134,6 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
 /// - If lab not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab_cascade};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// delete_lab_cascade(&db, "lab-0001").await?;
-/// println!("Lab and all its dependencies deleted");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     delete_lab(db, lab_id).await
@@ -208,20 +155,6 @@ pub async fn delete_lab_cascade(db: &Arc<Surreal<Client>>, lab_id: &str) -> Resu
 /// - If lab has nodes or links (won't delete)
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_lab_safe};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-///
-/// match delete_lab_safe(&db, "lab-0001").await {
-///     Ok(_) => println!("Lab deleted successfully"),
-///     Err(e) => println!("Cannot delete lab: {}", e),
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     // Get the lab to verify it exists

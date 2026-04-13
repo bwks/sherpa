@@ -63,19 +63,6 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// - If (name, user) combination already exists (unique constraint violation)
 /// - If there's a database error during creation
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_lab, create_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
-/// assert_eq!(lab.name, "My Lab");
-/// assert_eq!(lab.lab_id, "lab-0001");
-/// # Ok(())
-/// # }
-/// ```
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip(db), level = "debug")]
 pub async fn create_lab(
@@ -135,35 +122,6 @@ pub async fn create_lab(
 /// - If unique constraints are violated
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, create_user, upsert_lab};
-/// # use shared::data::{DbLab, RecordId};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let user_id = user.id.unwrap();
-///
-/// let lab = DbLab {
-///     id: None,
-///     lab_id: "lab-0001".to_string(),
-///     name: "Updated Lab".to_string(),
-///     user: user_id,
-///     loopback_network: "127.127.1.0/24".to_string(),
-///     management_network: "172.31.1.0/24".to_string(),
-///     gateway_ipv4: "172.31.1.1".to_string(),
-///     router_ipv4: "172.31.1.2".to_string(),
-///     management_network_v6: None,
-///     gateway_ipv6: None,
-///     router_ipv6: None,
-///     loopback_network_v6: None,
-///     status: LabState::default(),
-/// };
-/// let result = upsert_lab(&db, lab).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn upsert_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
     // Validate lab_id format

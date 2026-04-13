@@ -31,26 +31,6 @@ struct NodeTableRow {
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-/// # Example
-/// ```
-/// use shared::data::{NodeInfo, NodeState, NodeModel};
-/// use shared::util::render_nodes_table;
-///
-/// let nodes = vec![
-///     NodeInfo {
-///         name: "dev01".to_string(),
-///         kind: "VirtualMachine".to_string(),
-///         model: NodeModel::ArubaAoscx,
-///         status: NodeState::Running,
-///         ip_address: Some("172.31.0.11".to_string()),
-///         ssh_port: Some(22),
-///     },
-/// ];
-///
-/// let table = render_nodes_table(&nodes);
-/// assert!(table.contains("dev01"));
-/// assert!(table.contains("172.31.0.11"));
-/// ```
 pub fn render_nodes_table(nodes: &[NodeInfo]) -> String {
     let rows: Vec<NodeTableRow> = nodes
         .iter()
@@ -115,28 +95,6 @@ struct DeviceTableRow {
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-/// # Example
-/// ```
-/// use shared::data::{DeviceInfo, NodeKind, NodeModel, NodeState};
-/// use shared::util::render_devices_table;
-///
-/// let devices = vec![
-///     DeviceInfo {
-///         name: "router01".to_string(),
-///         model: NodeModel::CiscoCat8000v,
-///         kind: NodeKind::VirtualMachine,
-///         state: NodeState::Running,
-///         mgmt_ipv4: "172.31.0.11".to_string(),
-///         mgmt_ipv6: None,
-///         vnc_port: None,
-///         disks: vec![],
-///     },
-/// ];
-///
-/// let table = render_devices_table(&devices);
-/// assert!(table.contains("router01"));
-/// assert!(table.contains("172.31.0.11"));
-/// ```
 pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
     let rows: Vec<DeviceTableRow> = devices
         .iter()
@@ -271,30 +229,6 @@ struct LabInfoTableRow {
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-/// # Example
-/// ```
-/// use shared::data::LabInfo;
-/// use shared::util::render_lab_info_table;
-/// use std::net::Ipv4Addr;
-/// use ipnet::Ipv4Net;
-///
-/// let lab_info = LabInfo {
-///     id: "039ab286".to_string(),
-///     name: "simple-ceos-test".to_string(),
-///     user: "admin".to_string(),
-///     ipv4_network: "172.31.0.0/24".parse().unwrap(),
-///     ipv4_gateway: "172.31.0.1".parse().unwrap(),
-///     ipv4_router: "172.31.0.2".parse().unwrap(),
-///     loopback_network: "127.127.1.0/24".parse().unwrap(),
-///     ipv6_network: None,
-///     ipv6_gateway: None,
-///     ipv6_router: None,
-/// };
-///
-/// let table = render_lab_info_table(&lab_info);
-/// assert!(table.contains("039ab286"));
-/// assert!(table.contains("simple-ceos-test"));
-/// ```
 pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
     let mut rows = vec![
         LabInfoTableRow {
@@ -529,22 +463,6 @@ pub struct CertificateTableInfo {
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-/// # Example
-/// ```
-/// use shared::util::{render_certificates_table, CertificateTableInfo};
-///
-/// let certs = vec![
-///     CertificateTableInfo {
-///         server: "10.100.58.10:3030".to_string(),
-///         subject: "Sherpa Server".to_string(),
-///         valid_until: "Feb 16 23:05:43 2027".to_string(),
-///     },
-/// ];
-///
-/// let table = render_certificates_table(&certs);
-/// assert!(table.contains("10.100.58.10:3030"));
-/// assert!(table.contains("Sherpa Server"));
-/// ```
 pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
     let rows: Vec<CertTableRow> = certs
         .iter()

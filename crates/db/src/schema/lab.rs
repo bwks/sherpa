@@ -57,12 +57,6 @@ use shared::data::LabState;
 /// The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user
 /// is deleted, all their labs are automatically removed by the database.
 ///
-/// # Examples
-///
-/// ```ignore
-/// let schema = generate_lab_schema();
-/// db.query(&schema).await?;
-/// ```
 pub(crate) fn generate_lab_schema() -> String {
     let lab_states = super::helpers::vec_to_str(LabState::to_vec());
 

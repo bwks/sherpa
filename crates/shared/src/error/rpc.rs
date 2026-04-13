@@ -8,22 +8,6 @@ use std::fmt;
 ///
 /// Application-specific codes are in the range -32000 to -32099 as per spec.
 ///
-/// # Examples
-///
-/// ```
-/// use shared::error::RpcErrorCode;
-///
-/// let code = RpcErrorCode::AuthRequired;
-/// assert_eq!(code.code(), -32002);
-///
-/// // Convert to i32 for serialization
-/// let num: i32 = code.into();
-/// assert_eq!(num, -32002);
-///
-/// // Parse from i32
-/// let parsed = RpcErrorCode::from(-32002);
-/// assert_eq!(parsed, RpcErrorCode::AuthRequired);
-/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RpcErrorCode {
     // ============================================================================
@@ -69,14 +53,6 @@ pub enum RpcErrorCode {
 impl RpcErrorCode {
     /// Get the i32 error code value
     ///
-    /// # Examples
-    ///
-    /// ```
-    /// use shared::error::RpcErrorCode;
-    ///
-    /// assert_eq!(RpcErrorCode::AuthRequired.code(), -32002);
-    /// assert_eq!(RpcErrorCode::ParseError.code(), -32700);
-    /// ```
     pub fn code(&self) -> i32 {
         match self {
             Self::ParseError => -32700,

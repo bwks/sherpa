@@ -17,18 +17,6 @@ use crate::link::read::get_link;
 /// - If link not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_link};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("link", "abc123");
-/// delete_link(&db, id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify link exists
@@ -67,18 +55,6 @@ pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_links_by_lab};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let lab_id= RecordId::new("lab", "abc123");
-/// delete_links_by_lab(&db, lab_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
@@ -103,18 +79,6 @@ pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_links_by_node};
-/// # use shared::data::RecordId;
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let node_id= RecordId::new("node", "abc123");
-/// delete_links_by_node(&db, node_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db

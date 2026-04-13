@@ -19,17 +19,6 @@
 //! The primary entry point is the `apply_schema` function, which creates
 //! all tables in the correct dependency order:
 //!
-//! ```no_run
-//! use db::{connect, apply_schema};
-//! use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-//!
-//! #[tokio::main]
-//! async fn main() -> anyhow::Result<()> {
-//!     let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-//!     apply_schema(&db).await?;
-//!     Ok(())
-//! }
-//! ```
 
 mod apply;
 mod bridge;

@@ -18,18 +18,6 @@ use tracing::instrument;
 /// - If node with id not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_node};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("node", "abc123");
-/// let node = get_node(&db, id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
     let node: Option<DbNode> = db
@@ -71,19 +59,6 @@ pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 /// - If node not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, get_node_by_name_and_lab, create_lab, create_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
-/// let lab_id = lab.id.unwrap();
-/// let node = get_node_by_name_and_lab(&db, "node1", lab_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn get_node_by_name_and_lab(
     db: &Arc<Surreal<Client>>,
@@ -112,17 +87,6 @@ pub async fn get_node_by_name_and_lab(
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, list_nodes};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let nodes = list_nodes(&db).await?;
-/// println!("Found {} nodes", nodes.len());
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
     let nodes: Vec<DbNode> = db
@@ -145,20 +109,6 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, list_nodes_by_lab, create_lab, create_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
-/// let lab_id = lab.id.unwrap();
-/// let nodes = list_nodes_by_lab(&db, lab_id).await?;
-/// println!("Lab contains {} nodes", nodes.len());
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
     let mut response = db
@@ -182,17 +132,6 @@ pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, count_nodes};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let count = count_nodes(&db).await?;
-/// println!("Total nodes: {}", count);
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
     let mut response = db
@@ -216,20 +155,6 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, count_nodes_by_lab, create_lab, create_user};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let user = create_user(&db, "alice".to_string(), "Pass123!", false, vec![]).await?;
-/// let lab = create_lab(&db, "My Lab", "lab-0001", &user, "127.127.1.0/24", "172.31.1.0/24", "172.31.1.1", "172.31.1.2").await?;
-/// let lab_id = lab.id.unwrap();
-/// let count = count_nodes_by_lab(&db, lab_id).await?;
-/// println!("Lab contains {} nodes", count);
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db

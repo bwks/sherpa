@@ -24,18 +24,6 @@ use crate::node::read::get_node;
 /// - If node has associated links
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_node};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("node", "abc123");
-/// delete_node(&db, id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Verify node exists
@@ -79,18 +67,6 @@ pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 /// - If any node has associated links
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_nodes_by_lab};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let lab_id= RecordId::new("lab", "abc123");
-/// delete_nodes_by_lab(&db, lab_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbNode> = db
@@ -116,18 +92,6 @@ pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// # Errors
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_node_links};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let node_id= RecordId::new("node", "abc123");
-/// delete_node_links(&db, node_id).await?;
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
     let _deleted: Vec<DbLink> = db
@@ -154,19 +118,6 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
 /// - If node not found
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_node_cascade};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("node", "abc123");
-/// delete_node_cascade(&db, id).await?;
-/// println!("Node and all its links deleted");
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     delete_node(db, id).await
@@ -189,22 +140,6 @@ pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Res
 /// - If node has links (won't delete)
 /// - If there's a database error
 ///
-/// # Example
-/// ```no_run
-/// # use db::{connect, delete_node_safe};
-/// # use shared::konst::{SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME};
-/// # use shared::data::RecordId;
-/// # async fn example() -> anyhow::Result<()> {
-/// let db = connect(SHERPA_DB_SERVER, SHERPA_DB_PORT, SHERPA_DB_NAMESPACE, SHERPA_DB_NAME, "root").await?;
-/// let id= RecordId::new("node", "abc123");
-///
-/// match delete_node_safe(&db, id).await {
-///     Ok(_) => println!("Node deleted successfully"),
-///     Err(e) => println!("Cannot delete node: {}", e),
-/// }
-/// # Ok(())
-/// # }
-/// ```
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Get the node to verify it exists
