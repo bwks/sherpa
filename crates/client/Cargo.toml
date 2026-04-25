@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.72"
+version = "0.3.73"
 edition = "2024"
 
 [dependencies]
@@ -33,12 +33,11 @@ askama = "0.14.0"
 
 
 # Async
-tokio = { version = "1.40.0", features = ["full"] }
+tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread", "net", "time"] }
 futures = "0.3.31"
 futures-util = "0.3.31"
 
-# http client
-reqwest = "0.11.27"
+# URL parsing
 url = "2.5"
 
 # WebSocket client with TLS support

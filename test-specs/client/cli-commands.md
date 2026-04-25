@@ -159,8 +159,23 @@
 **What to test:**
 - SSH invoked with correct node name and sherpa-ssh-config `[integration]` **P0**
 - Missing SSH config file handled gracefully `[integration]` **P1**
+- Existing `sherpa ssh <node>` command shape remains unchanged `[unit]` **P0**
 
-**Existing coverage:** None
+**Existing coverage:** Node name qualification unit tests in `cmd/ssh.rs`; CLI parse test for `sherpa ssh <node>`
+
+---
+
+## `ssh-config` — SSH Config Maintenance
+
+**What to test:**
+- `sherpa ssh-config inspect` lists all managed `~/.ssh/sherpa_lab_hosts` Include entries in a table `[unit]` **P0**
+- `sherpa ssh-config inspect` reports stale entries without modifying `sherpa_lab_hosts` `[unit]` **P0**
+- `sherpa ssh-config inspect` marks server-backed validation unavailable when token/server access fails, while still reporting local file problems `[unit]` **P1**
+- `sherpa ssh-config clean` removes stale and broken Include entries from `sherpa_lab_hosts` `[unit]` **P0**
+- `sherpa ssh-config clean` is idempotent on repeated runs `[unit]` **P0**
+- `sherpa ssh-config clean` does not delete local lab files (`sherpa_ssh_config`, `sherpa_ssh_key`, `lab-info.toml`) `[unit]` **P0**
+
+**Existing coverage:** CLI parse tests for `sherpa ssh-config inspect` and `sherpa ssh-config clean`
 
 ---
 

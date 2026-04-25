@@ -1,11 +1,11 @@
 [package]
 name = "sherpad"
-version = "0.3.72"
+version = "0.3.73"
 edition = "2024"
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws", "multipart"] }
-tokio = { version = "1.0", features = ["full"] }
+tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "fs", "io-util"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
 time = "0.3"
@@ -77,7 +77,7 @@ dashmap = "6.1"
 jiff = { version = "0.2.20", features = ["serde"] }
 
 # http client
-reqwest = { version = "0.11.27", features = ["stream"] }
+reqwest = { workspace = true, features = ["stream"] }
 
 # Libvirt
 virt = { version = "0.4.1", features = ["qemu"] }
@@ -114,4 +114,4 @@ tracing-opentelemetry = { workspace = true }
 tokio-test = "0.4"
 tempfile = "3.25.0"
 tokio-tungstenite = "0.24"
-reqwest = { version = "0.11.27", features = ["cookies", "json"] }
+reqwest = { workspace = true, features = ["cookies", "form", "json"] }

@@ -32,6 +32,25 @@
 
 ---
 
+## SSH config inspection and cleanup
+
+**What to test:**
+- Inspection reports valid entries when `sherpa_ssh_config` exists, sibling `lab-info.toml` parses, and lab ID is in active server lab set `[unit]` **P0**
+- Inspection reports stale entries when included `sherpa_ssh_config` path is missing `[unit]` **P0**
+- Inspection reports stale entries when sibling `lab-info.toml` is missing `[unit]` **P0**
+- Inspection reports broken entries when sibling `lab-info.toml` is invalid TOML or cannot parse as `LabInfo` `[unit]` **P0**
+- Inspection reports stale entries when lab ID from `lab-info.toml` is absent from active server lab set `[unit]` **P0**
+- Inspection reports unknown entries when local files are valid but server validation is unavailable `[unit]` **P1**
+- Cleanup removes stale missing-path entries from `sherpa_lab_hosts` `[unit]` **P0**
+- Cleanup removes stale lab IDs absent from active server lab set `[unit]` **P0**
+- Cleanup removes broken malformed Include lines and invalid lab-info entries `[unit]` **P0**
+- Cleanup removes duplicate Include lines while preserving the first valid copy `[unit]` **P1**
+- Cleanup preserves header, comments, and valid entries `[unit]` **P0**
+- Cleanup does not delete local lab files (`sherpa_ssh_config`, `sherpa_ssh_key`, `lab-info.toml`) `[unit]` **P0**
+- Include add/remove uses exact trimmed line matching, not substring matching `[unit]` **P0**
+
+---
+
 ## SSH Config Template (scoped host names)
 
 **What to test:**

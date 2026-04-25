@@ -1,6 +1,26 @@
-# Speed up SSH key generation in debug mode.
+# Keep development builds incremental and avoid broad debug optimization for fast local iteration.
+[profile.dev]
+incremental = true
+opt-level = 0
+
+# Speed up SSH key generation in debug mode without optimizing all dependencies.
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
+
+# Keep default release builds fast for local development and CI validation.
+# Cargo's default release profile already uses opt-level 3; keep that explicit
+# here and reserve expensive LTO/codegen settings for distribution artifacts.
+[profile.release]
+opt-level = 3
+
+# Explicit distribution profile for small, heavily optimized binaries.
+# Do not set panic = "abort" here: workspace/all-target release builds then
+# compile many dependencies twice (abort + unwind), which is slower overall.
+[profile.dist]
+inherits = "release"
+lto = true
+strip = true
+codegen-units = 1
 
 [workspace]
 resolver = "3"
@@ -20,10 +40,13 @@ exclude = ["crates/ebpf-redirect"]
 default-members = ["crates/client"]
 
 [workspace.dependencies]
+# HTTP client
+reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
+
 # OpenTelemetry
 opentelemetry = "0.31"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "metrics"] }
-opentelemetry-otlp = { version = "0.31", features = ["grpc-tonic", "metrics"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["grpc-tonic", "metrics", "trace"] }
 tracing-opentelemetry = "0.32"
 
 [workspace.lints.rust]
