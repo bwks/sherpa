@@ -3,9 +3,50 @@ use tabled::{
     settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
 };
 
+use super::ssh::SshConfigInspectionEntry;
 use crate::data::{
     BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ScannedImage,
 };
+
+/// Represents a row in the SSH config inspection table
+#[derive(Tabled)]
+struct SshConfigInspectionTableRow {
+    #[tabled(rename = "Line")]
+    line: String,
+
+    #[tabled(rename = "Lab ID")]
+    lab_id: String,
+
+    #[tabled(rename = "Status")]
+    status: String,
+
+    #[tabled(rename = "Path")]
+    path: String,
+
+    #[tabled(rename = "Reason")]
+    reason: String,
+}
+
+/// Renders Sherpa SSH config inspection results.
+pub fn render_ssh_config_inspection_table(entries: &[SshConfigInspectionEntry]) -> String {
+    let rows: Vec<SshConfigInspectionTableRow> = entries
+        .iter()
+        .map(|entry| SshConfigInspectionTableRow {
+            line: entry.line_number.to_string(),
+            lab_id: entry.lab_id.as_deref().unwrap_or("-").to_string(),
+            status: entry.status.to_string(),
+            path: entry.include_path.clone(),
+            reason: entry.reason.clone(),
+        })
+        .collect();
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header("Sherpa SSH Config Includes"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
 
 /// Represents a row in the nodes table
 #[derive(Tabled)]

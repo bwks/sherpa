@@ -57,13 +57,16 @@ pub use port::id_to_port;
 pub use random::{generate_lab_name, get_id, get_id_for_user};
 pub use sanitizers::dasher;
 pub use ssh::{
-    add_lab_ssh_include, find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key,
+    SshConfigCleanReport, SshConfigEntryStatus, SshConfigInspectionEntry,
+    SshConfigInspectionReport, add_lab_ssh_include, clean_stale_lab_ssh_includes,
+    find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key, inspect_lab_ssh_includes,
     pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
 };
 pub use table::{
     CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,
     render_image_detail_table, render_images_table, render_lab_info_table, render_links_table,
     render_nodes_table, render_scanned_images_table, render_server_status_table,
+    render_ssh_config_inspection_table,
 };
 pub use text::split_node_int;
 pub use user::{get_username, sherpa_user};

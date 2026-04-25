@@ -12,8 +12,8 @@ use crate::auth::context::AuthContext;
 use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, progress,
-    redeploy, resume, up,
+    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
+    progress, redeploy, resume, up,
 };
 use shared::auth::password;
 use shared::data;
@@ -185,6 +185,7 @@ pub async fn handle_rpc_request(
         "auth.validate" => handle_auth_validate(id, params, state).await,
         "inspect" => handle_inspect(id, params, state).await,
         "download" => handle_download(id, params, state).await,
+        "labs.list" => handle_labs_list(id, params, state).await,
         "down" => handle_down(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         "resume" => handle_resume(id, params, state).await,
@@ -334,6 +335,59 @@ pub async fn handle_streaming_rpc_request(
         .metrics
         .rpc_duration
         .record(start.elapsed().as_secs_f64(), &[method_attr]);
+}
+
+/// Handle "labs.list" RPC call.
+///
+/// Expected params: {"token": "string"}
+async fn handle_labs_list(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for labs.list: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    match list_labs::list_labs(&auth_ctx.username, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::ServerError,
+                message: "Failed to list labs".to_string(),
+                context: Some(format!("{:?}", e)),
+            }),
+        },
+    }
 }
 
 /// Handle "inspect" RPC call

@@ -14,6 +14,7 @@ mod redeploy;
 mod resume;
 pub mod server;
 mod ssh;
+mod ssh_config;
 mod up;
 mod validate;
 

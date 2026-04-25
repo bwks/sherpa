@@ -18,6 +18,7 @@ use super::redeploy::redeploy;
 use super::resume::resume;
 use super::server::{OutputFormat, ServerCommands, run_server};
 use super::ssh::ssh;
+use super::ssh_config::{ssh_config_clean, ssh_config_inspect};
 use super::up::up;
 use super::validate::validate_manifest;
 
@@ -64,6 +65,19 @@ fn resolve_lab_identity() -> anyhow::Result<LabIdentity> {
 /// Load client config from file, falling back to defaults if the file doesn't exist.
 fn load_client_config_or_default(path: &str) -> ClientConfig {
     load_client_config(path).unwrap_or_else(|_| ClientConfig::default())
+}
+
+fn apply_insecure_override(config: &mut ClientConfig, insecure: bool) {
+    if insecure {
+        config.server_connection.insecure = true;
+        eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+    }
+}
+
+fn load_client_config_for_command(path: &str, insecure: bool) -> ClientConfig {
+    let mut config = load_client_config_or_default(path);
+    apply_insecure_override(&mut config, insecure);
+    config
 }
 
 /// Resolve the server URL from CLI args, env, or config.
@@ -226,6 +240,12 @@ enum Commands {
     /// SSH to a device.
     Ssh { name: String },
 
+    /// Inspect or clean Sherpa SSH config Include entries.
+    SshConfig {
+        #[command(subcommand)]
+        command: SshConfigCommands,
+    },
+
     /// Image management commands
     Image {
         #[command(subcommand)]
@@ -251,6 +271,14 @@ enum Commands {
         #[command(subcommand)]
         commands: ServerCommands,
     },
+}
+
+#[derive(Debug, Subcommand)]
+enum SshConfigCommands {
+    /// Inspect and validate Sherpa SSH config Include entries.
+    Inspect,
+    /// Remove stale or broken Sherpa SSH config Include entries.
+    Clean,
 }
 
 #[derive(Debug, Subcommand)]
@@ -313,12 +341,7 @@ impl Cli {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest_obj.name)?;
                 let lab_name = manifest_obj.name.clone();
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 up(
@@ -332,24 +355,14 @@ impl Cli {
             }
             Commands::Down { node } => {
                 let lab = resolve_lab_identity()?;
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 down(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
             }
             Commands::Resume { node } => {
                 let lab = resolve_lab_identity()?;
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 resume(&lab.name, &lab.id, node.as_deref(), &server_url, &config).await?;
@@ -358,12 +371,7 @@ impl Cli {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest_obj.name)?;
                 let lab_name = manifest_obj.name.clone();
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 redeploy(
@@ -378,35 +386,20 @@ impl Cli {
             }
             Commands::Destroy { yes } => {
                 let lab = resolve_lab_identity()?;
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 destroy(&lab.name, &lab.id, &server_url, &config, *yes).await?;
             }
             Commands::Inspect => {
                 let lab = resolve_lab_identity()?;
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 inspect(&lab.name, &lab.id, &server_url, &config).await?;
             }
             Commands::Download { lab_id, force } => {
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 download(lab_id, *force, &server_url, &config).await?;
@@ -417,12 +410,7 @@ impl Cli {
             Commands::Console { name } => {
                 let manifest_obj = Manifest::load_file(SHERPA_MANIFEST_FILE)?;
                 let lab_id = get_id(&manifest_obj.name)?;
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 let lab_info = resolve_lab_info(&lab_id, &server_url, &config).await?;
@@ -432,13 +420,24 @@ impl Cli {
                 let lab = resolve_lab_identity()?;
                 ssh(name, &lab.id).await?;
             }
-            Commands::Image { commands } => {
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
+            Commands::SshConfig { command } => match command {
+                SshConfigCommands::Inspect => {
+                    let config =
+                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                    eprintln!("WARNING: TLS certificate validation disabled (--insecure)");
+                    let server_url = resolve_server_url(cli.server_url, &config);
+                    ssh_config_inspect(&server_url, &config).await?;
                 }
+                SshConfigCommands::Clean => {
+                    let config =
+                        load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+
+                    let server_url = resolve_server_url(cli.server_url, &config);
+                    ssh_config_clean(&server_url, &config).await?;
+                }
+            },
+            Commands::Image { commands } => {
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 parse_image_commands(commands, &config, &server_url).await?;
@@ -454,16 +453,66 @@ impl Cli {
                 output,
                 commands,
             } => {
-                let mut config = load_client_config_or_default(&sherpa.config_file_path);
-
-                if cli.insecure {
-                    config.server_connection.insecure = true;
-                }
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 
                 let server_url = resolve_server_url(cli.server_url, &config);
                 run_server(commands, *verbose, output, &server_url, &config).await?;
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_apply_insecure_override_sets_config_flag() {
+        let mut config = ClientConfig::default();
+
+        apply_insecure_override(&mut config, true);
+
+        assert!(config.server_connection.insecure);
+    }
+
+    #[test]
+    fn test_apply_insecure_override_leaves_config_secure_by_default() {
+        let mut config = ClientConfig::default();
+
+        apply_insecure_override(&mut config, false);
+
+        assert!(!config.server_connection.insecure);
+    }
+
+    #[test]
+    fn test_parse_ssh_node_command_unchanged() {
+        let cli = Cli::try_parse_from(["sherpa", "ssh", "leaf1"]).unwrap();
+        match cli.commands {
+            Commands::Ssh { name } => assert_eq!(name, "leaf1"),
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ssh_config_inspect_subcommand() {
+        let cli = Cli::try_parse_from(["sherpa", "ssh-config", "inspect"]).unwrap();
+        match cli.commands {
+            Commands::SshConfig {
+                command: SshConfigCommands::Inspect,
+            } => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_parse_ssh_config_clean_subcommand() {
+        let cli = Cli::try_parse_from(["sherpa", "ssh-config", "clean"]).unwrap();
+        match cli.commands {
+            Commands::SshConfig {
+                command: SshConfigCommands::Clean,
+            } => {}
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }

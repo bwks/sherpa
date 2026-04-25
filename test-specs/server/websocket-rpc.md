@@ -43,6 +43,8 @@
 ## Lab Operations (Request/Response)
 
 **What to test:**
+- `labs.list` returns labs for the authenticated token user `[integration]` **P0**
+- `labs.list` rejects missing or invalid tokens `[integration]` **P0**
 - `inspect` returns lab state (devices, links, bridges) `[integration]` **P0**
 - `inspect` validates lab ownership `[integration]` **P0**
 - `down` stops all or specific nodes `[integration]` **P0**

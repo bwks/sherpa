@@ -3,15 +3,66 @@ use base64::{Engine, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
 use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
+use tracing::instrument;
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use super::file_system::{create_file, expand_path};
-use crate::data::{SshKeyAlgorithms, SshPublicKey};
-use crate::konst::{SHERPA_SSH_INDEX_FILE, SHERPA_SSH_INDEX_HEADER};
+use crate::data::{LabInfo, SshKeyAlgorithms, SshPublicKey};
+use crate::konst::{
+    LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_INDEX_FILE, SHERPA_SSH_INDEX_HEADER,
+};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SshConfigEntryStatus {
+    Valid,
+    Stale,
+    Broken,
+    Unknown,
+}
+
+impl std::fmt::Display for SshConfigEntryStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Valid => write!(f, "valid"),
+            Self::Stale => write!(f, "stale"),
+            Self::Broken => write!(f, "broken"),
+            Self::Unknown => write!(f, "unknown"),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SshConfigInspectionEntry {
+    pub line_number: usize,
+    pub include_path: String,
+    pub lab_id: Option<String>,
+    pub status: SshConfigEntryStatus,
+    pub reason: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SshConfigInspectionReport {
+    pub index_path: PathBuf,
+    pub entries: Vec<SshConfigInspectionEntry>,
+    pub server_validation_available: bool,
+    pub server_validation_message: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SshConfigCleanReport {
+    pub index_path: PathBuf,
+    pub kept: Vec<SshConfigInspectionEntry>,
+    pub removed: Vec<SshConfigInspectionEntry>,
+    pub server_validation_available: bool,
+    pub server_validation_message: Option<String>,
+}
 
 /// Read an SSH public key file and return a String.
 pub fn get_ssh_public_key(path: &str) -> Result<SshPublicKey> {
@@ -164,9 +215,241 @@ pub fn find_user_ssh_keys() -> Vec<String> {
 }
 
 /// Resolve the user's ~/.ssh directory.
-fn get_user_ssh_dir() -> Result<std::path::PathBuf> {
+fn get_user_ssh_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().ok_or_else(|| anyhow!("Could not determine home directory"))?;
     Ok(home.join(".ssh"))
+}
+
+fn sherpa_index_path(ssh_dir: &Path) -> PathBuf {
+    ssh_dir.join(SHERPA_SSH_INDEX_FILE)
+}
+
+fn parse_include_target(line: &str) -> Option<Result<String>> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    if parts.first() != Some(&"Include") {
+        return Some(Err(anyhow!("Line is not an Include directive")));
+    }
+
+    if parts.len() != 2 {
+        return Some(Err(anyhow!(
+            "Include directive must contain exactly one path"
+        )));
+    }
+
+    Some(Ok(parts[1].to_string()))
+}
+
+fn read_lab_info_for_include(include_path: &Path) -> Result<LabInfo> {
+    let lab_dir = include_path
+        .parent()
+        .ok_or_else(|| anyhow!("Include path has no parent directory"))?;
+    let lab_info_path = lab_dir.join(LAB_FILE_NAME);
+
+    let content = std::fs::read_to_string(&lab_info_path)
+        .with_context(|| format!("Missing or unreadable {}", lab_info_path.display()))?;
+
+    LabInfo::from_str(&content).with_context(|| format!("Invalid {}", lab_info_path.display()))
+}
+
+fn inspect_include_entry(
+    line_number: usize,
+    include_path: String,
+    active_lab_ids: Option<&HashSet<String>>,
+    seen_include_paths: &mut HashSet<String>,
+) -> SshConfigInspectionEntry {
+    if !seen_include_paths.insert(include_path.clone()) {
+        return SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: None,
+            status: SshConfigEntryStatus::Stale,
+            reason: "Duplicate Include entry".to_string(),
+        };
+    }
+
+    let path = PathBuf::from(&include_path);
+    if path.file_name().and_then(|name| name.to_str()) != Some(SHERPA_SSH_CONFIG_FILE) {
+        return SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: None,
+            status: SshConfigEntryStatus::Broken,
+            reason: format!("Include target is not {SHERPA_SSH_CONFIG_FILE}"),
+        };
+    }
+
+    if !path.exists() {
+        return SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: None,
+            status: SshConfigEntryStatus::Stale,
+            reason: "Included SSH config file does not exist".to_string(),
+        };
+    }
+
+    let lab_info = match read_lab_info_for_include(&path) {
+        Ok(lab_info) => lab_info,
+        Err(e) => {
+            return SshConfigInspectionEntry {
+                line_number,
+                include_path,
+                lab_id: None,
+                status: SshConfigEntryStatus::Broken,
+                reason: e.to_string(),
+            };
+        }
+    };
+
+    match active_lab_ids {
+        Some(ids) if ids.contains(&lab_info.id) => SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: Some(lab_info.id),
+            status: SshConfigEntryStatus::Valid,
+            reason: "Lab exists on server".to_string(),
+        },
+        Some(_) => SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: Some(lab_info.id),
+            status: SshConfigEntryStatus::Stale,
+            reason: "Lab ID was not found on server for this user".to_string(),
+        },
+        None => SshConfigInspectionEntry {
+            line_number,
+            include_path,
+            lab_id: Some(lab_info.id),
+            status: SshConfigEntryStatus::Unknown,
+            reason: "Local files are valid; server validation was not available".to_string(),
+        },
+    }
+}
+
+fn inspect_lab_ssh_includes_at(
+    ssh_dir: &Path,
+    active_lab_ids: Option<&HashSet<String>>,
+    server_validation_message: Option<String>,
+) -> Result<SshConfigInspectionReport> {
+    let index_path = sherpa_index_path(ssh_dir);
+    let server_validation_available = active_lab_ids.is_some();
+
+    if !index_path.exists() {
+        return Ok(SshConfigInspectionReport {
+            index_path,
+            entries: Vec::new(),
+            server_validation_available,
+            server_validation_message,
+        });
+    }
+
+    let content = std::fs::read_to_string(&index_path)
+        .with_context(|| format!("Failed to read {}", index_path.display()))?;
+    let mut seen_include_paths = HashSet::new();
+    let mut entries = Vec::new();
+
+    for (idx, line) in content.lines().enumerate() {
+        let line_number = idx + 1;
+        match parse_include_target(line) {
+            Some(Ok(include_path)) => entries.push(inspect_include_entry(
+                line_number,
+                include_path,
+                active_lab_ids,
+                &mut seen_include_paths,
+            )),
+            Some(Err(e)) => entries.push(SshConfigInspectionEntry {
+                line_number,
+                include_path: line.trim().to_string(),
+                lab_id: None,
+                status: SshConfigEntryStatus::Broken,
+                reason: e.to_string(),
+            }),
+            None => {}
+        }
+    }
+
+    Ok(SshConfigInspectionReport {
+        index_path,
+        entries,
+        server_validation_available,
+        server_validation_message,
+    })
+}
+
+fn clean_stale_lab_ssh_includes_at(
+    ssh_dir: &Path,
+    active_lab_ids: Option<&HashSet<String>>,
+    server_validation_message: Option<String>,
+) -> Result<SshConfigCleanReport> {
+    let inspection =
+        inspect_lab_ssh_includes_at(ssh_dir, active_lab_ids, server_validation_message.clone())?;
+
+    if !inspection.index_path.exists() {
+        return Ok(SshConfigCleanReport {
+            index_path: inspection.index_path,
+            kept: Vec::new(),
+            removed: Vec::new(),
+            server_validation_available: inspection.server_validation_available,
+            server_validation_message: inspection.server_validation_message,
+        });
+    }
+
+    let removable_lines: HashSet<usize> = inspection
+        .entries
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.status,
+                SshConfigEntryStatus::Stale | SshConfigEntryStatus::Broken
+            )
+        })
+        .map(|entry| entry.line_number)
+        .collect();
+
+    let content = std::fs::read_to_string(&inspection.index_path)
+        .with_context(|| format!("Failed to read {}", inspection.index_path.display()))?;
+    let new_content = content
+        .lines()
+        .enumerate()
+        .filter_map(|(idx, line)| {
+            let line_number = idx + 1;
+            if removable_lines.contains(&line_number) {
+                None
+            } else {
+                Some(line)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    std::fs::write(&inspection.index_path, format!("{}\n", new_content))
+        .with_context(|| format!("Failed to write {}", inspection.index_path.display()))?;
+
+    let removed = inspection
+        .entries
+        .iter()
+        .filter(|entry| removable_lines.contains(&entry.line_number))
+        .cloned()
+        .collect();
+    let kept = inspection
+        .entries
+        .iter()
+        .filter(|entry| !removable_lines.contains(&entry.line_number))
+        .cloned()
+        .collect();
+
+    Ok(SshConfigCleanReport {
+        index_path: inspection.index_path,
+        kept,
+        removed,
+        server_validation_available: inspection.server_validation_available,
+        server_validation_message: inspection.server_validation_message,
+    })
 }
 
 /// Ensure ssh_dir/config has a permanent Include line for ssh_dir/sherpa_lab_hosts.
@@ -206,7 +489,7 @@ fn ensure_sherpa_include_in_ssh_config_at(ssh_dir: &std::path::Path) -> Result<s
     };
 
     // Already has the Include — done
-    if existing.contains(&include_line) {
+    if existing.lines().any(|line| line.trim() == include_line) {
         return Ok(sherpa_configs_path);
     }
 
@@ -228,7 +511,7 @@ fn add_lab_ssh_include_at(ssh_dir: &std::path::Path, lab_ssh_config_path: &str) 
     let include_line = format!("Include {}", lab_ssh_config_path);
 
     // Already present — idempotent
-    if existing.contains(&include_line) {
+    if existing.lines().any(|line| line.trim() == include_line) {
         return Ok(());
     }
 
@@ -252,7 +535,7 @@ fn remove_lab_ssh_include_at(ssh_dir: &std::path::Path, lab_ssh_config_path: &st
 
     let include_line = format!("Include {}", lab_ssh_config_path);
 
-    if !content.contains(&include_line) {
+    if !content.lines().any(|line| line.trim() == include_line) {
         return Ok(());
     }
 
@@ -270,19 +553,42 @@ fn remove_lab_ssh_include_at(ssh_dir: &std::path::Path, lab_ssh_config_path: &st
 
 /// Add an Include line for a lab's sherpa_ssh_config to ~/.ssh/sherpa_lab_hosts.
 /// Also ensures the permanent Include in ~/.ssh/config exists.
+#[instrument(fields(%lab_ssh_config_path))]
 pub fn add_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
     let ssh_dir = get_user_ssh_dir()?;
     add_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
 }
 
 /// Remove an Include line for a lab's sherpa_ssh_config from ~/.ssh/sherpa_lab_hosts.
+#[instrument(fields(%lab_ssh_config_path))]
 pub fn remove_lab_ssh_include(lab_ssh_config_path: &str) -> Result<()> {
     let ssh_dir = get_user_ssh_dir()?;
     remove_lab_ssh_include_at(&ssh_dir, lab_ssh_config_path)
 }
 
+/// Inspect ~/.ssh/sherpa_lab_hosts for stale or broken Sherpa lab Include entries.
+#[instrument(skip(active_lab_ids))]
+pub fn inspect_lab_ssh_includes(
+    active_lab_ids: Option<&HashSet<String>>,
+    server_validation_message: Option<String>,
+) -> Result<SshConfigInspectionReport> {
+    let ssh_dir = get_user_ssh_dir()?;
+    inspect_lab_ssh_includes_at(&ssh_dir, active_lab_ids, server_validation_message)
+}
+
+/// Remove stale or broken Sherpa lab Include entries from ~/.ssh/sherpa_lab_hosts.
+#[instrument(skip(active_lab_ids))]
+pub fn clean_stale_lab_ssh_includes(
+    active_lab_ids: Option<&HashSet<String>>,
+    server_validation_message: Option<String>,
+) -> Result<SshConfigCleanReport> {
+    let ssh_dir = get_user_ssh_dir()?;
+    clean_stale_lab_ssh_includes_at(&ssh_dir, active_lab_ids, server_validation_message)
+}
+
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::Path;
 
     use tempfile::TempDir;
@@ -493,6 +799,166 @@ mod tests {
         assert_eq!(
             config_before, config_after,
             "~/.ssh/config should not be modified by remove"
+        );
+    }
+
+    fn valid_lab_info_toml(lab_id: &str) -> String {
+        format!(
+            r#"id = "{lab_id}"
+name = "test-lab"
+user = "test-user"
+ipv4_network = "172.31.1.0/24"
+ipv4_gateway = "172.31.1.1"
+ipv4_router = "172.31.1.254"
+loopback_network = "127.127.1.0/24"
+"#
+        )
+    }
+
+    fn create_lab_files(base: &Path, lab_dir_name: &str, lab_id: &str) -> String {
+        let lab_dir = base.join(lab_dir_name);
+        std::fs::create_dir_all(&lab_dir).unwrap();
+        let ssh_config_path = lab_dir.join(SHERPA_SSH_CONFIG_FILE);
+        std::fs::write(&ssh_config_path, "Host test\n").unwrap();
+        std::fs::write(lab_dir.join(LAB_FILE_NAME), valid_lab_info_toml(lab_id)).unwrap();
+        ssh_config_path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn test_inspect_reports_valid_when_lab_is_active() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let include_path = create_lab_files(tmp.path(), "lab1", "lab-active");
+        add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
+
+        let mut active = HashSet::new();
+        active.insert("lab-active".to_string());
+        let report = inspect_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
+
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SshConfigEntryStatus::Valid);
+        assert_eq!(report.entries[0].lab_id.as_deref(), Some("lab-active"));
+    }
+
+    #[test]
+    fn test_inspect_reports_stale_when_lab_missing_from_server() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let include_path = create_lab_files(tmp.path(), "lab1", "deleted-lab");
+        add_lab_ssh_include_at(&ssh_dir, &include_path).unwrap();
+
+        let active = HashSet::new();
+        let report = inspect_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
+
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SshConfigEntryStatus::Stale);
+        assert_eq!(report.entries[0].lab_id.as_deref(), Some("deleted-lab"));
+    }
+
+    #[test]
+    fn test_inspect_reports_stale_when_config_missing() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        add_lab_ssh_include_at(&ssh_dir, "/tmp/missing/sherpa_ssh_config").unwrap();
+
+        let report = inspect_lab_ssh_includes_at(&ssh_dir, None, None).unwrap();
+
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SshConfigEntryStatus::Stale);
+    }
+
+    #[test]
+    fn test_inspect_reports_broken_when_lab_info_invalid() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let lab_dir = tmp.path().join("lab1");
+        std::fs::create_dir_all(&lab_dir).unwrap();
+        let ssh_config_path = lab_dir.join(SHERPA_SSH_CONFIG_FILE);
+        std::fs::write(&ssh_config_path, "Host test\n").unwrap();
+        std::fs::write(lab_dir.join(LAB_FILE_NAME), "not = valid = toml").unwrap();
+        add_lab_ssh_include_at(&ssh_dir, &ssh_config_path.to_string_lossy()).unwrap();
+
+        let report = inspect_lab_ssh_includes_at(&ssh_dir, None, None).unwrap();
+
+        assert_eq!(report.entries.len(), 1);
+        assert_eq!(report.entries[0].status, SshConfigEntryStatus::Broken);
+    }
+
+    #[test]
+    fn test_clean_removes_stale_and_keeps_valid() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let valid_include = create_lab_files(tmp.path(), "lab1", "active-lab");
+        let stale_include = create_lab_files(tmp.path(), "lab2", "deleted-lab");
+        add_lab_ssh_include_at(&ssh_dir, &valid_include).unwrap();
+        add_lab_ssh_include_at(&ssh_dir, &stale_include).unwrap();
+
+        let mut active = HashSet::new();
+        active.insert("active-lab".to_string());
+        let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
+
+        assert_eq!(report.kept.len(), 1);
+        assert_eq!(report.removed.len(), 1);
+        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        assert!(content.contains(&valid_include));
+        assert!(!content.contains(&stale_include));
+        assert!(content.contains(SHERPA_SSH_INDEX_HEADER));
+    }
+
+    #[test]
+    fn test_clean_removes_duplicate_include() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        let include_path = create_lab_files(tmp.path(), "lab1", "active-lab");
+        ensure_sherpa_include_in_ssh_config_at(&ssh_dir).unwrap();
+        std::fs::write(
+            ssh_dir.join(SHERPA_SSH_INDEX_FILE),
+            format!(
+                "{}\nInclude {}\nInclude {}\n",
+                SHERPA_SSH_INDEX_HEADER, include_path, include_path
+            ),
+        )
+        .unwrap();
+
+        let mut active = HashSet::new();
+        active.insert("active-lab".to_string());
+        let report = clean_stale_lab_ssh_includes_at(&ssh_dir, Some(&active), None).unwrap();
+
+        assert_eq!(report.kept.len(), 1);
+        assert_eq!(report.removed.len(), 1);
+        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        assert_eq!(content.matches(&include_path).count(), 1);
+    }
+
+    #[test]
+    fn test_remove_uses_exact_line_matching() {
+        let tmp = TempDir::new().unwrap();
+        let ssh_dir = tmp.path().join(".ssh");
+        std::fs::create_dir_all(&ssh_dir).unwrap();
+        ensure_sherpa_include_in_ssh_config_at(&ssh_dir).unwrap();
+        std::fs::write(
+            ssh_dir.join(SHERPA_SSH_INDEX_FILE),
+            format!(
+                "{}\nInclude /tmp/lab1/sherpa_ssh_config-extra\nInclude /tmp/lab1/sherpa_ssh_config\n",
+                SHERPA_SSH_INDEX_HEADER
+            ),
+        )
+        .unwrap();
+
+        remove_lab_ssh_include_at(&ssh_dir, "/tmp/lab1/sherpa_ssh_config").unwrap();
+
+        let content = read_file(&ssh_dir.join(SHERPA_SSH_INDEX_FILE));
+        assert!(content.contains("Include /tmp/lab1/sherpa_ssh_config-extra"));
+        assert!(
+            !content
+                .lines()
+                .any(|line| line.trim() == "Include /tmp/lab1/sherpa_ssh_config")
         );
     }
 
