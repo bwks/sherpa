@@ -152,6 +152,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             memory: node.memory,
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
+            data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
             ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
@@ -411,10 +412,20 @@ pub async fn up_lab(
             )?;
         }
 
+        let data_interface_count = validate::effective_data_interface_count(
+            &node.name,
+            node.data_interface_count,
+            &node_image,
+        )
+        .context(format!(
+            "Data interface count validation failed for node: {}",
+            node.name
+        ))?;
+
         validate::check_interface_bounds(
             &node.name,
             &node_image.model,
-            node_image.data_interface_count,
+            data_interface_count,
             node_image.reserved_interface_count,
             node_image.dedicated_management_interface,
             &links_detailed,
@@ -577,8 +588,21 @@ pub async fn up_lab(
 
             // Build interface data structures
             let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
-            let first_data_interface_idx = 1 + node_image.reserved_interface_count;
-            let max_interface_idx = first_data_interface_idx + node_image.data_interface_count - 1;
+            let data_interface_count = validate::effective_data_interface_count(
+                &node.name,
+                node.data_interface_count,
+                &node_image,
+            )?;
+            let first_data_interface_idx = node_image
+                .reserved_interface_count
+                .checked_add(1)
+                .ok_or_else(|| {
+                    anyhow!("Reserved interface count overflow for node {}", node.name)
+                })?;
+            let max_interface_idx = node_image
+                .reserved_interface_count
+                .checked_add(data_interface_count)
+                .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node.name))?;
 
             for idx in 0..=max_interface_idx {
                 let interface_name = util::interface_from_idx(&node.model, idx)?;

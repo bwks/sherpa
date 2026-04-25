@@ -43,11 +43,17 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
             validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
         }
 
+        let data_interface_count = validate::effective_data_interface_count(
+            &node.name,
+            node.data_interface_count,
+            &node_image,
+        )?;
+
         // Interface bounds check
         validate::check_interface_bounds(
             &node.name,
             &node_image.model,
-            node_image.data_interface_count,
+            data_interface_count,
             node_image.reserved_interface_count,
             node_image.dedicated_management_interface,
             &links_detailed,
@@ -77,4 +83,58 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("{}", util::emoji_success("Manifest validation passed!"));
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn write_temp_manifest(name: &str, contents: &str) -> PathBuf {
+        let mut path = std::env::temp_dir();
+        path.push(format!("sherpa-{name}-{}.toml", std::process::id()));
+        fs::write(&path, contents).expect("writes temp manifest");
+        path
+    }
+
+    #[test]
+    fn test_validate_manifest_accepts_data_interface_count_override() {
+        let manifest = r#"
+name = "override-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux", data_interface_count = 4 },
+  { name = "dev02", model = "ubuntu_linux", data_interface_count = 4 },
+]
+
+links = [
+  { src = "dev01::eth4", dst = "dev02::eth4" },
+]
+"#;
+        let path = write_temp_manifest("override-pass", manifest);
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_validate_manifest_rejects_link_past_default_interface_count() {
+        let manifest = r#"
+name = "override-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux" },
+  { name = "dev02", model = "ubuntu_linux" },
+]
+
+links = [
+  { src = "dev01::eth2", dst = "dev02::eth2" },
+]
+"#;
+        let path = write_temp_manifest("override-fail", manifest);
+        let result = validate_manifest(path.to_str().expect("temp path is utf-8"));
+        fs::remove_file(path).ok();
+        assert!(result.is_err());
+    }
 }

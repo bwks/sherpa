@@ -18,6 +18,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             memory: node.memory,
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
+            data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
             ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
@@ -197,6 +198,7 @@ mod tests {
             version: Some("4.28.0".to_string()),
             memory: Some(4096),
             cpu_count: Some(2),
+            data_interface_count: Some(4),
             privileged: Some(true),
             skip_ready_check: Some(true),
             ..Default::default()
@@ -208,6 +210,7 @@ mod tests {
         assert_eq!(expanded[0].version, Some("4.28.0".to_string()));
         assert_eq!(expanded[0].memory, Some(4096));
         assert_eq!(expanded[0].cpu_count, Some(2));
+        assert_eq!(expanded[0].data_interface_count, Some(4));
         assert_eq!(expanded[0].privileged, Some(true));
         assert_eq!(expanded[0].skip_ready_check, Some(true));
     }
