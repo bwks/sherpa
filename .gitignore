@@ -27,6 +27,7 @@ dev.sh
 srl-config.json
 
 # Dev
+.cargo/config.toml
 test_*.toml
 sherpa_ssh_*
 .claude/*

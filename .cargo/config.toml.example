@@ -1,0 +1,12 @@
+# Optional local fast-linking configuration for Linux developers.
+#
+# To opt in, install LLVM lld for your distribution, then copy this file to:
+#
+#   .cargo/config.toml
+#
+# This repository intentionally does not check in .cargo/config.toml because a
+# hard linker requirement breaks builds on machines without lld installed.
+# mold is intentionally not used or recommended for Sherpa.
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]

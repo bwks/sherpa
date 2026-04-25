@@ -7,7 +7,7 @@ edition = "2024"
 aya = "0.13.1"
 rtnetlink = "0.20.0"
 shared = { path = "../shared" }
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 futures = "0.3"
 anyhow = "1.0.100"
 tracing = "0.1"

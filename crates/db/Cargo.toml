@@ -3,13 +3,6 @@ name = "db"
 version = "0.3.72"
 edition = "2024"
 
-[profile.release]
-lto = true
-strip = true
-opt-level = 3
-panic = 'abort'
-codegen-units = 1
-
 [dependencies]
 shared = { path = "../shared" }
 
