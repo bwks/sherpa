@@ -2,6 +2,30 @@
 
 set -euo pipefail
 
+mode="${1:-debug}"
+
+case "${mode}" in
+    debug)
+        cargo_args=(build --workspace)
+        target_dir="debug"
+        ;;
+    release)
+        cargo_args=(build --workspace --release)
+        target_dir="release"
+        ;;
+    -h|--help|help)
+        echo "Usage: dev/rebuild [debug|release]"
+        echo "  debug    Build workspace debug binaries (default)"
+        echo "  release  Build workspace release binaries"
+        exit 0
+        ;;
+    *)
+        echo "error: unknown rebuild mode '${mode}'" >&2
+        echo "Usage: dev/rebuild [debug|release]" >&2
+        exit 2
+        ;;
+esac
+
 # Build eBPF redirect program (excluded from workspace, requires nightly)
 # The compiled ELF is embedded into the network crate via include_bytes!()
 # Must cd into the crate so cargo picks up .cargo/config.toml (target + build-std)
@@ -12,10 +36,11 @@ cp crates/ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect crates/e
 # Build Tailwind CSS (embedded into sherpad binary at compile time)
 bash scripts/tailwind-build.sh
 
-# Build release binaries only. Do not use --all-targets here: it compiles test
+# Build workspace binaries only. Do not use --all-targets here: it compiles test
 # targets such as sherpad(test), which are not installed by this script.
-cargo build --workspace --release
+echo "Building Sherpa workspace (${mode})..."
+cargo "${cargo_args[@]}"
 sudo systemctl stop sherpad
-sudo cp target/release/sherpad /opt/sherpa/bin/
-sudo cp target/release/sherpa /opt/sherpa/bin/
+sudo cp "target/${target_dir}/sherpad" /opt/sherpa/bin/
+sudo cp "target/${target_dir}/sherpa" /opt/sherpa/bin/
 sudo systemctl restart sherpad

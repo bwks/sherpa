@@ -7,14 +7,19 @@ opt-level = 0
 [profile.dev.package.num-bigint-dig]
 opt-level = 3
 
-# Release profile settings must live at the workspace root to apply.
-# Do not set panic = "abort" here: `cargo build --workspace --all-targets --release`
-# then compiles many dependencies twice (abort + unwind), which pushes the build
-# progress total from ~690 units to ~1120 units.
+# Keep default release builds fast for local development and CI validation.
+# Cargo's default release profile already uses opt-level 3; keep that explicit
+# here and reserve expensive LTO/codegen settings for distribution artifacts.
 [profile.release]
+opt-level = 3
+
+# Explicit distribution profile for small, heavily optimized binaries.
+# Do not set panic = "abort" here: workspace/all-target release builds then
+# compile many dependencies twice (abort + unwind), which is slower overall.
+[profile.dist]
+inherits = "release"
 lto = true
 strip = true
-opt-level = 3
 codegen-units = 1
 
 [workspace]
