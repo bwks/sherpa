@@ -12,7 +12,9 @@ cp crates/ebpf-redirect/target/bpfel-unknown-none/release/ebpf-redirect crates/e
 # Build Tailwind CSS (embedded into sherpad binary at compile time)
 bash scripts/tailwind-build.sh
 
-cargo build --workspace --all-targets --release
+# Build release binaries only. Do not use --all-targets here: it compiles test
+# targets such as sherpad(test), which are not installed by this script.
+cargo build --workspace --release
 sudo systemctl stop sherpad
 sudo cp target/release/sherpad /opt/sherpa/bin/
 sudo cp target/release/sherpa /opt/sherpa/bin/

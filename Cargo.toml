@@ -8,11 +8,13 @@ opt-level = 0
 opt-level = 3
 
 # Release profile settings must live at the workspace root to apply.
+# Do not set panic = "abort" here: `cargo build --workspace --all-targets --release`
+# then compiles many dependencies twice (abort + unwind), which pushes the build
+# progress total from ~690 units to ~1120 units.
 [profile.release]
 lto = true
 strip = true
 opt-level = 3
-panic = "abort"
 codegen-units = 1
 
 [workspace]
