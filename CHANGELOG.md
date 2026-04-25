@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.72] - 2026-04-25
+
+### Documentation
+
+- Unikernels by @claude ([11c2908](https://github.com/bwks/sherpa/commit/11c290838a56f65896b176f4b3d85909c9eeb614))
+
+### Features
+
+- Data interface count for nodes in manifest by @claude ([4d9f432](https://github.com/bwks/sherpa/commit/4d9f4324f80d7c9ddead44b2695bade46b06609b))
+
+### Miscellaneous
+
+- Merge pull request #260 from bwks/v0.3.72
+
+V0.3.72 by @bwks in [#260](https://github.com/bwks/sherpa/pull/260) ([9da7589](https://github.com/bwks/sherpa/commit/9da7589e34ec1a46d50b54f1560fb41c6defafad))
+- Bump crate versions to 0.3.72 by @claude ([b95c658](https://github.com/bwks/sherpa/commit/b95c658c7c9d22ad0961f3179b4a5ce60f8450f9))
+- Merge pull request #259 from bwks/changelog/v0.3.71
+
+chore(release): update changelog for v0.3.71 by @github-actions[bot] in [#259](https://github.com/bwks/sherpa/pull/259) ([dc86fa6](https://github.com/bwks/sherpa/commit/dc86fa67040d5f271ae0b1d59c286c745ceaae93))
 ## [0.3.71] - 2026-04-13
 
 ### Features
