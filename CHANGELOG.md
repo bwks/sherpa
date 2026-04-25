@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.73] - 2026-04-25
+
+### Features
+
+- Clean up stale ssh configs by @claude ([0ef48f3](https://github.com/bwks/sherpa/commit/0ef48f35c210c54645c899578f742b7441487ab7))
+
+### Miscellaneous
+
+- Merge pull request #262 from bwks/v0.3.73
+
+V0.3.73 by @bwks in [#262](https://github.com/bwks/sherpa/pull/262) ([8ad63b4](https://github.com/bwks/sherpa/commit/8ad63b4c4f4846521b4e88fbf813e8072e655f93))
+- Add shared pi skills by @bwks ([d12c1fc](https://github.com/bwks/sherpa/commit/d12c1fc24a59259b70b2b44039db68f8cb2188b1))
+- Bump crate versions to 0.3.73 by @bwks ([3cae09d](https://github.com/bwks/sherpa/commit/3cae09dd53f7abc8fc2587cb7f273d04a88d0a9d))
+- Compile optimizations by @claude ([5293f88](https://github.com/bwks/sherpa/commit/5293f8802a4bd2b347165bff0b7cdd88ab649d2b))
+- Compile optimizations by @claude ([93621f3](https://github.com/bwks/sherpa/commit/93621f37c4a03c57ed329ba35833ae31f00f99c9))
+- Merge pull request #261 from bwks/changelog/v0.3.72
+
+chore(release): update changelog for v0.3.72 by @github-actions[bot] in [#261](https://github.com/bwks/sherpa/pull/261) ([0ff6865](https://github.com/bwks/sherpa/commit/0ff6865c1683d66ac46ef79a6886ac8381158670))
 ## [0.3.72] - 2026-04-25
 
 ### Documentation
