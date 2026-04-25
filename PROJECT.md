@@ -28,6 +28,15 @@
 - [ ] **Rate limiting** — Acknowledged as missing in API.md.
 - [ ] **Configurable self-registration** — Signup is always enabled with no way to disable it.
 
+### Architecture Rough Edges
+
+- [ ] **Route-group authorization** — Replace handler-signature/manual auth discovery with explicit public, authenticated, and admin route groups. PRD: `docs/prds/server-route-group-authorization.md`.
+- [ ] **Consistent service authorization context** — Stop trusting caller-supplied usernames in service requests and standardize services on a verified auth context. PRD: `docs/prds/server-service-authorization-context.md`.
+- [ ] **API spec streaming parity** — Resolve the `image.import` streaming mismatch between `api_spec.rs`, REST handlers, WebSocket handlers, OpenAPI, docs, and tests. PRD: `docs/prds/server-api-spec-streaming-parity.md`.
+- [ ] **Persistent job state** — Replace in-memory-only HTML progress jobs with durable job records and reconnectable progress/result behavior. PRD: `docs/prds/server-persistent-job-state.md`.
+- [ ] **Resource registry cleanup** — Add exact resource inventory/ownership tracking so destroy/clean do not depend primarily on name substring matching. PRD: `docs/prds/server-resource-registry-cleanup.md`.
+- [ ] **Blocking libvirt boundary** — Audit and isolate all blocking libvirt operations behind a consistent blocking-safe execution boundary. PRD: `docs/prds/server-libvirt-blocking-boundary.md`.
+
 ## Frontend
 
 - [ ] **Dioxus native GUI frontend** — Planned but not yet started.
