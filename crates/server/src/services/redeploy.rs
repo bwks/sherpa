@@ -72,6 +72,7 @@ pub async fn redeploy_node(
             memory: node.memory,
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
+            data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
             ipv6_address: node.ipv6_address,
             ssh_authorized_keys: node.ssh_authorized_keys.clone(),
@@ -137,6 +138,15 @@ pub async fn redeploy_node(
         .first()
         .ok_or_else(|| anyhow!("Node image config not found for node '{}'", node_name))?
         .clone();
+    let data_interface_count = validate::effective_data_interface_count(
+        node_name,
+        target_node.data_interface_count,
+        &node_image,
+    )
+    .context(format!(
+        "Data interface count validation failed for node: {}",
+        node_name
+    ))?;
 
     // Load lab info from filesystem
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
@@ -330,8 +340,16 @@ pub async fn redeploy_node(
                     && (link.node_a == node_record_id || link.node_b == node_record_id)
             });
 
-            let first_data_idx = 1 + node_image.reserved_interface_count;
-            let max_iface_idx = first_data_idx + node_image.data_interface_count - 1;
+            let first_data_idx = node_image
+                .reserved_interface_count
+                .checked_add(1)
+                .ok_or_else(|| {
+                    anyhow!("Reserved interface count overflow for node {}", node_name)
+                })?;
+            let max_iface_idx = node_image
+                .reserved_interface_count
+                .checked_add(data_interface_count)
+                .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node_name))?;
 
             let mut additional_networks = vec![];
             let mut p2p_container_veths: Vec<P2pContainerVeth> = vec![];
@@ -682,7 +700,12 @@ pub async fn redeploy_node(
             });
 
             // Reserved interfaces
-            let first_data_interface_idx = 1 + node_image.reserved_interface_count;
+            let first_data_interface_idx = node_image
+                .reserved_interface_count
+                .checked_add(1)
+                .ok_or_else(|| {
+                    anyhow!("Reserved interface count overflow for node {}", node_name)
+                })?;
             for idx in 1..first_data_interface_idx {
                 interfaces.push(data::Interface {
                     name: format!("int{}", idx),
@@ -695,7 +718,10 @@ pub async fn redeploy_node(
             }
 
             // Data interfaces
-            let max_interface_idx = first_data_interface_idx + node_image.data_interface_count - 1;
+            let max_interface_idx = node_image
+                .reserved_interface_count
+                .checked_add(data_interface_count)
+                .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node_name))?;
             for idx in first_data_interface_idx..=max_interface_idx {
                 let interface_name = util::interface_from_idx(&target_node.model, idx)?;
 

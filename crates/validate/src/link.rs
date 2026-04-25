@@ -160,11 +160,20 @@ pub fn check_interface_bounds(
     // Management is always at index 0
     // Reserved interfaces are at indices 1 to reserved_interface_count
     // Data interfaces start at (1 + reserved_interface_count)
-    let first_data_interface_idx = 1 + reserved_interface_count;
+    let first_data_interface_idx = reserved_interface_count.checked_add(1).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (reserved: {reserved_interface_count})"
+        )
+    })?;
 
-    // Maximum interface index = first_data_interface_idx + data_interface_count - 1
-    // For example: data_interface_count=52, reserved=0 -> first_data=1, max=52
-    let max_interface_idx = first_data_interface_idx + data_interface_count - 1;
+    // Maximum interface index = reserved_interface_count + data_interface_count.
+    // For example: data_interface_count=52, reserved=0 -> first_data=1, max=52.
+    // If data_interface_count=0, max_interface_idx is the last reserved index.
+    let max_interface_idx = reserved_interface_count.checked_add(data_interface_count).ok_or_else(|| {
+        anyhow::anyhow!(
+            "Interface bounds validation overflow for device '{device_name}' model '{device_model}' (data_interface_count: {data_interface_count}, reserved: {reserved_interface_count})"
+        )
+    })?;
 
     // Check point-to-point links
     for link in links {

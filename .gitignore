@@ -40,3 +40,5 @@ manifest*.toml*
 
 # Tailwind CSS
 tailwindcss
+
+.pi/

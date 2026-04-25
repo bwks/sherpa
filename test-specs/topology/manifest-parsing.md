@@ -51,6 +51,7 @@
 - `text_files`, `binary_files`, `systemd_units` parsed `[unit]` **P1**
 - `environment_variables` parsed as Vec<String> `[unit]` **P1**
 - `cpu_count`, `memory`, `boot_disk_size` optional overrides `[unit]` **P1**
+- `data_interface_count` optional per-node data interface override parsed correctly `[unit]` **P0**
 - `ipv4_address`, `ipv6_address` optional loopback IPs `[unit]` **P1**
 
 ---

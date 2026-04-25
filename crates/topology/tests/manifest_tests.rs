@@ -25,6 +25,7 @@ model = "cisco_iosv"
 version = "15.9"
 cpu_count = 2
 memory = 2048
+data_interface_count = 4
 boot_disk_size = 16
 ipv4_address = "10.0.0.1"
 ipv6_address = "fd00::1"
@@ -154,6 +155,7 @@ fn test_parse_full_manifest() {
     assert_eq!(r1.cpu_count, Some(2));
     assert_eq!(r1.memory, Some(2048));
     assert_eq!(r1.boot_disk_size, Some(16));
+    assert_eq!(r1.data_interface_count, Some(4));
     assert_eq!(r1.ipv4_address, Some(Ipv4Addr::new(10, 0, 0, 1)));
     assert_eq!(
         r1.ipv6_address,
@@ -264,6 +266,19 @@ nodes = [
 fn test_parse_missing_nodes() {
     let toml_str = r#"
 name = "test-lab"
+"#;
+    let result = toml::from_str::<Manifest>(toml_str);
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_node_rejects_unknown_data_interface_field() {
+    let toml_str = r#"
+name = "test-lab"
+
+nodes = [
+  { name = "dev01", model = "ubuntu_linux", data_interfaces = 4 },
+]
 "#;
     let result = toml::from_str::<Manifest>(toml_str);
     assert!(result.is_err());
@@ -424,6 +439,7 @@ fn test_node_defaults() {
     assert!(node.cpu_count.is_none());
     assert!(node.memory.is_none());
     assert!(node.boot_disk_size.is_none());
+    assert!(node.data_interface_count.is_none());
     assert!(node.ipv4_address.is_none());
     assert!(node.ipv6_address.is_none());
     assert!(node.volumes.is_none());
