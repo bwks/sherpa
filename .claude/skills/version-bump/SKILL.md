@@ -2,6 +2,7 @@
 name: version-bump
 description: "Bump the version of all workspace crates. Optional arg: target version (e.g. /version-bump 0.4.0)"
 allowed-tools: Bash, Grep
+model: haiku
 ---
 
 # Version Bump

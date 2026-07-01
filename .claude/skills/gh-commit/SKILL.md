@@ -2,6 +2,7 @@
 name: gh-commit
 description: Commit staged and unstaged changes with Claude as author, using GH_TOKEN for auth
 allowed-tools: Bash, Read, Grep, Glob
+model: haiku
 ---
 
 # Git Commit

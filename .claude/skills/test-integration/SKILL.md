@@ -2,6 +2,7 @@
 name: test-integration
 description: Run Rust integration tests locally (intended for use inside a devbox_linux VM with passwordless sudo)
 allowed-tools: Bash
+model: sonnet
 ---
 
 # Integration Tests

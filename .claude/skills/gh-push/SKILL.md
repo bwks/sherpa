@@ -2,6 +2,7 @@
 name: gh-push
 description: Push the current branch to GitHub using GH_TOKEN for authentication
 allowed-tools: Bash
+model: haiku
 ---
 
 # Git Push
