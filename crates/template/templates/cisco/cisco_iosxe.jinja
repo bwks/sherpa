@@ -54,11 +54,13 @@ ipv6 route ::/0 {{ mgmt_ipv6.first }}
 !
 line con 0
  logging synchronous
+ transport preferred none
  stopbits 1
  exit
 !
 line vty 0 4
  logging synchronous
+ transport preferred none
  transport input ssh
  exit
 !
