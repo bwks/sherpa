@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.74] - 2026-07-01
+
+### Documentation
+
+- Updating docs and PRD for work items by @bwks ([52dfd20](https://github.com/bwks/sherpa/commit/52dfd20bf86b257a2c3d789c6c24d862d46d9022))
+
+### Features
+
+- Disable transport preferred on cisco console/vty lines by @bwks ([369e20b](https://github.com/bwks/sherpa/commit/369e20b150564fdfbdc28be014c202a7eb145caa))
+
+### Miscellaneous
+
+- Merge pull request #265 from bwks/v0.3.74
+
+chore: version bump by @bwks in [#265](https://github.com/bwks/sherpa/pull/265) ([c79fecf](https://github.com/bwks/sherpa/commit/c79fecfa824adb8553bf5c9434185d3cdaa2ecb4))
+- Version bump by @bwks ([91cb83b](https://github.com/bwks/sherpa/commit/91cb83be57cb80d095431c96f0fdd49727097e0d))
+- Merge pull request #264 from bwks/v0.3.74
+
+V0.3.74 by @bwks in [#264](https://github.com/bwks/sherpa/pull/264) ([815c4c5](https://github.com/bwks/sherpa/commit/815c4c52885c0d70dc9ea795c29c26f70257e00c))
+- Attach claude model to skills by @bwks ([2c27409](https://github.com/bwks/sherpa/commit/2c27409431cb9f1e2170047a94fbc0c9bad7cc86))
+- Merge pull request #263 from bwks/changelog/v0.3.73
+
+chore(release): update changelog for v0.3.73 by @github-actions[bot] in [#263](https://github.com/bwks/sherpa/pull/263) ([7406b82](https://github.com/bwks/sherpa/commit/7406b822bac684b72cd18f4667038a1ff6ec6cae))
 ## [0.3.73] - 2026-04-25
 
 ### Features
