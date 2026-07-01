@@ -2,6 +2,7 @@
 name: gh-branch
 description: Create a new git branch and switch to it
 allowed-tools: Bash
+model: haiku
 ---
 
 # Git Branch

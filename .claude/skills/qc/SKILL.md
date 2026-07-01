@@ -2,6 +2,7 @@
 name: qc
 description: Run formatting, linting, tests, and coverage for the entire workspace
 allowed-tools: Bash
+model: haiku
 ---
 
 # Quality Check

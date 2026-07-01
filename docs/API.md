@@ -1,5 +1,7 @@
 # Sherpa API Reference
 
+For server architecture, startup, routing, auth, services, TLS, and background components, see [`SERVER.md`](SERVER.md).
+
 ## Source of Truth
 
 The **unified API specification** is the canonical source of truth for all Sherpa interfaces. It is auto-generated from the Rust types in `crates/shared/src/data/` and the operation registry in `crates/shared/src/api_spec.rs`.
@@ -10,7 +12,13 @@ The **unified API specification** is the canonical source of truth for all Sherp
 curl http://<server>:3030/api/v1/spec | jq .
 ```
 
-This single JSON document defines every operation, its request/response schemas, and how to invoke it via each transport (REST, WebSocket RPC, CLI). All three interfaces implement from this spec.
+**OpenAPI endpoint:** `GET /api/v1/openapi.json`
+
+```bash
+curl http://<server>:3030/api/v1/openapi.json | jq .
+```
+
+This generated API metadata defines every operation, its request/response schemas, and how to invoke it via each transport (REST, WebSocket RPC, CLI). The unified spec is the Sherpa-specific contract; the OpenAPI document is generated from it for HTTP tooling and Swagger UI.
 
 When adding or modifying operations, update the registry in `crates/shared/src/api_spec.rs`. The JSON schemas are derived automatically from the `#[derive(JsonSchema)]` annotations on the shared data types.
 
@@ -64,7 +72,9 @@ Operations require one of three auth levels (defined per-operation in the spec):
 
 ## Streaming Operations
 
-Five operations stream progress updates: `lab.create`, `lab.destroy`, `node.redeploy`, `image.pull`, `image.download`.
+The generated API registry marks five canonical operations as streaming: `lab.create`, `lab.destroy`, `node.redeploy`, `image.pull`, `image.download`.
+
+The current server implementation also streams `image.import` progress over REST and WebSocket.
 
 **Via REST:** Response is an SSE stream. Progress events followed by a final result event.
 

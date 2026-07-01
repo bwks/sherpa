@@ -51,11 +51,13 @@ ip route 0.0.0.0 0.0.0.0 172.20.0.1
 !
 line con 0
  logging synchronous
+ transport preferred none
  stopbits 1
  exit
 !
 line vty 0 4
  logging synchronous
+ transport preferred none
  transport input ssh
  exit
 !
@@ -114,11 +116,13 @@ ipv6 route ::/0 fd00::1
 !
 line con 0
  logging synchronous
+ transport preferred none
  stopbits 1
  exit
 !
 line vty 0 4
  logging synchronous
+ transport preferred none
  transport input ssh
  exit
 !
@@ -174,11 +178,13 @@ ip route 0.0.0.0 0.0.0.0 172.20.0.1
 !
 line con 0
  logging synchronous
+ transport preferred none
  stopbits 1
  exit
 !
 line vty 0 4
  logging synchronous
+ transport preferred none
  transport input ssh
  exit
 !
