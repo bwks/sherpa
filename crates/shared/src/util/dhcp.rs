@@ -8,7 +8,7 @@ pub async fn get_dhcp_leases(config: &Config) -> Result<Vec<DhcpLease>> {
     let lab_router = get_ipv4_addr(&config.management_prefix_ipv4, SHERPA_MANAGEMENT_IP_INDEX)?;
     let url = format!(
         "http://{}:{}/{}/{}",
-        &lab_router, HTTP_PORT, DHCP_URI_DIR, DHCP_LEASES_FILE,
+        lab_router, HTTP_PORT, DHCP_URI_DIR, DHCP_LEASES_FILE,
     );
     // Create a client with a timeout
     let client = reqwest::Client::builder()

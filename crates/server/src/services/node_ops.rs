@@ -466,7 +466,7 @@ pub fn generate_container_ztp(
 
     let ztp_record = data::ZtpRecord {
         node_name: node.name.clone(),
-        config_file: format!("{}.conf", &node.name),
+        config_file: format!("{}.conf", node.name),
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: String::new(),
@@ -809,7 +809,7 @@ pub fn generate_vm_ztp(
 
     let ztp_record = data::ZtpRecord {
         node_name: node.name.clone(),
-        config_file: format!("{}.conf", &node.name),
+        config_file: format!("{}.conf", node.name),
         ipv4_address: node_ipv4_address,
         ipv6_address: None,
         mac_address: mac_address.to_string(),
@@ -2022,7 +2022,7 @@ fn generate_http_ztp(
             let sonic_ztp_file_map =
                 template::SonicLinuxZtp::file_map(&node.name, &mgmt_net.v4.boot_server);
 
-            let ztp_init = format!("{dir}/{}.conf", &node.name);
+            let ztp_init = format!("{dir}/{}.conf", node.name);
             let sonic_ztp = template::SonicLinuxZtp {
                 hostname: node.name.clone(),
                 mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2030,7 +2030,7 @@ fn generate_http_ztp(
                 mgmt_ipv6_address: node.ipv6_address,
                 mgmt_ipv6: mgmt_net.v6.clone(),
             };
-            let ztp_config = format!("{dir}/{}_config_db.json", &node.name);
+            let ztp_config = format!("{dir}/{}_config_db.json", node.name);
             util::create_dir(&dir)?;
             util::create_file(&ztp_init, sonic_ztp_file_map)?;
             util::create_file(&ztp_config, sonic_ztp.config())?;
