@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::{UserRow, to_surreal_id};
+
 /// Get a user by username
 ///
 /// This is the primary way to retrieve users, as username is the unique identifier.
@@ -28,8 +30,10 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
         .await
         .context(format!("Failed to query user from database: {}", username))?;
 
-    let user: Option<DbUser> = response.take(0)?;
-    user.ok_or_else(|| anyhow!("User not found: {}", username))
+    let user: Option<UserRow> = response.take(0)?;
+    user.map(DbUser::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("User not found: {}", username))
 }
 
 /// Get a user by RecordId
@@ -46,12 +50,12 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<Option<DbUser>> {
-    let user: Option<DbUser> = db
-        .select(id.clone())
+    let user: Option<UserRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to query user by id: {:?}", id))?;
 
-    Ok(user)
+    user.map(DbUser::try_from).transpose()
 }
 
 /// List all users in the database
@@ -67,12 +71,12 @@ pub async fn get_user_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<O
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
-    let users: Vec<DbUser> = db
+    let users: Vec<UserRow> = db
         .select("user")
         .await
         .context("Failed to query all users from database")?;
 
-    Ok(users)
+    users.into_iter().map(DbUser::try_from).collect()
 }
 
 /// Count the total number of users in the database
@@ -88,7 +92,7 @@ pub async fn list_users(db: &Arc<Surreal<Client>>) -> Result<Vec<DbUser>> {
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn count_users(db: &Arc<Surreal<Client>>) -> Result<usize> {
-    let users: Vec<DbUser> = db
+    let users: Vec<UserRow> = db
         .select("user")
         .await
         .context("Failed to count users from database")?;

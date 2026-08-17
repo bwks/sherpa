@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::helpers::get_user_id;
+use crate::persistence::{LabRow, to_surreal_id};
 
 /// Validate lab_id format
 ///
@@ -82,27 +83,31 @@ pub async fn create_lab(
     let user_id = get_user_id(user)?;
 
     // Create lab record
-    let created: Option<DbLab> = db
+    let lab = DbLab {
+        id: None,
+        lab_id: lab_id.to_string(),
+        name: name.to_string(),
+        user: user_id,
+        loopback_network: loopback_network.to_string(),
+        management_network: management_network.to_string(),
+        gateway_ipv4: gateway_ipv4.to_string(),
+        router_ipv4: router_ipv4.to_string(),
+        management_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+        loopback_network_v6: None,
+        status: LabState::default(),
+    };
+    let created: Option<LabRow> = db
         .create("lab")
-        .content(DbLab {
-            id: None,
-            lab_id: lab_id.to_string(),
-            name: name.to_string(),
-            user: user_id,
-            loopback_network: loopback_network.to_string(),
-            management_network: management_network.to_string(),
-            gateway_ipv4: gateway_ipv4.to_string(),
-            router_ipv4: router_ipv4.to_string(),
-            management_network_v6: None,
-            gateway_ipv6: None,
-            router_ipv6: None,
-            loopback_network_v6: None,
-            status: LabState::default(),
-        })
+        .content(LabRow::try_from(&lab)?)
         .await
         .context(format!("Failed to create lab: '{}'", name))?;
 
-    created.ok_or_else(|| anyhow!("Lab was not created: '{}'", name))
+    created
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab was not created: '{}'", name))
 }
 
 /// Create a new lab or update existing lab (upsert operation)
@@ -127,21 +132,25 @@ pub async fn upsert_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
     // Validate lab_id format
     validate_lab_id(&lab.lab_id)?;
 
-    let result: Option<DbLab> = if let Some(id) = &lab.id {
+    let row = LabRow::try_from(&lab)?;
+    let result: Option<LabRow> = if let Some(id) = &lab.id {
         // Update existing lab
-        db.update(id.clone())
-            .content(lab.clone())
+        db.update(to_surreal_id(id))
+            .content(row)
             .await
             .context(format!("Failed to update lab: '{}'", lab.name))?
     } else {
         // Create new lab
         db.create("lab")
-            .content(lab.clone())
+            .content(row)
             .await
             .context(format!("Failed to create lab: '{}'", lab.name))?
     };
 
-    result.ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
+    result
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
 }
 
 #[cfg(test)]

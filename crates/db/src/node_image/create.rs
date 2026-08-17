@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::node_image::get_node_image_by_model_kind_version;
+use crate::persistence::{NodeImageRow, to_surreal_id};
 
 /// Create a node_image record in the database with auto-generated ID
 #[instrument(skip(db), level = "debug")]
@@ -13,23 +14,24 @@ pub async fn create_node_image(
     db: &Arc<Surreal<Client>>,
     config: NodeConfig,
 ) -> Result<NodeConfig> {
-    let created_config: Option<NodeConfig> = db
-        .create("node_image")
-        .content(config.clone())
-        .await
-        .context(format!(
+    let row = NodeImageRow::try_from(&config)?;
+    let created_config: Option<NodeImageRow> =
+        db.create("node_image").content(row).await.context(format!(
             "Failed to create node_image: model={}, kind={}, version={}",
             config.model, config.kind, config.version
         ))?;
 
-    created_config.ok_or_else(|| {
+    created_config
+        .map(NodeConfig::try_from)
+        .transpose()?
+        .ok_or_else(|| {
         anyhow!(
             "Database returned no record after creating node_image: model={}, kind={}, version={}",
             config.model,
             config.kind,
             config.version
         )
-    })
+        })
 }
 
 /// Upsert a node_image record (create if not exists, update if exists)
@@ -76,23 +78,27 @@ pub async fn upsert_node_image(
             .id
             .context("Existing node_image record is missing its ID")?;
 
-        let updated: Option<NodeConfig> = db
-            .update(record_id)
-            .content(updated_config)
+        let row = NodeImageRow::try_from(&updated_config)?;
+        let updated: Option<NodeImageRow> = db
+            .update(to_surreal_id(&record_id))
+            .content(row)
             .await
             .context(format!(
                 "Failed to update node_image: model={}, kind={}, version={}",
                 config.model, config.kind, config.version
             ))?;
 
-        updated.ok_or_else(|| {
+        updated
+            .map(NodeConfig::try_from)
+            .transpose()?
+            .ok_or_else(|| {
             anyhow!(
                 "Database returned no record after updating node_image: model={}, kind={}, version={}",
                 config.model,
                 config.kind,
                 config.version
             )
-        })
+            })
     } else {
         // Create new record with auto-generated ID
         create_node_image(db, config).await

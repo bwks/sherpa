@@ -87,7 +87,8 @@ pub fn hash_password(password: &str) -> Result<String> {
 /// Returns Ok(false) if the password does not match.
 /// Returns Ok(true) if the password matches.
 pub fn verify_password(password: &str, hash: &str) -> Result<bool> {
-    let parsed_hash = PasswordHash::new(hash).context("Invalid password hash format")?;
+    let parsed_hash = PasswordHash::new(hash)
+        .map_err(|error| anyhow!("Invalid password hash format: {error}"))?;
 
     let argon2 = Argon2::default();
 

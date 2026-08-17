@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::helpers::get_user_id;
+use crate::persistence::{UserRow, to_surreal_id};
 
 /// Update an existing user in the database
 ///
@@ -29,15 +30,15 @@ use crate::helpers::get_user_id;
 /// - If there's a database error during the update
 ///
 #[instrument(skip(db, user), level = "debug")]
-#[instrument(skip(db), level = "debug")]
 pub async fn update_user(db: &Arc<Surreal<Client>>, user: DbUser) -> Result<DbUser> {
     // Extract and validate the ID
     let id = get_user_id(&user)?;
 
     // Execute UPDATE query - replaces all fields
-    let updated: Option<DbUser> = db
-        .update(id.clone())
-        .content(user.clone())
+    let row = UserRow::try_from(&user)?;
+    let updated: Option<UserRow> = db
+        .update(to_surreal_id(&id))
+        .content(row)
         .await
         .context(format!(
             "Failed to update user:\n id: {:?}\n username: {}\nNote: Username change may fail if it conflicts with another user",
@@ -45,7 +46,7 @@ pub async fn update_user(db: &Arc<Surreal<Client>>, user: DbUser) -> Result<DbUs
         ))?;
 
     // Return result or error if not found
-    updated.ok_or_else(|| {
+    updated.map(DbUser::try_from).transpose()?.ok_or_else(|| {
         anyhow!(
             "User not found for update:\n id: {:?}\n username: {}\n",
             id,

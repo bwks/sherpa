@@ -1,11 +1,12 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLink, DbNode, RecordId};
+use shared::data::RecordId;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::node::read::get_node;
+use crate::persistence::{LinkRow, NodeRow, to_surreal_id};
 
 /// Delete a node by its RecordId (surrogate key)
 ///
@@ -29,8 +30,8 @@ pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
     // Verify node exists
     let _ = get_node(db, id.clone()).await?;
 
-    let _deleted: Option<DbNode> = db
-        .delete(id.clone())
+    let _deleted: Option<NodeRow> = db
+        .delete(to_surreal_id(&id))
         .await
         .context(format!("Failed to delete node: {:?}", id))?;
 
@@ -69,9 +70,9 @@ pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
-    let _deleted: Vec<DbNode> = db
+    let _deleted: Vec<NodeRow> = db
         .query("DELETE node WHERE lab = $lab_id")
-        .bind(("lab_id", lab_id.clone()))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context(format!("Failed to delete nodes for lab: {:?}", lab_id))?
         .take(0)?;
@@ -94,9 +95,9 @@ pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
-    let _deleted: Vec<DbLink> = db
+    let _deleted: Vec<LinkRow> = db
         .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", node_id.clone()))
+        .bind(("node_id", to_surreal_id(&node_id)))
         .await
         .context(format!("Failed to delete links for node: {:?}", node_id))?
         .take(0)?;
@@ -146,9 +147,9 @@ pub async fn delete_node_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result
     let node = get_node(db, id.clone()).await?;
 
     // Check for links (where node appears as either node_a or node_b)
-    let links: Vec<DbLink> = db
+    let links: Vec<LinkRow> = db
         .query("SELECT * FROM link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", id.clone()))
+        .bind(("node_id", to_surreal_id(&id)))
         .await
         .context("Failed to check for links")?
         .take(0)?;

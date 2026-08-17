@@ -1,12 +1,13 @@
 //! CREATE operations for nodes
 
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbNode, NodeState};
+use shared::data::{DbNode, NodeState, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb_types::RecordId;
 use tracing::instrument;
+
+use crate::persistence::NodeRow;
 
 /// Create a new node in the database.
 ///
@@ -42,26 +43,27 @@ pub async fn create_node(
     image_id: RecordId,
     lab_id: RecordId,
 ) -> Result<DbNode> {
-    let node: Option<DbNode> = db
+    let domain = DbNode {
+        id: None,
+        name: name.to_string(),
+        image: image_id.clone(),
+        index,
+        lab: lab_id.clone(),
+        mgmt_ipv4: None,
+        mgmt_ipv6: None,
+        mgmt_mac: None,
+        state: NodeState::Unknown,
+    };
+    let node: Option<NodeRow> = db
         .create("node")
-        .content(DbNode {
-            id: None,
-            name: name.to_string(),
-            image: image_id.clone(),
-            index,
-            lab: lab_id.clone(),
-            mgmt_ipv4: None,
-            mgmt_ipv6: None,
-            mgmt_mac: None,
-            state: NodeState::Unknown,
-        })
+        .content(NodeRow::try_from(&domain)?)
         .await
         .context(format!(
             "Failed to create node: name='{}', index={}, lab_id={:?}",
             name, index, lab_id
         ))?;
 
-    node.ok_or_else(|| {
+    node.map(DbNode::try_from).transpose()?.ok_or_else(|| {
         anyhow!(
             "Node was not created: name='{}', index={}, image_id={:?}, lab_id={:?}",
             name,

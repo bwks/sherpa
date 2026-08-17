@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::LinkRow;
+
 /// Create a new link between two nodes
 ///
 /// This function creates a network link connecting two nodes in a lab.
@@ -46,36 +48,37 @@ pub async fn create_link(
     tap_b: String,
     lab_id: RecordId,
 ) -> Result<DbLink> {
-    let link: Option<DbLink> = db
+    let domain = DbLink {
+        id: None,
+        index,
+        kind: kind.clone(),
+        node_a: node_a_id.clone(),
+        node_b: node_b_id.clone(),
+        int_a: int_a.clone(),
+        int_b: int_b.clone(),
+        lab: lab_id.clone(),
+        bridge_a: bridge_a.clone(),
+        bridge_b: bridge_b.clone(),
+        veth_a: veth_a.clone(),
+        veth_b: veth_b.clone(),
+        tap_a: tap_a.clone(),
+        tap_b: tap_b.clone(),
+        delay_us: 0,
+        jitter_us: 0,
+        loss_percent: 0.0,
+        reorder_percent: 0.0,
+        corrupt_percent: 0.0,
+    };
+    let link: Option<LinkRow> = db
         .create("link")
-        .content(DbLink {
-            id: None,
-            index,
-            kind: kind.clone(),
-            node_a: node_a_id.clone(),
-            node_b: node_b_id.clone(),
-            int_a: int_a.clone(),
-            int_b: int_b.clone(),
-            lab: lab_id.clone(),
-            bridge_a: bridge_a.clone(),
-            bridge_b: bridge_b.clone(),
-            veth_a: veth_a.clone(),
-            veth_b: veth_b.clone(),
-            tap_a: tap_a.clone(),
-            tap_b: tap_b.clone(),
-            delay_us: 0,
-            jitter_us: 0,
-            loss_percent: 0.0,
-            reorder_percent: 0.0,
-            corrupt_percent: 0.0,
-        })
+        .content(LinkRow::try_from(&domain)?)
         .await
         .context(format!(
             "Failed to create link: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             index, node_a_id, node_b_id, int_a, int_b
         ))?;
 
-    link.ok_or_else(|| {
+    link.map(DbLink::try_from).transpose()?.ok_or_else(|| {
         anyhow::anyhow!(
             "Link was not created: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             index,

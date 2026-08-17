@@ -3,13 +3,13 @@ use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use axum::{Form, Json};
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
-use surrealdb_types::Datetime;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
 use crate::auth::{cookies, jwt};
@@ -93,7 +93,7 @@ pub async fn login(
         ApiError::internal("Failed to create authentication token")
     })?;
 
-    let now = jiff::Timestamp::now().as_second();
+    let now = Timestamp::now().as_second();
     let expires_at = now + JWT_TOKEN_EXPIRY_SECONDS;
 
     tracing::info!("User '{}' logged in successfully", user.username);
@@ -588,7 +588,7 @@ pub async fn update_password_handler(
     // 6. Update user in database
     let mut updated_user = user;
     updated_user.password_hash = new_password_hash;
-    updated_user.updated_at = Datetime::default();
+    updated_user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, updated_user).await {
         tracing::error!(
@@ -655,7 +655,7 @@ pub async fn add_ssh_key_handler(
 
     // 4. Add SSH key to user
     user.ssh_keys.push(form.ssh_key.clone());
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, user).await {
         tracing::error!(
@@ -712,7 +712,7 @@ pub async fn delete_ssh_key_handler(
 
     // 3. Remove SSH key
     user.ssh_keys.remove(index);
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     if let Err(e) = db::update_user(&state.db, user).await {
         tracing::error!(
@@ -1797,7 +1797,7 @@ pub async fn admin_update_user_password_handler(
 
     // Update user password
     user.password_hash = new_password_hash;
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user).await.map_err(|e| {
@@ -1873,7 +1873,7 @@ pub async fn admin_add_ssh_key_handler(
 
     // Add SSH key
     user.ssh_keys.push(ssh_key.to_string());
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user.clone())
@@ -1942,7 +1942,7 @@ pub async fn admin_delete_ssh_key_handler(
 
     // Remove key at index
     user.ssh_keys.remove(key_index);
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     // Save to database
     db::update_user(&state.db, user.clone())
@@ -2030,15 +2030,9 @@ pub async fn admin_delete_user_handler(
 }
 
 /// Helper function to format datetime as "MMM DD, YYYY"
-fn format_date_simple(dt: Datetime) -> String {
-    let timestamp = dt.timestamp();
-
-    // Convert to jiff Timestamp
-    match jiff::Timestamp::from_second(timestamp) {
-        Ok(ts) => {
-            // SAFETY: "UTC" is always a valid timezone
-            #[allow(clippy::expect_used)]
-            let zoned = ts.in_tz("UTC").expect("UTC timezone should always work");
+fn format_date_simple(timestamp: jiff::Timestamp) -> String {
+    match timestamp.in_tz("UTC") {
+        Ok(zoned) => {
             let month = match zoned.month() {
                 1 => "Jan",
                 2 => "Feb",
@@ -3273,8 +3267,8 @@ pub async fn list_users_json(
             username: u.username,
             is_admin: u.is_admin,
             ssh_keys: u.ssh_keys,
-            created_at: u.created_at.timestamp(),
-            updated_at: u.updated_at.timestamp(),
+            created_at: u.created_at.as_second(),
+            updated_at: u.updated_at.as_second(),
         })
         .collect();
 
@@ -3333,7 +3327,7 @@ pub async fn change_password_json(
 
     user.password_hash = password::hash_password(&payload.new_password)
         .map_err(|e| ApiError::internal(format!("{e}")))?;
-    user.updated_at = Datetime::default();
+    user.updated_at = Timestamp::now();
 
     db::update_user(&state.db, user)
         .await
@@ -3367,8 +3361,8 @@ pub async fn get_user_info_json(
             username: user.username,
             is_admin: user.is_admin,
             ssh_keys: user.ssh_keys,
-            created_at: user.created_at.timestamp(),
-            updated_at: user.updated_at.timestamp(),
+            created_at: user.created_at.as_second(),
+            updated_at: user.updated_at.as_second(),
         },
     }))
 }

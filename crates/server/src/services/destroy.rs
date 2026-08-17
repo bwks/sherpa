@@ -658,10 +658,7 @@ pub(crate) async fn destroy_interfaces(
 }
 
 /// Clean up database records for a lab
-pub(crate) async fn cleanup_database(
-    lab_id: &str,
-    db: &std::sync::Arc<surrealdb::Surreal<surrealdb::engine::remote::ws::Client>>,
-) -> Result<()> {
+pub(crate) async fn cleanup_database(lab_id: &str, db: &db::Database) -> Result<()> {
     db::delete_lab_links(db, lab_id)
         .await
         .context("Failed to delete lab links")?;

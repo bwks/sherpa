@@ -11,8 +11,6 @@ use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tokio::net::TcpListener;
 
 use sherpad::api::build_router;
@@ -28,7 +26,7 @@ pub struct TestServer {
     pub addr: SocketAddr,
     /// Used by lab_lifecycle_tests but not all test binaries, triggering a false positive warning.
     #[allow(dead_code)]
-    pub db: Arc<Surreal<Client>>,
+    pub db: db::Database,
     _namespace: String,
 }
 

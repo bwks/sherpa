@@ -162,7 +162,6 @@ impl MgmtInterfaces {
         MgmtInterfaces::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(MgmtInterfaces);
 
 #[derive(Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "lowercase")]

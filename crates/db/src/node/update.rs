@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbNode, NodeState};
+use shared::data::{DbNode, NodeState, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb_types::RecordId;
 use tracing::instrument;
 
 use crate::node::read::get_node;
+use crate::persistence::{NodeRow, to_surreal_id};
 
 /// Update an existing node in the database
 ///
@@ -49,13 +49,17 @@ pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNo
     }
 
     // Perform update
-    let updated: Option<DbNode> = db
-        .update(id.clone())
-        .content(node.clone())
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(id))
+        .content(row)
         .await
         .context(format!("Failed to update node: {}", node.name))?;
 
-    updated.ok_or_else(|| anyhow!("Node update failed: {}", node.name))
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node update failed: {}", node.name))
 }
 
 /// Update a node's management IPv4 address.
@@ -82,16 +86,20 @@ pub async fn update_node_mgmt_ipv4(
     let mut node = get_node(db, node_id.clone()).await?;
     node.mgmt_ipv4 = Some(mgmt_ipv4.to_string());
 
-    let updated: Option<DbNode> = db
-        .update(node_id.clone())
-        .content(node.clone())
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
         .await
         .context(format!(
             "Failed to update mgmt_ipv4 for node: {}",
             node.name
         ))?;
 
-    updated.ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
 }
 
 /// Update a node's management IPv6 address.
@@ -118,16 +126,20 @@ pub async fn update_node_mgmt_ipv6(
     let mut node = get_node(db, node_id.clone()).await?;
     node.mgmt_ipv6 = Some(mgmt_ipv6.to_string());
 
-    let updated: Option<DbNode> = db
-        .update(node_id.clone())
-        .content(node.clone())
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
         .await
         .context(format!(
             "Failed to update mgmt_ipv6 for node: {}",
             node.name
         ))?;
 
-    updated.ok_or_else(|| anyhow!("Node mgmt_ipv6 update failed: {}", node.name))
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node mgmt_ipv6 update failed: {}", node.name))
 }
 
 /// Update a node's management MAC address.
@@ -154,13 +166,17 @@ pub async fn update_node_mgmt_mac(
     let mut node = get_node(db, node_id.clone()).await?;
     node.mgmt_mac = Some(mgmt_mac.to_string());
 
-    let updated: Option<DbNode> = db
-        .update(node_id.clone())
-        .content(node.clone())
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
         .await
         .context(format!("Failed to update mgmt_mac for node: {}", node.name))?;
 
-    updated.ok_or_else(|| anyhow!("Node mgmt_mac update failed: {}", node.name))
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node mgmt_mac update failed: {}", node.name))
 }
 
 /// Update a node's runtime state.
@@ -187,11 +203,15 @@ pub async fn update_node_state(
     let mut node = get_node(db, node_id.clone()).await?;
     node.state = state;
 
-    let updated: Option<DbNode> = db
-        .update(node_id.clone())
-        .content(node.clone())
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
         .await
         .context(format!("Failed to update state for node: {}", node.name))?;
 
-    updated.ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
 }

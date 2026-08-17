@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::helpers::get_user_id;
+use crate::persistence::{LabRow, UserRow, to_surreal_id};
 
 /// Delete a user by RecordId
 ///
@@ -27,7 +28,7 @@ use crate::helpers::get_user_id;
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
-    let deleted: Option<DbUser> = db.delete(id.clone()).await.context(format!(
+    let deleted: Option<UserRow> = db.delete(to_surreal_id(&id)).await.context(format!(
         "Failed to delete user: {:?}\nNote: This will cascade delete all labs owned by this user",
         id
     ))?;
@@ -64,8 +65,11 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
         .await
         .context(format!("Failed to query user: {}", username))?;
 
-    let user: Option<DbUser> = response.take(0)?;
-    let user = user.ok_or_else(|| anyhow!("User not found: {}", username))?;
+    let user: Option<UserRow> = response.take(0)?;
+    let user = user
+        .map(DbUser::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("User not found: {}", username))?;
 
     let id = get_user_id(&user)?;
 
@@ -94,8 +98,8 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // First check if the user exists
-    let user: Option<DbUser> = db
-        .select(id.clone())
+    let user: Option<UserRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to query user by id: {:?}", id))?;
 
@@ -104,11 +108,15 @@ pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result
     // Check if user owns any labs
     let mut response = db
         .query("SELECT * FROM lab WHERE user = $user_id")
-        .bind(("user_id", id.clone()))
+        .bind(("user_id", to_surreal_id(&id)))
         .await
         .context(format!("Failed to check labs for user: {:?}", id))?;
 
-    let labs: Vec<DbLab> = response.take(0)?;
+    let labs: Vec<LabRow> = response.take(0)?;
+    let labs = labs
+        .into_iter()
+        .map(DbLab::try_from)
+        .collect::<Result<Vec<_>>>()?;
 
     if !labs.is_empty() {
         bail!(

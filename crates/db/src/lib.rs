@@ -8,11 +8,12 @@ pub mod lab;
 pub mod link;
 pub mod node;
 pub mod node_image;
+mod persistence;
 pub mod schema;
 pub mod seed;
 pub mod user;
 
-pub use connect::connect;
+pub use connect::{Database, connect};
 pub use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
 // Helper functions for extracting IDs safely

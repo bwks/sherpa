@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -8,6 +9,21 @@ use tracing::instrument;
 
 use shared::konst::SHERPA_DB_USER;
 
+/// Shared database connection handle.
+///
+/// The concrete SurrealDB client stays owned and named by this crate so callers
+/// do not need a direct SurrealDB dependency.
+#[derive(Clone)]
+pub struct Database(Arc<Surreal<Client>>);
+
+impl Deref for Database {
+    type Target = Arc<Surreal<Client>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[instrument(skip(password), level = "debug")]
 pub async fn connect(
     host: &str,
@@ -15,7 +31,7 @@ pub async fn connect(
     namespace: &str,
     database: &str,
     password: &str,
-) -> Result<Arc<Surreal<Client>>> {
+) -> Result<Database> {
     let db = Surreal::new::<Ws>(format!("{host}:{port}/rpc"))
         .await
         .context("Failed to connect to SurrealDB")?;
@@ -32,5 +48,5 @@ pub async fn connect(
         .await
         .context("Failed to select namespace and database")?;
 
-    Ok(Arc::new(db))
+    Ok(Database(Arc::new(db)))
 }

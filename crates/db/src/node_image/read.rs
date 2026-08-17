@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::{NodeImageRow, to_surreal_id};
+
 /// List all node_image records from the database ordered by model
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfig>> {
@@ -13,8 +15,8 @@ pub async fn list_node_images(db: &Arc<Surreal<Client>>) -> Result<Vec<NodeConfi
         .await
         .context("Failed to query all node_images from database")?;
 
-    let configs: Vec<NodeConfig> = response.take(0)?;
-    Ok(configs)
+    let configs: Vec<NodeImageRow> = response.take(0)?;
+    configs.into_iter().map(NodeConfig::try_from).collect()
 }
 
 /// Get node_image by model, kind, and version
@@ -36,8 +38,8 @@ pub async fn get_node_image_by_model_kind_version(
             model, kind, version
         ))?;
 
-    let config: Option<NodeConfig> = response.take(0)?;
-    Ok(config)
+    let config: Option<NodeImageRow> = response.take(0)?;
+    config.map(NodeConfig::try_from).transpose()
 }
 
 /// Get the default node_image for a specific model and kind
@@ -57,8 +59,8 @@ pub async fn get_default_node_image(
             model, kind
         ))?;
 
-    let config: Option<NodeConfig> = response.take(0)?;
-    Ok(config)
+    let config: Option<NodeImageRow> = response.take(0)?;
+    config.map(NodeConfig::try_from).transpose()
 }
 
 /// List all node_image records filtered by kind
@@ -76,8 +78,8 @@ pub async fn list_node_images_by_kind(
             kind
         ))?;
 
-    let configs: Vec<NodeConfig> = response.take(0)?;
-    Ok(configs)
+    let configs: Vec<NodeImageRow> = response.take(0)?;
+    configs.into_iter().map(NodeConfig::try_from).collect()
 }
 
 /// Get all versions of a node_image for a specific model and kind
@@ -97,8 +99,8 @@ pub async fn get_node_image_versions(
             model, kind
         ))?;
 
-    let configs: Vec<NodeConfig> = response.take(0)?;
-    Ok(configs)
+    let configs: Vec<NodeImageRow> = response.take(0)?;
+    configs.into_iter().map(NodeConfig::try_from).collect()
 }
 
 /// Get multiple node_images by a list of RecordIds in a single query
@@ -113,12 +115,12 @@ pub async fn list_node_images_by_ids(
 
     let mut response = db
         .query("SELECT * FROM $ids")
-        .bind(("ids", ids))
+        .bind(("ids", ids.iter().map(to_surreal_id).collect::<Vec<_>>()))
         .await
         .context("Failed to batch query node_images by ids")?;
 
-    let configs: Vec<NodeConfig> = response.take(0)?;
-    Ok(configs)
+    let configs: Vec<NodeImageRow> = response.take(0)?;
+    configs.into_iter().map(NodeConfig::try_from).collect()
 }
 
 /// Get node_image by RecordId
@@ -127,12 +129,12 @@ pub async fn get_node_image_by_id(
     db: &Arc<Surreal<Client>>,
     id: RecordId,
 ) -> Result<Option<NodeConfig>> {
-    let config: Option<NodeConfig> = db
-        .select(id.clone())
+    let config: Option<NodeImageRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to query node_image by id: {:?}", id))?;
 
-    Ok(config)
+    config.map(NodeConfig::try_from).transpose()
 }
 
 /// Get node_image from node_model (returns error if not found)
@@ -151,15 +153,18 @@ pub(crate) async fn get_node_image(
             "Failed to query node_image from database: {node_model}"
         ))?;
 
-    let config: Option<NodeConfig> = response.take(0)?;
+    let config: Option<NodeImageRow> = response.take(0)?;
 
-    config.ok_or_else(|| anyhow!("Node image not found for model: {node_model}"))
+    config
+        .map(NodeConfig::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node image not found for model: {node_model}"))
 }
 
 /// Count total number of node_image records in the database
 #[instrument(skip(db), level = "debug")]
 pub async fn count_node_images(db: &Arc<Surreal<Client>>) -> Result<usize> {
-    let configs: Vec<NodeConfig> = db
+    let configs: Vec<NodeImageRow> = db
         .select("node_image")
         .await
         .context("Failed to count node_images from database")?;

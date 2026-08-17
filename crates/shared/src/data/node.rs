@@ -3,7 +3,6 @@ use std::fmt;
 use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
-use surrealdb_types::{RecordId, SurrealValue};
 
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -17,6 +16,8 @@ use crate::konst::{
     CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT,
     MTU_JUMBO_NET, MTU_STD,
 };
+
+use super::RecordId;
 
 #[derive(
     Default,
@@ -339,7 +340,6 @@ impl NodeModel {
         NodeConfig::get_model(*self).kind
     }
 }
-impl_surreal_value_for_enum!(NodeModel);
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -415,7 +415,6 @@ impl OsVariant {
         OsVariant::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(OsVariant);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -435,7 +434,6 @@ impl CpuArchitecture {
         CpuArchitecture::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(CpuArchitecture);
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
@@ -495,7 +493,6 @@ impl MachineType {
         MachineType::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(MachineType);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -529,7 +526,6 @@ impl InterfaceType {
         InterfaceType::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(InterfaceType);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -551,7 +547,6 @@ impl BiosTypes {
         BiosTypes::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(BiosTypes);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -584,7 +579,6 @@ impl UnikernelBootMode {
         UnikernelBootMode::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(UnikernelBootMode);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -623,7 +617,6 @@ impl ZtpMethod {
         ZtpMethod::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(ZtpMethod);
 
 #[derive(
     Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter, JsonSchema,
@@ -661,7 +654,6 @@ impl NodeKind {
         NodeKind::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(NodeKind);
 
 /// Runtime state of a node in the lab lifecycle
 #[derive(
@@ -722,9 +714,8 @@ impl NodeState {
         NodeState::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(NodeState);
 
-#[derive(Clone, Debug, Deserialize, Serialize, SurrealValue, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NodeConfig {
     #[schemars(skip)]
     pub id: Option<RecordId>,

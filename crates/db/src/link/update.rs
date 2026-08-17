@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::link::read::get_link;
+use crate::persistence::{LinkRow, to_surreal_id};
 
 /// Update an existing link in the database
 ///
@@ -67,16 +68,17 @@ pub async fn update_link(db: &Arc<Surreal<Client>>, link: DbLink) -> Result<DbLi
     }
 
     // Perform update
-    let updated: Option<DbLink> =
-        db.update(id.clone())
-            .content(link.clone())
+    let row = LinkRow::try_from(&link)?;
+    let updated: Option<LinkRow> =
+        db.update(to_surreal_id(id))
+            .content(row)
             .await
             .context(format!(
                 "Failed to update link: node_a={:?}, node_b={:?}",
                 link.node_a, link.node_b
             ))?;
 
-    updated.ok_or_else(|| {
+    updated.map(DbLink::try_from).transpose()?.ok_or_else(|| {
         anyhow!(
             "Link update failed: node_a={:?}, node_b={:?}",
             link.node_a,

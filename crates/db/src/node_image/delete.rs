@@ -1,9 +1,11 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{NodeConfig, RecordId};
+use shared::data::RecordId;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
+
+use crate::persistence::{NodeImageRow, to_surreal_id};
 
 /// Delete a node_image record from the database by its RecordId
 ///
@@ -25,8 +27,8 @@ use tracing::instrument;
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_image(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
-    let deleted: Option<NodeConfig> = db
-        .delete(id.clone())
+    let deleted: Option<NodeImageRow> = db
+        .delete(to_surreal_id(&id))
         .await
         .context(format!(
             "Failed to delete node_image: {:?}\nNote: Deletion will fail if any nodes reference this image",

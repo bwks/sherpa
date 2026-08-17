@@ -11,6 +11,7 @@ anyhow = "1.0.100"
 
 # Networking
 ipnet = "2.11.0"
+jiff = { version = "0.2.20", features = ["serde"] }
 
 # Logging
 tracing = "0.1"

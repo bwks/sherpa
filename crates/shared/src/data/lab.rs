@@ -193,7 +193,6 @@ pub enum LabState {
     #[default]
     Unknown,
 }
-impl_surreal_value_for_enum!(LabState);
 
 impl LabState {
     /// Returns all variants as a vector (used by DB schema generation).
