@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.75] - 2026-08-18
+
+### Features
+
+- Infrahub node by @bwks ([0af6fe7](https://github.com/bwks/sherpa/commit/0af6fe7123efb8ca1890e707f5f025089f374870))
+
+### Miscellaneous
+
+- Merge pull request #267 from bwks/v0.3.75
+
+V0.3.75 by @bwks in [#267](https://github.com/bwks/sherpa/pull/267) ([150c98d](https://github.com/bwks/sherpa/commit/150c98d8e4c90b1b024261445df9f9594e69ff24))
+- Run clippy and coverage in parallel by @bwks ([abe7214](https://github.com/bwks/sherpa/commit/abe7214fa711992e30fbebc699c956cda3b21dca))
+- Obey clippy by @bwks ([73aaebf](https://github.com/bwks/sherpa/commit/73aaebf07916b5f235fad9a1a459790b6c9259ce))
+- Merge pull request #266 from bwks/changelog/v0.3.74
+
+chore(release): update changelog for v0.3.74 by @github-actions[bot] in [#266](https://github.com/bwks/sherpa/pull/266) ([a573b40](https://github.com/bwks/sherpa/commit/a573b4018bfdf52fb40174045c814d885e102308))
+
+### Refactor
+
+- Isolate surrealdb in database crate by @bwks ([eb26206](https://github.com/bwks/sherpa/commit/eb262064d165bb7ac6d4cd8733e5e4dcecd823c9))
 ## [0.3.74] - 2026-07-01
 
 ### Documentation
