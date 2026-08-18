@@ -7,7 +7,9 @@ use std::path::Path;
 #[cfg(unix)]
 use std::process::Command;
 
-use anyhow::{Context, Result, bail};
+#[cfg(unix)]
+use anyhow::bail;
+use anyhow::{Context, Result};
 
 use crate::data::{NodeKind, UnikernelBootMode};
 use crate::konst::{UNIKERNEL_DISK_FILENAME, UNIKERNEL_KERNEL_FILENAME, VM_DISK_FILENAME};

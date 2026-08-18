@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.75"
+version = "0.3.76"
 edition = "2024"
 
 [dependencies]
@@ -67,6 +67,14 @@ rustls-native-certs = "0.8"
 
 # Home directory detection
 dirs = "6.0"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 tempfile = "3.25.0"

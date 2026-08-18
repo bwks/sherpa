@@ -1,9 +1,12 @@
+use std::path::Path;
 use std::process::Command;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
-use shared::konst::SHERPA_SSH_CONFIG_FILE;
+use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::term_msg_surround;
+
+use crate::private_key::restrict_private_key_permissions;
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -22,6 +25,9 @@ fn qualify_device_name(name: &str, lab_id: &str) -> String {
 pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
     let qualified_name = qualify_device_name(name, lab_id);
     term_msg_surround(&format!("Connecting to: {qualified_name}"));
+
+    restrict_private_key_permissions(Path::new(SHERPA_SSH_PRIVATE_KEY_FILE))
+        .context("Failed to secure SSH private key before connecting")?;
 
     let status = Command::new("ssh")
         .arg(&qualified_name)

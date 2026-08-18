@@ -4,9 +4,6 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
@@ -16,6 +13,7 @@ use shared::util::{
 };
 use topology::StartupScript;
 
+use crate::private_key::write_private_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -241,30 +239,13 @@ pub async fn up(
     // Write SSH private key to local directory with 0600 permissions
     match get_cwd() {
         Ok(cwd) => {
-            let local_ssh_key_path = Path::new(&cwd)
-                .join(SHERPA_SSH_PRIVATE_KEY_FILE)
-                .to_string_lossy()
-                .to_string();
-            match fs::write(&local_ssh_key_path, &up_data.ssh_private_key) {
+            let local_ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
+            match write_private_key(&local_ssh_key_path, &up_data.ssh_private_key) {
                 Ok(_) => {
-                    // Set Unix permissions to 0600 (owner read/write only)
-                    #[cfg(unix)]
-                    {
-                        if let Err(e) = fs::set_permissions(
-                            &local_ssh_key_path,
-                            fs::Permissions::from_mode(0o600),
-                        ) {
-                            println!(
-                                "\n{} Warning: Failed to set permissions on SSH key: {}",
-                                Emoji::Warning,
-                                e
-                            );
-                        }
-                    }
                     println!(
                         "{} SSH private key created: {}",
                         Emoji::Success,
-                        local_ssh_key_path
+                        local_ssh_key_path.display()
                     );
                 }
                 Err(e) => {

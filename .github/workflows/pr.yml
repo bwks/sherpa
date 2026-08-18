@@ -107,3 +107,21 @@ jobs:
         with:
           name: coverage-report
           path: lcov.info
+
+  windows-client:
+    name: Windows Client
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Run client clippy
+        run: cargo clippy -p sherpa -- -D warnings
+
+      - name: Test native private key permissions
+        run: cargo test -p sherpa private_key::tests
