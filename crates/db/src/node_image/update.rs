@@ -6,6 +6,7 @@ use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::helpers::get_image_id;
+use crate::persistence::{NodeImageRow, to_surreal_id};
 
 /// Update an existing node_image record in the database
 ///
@@ -39,7 +40,7 @@ pub async fn update_node_image(
         )
         .bind(("model", config.model.to_string()))
         .bind(("kind", config.kind.to_string()))
-        .bind(("id", id.clone()))
+        .bind(("id", to_surreal_id(&id)))
         .await
         .context(format!(
             "Error unsetting default flag on other versions:\n model: {}\n kind: {}\n",
@@ -48,22 +49,26 @@ pub async fn update_node_image(
     }
 
     // Execute UPDATE query - replaces all fields
-    let updated: Option<NodeConfig> = db
-        .update(id.clone())
-        .content(config.clone())
-        .await
-        .context(format!(
-            "Failed to update node_image:\n id: {:?}\n model: {}\n kind: {}\n",
-            id, config.model, config.kind
-        ))?;
+    let row = NodeImageRow::try_from(&config)?;
+    let updated: Option<NodeImageRow> =
+        db.update(to_surreal_id(&id))
+            .content(row)
+            .await
+            .context(format!(
+                "Failed to update node_image:\n id: {:?}\n model: {}\n kind: {}\n",
+                id, config.model, config.kind
+            ))?;
 
     // Return result or error if not found
-    updated.ok_or_else(|| {
-        anyhow!(
-            "Node image not found for update:\n id: {:?}\n model: {}\n kind: {}\n",
-            id,
-            config.model,
-            config.kind
-        )
-    })
+    updated
+        .map(NodeConfig::try_from)
+        .transpose()?
+        .ok_or_else(|| {
+            anyhow!(
+                "Node image not found for update:\n id: {:?}\n model: {}\n kind: {}\n",
+                id,
+                config.model,
+                config.kind
+            )
+        })
 }

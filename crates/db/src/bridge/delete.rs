@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
+use shared::data::RecordId;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb_types::RecordId;
 use tracing::instrument;
+
+use crate::persistence::to_surreal_id;
 
 /// Delete a bridge
 ///
@@ -21,8 +23,8 @@ use tracing::instrument;
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Result<()> {
-    let _: Option<RecordId> = db
-        .delete::<Option<RecordId>>(bridge_id)
+    let _: Option<surrealdb_types::RecordId> = db
+        .delete::<Option<surrealdb_types::RecordId>>(to_surreal_id(bridge_id))
         .await
         .context(format!(
             "Failed to delete bridge: bridge_id={:?}",
@@ -48,7 +50,7 @@ pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> R
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Result<()> {
     db.query("DELETE FROM bridge WHERE lab = $lab_id")
-        .bind(("lab_id", lab_id.clone()))
+        .bind(("lab_id", to_surreal_id(lab_id)))
         .await
         .context(format!(
             "Failed to delete bridges for lab: lab_id={:?}",

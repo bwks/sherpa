@@ -10,7 +10,7 @@ pub fn check_duplicate_device(devices: &Vec<Node>) -> Result<()> {
         if devs.contains(&device.name) {
             bail!(
                 "Manifest - device: '{}' defined more than once",
-                &device.name
+                device.name
             );
         } else {
             devs.push(device.name.clone())

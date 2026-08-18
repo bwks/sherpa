@@ -1,11 +1,8 @@
 use anyhow::Result;
-use db::apply_schema;
+use db::{Database, apply_schema};
 use shared::data::{DbLab, DbNode, NodeConfig, NodeModel};
 use shared::konst::SHERPA_PASSWORD;
-use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 
 /// Generate a unique namespace for test isolation
 /// Uses timestamp + thread ID to ensure uniqueness across parallel test runs
@@ -20,7 +17,7 @@ fn generate_test_namespace(test_name: &str) -> String {
 
 /// Helper to setup test database connection with a unique namespace
 /// This ensures test isolation by using a dedicated namespace per test run
-pub async fn setup_db(namespace: &str) -> Result<Arc<Surreal<Client>>> {
+pub async fn setup_db(namespace: &str) -> Result<Database> {
     let namespace = generate_test_namespace(namespace);
     let db_password =
         std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string());
@@ -38,7 +35,7 @@ pub async fn setup_db(namespace: &str) -> Result<Arc<Surreal<Client>>> {
 
 /// Helper to teardown/cleanup test database
 /// Removes the entire namespace used for the test, cleaning up all test data
-pub async fn teardown_db(db: &Arc<Surreal<Client>>) -> Result<()> {
+pub async fn teardown_db(db: &Database) -> Result<()> {
     // Get the current namespace being used
     // Note: SurrealDB doesn't provide direct API to get current namespace,
     // so we'll use a query to remove all records from tables we created
@@ -64,7 +61,7 @@ pub fn create_test_config(model: NodeModel) -> NodeConfig {
 /// This is a convenience wrapper for tests that handles the config lookup automatically.
 /// Equivalent to the old create_lab_node() but for test use only.
 pub async fn create_test_node_with_model(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     name: &str,
     index: u16,
     model: NodeModel,

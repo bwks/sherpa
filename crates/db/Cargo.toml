@@ -1,6 +1,6 @@
 [package]
 name = "db"
-version = "0.3.74"
+version = "0.3.75"
 edition = "2024"
 
 [dependencies]
@@ -11,6 +11,7 @@ anyhow = "1.0.100"
 
 # Networking
 ipnet = "2.11.0"
+jiff = { version = "0.2.20", features = ["serde"] }
 
 # Logging
 tracing = "0.1"

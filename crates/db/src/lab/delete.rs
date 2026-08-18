@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, DbLink, DbNode, RecordId};
+use shared::data::RecordId;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -7,6 +7,7 @@ use tracing::instrument;
 
 use crate::helpers::get_lab_id;
 use crate::lab::get_lab;
+use crate::persistence::{LabRow, LinkRow, NodeRow, to_surreal_id};
 
 /// Delete a lab by its lab_id (business key)
 ///
@@ -30,8 +31,8 @@ pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
-    let _deleted: Option<DbLab> = db
-        .delete(lab_record_id)
+    let _deleted: Option<LabRow> = db
+        .delete(to_surreal_id(&lab_record_id))
         .await
         .context(format!("Failed to delete lab: {}", lab_id))?;
 
@@ -54,8 +55,8 @@ pub async fn delete_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<()> {
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
-    let _deleted: Option<DbLab> = db
-        .delete(id.clone())
+    let _deleted: Option<LabRow> = db
+        .delete(to_surreal_id(&id))
         .await
         .context(format!("Failed to delete lab by id: {:?}", id))?;
 
@@ -81,9 +82,9 @@ pub async fn delete_lab_nodes(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
-    let _deleted: Vec<DbNode> = db
+    let _deleted: Vec<NodeRow> = db
         .query("DELETE node WHERE lab = $lab_record_id")
-        .bind(("lab_record_id", lab_record_id))
+        .bind(("lab_record_id", to_surreal_id(&lab_record_id)))
         .await
         .context(format!("Failed to delete nodes for lab: {}", lab_id))?
         .take(0)?;
@@ -110,9 +111,9 @@ pub async fn delete_lab_links(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result
     let lab = get_lab(db, lab_id).await?;
     let lab_record_id = get_lab_id(&lab)?;
 
-    let _deleted: Vec<DbLink> = db
+    let _deleted: Vec<LinkRow> = db
         .query("DELETE link WHERE lab = $lab_record_id")
-        .bind(("lab_record_id", lab_record_id))
+        .bind(("lab_record_id", to_surreal_id(&lab_record_id)))
         .await
         .context(format!("Failed to delete links for lab: {}", lab_id))?
         .take(0)?;
@@ -162,9 +163,9 @@ pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<
     let lab_record_id = get_lab_id(&lab)?;
 
     // Check for nodes
-    let nodes: Vec<DbNode> = db
+    let nodes: Vec<NodeRow> = db
         .query("SELECT * FROM node WHERE lab = $lab_record_id ORDER BY name ASC")
-        .bind(("lab_record_id", lab_record_id.clone()))
+        .bind(("lab_record_id", to_surreal_id(&lab_record_id)))
         .await
         .context("Failed to check for nodes")?
         .take(0)?;
@@ -179,9 +180,9 @@ pub async fn delete_lab_safe(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<
     }
 
     // Check for links
-    let links: Vec<DbLink> = db
+    let links: Vec<LinkRow> = db
         .query("SELECT * FROM link WHERE lab = $lab_record_id")
-        .bind(("lab_record_id", lab_record_id.clone()))
+        .bind(("lab_record_id", to_surreal_id(&lab_record_id)))
         .await
         .context("Failed to check for links")?
         .take(0)?;

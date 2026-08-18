@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::BridgeRow;
+
 /// Create a new shared bridge for a lab
 ///
 /// This function creates a bridge record that represents a shared network
@@ -34,23 +36,24 @@ pub async fn create_bridge(
     lab_id: RecordId,
     nodes: Vec<RecordId>,
 ) -> Result<DbBridge> {
-    let bridge: Option<DbBridge> = db
+    let domain = DbBridge {
+        id: None,
+        index,
+        bridge_name: bridge_name.clone(),
+        network_name: network_name.clone(),
+        lab: lab_id.clone(),
+        nodes,
+    };
+    let bridge: Option<BridgeRow> = db
         .create("bridge")
-        .content(DbBridge {
-            id: None,
-            index,
-            bridge_name: bridge_name.clone(),
-            network_name: network_name.clone(),
-            lab: lab_id.clone(),
-            nodes,
-        })
+        .content(BridgeRow::try_from(&domain)?)
         .await
         .context(format!(
             "Failed to create bridge: index={}, bridge_name={}, lab_id={:?}",
             index, bridge_name, lab_id
         ))?;
 
-    bridge.ok_or_else(|| {
+    bridge.map(DbBridge::try_from).transpose()?.ok_or_else(|| {
         anyhow::anyhow!(
             "Bridge was not created: index={}, bridge_name={}, lab_id={:?}",
             index,

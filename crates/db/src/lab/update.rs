@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbLab, LabState};
+use shared::data::{DbLab, LabState, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb_types::RecordId;
 use tracing::instrument;
 
 use crate::lab::validate_lab_id;
+use crate::persistence::{LabRow, to_surreal_id};
 
 /// Update an existing lab in the database
 ///
@@ -40,12 +40,15 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
     validate_lab_id(&lab.lab_id)?;
 
     // Verify the lab exists and check if user is being changed
-    let existing_lab: Option<DbLab> = db
-        .select(id.clone())
+    let existing_lab: Option<LabRow> = db
+        .select(to_surreal_id(id))
         .await
         .context(format!("Failed to fetch existing lab: {:?}", id))?;
 
-    let existing = existing_lab.ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
+    let existing = existing_lab
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
 
     // Verify owner (user) is not being changed - it's immutable
     if existing.user != lab.user {
@@ -57,13 +60,17 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
     }
 
     // Perform update
-    let updated: Option<DbLab> = db
-        .update(id.clone())
-        .content(lab.clone())
+    let row = LabRow::try_from(&lab)?;
+    let updated: Option<LabRow> = db
+        .update(to_surreal_id(id))
+        .content(row)
         .await
         .context(format!("Failed to update lab: {}", lab.name))?;
 
-    updated.ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
+    updated
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
 }
 
 /// Update the status field of an existing lab
@@ -81,19 +88,24 @@ pub async fn update_lab_state(
     lab_id: RecordId,
     state: LabState,
 ) -> Result<DbLab> {
-    let mut lab: DbLab = db
-        .select(lab_id.clone())
+    let row: LabRow = db
+        .select(to_surreal_id(&lab_id))
         .await
         .context(format!("Failed to fetch lab: {:?}", lab_id))?
         .ok_or_else(|| anyhow!("Lab not found: {:?}", lab_id))?;
+    let mut lab = DbLab::try_from(row)?;
 
     lab.status = state;
 
-    let updated: Option<DbLab> = db
-        .update(lab_id.clone())
-        .content(lab.clone())
+    let row = LabRow::try_from(&lab)?;
+    let updated: Option<LabRow> = db
+        .update(to_surreal_id(&lab_id))
+        .content(row)
         .await
         .context(format!("Failed to update state for lab: {}", lab.name))?;
 
-    updated.ok_or_else(|| anyhow!("Lab state update failed: {}", lab.name))
+    updated
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab state update failed: {}", lab.name))
 }

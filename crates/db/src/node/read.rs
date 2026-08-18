@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::{NodeRow, to_surreal_id};
+
 /// Get a node by its RecordId (surrogate key)
 ///
 /// # Arguments
@@ -20,12 +22,14 @@ use tracing::instrument;
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
-    let node: Option<DbNode> = db
-        .select(id.clone())
+    let node: Option<NodeRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to get node by id: {:?}", id))?;
 
-    node.ok_or_else(|| anyhow!("Node not found with id: {:?}", id))
+    node.map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node not found with id: {:?}", id))
 }
 
 /// Alias for get_node - kept for compatibility
@@ -68,12 +72,14 @@ pub async fn get_node_by_name_and_lab(
     let mut response = db
         .query("SELECT * FROM ONLY node WHERE name = $name AND lab = $lab_id")
         .bind(("name", name.to_string()))
-        .bind(("lab_id", lab_id.clone()))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context(format!("Failed to query node by name and lab: {}", name))?;
 
-    let node: Option<DbNode> = response.take(0)?;
-    node.ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {:?}", name, lab_id))
+    let node: Option<NodeRow> = response.take(0)?;
+    node.map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {:?}", name, lab_id))
 }
 
 /// List all nodes in the database
@@ -89,12 +95,12 @@ pub async fn get_node_by_name_and_lab(
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
-    let nodes: Vec<DbNode> = db
+    let nodes: Vec<NodeRow> = db
         .select("node")
         .await
         .context("Failed to list nodes from database")?;
 
-    Ok(nodes)
+    nodes.into_iter().map(DbNode::try_from).collect()
 }
 
 /// List all nodes in a specific lab
@@ -113,12 +119,12 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
     let mut response = db
         .query("SELECT * FROM node WHERE lab = $lab_id ORDER BY name ASC")
-        .bind(("lab_id", lab_id.clone()))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context(format!("Failed to list nodes for lab: {:?}", lab_id))?;
 
-    let nodes: Vec<DbNode> = response.take(0)?;
-    Ok(nodes)
+    let nodes: Vec<NodeRow> = response.take(0)?;
+    nodes.into_iter().map(DbNode::try_from).collect()
 }
 
 /// Count total number of nodes in the database
@@ -159,7 +165,7 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM node WHERE lab = $lab_id GROUP ALL")
-        .bind(("lab_id", lab_id))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context("Failed to count nodes for lab")?;
 

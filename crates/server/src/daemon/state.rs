@@ -7,8 +7,6 @@ use shared::konst::{
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
 use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 
 use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::jwt;
@@ -40,7 +38,7 @@ pub struct AppState {
     /// Registry of active WebSocket connections
     pub connections: ConnectionRegistry,
     /// SurrealDB connection
-    pub db: Arc<Surreal<Client>>,
+    pub db: db::Database,
     /// libvirt/QEMU client
     pub qemu: Arc<Qemu>,
     /// Docker client

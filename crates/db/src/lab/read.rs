@@ -8,6 +8,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::{LabRow, to_surreal_id};
+
 /// Get a lab by its lab_id (business key)
 ///
 /// # Arguments
@@ -29,8 +31,11 @@ pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
         .await
         .context(format!("Failed to query lab from database: {}", lab_id))?;
 
-    let db_lab: Option<DbLab> = response.take(0)?;
-    db_lab.ok_or_else(|| anyhow!("Lab with lab_id not found: {}", lab_id))
+    let db_lab: Option<LabRow> = response.take(0)?;
+    db_lab
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab with lab_id not found: {}", lab_id))
 }
 
 /// Get a lab by its RecordId (surrogate key)
@@ -48,12 +53,14 @@ pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_lab_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLab> {
-    let lab: Option<DbLab> = db
-        .select(id.clone())
+    let lab: Option<LabRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to get lab by id: {:?}", id))?;
 
-    lab.ok_or_else(|| anyhow!("Lab not found with id: {:?}", id))
+    lab.map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab not found with id: {:?}", id))
 }
 
 /// Get a lab by name and user (unique constraint)
@@ -79,12 +86,15 @@ pub async fn get_lab_by_name_and_user(
     let mut response = db
         .query("SELECT * FROM ONLY lab WHERE name = $name AND user = $user_id")
         .bind(("name", name.to_string()))
-        .bind(("user_id", user_id.clone()))
+        .bind(("user_id", to_surreal_id(&user_id)))
         .await
         .context(format!("Failed to query lab by name and user: {}", name))?;
 
-    let db_lab: Option<DbLab> = response.take(0)?;
-    db_lab.ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {:?}", name, user_id))
+    let db_lab: Option<LabRow> = response.take(0)?;
+    db_lab
+        .map(DbLab::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Lab not found with name '{}' for user: {:?}", name, user_id))
 }
 
 /// List all labs in the database
@@ -100,12 +110,12 @@ pub async fn get_lab_by_name_and_user(
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
-    let labs: Vec<DbLab> = db
+    let labs: Vec<LabRow> = db
         .select("lab")
         .await
         .context("Failed to list labs from database")?;
 
-    Ok(labs)
+    labs.into_iter().map(DbLab::try_from).collect()
 }
 
 /// List all labs owned by a specific user
@@ -124,12 +134,12 @@ pub async fn list_labs(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLab>> {
 pub async fn list_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<Vec<DbLab>> {
     let mut response = db
         .query("SELECT * FROM lab WHERE user = $user_id")
-        .bind(("user_id", user_id.clone()))
+        .bind(("user_id", to_surreal_id(&user_id)))
         .await
         .context(format!("Failed to list labs for user: {:?}", user_id))?;
 
-    let labs: Vec<DbLab> = response.take(0)?;
-    Ok(labs)
+    let labs: Vec<LabRow> = response.take(0)?;
+    labs.into_iter().map(DbLab::try_from).collect()
 }
 
 /// Count total number of labs in the database
@@ -170,7 +180,7 @@ pub async fn count_labs(db: &Arc<Surreal<Client>>) -> Result<usize> {
 pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM lab WHERE user = $user_id GROUP ALL")
-        .bind(("user_id", user_id))
+        .bind(("user_id", to_surreal_id(&user_id)))
         .await
         .context("Failed to count labs for user")?;
 
@@ -185,13 +195,14 @@ pub async fn count_labs_by_user(db: &Arc<Surreal<Client>>, user_id: RecordId) ->
 /// to avoid collisions.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
-    let labs: Vec<DbLab> = db
+    let labs: Vec<LabRow> = db
         .select("lab")
         .await
         .context("Failed to query labs for loopback networks")?;
 
     let mut networks = Vec::new();
-    for lab in labs {
+    for lab in labs.into_iter().map(DbLab::try_from) {
+        let lab = lab?;
         let net = Ipv4Net::from_str(&lab.loopback_network).with_context(|| {
             format!(
                 "Failed to parse loopback_network '{}' for lab '{}'",
@@ -210,13 +221,14 @@ pub async fn get_used_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec
 /// to avoid collisions.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv4Net>> {
-    let labs: Vec<DbLab> = db
+    let labs: Vec<LabRow> = db
         .select("lab")
         .await
         .context("Failed to query labs for management networks")?;
 
     let mut networks = Vec::new();
-    for lab in labs {
+    for lab in labs.into_iter().map(DbLab::try_from) {
+        let lab = lab?;
         let net = Ipv4Net::from_str(&lab.management_network).with_context(|| {
             format!(
                 "Failed to parse management_network '{}' for lab '{}'",
@@ -234,13 +246,14 @@ pub async fn get_used_management_networks(db: &Arc<Surreal<Client>>) -> Result<V
 /// in use by existing labs. Labs without IPv6 are skipped.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_management_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
-    let labs: Vec<DbLab> = db
+    let labs: Vec<LabRow> = db
         .select("lab")
         .await
         .context("Failed to query labs for IPv6 management networks")?;
 
     let mut networks = Vec::new();
-    for lab in labs {
+    for lab in labs.into_iter().map(DbLab::try_from) {
+        let lab = lab?;
         if let Some(ref net_str) = lab.management_network_v6 {
             let net = Ipv6Net::from_str(net_str).with_context(|| {
                 format!(
@@ -260,13 +273,14 @@ pub async fn get_used_ipv6_management_networks(db: &Arc<Surreal<Client>>) -> Res
 /// in use by existing labs. Labs without IPv6 are skipped.
 #[instrument(skip(db), level = "debug")]
 pub async fn get_used_ipv6_loopback_networks(db: &Arc<Surreal<Client>>) -> Result<Vec<Ipv6Net>> {
-    let labs: Vec<DbLab> = db
+    let labs: Vec<LabRow> = db
         .select("lab")
         .await
         .context("Failed to query labs for IPv6 loopback networks")?;
 
     let mut networks = Vec::new();
-    for lab in labs {
+    for lab in labs.into_iter().map(DbLab::try_from) {
+        let lab = lab?;
         if let Some(ref net_str) = lab.loopback_network_v6 {
             let net = Ipv6Net::from_str(net_str).with_context(|| {
                 format!(

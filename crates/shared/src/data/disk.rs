@@ -79,7 +79,6 @@ impl DiskBuses {
         DiskBuses::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(DiskBuses);
 
 #[derive(Copy, Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]

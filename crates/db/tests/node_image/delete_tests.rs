@@ -1,9 +1,10 @@
 /// DELETE operation tests for node_image
 use anyhow::Result;
 use db::{
-    count_node_images, create_lab, create_node_image, delete_node_image, get_node_image_by_id,
+    count_node_images, create_lab, create_node_image, create_user, delete_node_image,
+    get_node_image_by_id,
 };
-use shared::data::{DbUser, NodeModel, RecordId};
+use shared::data::{NodeModel, RecordId};
 
 use crate::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
 
@@ -98,19 +99,7 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
     );
 
     // Create a test user for the lab
-    let user: Option<DbUser> = db
-        .create("user")
-        .content(DbUser {
-            id: None,
-            username: unique_username,
-            password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
-            is_admin: false,
-            ssh_keys: vec![],
-            created_at: surrealdb_types::Datetime::default(),
-            updated_at: surrealdb_types::Datetime::default(),
-        })
-        .await?;
-    let user = user.expect("User should be created");
+    let user = create_user(&db, unique_username, "TestPass123!", false, Vec::new()).await?;
 
     // Create a lab with unique 8-char ID
     let timestamp_secs = std::time::SystemTime::now()

@@ -1,20 +1,20 @@
+use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
-use surrealdb_types::{Datetime, RecordId, SurrealValue};
 
-use super::{BridgeKind, LabState, NodeState};
+use super::{BridgeKind, LabState, NodeState, RecordId};
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
     pub id: Option<RecordId>,
     pub username: String,
     pub password_hash: String,
     pub is_admin: bool,
     pub ssh_keys: Vec<String>,
-    pub created_at: Datetime,
-    pub updated_at: Datetime,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, SurrealValue)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbLab {
     pub id: Option<RecordId>,
     pub lab_id: String,
@@ -32,7 +32,7 @@ pub struct DbLab {
     pub status: LabState,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DbNode {
     pub id: Option<RecordId>,
     pub name: String,
@@ -45,7 +45,7 @@ pub struct DbNode {
     pub state: NodeState,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DbLink {
     pub id: Option<RecordId>,
     pub index: u16,
@@ -82,7 +82,7 @@ pub struct DbLink {
     pub corrupt_percent: f32,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, SurrealValue)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DbBridge {
     pub id: Option<RecordId>,
     pub index: u16,

@@ -5,6 +5,8 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::persistence::{LinkRow, to_surreal_id};
+
 /// Get a link by its RecordId (surrogate key)
 ///
 /// # Arguments
@@ -20,12 +22,14 @@ use tracing::instrument;
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
-    let link: Option<DbLink> = db
-        .select(id.clone())
+    let link: Option<LinkRow> = db
+        .select(to_surreal_id(&id))
         .await
         .context(format!("Failed to get link by id: {:?}", id))?;
 
-    link.ok_or_else(|| anyhow!("Link not found with id: {:?}", id))
+    link.map(DbLink::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Link not found with id: {:?}", id))
 }
 
 /// Alias for get_link - kept for compatibility
@@ -73,8 +77,8 @@ pub async fn get_link_by_peers(
         .query(
             "SELECT * FROM ONLY link WHERE node_a = $node_a AND node_b = $node_b AND int_a = $int_a AND int_b = $int_b",
         )
-        .bind(("node_a", node_a_id.clone()))
-        .bind(("node_b", node_b_id.clone()))
+        .bind(("node_a", to_surreal_id(&node_a_id)))
+        .bind(("node_b", to_surreal_id(&node_b_id)))
         .bind(("int_a", int_a.to_string()))
         .bind(("int_b", int_b.to_string()))
         .await
@@ -83,8 +87,8 @@ pub async fn get_link_by_peers(
             node_a_id, node_b_id, int_a, int_b
         ))?;
 
-    let link: Option<DbLink> = response.take(0)?;
-    link.ok_or_else(|| {
+    let link: Option<LinkRow> = response.take(0)?;
+    link.map(DbLink::try_from).transpose()?.ok_or_else(|| {
         anyhow!(
             "Link not found with peers: node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             node_a_id,
@@ -108,12 +112,12 @@ pub async fn get_link_by_peers(
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
-    let links: Vec<DbLink> = db
+    let links: Vec<LinkRow> = db
         .select("link")
         .await
         .context("Failed to list links from database")?;
 
-    Ok(links)
+    links.into_iter().map(DbLink::try_from).collect()
 }
 
 /// List all links in a specific lab
@@ -132,12 +136,12 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbLink>> {
     let mut response = db
         .query("SELECT * FROM link WHERE lab = $lab_id")
-        .bind(("lab_id", lab_id.clone()))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context(format!("Failed to list links for lab: {:?}", lab_id))?;
 
-    let links: Vec<DbLink> = response.take(0)?;
-    Ok(links)
+    let links: Vec<LinkRow> = response.take(0)?;
+    links.into_iter().map(DbLink::try_from).collect()
 }
 
 /// List all links associated with a specific node
@@ -161,12 +165,12 @@ pub async fn list_links_by_node(
 ) -> Result<Vec<DbLink>> {
     let mut response = db
         .query("SELECT * FROM link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", node_id.clone()))
+        .bind(("node_id", to_surreal_id(&node_id)))
         .await
         .context(format!("Failed to list links for node: {:?}", node_id))?;
 
-    let links: Vec<DbLink> = response.take(0)?;
-    Ok(links)
+    let links: Vec<LinkRow> = response.take(0)?;
+    links.into_iter().map(DbLink::try_from).collect()
 }
 
 /// Count total number of links in the database
@@ -207,7 +211,7 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM link WHERE lab = $lab_id GROUP ALL")
-        .bind(("lab_id", lab_id))
+        .bind(("lab_id", to_surreal_id(&lab_id)))
         .await
         .context("Failed to count links for lab")?;
 
@@ -233,7 +237,7 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 pub async fn count_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<usize> {
     let mut response = db
         .query("SELECT count() FROM link WHERE node_a = $node_id OR node_b = $node_id GROUP ALL")
-        .bind(("node_id", node_id))
+        .bind(("node_id", to_surreal_id(&node_id)))
         .await
         .context("Failed to count links for node")?;
 

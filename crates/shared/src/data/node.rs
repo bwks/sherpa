@@ -3,7 +3,6 @@ use std::fmt;
 use clap::ValueEnum;
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
-use surrealdb_types::{RecordId, SurrealValue};
 
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
@@ -17,6 +16,8 @@ use crate::konst::{
     CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT,
     MTU_JUMBO_NET, MTU_STD,
 };
+
+use super::RecordId;
 
 #[derive(
     Default,
@@ -100,6 +101,7 @@ pub enum NodeModel {
     // Application
     ForgejoForge,
     GitlabCe,
+    InfrahubServer,
     JenkinsServer,
     NautobotServer,
     NetboxServer,
@@ -190,6 +192,7 @@ impl fmt::Display for NodeModel {
             // Application
             NodeModel::ForgejoForge => write!(f, "forgejo_forge"),
             NodeModel::GitlabCe => write!(f, "gitlab_ce"),
+            NodeModel::InfrahubServer => write!(f, "infrahub_server"),
             NodeModel::JenkinsServer => write!(f, "jenkins_server"),
             NodeModel::NautobotServer => write!(f, "nautobot_server"),
             NodeModel::NetboxServer => write!(f, "netbox_server"),
@@ -290,6 +293,7 @@ impl std::str::FromStr for NodeModel {
             // Application
             "forgejo_forge" => Ok(NodeModel::ForgejoForge),
             "gitlab_ce" => Ok(NodeModel::GitlabCe),
+            "infrahub_server" => Ok(NodeModel::InfrahubServer),
             "jenkins_server" => Ok(NodeModel::JenkinsServer),
             "nautobot_server" => Ok(NodeModel::NautobotServer),
             "netbox_server" => Ok(NodeModel::NetboxServer),
@@ -336,7 +340,6 @@ impl NodeModel {
         NodeConfig::get_model(*self).kind
     }
 }
-impl_surreal_value_for_enum!(NodeModel);
 
 #[derive(Clone, Default, Debug, Deserialize, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -412,7 +415,6 @@ impl OsVariant {
         OsVariant::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(OsVariant);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -432,7 +434,6 @@ impl CpuArchitecture {
         CpuArchitecture::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(CpuArchitecture);
 
 #[allow(non_camel_case_types)]
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
@@ -492,7 +493,6 @@ impl MachineType {
         MachineType::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(MachineType);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -526,7 +526,6 @@ impl InterfaceType {
         InterfaceType::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(InterfaceType);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -548,7 +547,6 @@ impl BiosTypes {
         BiosTypes::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(BiosTypes);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -581,7 +579,6 @@ impl UnikernelBootMode {
         UnikernelBootMode::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(UnikernelBootMode);
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize, PartialEq, EnumIter, JsonSchema)]
 #[serde(rename_all = "lowercase")]
@@ -620,7 +617,6 @@ impl ZtpMethod {
         ZtpMethod::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(ZtpMethod);
 
 #[derive(
     Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq, Hash, EnumIter, JsonSchema,
@@ -658,7 +654,6 @@ impl NodeKind {
         NodeKind::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(NodeKind);
 
 /// Runtime state of a node in the lab lifecycle
 #[derive(
@@ -719,9 +714,8 @@ impl NodeState {
         NodeState::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(NodeState);
 
-#[derive(Clone, Debug, Deserialize, Serialize, SurrealValue, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Serialize, JsonSchema)]
 pub struct NodeConfig {
     #[schemars(skip)]
     pub id: Option<RecordId>,
@@ -863,6 +857,7 @@ impl NodeConfig {
             // Application
             NodeModel::ForgejoForge => NodeConfig::forgejo_forge(),
             NodeModel::GitlabCe => NodeConfig::gitlab_ce(),
+            NodeModel::InfrahubServer => NodeConfig::infrahub_server(),
             NodeModel::JenkinsServer => NodeConfig::jenkins_server(),
             NodeModel::NautobotServer => NodeConfig::nautobot_server(),
             NodeModel::NetboxServer => NodeConfig::netbox_server(),
@@ -2275,6 +2270,41 @@ impl NodeConfig {
             machine_type: MachineType::Q35,
             vmx_enabled: false,
             memory: 4096,
+            hdd_bus: DiskBuses::Virtio,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::CloudInit,
+            ztp_password_auth: true,
+            first_interface_index: 0,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            boot_mode: None,
+        }
+    }
+    pub fn infrahub_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::InfrahubServer,
+            version: "0.0.0".to_owned(),
+            repo: None,
+            os_variant: OsVariant::Linux,
+            kind: NodeKind::VirtualMachine,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 1,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::Virtio,
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 6,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 12288,
             hdd_bus: DiskBuses::Virtio,
             cdrom: None,
             cdrom_bus: DiskBuses::Sata,

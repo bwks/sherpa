@@ -3,7 +3,6 @@ use opentelemetry::KeyValue;
 use serde_json;
 use std::sync::Arc;
 use std::time::Instant;
-use surrealdb_types::Datetime;
 use tokio::sync::mpsc;
 
 use crate::api::websocket::connection::Connection;
@@ -2407,8 +2406,8 @@ async fn handle_user_list(
                     username: u.username,
                     is_admin: u.is_admin,
                     ssh_keys: u.ssh_keys,
-                    created_at: u.created_at.timestamp(),
-                    updated_at: u.updated_at.timestamp(),
+                    created_at: u.created_at.as_second(),
+                    updated_at: u.updated_at.as_second(),
                 })
                 .collect();
 
@@ -2705,7 +2704,7 @@ async fn handle_user_passwd(
 
     // Update password and updated_at timestamp
     user.password_hash = new_password_hash;
-    user.updated_at = Datetime::default();
+    user.updated_at = jiff::Timestamp::now();
 
     match db::update_user(&state.db, user).await {
         Ok(_) => {
@@ -2830,8 +2829,8 @@ async fn handle_user_info(
                 username: user.username,
                 is_admin: user.is_admin,
                 ssh_keys: user.ssh_keys,
-                created_at: user.created_at.timestamp(),
-                updated_at: user.updated_at.timestamp(),
+                created_at: user.created_at.as_second(),
+                updated_at: user.updated_at.as_second(),
             };
 
             let response = data::GetUserInfoResponse { user: user_info };

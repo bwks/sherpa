@@ -51,7 +51,6 @@ impl CpuModels {
         CpuModels::iter().collect()
     }
 }
-impl_surreal_value_for_enum!(CpuModels);
 
 #[cfg(test)]
 mod tests {

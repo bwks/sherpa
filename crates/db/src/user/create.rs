@@ -1,11 +1,13 @@
 use anyhow::{Context, Result, anyhow};
+use jiff::Timestamp;
 use shared::auth::password::hash_password;
 use shared::data::DbUser;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
-use surrealdb_types::Datetime;
 use tracing::instrument;
+
+use crate::persistence::UserRow;
 
 /// Validate username format according to schema constraints
 ///
@@ -55,7 +57,6 @@ fn validate_username(username: &str) -> Result<()> {
 /// - If there's a database error during creation
 ///
 #[instrument(skip(db, password), level = "debug")]
-#[instrument(skip(db), level = "debug")]
 pub async fn create_user(
     db: &Arc<Surreal<Client>>,
     username: String,
@@ -69,8 +70,7 @@ pub async fn create_user(
     // Hash the password (this also validates password strength)
     let password_hash = hash_password(password)?;
 
-    // Generate current timestamp using SurrealDB's Datetime type
-    let now = Datetime::default(); // Datetime::default() returns current time
+    let now = Timestamp::now();
 
     let db_user = DbUser {
         id: None,
@@ -83,13 +83,17 @@ pub async fn create_user(
     };
 
     // Create user record
-    let created: Option<DbUser> = db
+    let row = UserRow::try_from(&db_user)?;
+    let created: Option<UserRow> = db
         .create("user")
-        .content(db_user)
+        .content(row)
         .await
         .context(format!("Failed to create user: '{}'", username))?;
 
-    created.ok_or_else(|| anyhow!("User was not created: '{}'", username))
+    created
+        .map(DbUser::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("User was not created: '{}'", username))
 }
 
 /// Upsert a user (create if not exists, update if exists)
@@ -113,7 +117,6 @@ pub async fn create_user(
 /// - If there's a database error during the operation
 ///
 #[instrument(skip(db, password), level = "debug")]
-#[instrument(skip(db), level = "debug")]
 pub async fn upsert_user(
     db: &Arc<Surreal<Client>>,
     username: String,
@@ -127,34 +130,42 @@ pub async fn upsert_user(
     // Hash the password (this also validates password strength)
     let password_hash = hash_password(password)?;
 
-    // Generate current timestamp using SurrealDB's Datetime type
-    let now = Datetime::default(); // Datetime::default() returns current time
+    let now = Timestamp::now();
 
     // Check if user exists to preserve created_at
     let existing_user = db
-        .select::<Option<DbUser>>(("user", username.clone()))
+        .select::<Option<UserRow>>(("user", username.clone()))
         .await
         .ok()
         .flatten();
 
-    let created_at = existing_user.map(|u| u.created_at).unwrap_or_else(|| now);
+    let created_at = existing_user
+        .map(DbUser::try_from)
+        .transpose()?
+        .map_or(now, |user| user.created_at);
+
+    let user = DbUser {
+        id: None,
+        username: username.clone(),
+        password_hash,
+        is_admin,
+        ssh_keys,
+        created_at,
+        updated_at: now,
+    };
+    let row = UserRow::try_from(&user)?;
 
     // Upsert using username as the record ID
-    let upserted: Option<DbUser> = db
+    let upserted: Option<UserRow> = db
         .upsert(("user", username.clone()))
-        .content(DbUser {
-            id: None,
-            username: username.clone(),
-            password_hash,
-            is_admin,
-            ssh_keys,
-            created_at,
-            updated_at: now,
-        })
+        .content(row)
         .await
         .context(format!("Failed to upsert user '{}'", username))?;
 
-    upserted.ok_or_else(|| anyhow!("User was not upserted: '{}'", username))
+    upserted
+        .map(DbUser::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("User was not upserted: '{}'", username))
 }
 
 #[cfg(test)]

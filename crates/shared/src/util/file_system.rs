@@ -274,7 +274,7 @@ pub fn copy_to_dos_image(src_file: &str, dst_image: &str, dst_dir: &str) -> Resu
 /// `e2cp` must be installed on the system.
 #[cfg(unix)]
 pub fn copy_to_ext4_image(src_files: Vec<&str>, dst_image: &str, dst_dir: &str) -> Result<()> {
-    let dst = format!("{}:{}", &dst_image, &dst_dir);
+    let dst = format!("{}:{}", dst_image, dst_dir);
     let mut cmd = src_files.clone();
     cmd.push(&dst);
     let status = Command::new("e2cp").args(cmd).status()?;

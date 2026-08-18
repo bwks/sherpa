@@ -1,8 +1,8 @@
 /// UPDATE operation tests for user
 use anyhow::Result;
 use db::{create_user, get_user, update_user};
-use shared::data::DbUser;
-use surrealdb_types::{Datetime, RecordId};
+use jiff::Timestamp;
+use shared::data::{DbUser, RecordId};
 
 use crate::{setup_db, teardown_db};
 
@@ -112,8 +112,8 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
         password_hash: "$argon2id$v=19$m=19456,t=2,p=1$test$test".to_string(),
         is_admin: false,
         ssh_keys: vec![],
-        created_at: Datetime::default(),
-        updated_at: Datetime::default(),
+        created_at: Timestamp::now(),
+        updated_at: Timestamp::now(),
     };
 
     let result = update_user(&db, fake_user).await;
