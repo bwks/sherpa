@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.76] - 2026-08-18
+
+### Bug Fixes
+
+- Gate Unix-only anyhow import by @bwks ([84ab2ff](https://github.com/bwks/sherpa/commit/84ab2ff2452e2e4bbda5cfdff7abd3f83acdd79e))
+- Secure SSH private keys on Windows by @bwks ([84f1987](https://github.com/bwks/sherpa/commit/84f1987cfa62df3339a6eddad6ca1bd6203259cf))
+
+### Miscellaneous
+
+- Merge pull request #269 from bwks/fix/windows-ssh-key-permissions
+
+fix: secure SSH private keys on Windows by @bwks in [#269](https://github.com/bwks/sherpa/pull/269) ([04d5eaa](https://github.com/bwks/sherpa/commit/04d5eaaaa50dde659b5880121a35de3f17e4bce9))
+- Bump workspace version to 0.3.76 by @bwks ([787427f](https://github.com/bwks/sherpa/commit/787427fdb7e42eef92e5160b5ffb2938dc393f5b))
+- Merge pull request #268 from bwks/changelog/v0.3.75
+
+chore(release): update changelog for v0.3.75 by @github-actions[bot] in [#268](https://github.com/bwks/sherpa/pull/268) ([652739d](https://github.com/bwks/sherpa/commit/652739d2d4d5b37b0e60accd2da8805d6c3c7827))
 ## [0.3.75] - 2026-08-18
 
 ### Features
