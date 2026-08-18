@@ -4,14 +4,12 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 
-#[cfg(unix)]
-use std::os::unix::fs::PermissionsExt;
-
 use shared::data::{ClientConfig, DownloadLabResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
 
+use crate::private_key::write_private_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -135,26 +133,12 @@ pub async fn download(
     }
 
     // Write SSH private key with 0600 permissions
-    let ssh_key_path = Path::new(&cwd)
-        .join(SHERPA_SSH_PRIVATE_KEY_FILE)
-        .to_string_lossy()
-        .to_string();
-    fs::write(&ssh_key_path, &data.ssh_private_key).context("Failed to write SSH key")?;
-
-    #[cfg(unix)]
-    {
-        if let Err(e) = fs::set_permissions(&ssh_key_path, fs::Permissions::from_mode(0o600)) {
-            println!(
-                "\n{} Warning: Failed to set permissions on SSH key: {}",
-                Emoji::Warning,
-                e
-            );
-        }
-    }
+    let ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
+    write_private_key(&ssh_key_path, &data.ssh_private_key).context("Failed to write SSH key")?;
     println!(
         "{} SSH private key created: {}",
         Emoji::Success,
-        ssh_key_path
+        ssh_key_path.display()
     );
 
     // Write lab-info.toml

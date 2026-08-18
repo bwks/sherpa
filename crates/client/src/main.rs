@@ -1,9 +1,14 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![cfg_attr(not(test), forbid(unsafe_code))]
+#![cfg_attr(not(test), deny(unsafe_code))]
 
 mod cmd;
+mod private_key;
 mod token;
 mod ws_client;
+
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_acl;
 
 use std::process::ExitCode;
 

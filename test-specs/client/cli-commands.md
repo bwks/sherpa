@@ -21,6 +21,8 @@
 - Missing token directs user to `sherpa login` `[integration]` **P0**
 - Streaming progress messages displayed during lab creation `[integration]` **P1**
 - SSH config and private key written locally on success `[integration]` **P1**
+- SSH private key is restricted to mode 0600 on Unix and a protected current-user-only DACL on Windows `[unit]` **P0**
+- Failed private key permission hardening removes the insecure local key `[unit]` **P0**
 - lab-info.toml written on success `[integration]` **P1**
 - Results displayed in table format `[integration]` **P2**
 - 15-minute extended timeout used for long operations `[unit]` **P1**
@@ -158,10 +160,21 @@
 
 **What to test:**
 - SSH invoked with correct node name and sherpa-ssh-config `[integration]` **P0**
+- Existing private key permissions are repaired before SSH is invoked `[unit]` **P0**
+- SSH is not invoked when private key permissions cannot be secured `[unit]` **P0**
 - Missing SSH config file handled gracefully `[integration]` **P1**
 - Existing `sherpa ssh <node>` command shape remains unchanged `[unit]` **P0**
 
 **Existing coverage:** Node name qualification unit tests in `cmd/ssh.rs`; CLI parse test for `sherpa ssh <node>`
+
+---
+
+## `download` — Download Lab Files
+
+**What to test:**
+- Downloaded SSH private key uses mode 0600 on Unix `[unit]` **P0**
+- Downloaded SSH private key uses a protected current-user-only DACL on Windows `[unit]` **P0**
+- Permission hardening failure removes the downloaded private key and returns an error `[unit]` **P0**
 
 ---
 
