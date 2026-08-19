@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.77] - 2026-08-19
+
+### Bug Fixes
+
+- Recover from stale session cookies by @bwks ([a7a4c03](https://github.com/bwks/sherpa/commit/a7a4c03fb3dfaa222cbd88307279fb06a8d3169c))
+
+### Miscellaneous
+
+- Merge pull request #272 from bwks/v0.3.77
+
+fix(web): recover from stale session cookies by @bwks in [#272](https://github.com/bwks/sherpa/pull/272) ([83de507](https://github.com/bwks/sherpa/commit/83de507485f4258812db4076b710c2c06f68007b))
+- Bump workspace version to 0.3.77 by @bwks ([fb280f6](https://github.com/bwks/sherpa/commit/fb280f6a1643538e4d434fd7cfb39db4fd21cfde))
+- Merge pull request #270 from bwks/changelog/v0.3.76
+
+chore(release): update changelog for v0.3.76 by @github-actions[bot] in [#270](https://github.com/bwks/sherpa/pull/270) ([68fcba9](https://github.com/bwks/sherpa/commit/68fcba976a89bea0307ca5b22d6fec74382f840e))
 ## [0.3.76] - 2026-08-18
 
 ### Bug Fixes
