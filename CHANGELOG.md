@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.78] - 2026-08-19
+
+### Bug Fixes
+
+- Render admin image errors with Askama by @bwks ([f59fd1d](https://github.com/bwks/sherpa/commit/f59fd1d564a6cf42b561f418067b1d032c318a22))
+
+### Miscellaneous
+
+- Merge pull request #274 from bwks/v0.3.78
+
+chore: consolidate workspace dependencies by @bwks in [#274](https://github.com/bwks/sherpa/pull/274) ([06e9a2a](https://github.com/bwks/sherpa/commit/06e9a2ab654e331f66f3d5533f4064a10a6f821e))
+- Consolidate workspace dependencies by @bwks ([c8f4038](https://github.com/bwks/sherpa/commit/c8f40386132df17147e4fa1fa1f2ce51dcadf7e1))
+- Merge pull request #273 from bwks/changelog/v0.3.77
+
+chore(release): update changelog for v0.3.77 by @github-actions[bot] in [#273](https://github.com/bwks/sherpa/pull/273) ([cbeaef7](https://github.com/bwks/sherpa/commit/cbeaef7a14da07e53cbcc161d2dd64e55b702aa4))
 ## [0.3.77] - 2026-08-19
 
 ### Bug Fixes
