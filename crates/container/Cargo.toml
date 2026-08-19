@@ -1,26 +1,26 @@
 [package]
 name = "container"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Containers
 # oci-client = "0.15"
-bollard = "0.19.3"
+bollard = { workspace = true }
 
 # De/Compression
-async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+async-compression = { workspace = true }
 
 # Async
-tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread", "time", "fs", "io-util"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-futures = "0.3.31"
-futures-util = "0.3.31"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "fs", "io-util"] }
+tokio-util = { workspace = true, features = ["codec"] }
+futures = { workspace = true }
+futures-util = { workspace = true }

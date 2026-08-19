@@ -1,81 +1,81 @@
 [package]
 name = "shared"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
-toml = "0.8.19"
+toml = { workspace = true }
 
 # File system
 shellexpand = "3.1.0"
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 thiserror = "2.0.17"
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Encoding/decoding
-base64 = "0.22.1"
+base64 = { workspace = true }
 md5 = "0.7.0"
 sha2 = "0.10.8"
 twox-hash = "2.0.0"
 
 # Generate SSH keys
-ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+ssh-key = { workspace = true }
 
 # Random number generator
-rand = "0.8.5"
+rand = { workspace = true }
 petname = "2.0.2"
 
 # Authentication
 argon2 = "0.5"
-regex = "1"
-jiff = { version = "0.2.20", features = ["serde"] }
+regex = { workspace = true }
+jiff = { workspace = true }
 
 # IP Addressing
-ipnet = { version = "2.11.0", features = ["serde"] }
+ipnet = { workspace = true, features = ["serde"] }
 getifaddrs = { version = "0.6.0", optional = true }
 
 # Home directory detection
-dirs = "6.0"
+dirs = { workspace = true }
 
 reqwest = { workspace = true }
 
 # TLS support
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { workspace = true }
 rustls-pki-types = "1.10"
 webpki-roots = "0.26"
-rustls-pemfile = "2.2"
+rustls-pemfile = { workspace = true }
 
 # Certificate parsing
 x509-parser = "0.16"
 hex = "0.4"
-url = "2.5"
+url = { workspace = true }
 
 # Templates
-askama = "0.14.0"
+askama = { workspace = true }
 
 # Table formatting
 tabled = "0.20.0"
 
 # CLI
-clap = { version = "4.5.16", features = ["derive"] }
+clap = { workspace = true }
 
 # Serialization/Deserialization
-serde = "1.0.208"
-serde_derive = "1.0.208"
-serde_json = "1.0.128"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
 schemars = "1.2.1"
 
 # Enum helpers
-strum = "0.27"
+strum = { workspace = true }
 strum_macros = "0.27"
 
 [dev-dependencies]
-tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
-tempfile = "3.25.0"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tempfile = { workspace = true }
 
 [features]
 netinfo = ["dep:getifaddrs"]

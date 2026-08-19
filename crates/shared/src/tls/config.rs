@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_build_insecure_config() {
-        rustls::crypto::ring::default_provider()
+        rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .ok();
 
@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn test_build_with_system_certs() {
-        rustls::crypto::ring::default_provider()
+        rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .ok();
 

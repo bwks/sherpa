@@ -1,23 +1,23 @@
 [package]
 name = "db"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Networking
-ipnet = "2.11.0"
-jiff = { version = "0.2.20", features = ["serde"] }
+ipnet = { workspace = true }
+jiff = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 surrealdb = "3.0.0"
 surrealdb-types = "3.0.0"
-tokio = { version = "1.49.0", features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

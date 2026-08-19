@@ -1,6 +1,6 @@
 [package]
 name = "validate"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
@@ -8,7 +8,7 @@ shared = { path = "../shared" }
 topology = { path = "../topology" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }

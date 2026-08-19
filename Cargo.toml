@@ -40,6 +40,40 @@ exclude = ["crates/ebpf-redirect"]
 default-members = ["crates/client"]
 
 [workspace.dependencies]
+# Common application dependencies
+anyhow = "1.0.100"
+askama = "0.14.0"
+async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+base64 = "0.22.1"
+bollard = "0.19.3"
+clap = { version = "4.5.16", features = ["derive"] }
+dirs = "6.0"
+futures = "0.3.31"
+futures-util = "0.3.31"
+ipnet = "2.11.0"
+jiff = { version = "0.2.20", features = ["serde"] }
+rand = "0.8.5"
+regex = "1"
+rpassword = "7.3"
+rustls = { version = "0.23", default-features = false, features = ["aws_lc_rs", "logging", "prefer-post-quantum", "std", "tls12"] }
+rustls-pemfile = "2.2"
+serde = "1.0.228"
+serde_derive = "1.0.228"
+serde_json = "1.0.128"
+ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+strum = "0.27"
+tempfile = "3.25.0"
+tokio = "1.49.0"
+tokio-tungstenite = "0.28"
+tokio-util = "0.7"
+toml = "0.8.19"
+toml_edit = "0.22.22"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+url = "2.5"
+uuid = { version = "1.11", features = ["v4", "serde"] }
+virt = { version = "0.4.1", features = ["qemu"] }
+
 # HTTP client
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 

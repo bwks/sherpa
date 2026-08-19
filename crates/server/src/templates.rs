@@ -738,7 +738,7 @@ impl IntoResponse for AdminImageUploadTemplate {
 
 /// Error notification returned by admin image form requests.
 #[derive(Template)]
-#[template(path = "admin/partials/notification-error.html.jinja")]
+#[template(path = "admin/partials/notification-error.html.jinja", escape = "html")]
 pub struct AdminNotificationErrorTemplate {
     pub message: String,
 }
@@ -1173,7 +1173,7 @@ mod tests {
         };
         let html = tpl.render().expect("template should render");
 
-        assert!(html.contains("Invalid &lt;script&gt;"));
+        assert!(html.contains("Invalid &#60;script&#62;"));
         assert!(!html.contains("<script>"));
     }
 
