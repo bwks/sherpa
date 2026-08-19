@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use reqwest::header;
 use reqwest::{Client, Response, StatusCode};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -40,6 +41,18 @@ impl TestHttpClient {
             req = req.bearer_auth(token);
         }
         req.send().await.context("HTTP GET failed")
+    }
+
+    /// GET request with an explicit Cookie header.
+    #[tracing::instrument(level = "debug", skip(self, cookie_header), fields(path))]
+    pub async fn get_with_cookie(&self, path: &str, cookie_header: &str) -> Result<Response> {
+        let url = format!("{}{}", self.base_url, path);
+        self.client
+            .get(&url)
+            .header(header::COOKIE, cookie_header)
+            .send()
+            .await
+            .context("HTTP GET with cookie failed")
     }
 
     /// POST request with form data

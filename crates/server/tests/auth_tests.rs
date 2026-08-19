@@ -3,6 +3,7 @@ mod helpers;
 mod http_client;
 
 use anyhow::Result;
+use reqwest::header;
 use serde_json::json;
 
 use helpers::test_server::TestServer;
@@ -398,6 +399,83 @@ async fn test_http_bearer_auth_delete_user() -> Result<()> {
         "DELETE /api/v1/admin/users/httpdel should return 200, got: {}",
         response.status()
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<()> {
+    let server = TestServer::start().await?;
+    let client = TestHttpClient::new(server.addr);
+
+    let stale_response = client
+        .get_with_cookie("/", "sherpa_auth=stale-session")
+        .await?;
+    assert_eq!(stale_response.status().as_u16(), 303);
+    assert_eq!(
+        stale_response
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/login?error=session_expired")
+    );
+    let clear_cookie = stale_response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("stale session response should clear the cookie")
+        .to_str()?;
+    assert!(clear_cookie.contains("Max-Age=0"));
+
+    let stale_login_page = client
+        .get_with_cookie("/login", "sherpa_auth=stale-session")
+        .await?;
+    assert_eq!(stale_login_page.status().as_u16(), 200);
+    let login_page_clear_cookie = stale_login_page
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("login page should clear an invalid session")
+        .to_str()?;
+    assert!(login_page_clear_cookie.contains("Max-Age=0"));
+
+    let login_response = client
+        .post_form(
+            "/login",
+            &[
+                ("username", "admin"),
+                ("password", helpers::test_server::TEST_ADMIN_PASSWORD),
+            ],
+        )
+        .await?;
+    assert_eq!(login_response.status().as_u16(), 200);
+    let replacement_cookie = login_response
+        .headers()
+        .get_all(header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| {
+            value
+                .split(';')
+                .next()
+                .filter(|pair| pair.starts_with("sherpa_auth="))
+        })
+        .expect("successful login should return an auth cookie");
+
+    let authenticated_login_page = client.get_with_cookie("/login", replacement_cookie).await?;
+    assert_eq!(authenticated_login_page.status().as_u16(), 303);
+    assert_eq!(
+        authenticated_login_page
+            .headers()
+            .get(header::LOCATION)
+            .and_then(|value| value.to_str().ok()),
+        Some("/admin/users")
+    );
+
+    let duplicate_cookie = format!("sherpa_auth=stale-session; {replacement_cookie}");
+    let protected_response = client
+        .get_with_cookie("/admin/users", &duplicate_cookie)
+        .await?;
+    assert_eq!(protected_response.status().as_u16(), 200);
 
     Ok(())
 }

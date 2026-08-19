@@ -1,6 +1,6 @@
 use askama::Template;
 use axum::extract::{Multipart, Path, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response, sse};
 use axum::{Form, Json};
 use jiff::Timestamp;
@@ -32,7 +32,10 @@ use crate::templates::{
 };
 
 use super::errors::ApiError;
-use super::extractors::{AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie};
+use super::extractors::{
+    AdminUser, AuthenticatedUser, AuthenticatedUserFromCookie, CookieSessionError,
+    trace_rejected_session, trace_validated_session, validate_cookie_session,
+};
 
 use shared::api_spec;
 use shared::auth::{password, ssh};
@@ -96,7 +99,16 @@ pub async fn login(
     let now = Timestamp::now().as_second();
     let expires_at = now + JWT_TOKEN_EXPIRY_SECONDS;
 
-    tracing::info!("User '{}' logged in successfully", user.username);
+    tracing::info!(
+        event = "auth.login_succeeded",
+        channel = "api",
+        username = %user.username,
+        is_admin = user.is_admin,
+        issued_at = now,
+        expires_at,
+        session_duration_seconds = JWT_TOKEN_EXPIRY_SECONDS,
+        "User logged in successfully"
+    );
 
     Ok(Json(LoginResponse {
         token,
@@ -138,9 +150,11 @@ pub struct SignupForm {
 /// - `error`: Optional error code (session_required, session_expired, logout_success)
 /// - `message`: Optional informational message
 pub async fn login_page_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
-) -> impl IntoResponse {
-    let error = params
+) -> Response {
+    let mut error = params
         .get("error")
         .map(|s| s.to_string())
         .unwrap_or_default();
@@ -149,7 +163,30 @@ pub async fn login_page_handler(
         .map(|s| s.to_string())
         .unwrap_or_default();
 
-    LoginPageTemplate { error, message }
+    let cookie_header = headers
+        .get(header::COOKIE)
+        .and_then(|value| value.to_str().ok());
+    match validate_cookie_session(cookie_header, &state.jwt_secret) {
+        Ok(session) => {
+            trace_validated_session("/login", &session);
+            let redirect_path = if session.claims.is_admin {
+                "/admin/users"
+            } else {
+                "/"
+            };
+            axum::response::Redirect::to(redirect_path).into_response()
+        }
+        Err(CookieSessionError::Missing) => LoginPageTemplate { error, message }.into_response(),
+        Err(session_error) => {
+            trace_rejected_session("/login", &session_error, "clear_and_render_login");
+            error = "session_expired".to_string();
+            (
+                [(header::SET_COOKIE, cookies::create_clear_cookie())],
+                LoginPageTemplate { error, message },
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Process login form submission
@@ -229,10 +266,18 @@ pub async fn login_form_handler(
     // Create auth cookie
     let cookie_value = cookies::create_auth_cookie(&token, form.remember_me);
 
+    let issued_at = Timestamp::now().as_second();
+    let expires_at = issued_at + expiry_seconds;
     tracing::info!(
-        "User '{}' logged in successfully (remember_me: {})",
-        user.username,
-        form.remember_me
+        event = "auth.login_succeeded",
+        channel = "web",
+        username = %user.username,
+        is_admin = user.is_admin,
+        remember_me = form.remember_me,
+        issued_at,
+        expires_at,
+        session_duration_seconds = expiry_seconds,
+        "User logged in successfully"
     );
 
     // Redirect admin users to /admin, regular users to /

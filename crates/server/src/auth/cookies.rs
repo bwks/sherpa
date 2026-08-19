@@ -44,9 +44,21 @@ pub fn create_auth_cookie(token: &str, remember_me: bool) -> String {
 /// A Set-Cookie header value string that clears the auth cookie
 pub fn create_clear_cookie() -> String {
     format!(
-        "{}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0",
+        "{}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
         AUTH_COOKIE_NAME
     )
+}
+
+/// Extract every authentication token from a Cookie header.
+#[tracing::instrument(level = "debug", skip(cookie_header))]
+pub(crate) fn extract_tokens_from_cookie(cookie_header: &str) -> Vec<&str> {
+    cookie_header
+        .split(';')
+        .filter_map(|cookie| {
+            let (name, value) = cookie.trim().split_once('=')?;
+            (name == AUTH_COOKIE_NAME).then_some(value)
+        })
+        .collect()
 }
 
 /// Extracts the JWT token from a Cookie header value.
@@ -59,16 +71,9 @@ pub fn create_clear_cookie() -> String {
 /// # Returns
 /// The token string if found, None otherwise
 pub fn extract_token_from_cookie(cookie_header: &str) -> Option<String> {
-    // Parse cookies in format "name1=value1; name2=value2"
-    for cookie in cookie_header.split(';') {
-        let cookie = cookie.trim();
-        if let Some((name, value)) = cookie.split_once('=')
-            && name == AUTH_COOKIE_NAME
-        {
-            return Some(value.to_string());
-        }
-    }
-    None
+    extract_tokens_from_cookie(cookie_header)
+        .first()
+        .map(|token| (*token).to_string())
 }
 
 #[cfg(test)]
@@ -102,8 +107,18 @@ mod tests {
 
         assert!(cookie.contains("sherpa_auth="));
         assert!(cookie.contains("Max-Age=0"));
+        assert!(cookie.contains("Expires=Thu, 01 Jan 1970 00:00:00 GMT"));
         assert!(cookie.contains("HttpOnly"));
         assert!(cookie.contains("SameSite=Strict"));
+    }
+
+    #[test]
+    fn test_extract_all_duplicate_auth_tokens() {
+        let cookie_header = "sherpa_auth=expired_token; other=value; sherpa_auth=replacement_token";
+
+        let tokens = extract_tokens_from_cookie(cookie_header);
+
+        assert_eq!(tokens, vec!["expired_token", "replacement_token"]);
     }
 
     #[test]

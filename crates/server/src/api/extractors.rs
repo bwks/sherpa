@@ -2,11 +2,235 @@ use axum::extract::FromRequestParts;
 use axum::http::header;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Redirect, Response};
+use jsonwebtoken::errors::{Error as JwtError, ErrorKind};
+use shared::auth::jwt::Claims;
 
 use crate::auth::{context::AuthContext, cookies, jwt};
 use crate::daemon::state::AppState;
 
 use super::errors::ApiError;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionFailureReason {
+    Expired,
+    InvalidSignature,
+    Malformed,
+    InvalidClaims,
+}
+
+impl SessionFailureReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Expired => "expired",
+            Self::InvalidSignature => "invalid_signature",
+            Self::Malformed => "malformed",
+            Self::InvalidClaims => "invalid_claims",
+        }
+    }
+
+    fn is_suspicious(self) -> bool {
+        matches!(self, Self::InvalidSignature | Self::Malformed)
+    }
+}
+
+#[derive(Debug)]
+pub(super) struct RejectedSessionCandidate {
+    index: usize,
+    reason: SessionFailureReason,
+    signed_claims: Option<Claims>,
+}
+
+#[derive(Debug)]
+pub(super) struct ValidatedCookieSession {
+    pub(super) claims: Claims,
+    pub(super) candidate_count: usize,
+    pub(super) selected_index: usize,
+    rejected_candidates: Vec<RejectedSessionCandidate>,
+}
+
+#[derive(Debug)]
+pub(super) enum CookieSessionError {
+    Missing,
+    Invalid {
+        candidate_count: usize,
+        rejected_candidates: Vec<RejectedSessionCandidate>,
+    },
+}
+
+fn classify_session_failure(error: &anyhow::Error) -> SessionFailureReason {
+    let Some(jwt_error) = error.downcast_ref::<JwtError>() else {
+        return SessionFailureReason::InvalidClaims;
+    };
+
+    match jwt_error.kind() {
+        ErrorKind::ExpiredSignature => SessionFailureReason::Expired,
+        ErrorKind::InvalidSignature => SessionFailureReason::InvalidSignature,
+        ErrorKind::InvalidToken
+        | ErrorKind::InvalidAlgorithm
+        | ErrorKind::InvalidAlgorithmName
+        | ErrorKind::MissingAlgorithm
+        | ErrorKind::Base64(_)
+        | ErrorKind::Json(_)
+        | ErrorKind::Utf8(_) => SessionFailureReason::Malformed,
+        _ => SessionFailureReason::InvalidClaims,
+    }
+}
+
+#[tracing::instrument(level = "debug", skip(cookie_header, jwt_secret))]
+pub(super) fn validate_cookie_session(
+    cookie_header: Option<&str>,
+    jwt_secret: &[u8],
+) -> Result<ValidatedCookieSession, CookieSessionError> {
+    let cookie_header = cookie_header.ok_or(CookieSessionError::Missing)?;
+    let tokens = cookies::extract_tokens_from_cookie(cookie_header);
+    if tokens.is_empty() {
+        return Err(CookieSessionError::Missing);
+    }
+
+    let candidate_count = tokens.len();
+    let mut rejected_candidates = Vec::new();
+
+    for (index, token) in tokens.into_iter().enumerate() {
+        match jwt::validate_token(jwt_secret, token) {
+            Ok(claims) => {
+                return Ok(ValidatedCookieSession {
+                    claims,
+                    candidate_count,
+                    selected_index: index,
+                    rejected_candidates,
+                });
+            }
+            Err(error) => {
+                let reason = classify_session_failure(&error);
+                let signed_claims = (reason == SessionFailureReason::Expired)
+                    .then(|| jwt::validate_expired_token_for_diagnostics(jwt_secret, token).ok())
+                    .flatten();
+                rejected_candidates.push(RejectedSessionCandidate {
+                    index,
+                    reason,
+                    signed_claims,
+                });
+            }
+        }
+    }
+
+    Err(CookieSessionError::Invalid {
+        candidate_count,
+        rejected_candidates,
+    })
+}
+
+#[tracing::instrument(level = "debug", skip(session), fields(path))]
+pub(super) fn trace_validated_session(path: &str, session: &ValidatedCookieSession) {
+    if session.rejected_candidates.is_empty() {
+        tracing::debug!(
+            event = "auth.session_validated",
+            path,
+            username = %session.claims.sub,
+            is_admin = session.claims.is_admin,
+            issued_at = session.claims.iat,
+            expires_at = session.claims.exp,
+            cookie_candidate_count = session.candidate_count,
+            selected_candidate_index = session.selected_index,
+            "Session cookie validated"
+        );
+        return;
+    }
+
+    let rejected_reasons: Vec<&str> = session
+        .rejected_candidates
+        .iter()
+        .map(|candidate| candidate.reason.as_str())
+        .collect();
+    let rejected_indices: Vec<usize> = session
+        .rejected_candidates
+        .iter()
+        .map(|candidate| candidate.index)
+        .collect();
+    tracing::warn!(
+        event = "auth.session_duplicate_recovered",
+        path,
+        username = %session.claims.sub,
+        is_admin = session.claims.is_admin,
+        issued_at = session.claims.iat,
+        expires_at = session.claims.exp,
+        cookie_candidate_count = session.candidate_count,
+        selected_candidate_index = session.selected_index,
+        rejected_candidate_indices = ?rejected_indices,
+        rejected_reasons = ?rejected_reasons,
+        "Recovered session using a valid duplicate cookie"
+    );
+}
+
+#[tracing::instrument(level = "debug", skip(error), fields(path, action))]
+pub(super) fn trace_rejected_session(path: &str, error: &CookieSessionError, action: &'static str) {
+    match error {
+        CookieSessionError::Missing => {
+            tracing::debug!(
+                event = "auth.session_missing",
+                path,
+                action,
+                "No session cookie was supplied"
+            );
+        }
+        CookieSessionError::Invalid {
+            candidate_count,
+            rejected_candidates,
+        } => {
+            let reasons: Vec<&str> = rejected_candidates
+                .iter()
+                .map(|candidate| candidate.reason.as_str())
+                .collect();
+            let signed_claims = rejected_candidates
+                .iter()
+                .find_map(|candidate| candidate.signed_claims.as_ref());
+            let suspicious = rejected_candidates
+                .iter()
+                .any(|candidate| candidate.reason.is_suspicious());
+
+            if suspicious {
+                tracing::warn!(
+                    event = "auth.session_rejected",
+                    path,
+                    action,
+                    cookie_candidate_count = candidate_count,
+                    validation_reasons = ?reasons,
+                    "Rejected invalid session cookies"
+                );
+            } else if let Some(claims) = signed_claims {
+                tracing::info!(
+                    event = "auth.session_rejected",
+                    path,
+                    action,
+                    cookie_candidate_count = candidate_count,
+                    validation_reasons = ?reasons,
+                    username = %claims.sub,
+                    is_admin = claims.is_admin,
+                    issued_at = claims.iat,
+                    expires_at = claims.exp,
+                    "Rejected expired session cookie"
+                );
+            } else {
+                tracing::info!(
+                    event = "auth.session_rejected",
+                    path,
+                    action,
+                    cookie_candidate_count = candidate_count,
+                    validation_reasons = ?reasons,
+                    "Rejected invalid session cookies"
+                );
+            }
+
+            tracing::info!(
+                event = "auth.session_cleared",
+                path,
+                action,
+                cookie_candidate_count = candidate_count,
+                "Clearing invalid session cookie"
+            );
+        }
+    }
+}
 
 // Extractor logic helper: extract and validate token from Authorization header or Cookie
 fn extract_and_validate_token(
@@ -22,11 +246,11 @@ fn extract_and_validate_token(
     }
 
     // Fall back to cookie
-    if let Some(cookie_header) = headers.get(header::COOKIE).and_then(|h| h.to_str().ok())
-        && let Some(token) = cookies::extract_token_from_cookie(cookie_header)
-        && let Ok(claims) = jwt::validate_token(jwt_secret, &token)
-    {
-        return Ok((claims.sub, claims.is_admin));
+    if let Ok(session) = validate_cookie_session(
+        headers.get(header::COOKIE).and_then(|h| h.to_str().ok()),
+        jwt_secret,
+    ) {
+        return Ok((session.claims.sub, session.claims.is_admin));
     }
 
     Err("Missing or invalid authentication")
@@ -68,7 +292,8 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
 ///
 /// Use this for HTML routes that should redirect to login on authentication failure.
 /// This extractor ONLY checks cookies (not Authorization headers).
-/// On authentication failure, returns a redirect to `/login?error=session_required`.
+/// Missing sessions redirect with `session_required`; invalid sessions are cleared and redirect
+/// with `session_expired`.
 #[derive(Debug, Clone)]
 pub struct AuthenticatedUserFromCookie {
     pub username: String,
@@ -83,12 +308,30 @@ impl AuthenticatedUserFromCookie {
     }
 }
 
-/// Custom rejection type that redirects to login
-pub struct AuthRedirect;
+/// Custom rejection type that redirects to login.
+#[derive(Debug, Clone, Copy)]
+pub enum AuthRedirect {
+    SessionRequired,
+    InvalidSession,
+}
 
 impl IntoResponse for AuthRedirect {
     fn into_response(self) -> Response {
-        Redirect::to("/login?error=session_required").into_response()
+        match self {
+            Self::SessionRequired => Redirect::to("/login?error=session_required").into_response(),
+            Self::InvalidSession => (
+                [(header::SET_COOKIE, cookies::create_clear_cookie())],
+                Redirect::to("/login?error=session_expired"),
+            )
+                .into_response(),
+        }
+    }
+}
+
+fn redirect_for_session_error(error: &CookieSessionError) -> AuthRedirect {
+    match error {
+        CookieSessionError::Missing => AuthRedirect::SessionRequired,
+        CookieSessionError::Invalid { .. } => AuthRedirect::InvalidSession,
     }
 }
 
@@ -99,25 +342,23 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // Extract cookie header
-        let cookie_header = parts
-            .headers
-            .get(header::COOKIE)
-            .and_then(|h| h.to_str().ok())
-            .ok_or(AuthRedirect)?;
-
-        // Extract token from cookies
-        let token = cookies::extract_token_from_cookie(cookie_header).ok_or(AuthRedirect)?;
-
-        // Validate token
-        let claims = jwt::validate_token(&state.jwt_secret, &token).map_err(|e| {
-            tracing::debug!("Cookie token validation failed: {}", e);
-            AuthRedirect
+        let path = parts.uri.path();
+        let session = validate_cookie_session(
+            parts
+                .headers
+                .get(header::COOKIE)
+                .and_then(|value| value.to_str().ok()),
+            &state.jwt_secret,
+        )
+        .map_err(|error| {
+            trace_rejected_session(path, &error, "redirect_to_login");
+            redirect_for_session_error(&error)
         })?;
+        trace_validated_session(path, &session);
 
         Ok(AuthenticatedUserFromCookie {
-            username: claims.sub,
-            is_admin: claims.is_admin,
+            username: session.claims.sub,
+            is_admin: session.claims.is_admin,
         })
     }
 }
@@ -165,22 +406,20 @@ impl FromRequestParts<AppState> for AdminUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        // Extract cookie header
-        let cookie_header = parts
-            .headers
-            .get(header::COOKIE)
-            .and_then(|h| h.to_str().ok())
-            .ok_or_else(|| AuthRedirect.into_response())?;
-
-        // Extract token from cookies
-        let token = cookies::extract_token_from_cookie(cookie_header)
-            .ok_or_else(|| AuthRedirect.into_response())?;
-
-        // Validate token
-        let claims = jwt::validate_token(&state.jwt_secret, &token).map_err(|e| {
-            tracing::debug!("Cookie token validation failed: {}", e);
-            AuthRedirect.into_response()
+        let path = parts.uri.path();
+        let session = validate_cookie_session(
+            parts
+                .headers
+                .get(header::COOKIE)
+                .and_then(|value| value.to_str().ok()),
+            &state.jwt_secret,
+        )
+        .map_err(|error| {
+            trace_rejected_session(path, &error, "redirect_to_login");
+            redirect_for_session_error(&error).into_response()
         })?;
+        trace_validated_session(path, &session);
+        let claims = session.claims;
 
         // Check if user is admin
         if !claims.is_admin {
@@ -206,6 +445,25 @@ mod tests {
     use axum::http::HeaderMap;
     use jsonwebtoken::{EncodingKey, Header, encode};
     use shared::auth::jwt::Claims;
+    use std::io::Write;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for CapturedWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0
+                .lock()
+                .expect("trace buffer lock poisoned")
+                .extend(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
 
@@ -360,6 +618,96 @@ mod tests {
 
         let result = extract_and_validate_token(&headers, TEST_SECRET);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_expired_cookie_before_valid_replacement_recovers() {
+        let expired_token = make_expired_token();
+        let valid_token = make_token("replacement_user", false);
+        let cookie_header = format!("sherpa_auth={}; sherpa_auth={}", expired_token, valid_token);
+
+        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
+            .expect("valid replacement cookie should be accepted");
+
+        assert_eq!(session.claims.sub, "replacement_user");
+        assert_eq!(session.candidate_count, 2);
+        assert_eq!(session.selected_index, 1);
+        assert_eq!(session.rejected_candidates.len(), 1);
+        assert_eq!(
+            session.rejected_candidates[0].reason,
+            SessionFailureReason::Expired
+        );
+    }
+
+    #[test]
+    fn test_valid_cookie_before_expired_duplicate_succeeds() {
+        let valid_token = make_token("first_user", true);
+        let expired_token = make_expired_token();
+        let cookie_header = format!("sherpa_auth={}; sherpa_auth={}", valid_token, expired_token);
+
+        let session = validate_cookie_session(Some(&cookie_header), TEST_SECRET)
+            .expect("first valid cookie should be accepted");
+
+        assert_eq!(session.claims.sub, "first_user");
+        assert_eq!(session.candidate_count, 2);
+        assert_eq!(session.selected_index, 0);
+        assert!(session.rejected_candidates.is_empty());
+    }
+
+    #[test]
+    fn test_invalid_session_redirect_clears_cookie() {
+        let response = AuthRedirect::InvalidSession.into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(header::LOCATION).unwrap(),
+            "/login?error=session_expired"
+        );
+        let clear_cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .expect("invalid session redirect should clear the cookie")
+            .to_str()
+            .expect("clear cookie should be a valid header");
+        assert!(clear_cookie.contains("Max-Age=0"));
+        assert!(clear_cookie.contains("Expires=Thu, 01 Jan 1970 00:00:00 GMT"));
+    }
+
+    #[test]
+    fn test_missing_session_redirect_does_not_set_cookie() {
+        let response = AuthRedirect::SessionRequired.into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::SEE_OTHER);
+        assert_eq!(
+            response.headers().get(header::LOCATION).unwrap(),
+            "/login?error=session_required"
+        );
+        assert!(!response.headers().contains_key(header::SET_COOKIE));
+    }
+
+    #[test]
+    fn test_rejected_session_trace_does_not_include_raw_cookie() {
+        const RAW_COOKIE: &str = "sherpa_auth=SUPER_SECRET_RAW_TOKEN";
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let writer = CapturedWriter(Arc::clone(&output));
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .without_time()
+            .with_writer(move || writer.clone())
+            .finish();
+        let error = validate_cookie_session(Some(RAW_COOKIE), TEST_SECRET)
+            .expect_err("malformed session should be rejected");
+
+        tracing::subscriber::with_default(subscriber, || {
+            trace_rejected_session("/", &error, "redirect_to_login");
+        });
+
+        let output = output.lock().expect("trace buffer lock poisoned");
+        let output = String::from_utf8_lossy(&output);
+        assert!(output.contains("auth.session_rejected"));
+        assert!(output.contains("malformed"));
+        assert!(!output.contains("SUPER_SECRET_RAW_TOKEN"));
+        assert!(!output.contains(RAW_COOKIE));
     }
 
     // ============================================================================
