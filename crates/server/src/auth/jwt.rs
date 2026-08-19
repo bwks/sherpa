@@ -160,6 +160,20 @@ pub fn validate_token(secret: &[u8], token: &str) -> Result<Claims> {
     Ok(token_data.claims)
 }
 
+/// Validate a token's signature and claims while allowing an expired `exp` value.
+///
+/// This is used only to recover safe diagnostic metadata from an expired token.
+#[tracing::instrument(level = "debug", skip(secret, token))]
+pub(crate) fn validate_expired_token_for_diagnostics(secret: &[u8], token: &str) -> Result<Claims> {
+    let mut validation = Validation::default();
+    validation.validate_exp = false;
+
+    let token_data = decode::<Claims>(token, &DecodingKey::from_secret(secret), &validation)
+        .context("Failed to validate expired JWT token for diagnostics")?;
+
+    Ok(token_data.claims)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

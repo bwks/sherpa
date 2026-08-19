@@ -25,7 +25,11 @@
 - Cookie used for subsequent HTTP requests `[integration]` **P0**
 - Logout clears cookie `[integration]` **P0**
 - Expired cookie rejected `[integration]` **P1**
+- Expired or invalid cookie is cleared before redirecting to login `[integration]` **P0**
+- Duplicate auth cookies accept a valid replacement regardless of ordering `[unit]` **P0**
+- Stale cookie followed by successful login can access a protected page `[integration]` **P0**
 - Cookie secure flag behavior (HTTPS vs HTTP) `[integration]` **P2**
+- Session tracing records safe validation and recovery metadata without raw tokens or passwords `[unit]` **P0**
 
 ---
 
