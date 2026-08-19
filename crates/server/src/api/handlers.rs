@@ -21,14 +21,14 @@ use crate::services::{
     resume, up,
 };
 use crate::templates::{
-    AdminImageUploadTemplate, AdminPasswordErrorTemplate, AdminPasswordSuccessTemplate,
-    AdminSshKeysListTemplate, AdminToolsTemplate, AdminUserEditTemplate, AdminUsersTemplate,
-    DashboardTemplate, EmptyStateTemplate, Error403Template, Error404Template, ErrorTemplate,
-    JobPageTemplate, LabCreateTemplate, LabDestroyButtonFragment, LabDestroyConfirmFragment,
-    LabDetailTemplate, LabsGridTemplate, LabsListTemplate, LoginErrorTemplate, LoginPageTemplate,
-    NodeDetailTemplate, NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate,
-    ProfileTemplate, SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate,
-    SshKeysListTemplate,
+    AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
+    AdminPasswordSuccessTemplate, AdminSshKeysListTemplate, AdminToolsTemplate,
+    AdminUserEditTemplate, AdminUsersTemplate, DashboardTemplate, EmptyStateTemplate,
+    Error403Template, Error404Template, ErrorTemplate, JobPageTemplate, LabCreateTemplate,
+    LabDestroyButtonFragment, LabDestroyConfirmFragment, LabDetailTemplate, LabsGridTemplate,
+    LabsListTemplate, LoginErrorTemplate, LoginPageTemplate, NodeDetailTemplate,
+    NodesTableFragment, PasswordErrorTemplate, PasswordSuccessTemplate, ProfileTemplate,
+    SignupErrorTemplate, SignupPageTemplate, SshKeyErrorTemplate, SshKeysListTemplate,
 };
 
 use super::errors::ApiError;
@@ -2517,10 +2517,13 @@ pub async fn admin_image_update_handler(
                 "Cannot unset default - only one default exists for {}",
                 params.model
             );
-            return Ok(Html(format!(
-                r#"<div class="notification-error">Cannot unset default - at least one version must be marked as default for {}</div>"#,
-                params.model
-            )).into_response());
+            return Ok(AdminNotificationErrorTemplate {
+                message: format!(
+                    "Cannot unset default - at least one version must be marked as default for {}",
+                    params.model
+                ),
+            }
+            .into_response());
         }
     }
 
@@ -2539,7 +2542,10 @@ pub async fn admin_image_update_handler(
         &form.interface_prefix,
     ) {
         tracing::warn!("Node config validation failed: {:?}", e);
-        return Ok(Html(format!(r#"<div class="notification-error">{}</div>"#, e)).into_response());
+        return Ok(AdminNotificationErrorTemplate {
+            message: e.to_string(),
+        }
+        .into_response());
     }
 
     // Create updated config (keeping id, model, kind, management_interface from existing)
@@ -2785,9 +2791,7 @@ pub async fn admin_image_upload_handler(
         Ok(f) => f,
         Err(e) => {
             tracing::warn!("Upload form validation failed: {}", e);
-            return Ok(
-                Html(format!(r#"<div class="notification-error">{}</div>"#, e)).into_response(),
-            );
+            return Ok(AdminNotificationErrorTemplate { message: e }.into_response());
         }
     };
 
@@ -2803,10 +2807,9 @@ pub async fn admin_image_upload_handler(
 
     if let Err(e) = tokio::fs::write(&temp_file, &fields.file_data).await {
         tracing::error!("Failed to write temp file {}: {:?}", temp_path, e);
-        return Ok(Html(format!(
-            r#"<div class="notification-error">Failed to save uploaded file: {}</div>"#,
-            e
-        ))
+        return Ok(AdminNotificationErrorTemplate {
+            message: format!("Failed to save uploaded file: {}", e),
+        }
         .into_response());
     }
 
@@ -2847,10 +2850,9 @@ pub async fn admin_image_upload_handler(
         }
         Err(e) => {
             tracing::error!("Image upload failed: {:?}", e);
-            Ok(Html(format!(
-                r#"<div class="notification-error">Import failed: {}</div>"#,
-                e
-            ))
+            Ok(AdminNotificationErrorTemplate {
+                message: format!("Import failed: {}", e),
+            }
             .into_response())
         }
     }
