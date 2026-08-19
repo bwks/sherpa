@@ -1,6 +1,6 @@
 [package]
 name = "template"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
@@ -8,15 +8,15 @@ shared = { path = "../shared" }
 topology = { path = "../topology" }
 
 # Templates
-anyhow = "1.0.100"
-askama = "0.14.0"
-serde = "1.0.208"
-serde_derive = "1.0.208"
+anyhow = { workspace = true }
+askama = { workspace = true }
+serde = { workspace = true }
+serde_derive = { workspace = true }
 serde_yaml = "0.9.34"
-serde_json = "1.0.128"
+serde_json = { workspace = true }
 
 # IP Addressing
-ipnet = "2.11.0"
+ipnet = { workspace = true }
 
 [dev-dependencies]
 urlencoding = "2.1"

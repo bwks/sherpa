@@ -1,16 +1,16 @@
 [package]
 name = "topology"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Se/Deserialzation
-serde = "1.0.208"
-serde_derive = "1.0.208"
-toml = "0.8.19"
-toml_edit = "0.22.22"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }

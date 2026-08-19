@@ -1,19 +1,19 @@
 [package]
 name = "libvirt"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Templates
-askama = "0.14.0"
+askama = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Libvirt
-virt = { version = "0.4.1", features = ["qemu"] }
+virt = { workspace = true }

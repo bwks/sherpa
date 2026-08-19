@@ -123,7 +123,7 @@ impl RpcClient {
         tracing::debug!("Sending RPC request: {}", request_json);
 
         self.write
-            .send(Message::Text(request_json))
+            .send(Message::Text(request_json.into()))
             .await
             .context("Failed to send RPC request")?;
 
@@ -194,7 +194,7 @@ impl RpcClient {
         tracing::debug!("Sending streaming RPC request: {}", request_json);
 
         self.write
-            .send(Message::Text(request_json))
+            .send(Message::Text(request_json.into()))
             .await
             .context("Failed to send RPC request")?;
 

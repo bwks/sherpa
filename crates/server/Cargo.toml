@@ -1,13 +1,13 @@
 [package]
 name = "sherpad"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
 axum = { version = "0.8.8", features = ["ws", "multipart"] }
-tokio = { version = "1.0", features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "fs", "io-util"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "signal", "sync", "time", "fs", "io-util"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "time"] }
 time = "0.3"
 
 shared = { path = "../shared", features = ["netinfo"] }
@@ -20,47 +20,45 @@ validate = { path = "../validate" }
 db = { path = "../db" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # Process/Signal management
-nix = { version = "0.29", features = ["signal", "process"] }
+nix = { version = "0.30.1", features = ["signal", "process"] }
 
 # CLI
-clap = { version = "4.5.16", features = ["derive", "env"] }
+clap = { workspace = true, features = ["env"] }
 
 # Serialization/Deserialization
-serde = "1.0.208"
-serde_derive = "1.0.208"
-serde_json = "1.0.128"
-toml = "0.8.19"
-toml_edit = "0.22.22"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
 
 # Enum utilities
-strum = "0.27"
+strum = { workspace = true }
 
 # De/Compression
-async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+async-compression = { workspace = true }
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
 # Random number generator
-rand = "0.8.5"
+rand = { workspace = true }
 
 # Authentication
-jsonwebtoken = "9"
+jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }
 
 # Templates
-askama = "0.14.0"
+askama = { workspace = true }
 
 
 # Async / Cancellation
-tokio-util = { version = "0.7", features = ["rt"] }
-futures = "0.3.31"
-futures-util = "0.3.31"
+tokio-util = { workspace = true, features = ["rt"] }
+futures = { workspace = true }
+futures-util = { workspace = true }
 async-stream = "0.3"
 
 # WebSocket support
-axum-extra = { version = "0.9", features = ["typed-header"] }
-tokio-tungstenite = "0.24"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 
@@ -68,36 +66,36 @@ tower-http = { version = "0.6", features = ["trace", "cors"] }
 rust-embed = "8"
 
 # UUID for connection IDs
-uuid = { version = "1.11", features = ["v4", "v7", "serde"] }
+uuid = { workspace = true, features = ["v7"] }
 
 # Concurrent collections
 dashmap = "6.1"
 
 # Timestamps for messages
-jiff = { version = "0.2.20", features = ["serde"] }
+jiff = { workspace = true }
 
 # http client
 reqwest = { workspace = true, features = ["stream"] }
 
 # Libvirt
-virt = { version = "0.4.1", features = ["qemu"] }
+virt = { workspace = true }
 
 # Docker
-bollard = "0.19.3"
+bollard = { workspace = true }
 
 # Regex
-regex = "1"
+regex = { workspace = true }
 
 # Generate SSH keys
-ssh-key = { version = "0.6.7", features = ["rsa", "ed25519"] }
+ssh-key = { workspace = true }
 
 # Password input
-rpassword = "7.3"
+rpassword = { workspace = true }
 
 # TLS support
 axum-server = { version = "0.7", features = ["tls-rustls"] }
-rustls = { version = "0.23", features = ["ring"] }
-rustls-pemfile = "2.2"
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
 rcgen = "0.13"
 
 # OpenTelemetry
@@ -108,6 +106,6 @@ tracing-opentelemetry = { workspace = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
-tempfile = "3.25.0"
-tokio-tungstenite = "0.24"
+tempfile = { workspace = true }
+tokio-tungstenite = { workspace = true }
 reqwest = { workspace = true, features = ["cookies", "form", "json"] }

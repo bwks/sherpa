@@ -736,6 +736,26 @@ impl IntoResponse for AdminImageUploadTemplate {
     }
 }
 
+/// Error notification returned by admin image form requests.
+#[derive(Template)]
+#[template(path = "admin/partials/notification-error.html.jinja", escape = "html")]
+pub struct AdminNotificationErrorTemplate {
+    pub message: String,
+}
+
+impl IntoResponse for AdminNotificationErrorTemplate {
+    fn into_response(self) -> Response {
+        match self.render() {
+            Ok(html) => Html(html).into_response(),
+            Err(err) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Failed to render template: {}", err),
+            )
+                .into_response(),
+        }
+    }
+}
+
 // ============================================================================
 // Admin Tools Templates
 // ============================================================================
@@ -1144,6 +1164,17 @@ mod tests {
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("Invalid credentials"));
+    }
+
+    #[test]
+    fn test_admin_notification_error_template_escapes_message() {
+        let tpl = AdminNotificationErrorTemplate {
+            message: "Invalid <script>alert('unsafe')</script>".to_string(),
+        };
+        let html = tpl.render().expect("template should render");
+
+        assert!(html.contains("Invalid &#60;script&#62;"));
+        assert!(!html.contains("<script>"));
     }
 
     #[test]

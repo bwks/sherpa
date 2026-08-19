@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.77"
+version = "0.3.78"
 edition = "2024"
 
 [dependencies]
@@ -10,63 +10,63 @@ template = { path = "../template" }
 validate = { path = "../validate" }
 
 # Errors
-anyhow = "1.0.100"
+anyhow = { workspace = true }
 
 # CLI
-clap = { version = "4.5.16", features = ["derive", "env"] }
+clap = { workspace = true, features = ["env"] }
 
 # Serialization/Deserialization
-serde = "1.0.208"
-serde_derive = "1.0.208"
-serde_json = "1.0.128"
-toml = "0.8.19"
-toml_edit = "0.22.22"
+serde = { workspace = true }
+serde_derive = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
 
 # De/Compression
-async-compression = { version = "0.4.32", features = ["tokio", "gzip"] }
+async-compression = { workspace = true }
 
 # Random number generator
-rand = "0.8.5"
+rand = { workspace = true }
 
 # Templates
-askama = "0.14.0"
+askama = { workspace = true }
 
 
 # Async
-tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread", "net", "time"] }
-futures = "0.3.31"
-futures-util = "0.3.31"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
+futures = { workspace = true }
+futures-util = { workspace = true }
 
 # URL parsing
-url = "2.5"
+url = { workspace = true }
 
 # WebSocket client with TLS support
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { workspace = true, features = ["rustls-tls-webpki-roots"] }
 
 # UUID for RPC request IDs
-uuid = { version = "1.11", features = ["v4", "serde"] }
+uuid = { workspace = true }
 
 # Logging
-tracing = "0.1"
+tracing = { workspace = true }
 
 # Password input
-rpassword = "7.3"
+rpassword = { workspace = true }
 
 # Base64 decoding (for JWT)
-base64 = "0.22"
+base64 = { workspace = true }
 
 # Logging (subscriber for verbose mode)
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 # Time/date handling
-jiff = { version = "0.2.20", features = ["serde"] }
+jiff = { workspace = true }
 
 # TLS support
-rustls = { version = "0.23", features = ["ring"] }
+rustls = { workspace = true }
 rustls-native-certs = "0.8"
 
 # Home directory detection
-dirs = "6.0"
+dirs = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
@@ -77,4 +77,4 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
-tempfile = "3.25.0"
+tempfile = { workspace = true }

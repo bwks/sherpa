@@ -16,7 +16,7 @@ use std::process::ExitCode;
 async fn main() -> ExitCode {
     // Initialize rustls crypto provider (required for rustls 0.23+)
     // This must be done before any rustls operations
-    let _ = rustls::crypto::ring::default_provider().install_default();
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
     match cmd::Cli::run().await {
         Ok(()) => ExitCode::from(0),
