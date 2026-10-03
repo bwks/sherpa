@@ -194,6 +194,28 @@ libvirt, their images and resources, and users/groups are retained in all modes.
 
 ## VM harness evidence and failure handling
 
+### Upgrade from the previous release
+
+- Install explicitly selected previous-release binaries in a fresh disposable
+  guest using the recorded checkout installer; record both baseline and candidate
+  archive/binary hashes and the installer hash `[e2e]` **P0**
+- Reject equal baseline/candidate versions, identical binary bytes and upgrade
+  runs without supplied local candidate archives before provisioning `[unit]` **P0**
+- Initialize the baseline, authenticate, and create an additional non-admin user
+  through the API; retain both user records, configuration, environment, SSH
+  identity and TLS certificate fingerprints `[e2e]` **P0**
+- Upgrade the same guest with the real installer and verify candidate versions
+  and binary hashes; authenticate both persisted users and compare retained state
+  before and after upgrade and again after reboot `[e2e]` **P0**
+- Environment comparisons ignore generated comments and blank lines but detect
+  changed assignments, including database credentials and listen settings `[unit]` **P0**
+- Upgrade guests must pass a bounded read-only SSH readiness wait before workspace
+  creation; transient refusal can recover, and continued refusal fails before
+  any installation commands `[unit]` **P0**
+- Missing or changed upgrade evidence fails the run; installer failures/timeouts
+  retain a failed receipt and diagnostics with the existing targeted cleanup
+  policy `[unit]` **P0**
+
 - Capture server systemd journal entries and database container logs before each
   uninstall; foreground service logging does not require a file log `[e2e]` **P0**
 - An actual command timeout stops the guest probe, fails the run and records owned
@@ -204,10 +226,10 @@ libvirt, their images and resources, and users/groups are retained in all modes.
   `sherpa up` reports readiness warnings with exit status zero `[e2e]` **P0**
 - Cleanup refuses changed lab identity or domain UUID, handles missing local SSH
   files, verifies owned resource removal and rechecks the base image `[e2e]` **P0**
-- Release verification requires all lifecycle steps, pre-uninstall diagnostics,
+- Local verification requires all lifecycle steps, pre-uninstall diagnostics,
   matching script/archive/binary hashes and verified cleanup `[unit]` **P0**
 - Failed, timed-out, incomplete, published-baseline and dirty-checkout receipts
-  cannot approve a clean-source release candidate `[unit]` **P0**
+  cannot pass strict local verification `[unit]` **P0**
 - Shared evidence excludes credentials, connection settings and SSH private keys
   while preserving the required inventories and provenance `[unit]` **P0**
 

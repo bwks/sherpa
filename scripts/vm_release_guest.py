@@ -9,12 +9,14 @@ import os
 from pathlib import Path
 import pty
 import pwd
+import re
 import select
 import signal
 import socket
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 import tomllib
 import unittest
@@ -39,6 +41,19 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
+def environment_fingerprint(path):
+    values = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        require("=" in line, "Malformed installer environment assignment")
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    require(bool(values), "Installer environment settings are missing")
+    return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
+
+
 def validate_binary_version(binary, version, output):
     require(output.split() == [binary, version.removeprefix("v")],
             f"Unexpected {binary} version")
@@ -48,6 +63,30 @@ def validate_retained_resources(before, after):
     require(set(before) == set(after), "Resource inventory categories changed")
     for category, items in before.items():
         require(items == after[category], f"Uninstall changed retained {category}")
+
+
+def validate_upgrade_state(before, after):
+    required = {"config", "ssh_key", "environment", "certificate", "users"}
+    require(set(before) == required and set(after) == required, "Incomplete upgrade state evidence")
+    for key in required - {"users"}:
+        require(isinstance(before[key], str) and re.fullmatch(r"[0-9a-f]{64}", before[key]),
+                f"Missing {key} fingerprint")
+    require(isinstance(before["users"], list) and len(before["users"]) == 2,
+            "Both persistent test users must be recorded")
+    for key in required:
+        require(before[key] == after[key], f"Upgrade changed retained {key}")
+
+
+def validate_upgrade_evidence(evidence, baseline, candidate):
+    phases = {"before", "after", "reboot", "baseline-binaries", "candidate-binaries", "reboot-binaries"}
+    require(set(evidence) == phases, "Incomplete upgrade phase evidence")
+    for phase in ("after", "reboot"):
+        validate_upgrade_state(evidence["before"], evidence[phase])
+    for phase, inputs in (("baseline-binaries", baseline), ("candidate-binaries", candidate),
+                          ("reboot-binaries", candidate)):
+        for binary in ("sherpa", "sherpad"):
+            key = binary + "_binary_sha256"
+            require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
 def interrupted(signum, _frame):
@@ -108,7 +147,7 @@ class Guest:
             require(process.returncode == 0, f"Command failed ({process.returncode}): {command[0]}")
         return process.returncode, output
 
-    def environment(self):
+    def environment(self, selection="candidate"):
         env = dict(os.environ)
         env.update(SHERPA_DB_PASSWORD=self.credentials["db_password"],
                    SHERPA_SERVER_IPV4=self.settings["listen_ip"],
@@ -116,13 +155,16 @@ class Guest:
                    SHERPA_SERVER_HTTP_PORT=str(self.settings["http_port"]),
                    SHERPA_DB_PORT=str(self.settings["db_port"]),
                    DEBIAN_FRONTEND="noninteractive")
-        if self.config["candidate"]["artifact_directory"]:
+        env.pop("SHERPA_ARTIFACT_DIR", None)
+        if selection == "baseline":
+            env["SHERPA_ARTIFACT_DIR"] = str(self.workspace / "baseline")
+        elif self.config[selection]["artifact_directory"]:
             env["SHERPA_ARTIFACT_DIR"] = str(self.workspace)
         return env
 
-    def installer(self):
+    def installer(self, selection="candidate"):
         return ["bash", str(self.workspace / "sherpa_install.sh"),
-                "--version", self.config["candidate"]["version"]]
+                "--version", self.config[selection]["version"]]
 
     def baseline(self):
         self.command(["cloud-init", "status", "--wait", "--long"],
@@ -179,21 +221,21 @@ class Guest:
         require(code != 0 and "artifact" in output.lower(), "Unavailable artifacts accepted")
         require(not self.base.exists(), "Preflight failures changed the installation")
 
-    def install(self):
-        self.command(self.installer(), timeout=self.timeouts["install"], env=self.environment())
-        self.verify_installation()
+    def install(self, selection="candidate"):
+        self.command(self.installer(selection), timeout=self.timeouts["install"], env=self.environment(selection))
+        self.verify_installation(selection)
 
-    def verify_installation(self):
+    def verify_installation(self, selection="candidate"):
         for binary in ("sherpa", "sherpad"):
             path = self.base / "bin" / binary
-            require(digest(path) == self.config["candidate"][f"{binary}_binary_sha256"],
-                    f"Installed {binary} does not match the candidate artifact")
+            require(digest(path) == self.config[selection][f"{binary}_binary_sha256"],
+                    f"Installed {binary} does not match the {selection} artifact")
             require(path.stat().st_mode & 0o777 == 0o755, f"Invalid {binary} permissions")
             require(path.stat().st_uid == pwd.getpwnam("sherpa").pw_uid, f"Invalid {binary} owner")
             link = Path("/usr/local/bin") / binary
             require(link.is_symlink() and link.resolve() == path, f"Invalid {binary} symlink")
             _, output = self.command([str(path), "--version"])
-            validate_binary_version(binary, self.config["candidate"]["version"], output)
+            validate_binary_version(binary, self.config[selection]["version"], output)
         for directory, permissions in (("", 0o775), ("db", 0o775), ("config", 0o775), ("env", 0o750)):
             path = self.base / directory
             require(path.is_dir() and path.stat().st_mode & 0o777 == permissions,
@@ -346,6 +388,65 @@ class Guest:
         self.command(["systemd-run", "--unit=sherpa-release-reboot",
                       f"--on-active={self.timeouts['poll']}", "systemctl", "reboot"])
 
+    def login(self, username):
+        login = self.request("/api/v1/auth/login", {"username": username,
+                             "password": self.credentials["admin_password"]})
+        require(login["username"] == username, "Incorrect persistent user login")
+        self.passwords.append(login["token"])
+        return login
+
+    def upgrade_state(self):
+        self.verify_retained()
+        state = {"config": digest(self.base / "config/sherpa.toml"),
+                 "ssh_key": digest(self.base / "ssh/sherpa_ssh_key"),
+                 "environment": environment_fingerprint(self.base / "env/sherpa.env"),
+                 "certificate": digest(self.base / ".certs/server.crt")}
+        admin = self.login(self.credentials["admin_username"])
+        require(admin["is_admin"], "Persistent admin lost privileges")
+        username = "persist-" + self.config["identity"]["nonce"][:8]
+        user = self.login(username)
+        require(not user["is_admin"], "Persistent non-admin gained privileges")
+        users = self.request("/api/v1/admin/users", token=admin["token"])["users"]
+        selected = sorted((entry for entry in users
+                           if entry["username"] in (self.credentials["admin_username"], username)),
+                          key=lambda entry: entry["username"])
+        require(len(selected) == 2, "Persistent test users missing")
+        state["users"] = [json.dumps(entry, sort_keys=True) for entry in selected]
+        return state
+
+    def seed_upgrade(self):
+        admin = self.login(self.credentials["admin_username"])
+        username = "persist-" + self.config["identity"]["nonce"][:8]
+        created = self.request("/api/v1/admin/users",
+                               {"username": username, "password": self.credentials["admin_password"],
+                                "is_admin": False, "token": admin["token"]}, token=admin["token"])
+        require(created["success"] and created["username"] == username and not created["is_admin"],
+                "Persistent test user was not created")
+        self.write_resources(self.workspace / "upgrade-state.toml",
+                             {"before": self.upgrade_state(), "baseline-binaries": self.installed_hashes()})
+        print("PASS baseline persistent users, settings and identity recorded")
+
+    def upgrade(self):
+        evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
+        validate_upgrade_state(evidence["before"], self.upgrade_state())
+        self.reinstall()
+
+    def verify_upgrade(self, phase):
+        self.verify_installation()
+        evidence = tomllib.loads((self.workspace / "upgrade-state.toml").read_text())
+        state = self.upgrade_state()
+        validate_upgrade_state(evidence["before"], state)
+        evidence[phase] = state
+        evidence["candidate-binaries" if phase == "after" else "reboot-binaries"] = self.installed_hashes()
+        if phase == "reboot":
+            validate_upgrade_evidence(evidence, self.config["baseline"], self.config["candidate"])
+        self.write_resources(self.workspace / "upgrade-state.toml", evidence)
+        print(f"PASS {phase}: candidate binaries and unchanged users, settings and identity")
+
+    def installed_hashes(self):
+        return {binary + "_binary_sha256": digest(self.base / "bin" / binary)
+                for binary in ("sherpa", "sherpad")}
+
     def reinstall(self):
         self.install()
         self.verify_retained()
@@ -493,6 +594,10 @@ class Guest:
                    "diagnostics": self.diagnostics,
                    "diagnostics-live": lambda: self.diagnostics(required=True),
                    "fault-wait": self.fault_wait, "cancel": self.cancel,
+                   "install-baseline": lambda: self.install("baseline"),
+                   "seed-upgrade": self.seed_upgrade, "upgrade": self.upgrade,
+                   "verify-upgrade": lambda: self.verify_upgrade("after"),
+                   "verify-upgrade-reboot": lambda: self.verify_upgrade("reboot"),
                    "new-database": lambda: (self.install(), self.initialize())}
         require(step in actions, "Unknown guest step")
         if step == "cancel":
@@ -511,6 +616,66 @@ class Guest:
 
 
 class GuestTests(unittest.TestCase):
+    def test_environment_fingerprint_ignores_comments_but_detects_changed_settings(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "environment"
+            path.write_text("# Generated yesterday\nSHERPA_DB_PASSWORD=test-only\nSHERPA_DB_PORT=8000\n")
+            before = environment_fingerprint(path)
+            path.write_text("# Generated today\n\nSHERPA_DB_PORT=8000\nSHERPA_DB_PASSWORD=test-only\n")
+            self.assertEqual(before, environment_fingerprint(path))
+            path.write_text("SHERPA_DB_PORT=8001\nSHERPA_DB_PASSWORD=test-only\n")
+            self.assertNotEqual(before, environment_fingerprint(path))
+
+    def test_upgrade_evidence_rejects_missing_phases_and_wrong_installed_bytes(self):
+        state = {key: "a" * 64 for key in ("config", "ssh_key", "environment", "certificate")}
+        state["users"] = ['{"username":"admin","is_admin":true}',
+                          '{"username":"persisted","is_admin":false}']
+        baseline = {f"{binary}_binary_sha256": "b" * 64 for binary in ("sherpa", "sherpad")}
+        candidate = {f"{binary}_binary_sha256": "c" * 64 for binary in ("sherpa", "sherpad")}
+        evidence = {"before": state, "after": state, "reboot": state,
+                    "baseline-binaries": baseline, "candidate-binaries": candidate,
+                    "reboot-binaries": candidate}
+        validate_upgrade_evidence(evidence, baseline, candidate)
+        for phase in evidence:
+            incomplete = dict(evidence)
+            incomplete.pop(phase)
+            with self.subTest(phase=phase), self.assertRaises(RuntimeError):
+                validate_upgrade_evidence(incomplete, baseline, candidate)
+        changed = {**evidence, "candidate-binaries": baseline}
+        with self.assertRaises(RuntimeError):
+            validate_upgrade_evidence(changed, baseline, candidate)
+
+    def test_upgrade_state_requires_unchanged_settings_identity_and_records(self):
+        before = {key: "a" * 64 for key in ("config", "ssh_key", "environment", "certificate")}
+        before["users"] = ['{"username":"admin","is_admin":true}',
+                           '{"username":"persisted","is_admin":false}']
+        validate_upgrade_state(before, before)
+        for key in before:
+            changed = dict(before, **{key: [] if key == "users" else "b" * 64})
+            with self.subTest(key=key), self.assertRaises(RuntimeError):
+                validate_upgrade_state(before, changed)
+        with self.assertRaises(RuntimeError):
+            validate_upgrade_state({}, {})
+
+    def test_baseline_install_uses_separate_verified_inputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            payload = {"candidate": {"version": "v0.3.80", "artifact_directory": "/candidate"},
+                       "baseline": {"version": "v0.3.79", "artifact_directory": "/baseline"},
+                       "guest": {"listen_ip": "127.0.0.1", "ws_port": 3030,
+                                 "http_port": 3031, "db_port": 8000},
+                       "timeouts": {}, "credentials": {"db_password": "test-db", "admin_password": "test-admin"}}
+            lines = []
+            for section, values in payload.items():
+                lines.append(f"[{section}]")
+                lines.extend(f"{key} = {json.dumps(value)}" for key, value in values.items())
+            path = workspace / "guest.toml"
+            path.write_text("\n".join(lines))
+            guest = Guest(path)
+            self.assertEqual(guest.installer("baseline")[-1], "v0.3.79")
+            self.assertEqual(guest.environment("baseline")["SHERPA_ARTIFACT_DIR"], str(workspace / "baseline"))
+            self.assertEqual(guest.installer()[-1], "v0.3.80")
+
     def test_initialization_allows_child_to_exit_after_terminal_closes(self):
         guest = Guest.__new__(Guest)
         guest.base = Path("/unused-test-guest")

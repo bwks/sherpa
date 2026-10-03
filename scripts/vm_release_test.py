@@ -24,6 +24,8 @@ from unittest.mock import patch
 import uuid
 from urllib.parse import urlsplit
 
+from vm_release_guest import validate_upgrade_evidence
+
 
 ROOT = Path(__file__).resolve().parent.parent
 RUNNER_SOURCE = Path(__file__).read_bytes()
@@ -31,6 +33,27 @@ STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
          "reboot", "authenticate", "reinstall", "authenticate",
          "keep-data", "restore", "authenticate", "remove-data",
          "new-database", "authenticate", "remove-all", "repeat-uninstall")
+UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
+                 "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
+                 "reboot", "authenticate", "verify-upgrade-reboot")
+
+
+def validate_upgrade_config(config):
+    baseline = config.get("baseline", {})
+    if set(baseline) != {"version", "artifact_directory"}:
+        raise ValueError("Upgrade requires an explicit baseline version and artifact selection")
+    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", baseline["version"]):
+        raise ValueError("Select an explicit baseline release version")
+    if baseline["version"] == config["candidate"]["version"]:
+        raise ValueError("Upgrade requires distinct baseline and candidate versions")
+    if not config["candidate"]["artifact_directory"]:
+        raise ValueError("Upgrade requires supplied local candidate archives")
+
+
+def validate_upgrade_artifacts(baseline, candidate):
+    for binary in ("sherpa", "sherpad"):
+        if baseline[f"{binary}_binary_sha256"] == candidate[f"{binary}_binary_sha256"]:
+            raise ValueError(f"Upgrade requires different {binary} baseline and candidate bytes")
 
 
 def interrupted(signum, _frame):
@@ -124,6 +147,8 @@ def validate_config(config):
                      "startup", "reboot", "cleanup", "poll", "terminate"),
         "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
     }
+    if "baseline" in config:
+        required["baseline"] = ("version", "artifact_directory")
     if set(config) != set(required):
         raise ValueError("Unknown or missing configuration section")
     for section, keys in required.items():
@@ -313,21 +338,35 @@ class Runner:
             path = self.directory / name
             path.write_bytes(RUNNER_SOURCE if name == "vm_release_test.py" else (ROOT / "scripts" / name).read_bytes())
             self.report["scripts"][name.replace(".", "_")] = sha256(path)
+        self.report["artifacts"] = self.prepare_artifacts(candidate, self.directory)
+        if self.report["run"]["scenario"] == "upgrade":
+            baseline = {**candidate, **self.config["baseline"]}
+            baseline_directory = self.directory / "baseline"
+            baseline_directory.mkdir(mode=0o700)
+            self.report["baseline"] = {**baseline,
+                "installer_sha256": self.report["scripts"]["sherpa_install_sh"],
+                "installer_source": "recorded-checkout",
+                **self.prepare_artifacts(baseline, baseline_directory)}
+            validate_upgrade_artifacts(self.report["baseline"], self.report["artifacts"])
+        self.save()
+
+    def prepare_artifacts(self, candidate, directory):
+        artifacts = {}
         for binary in ("sherpad", "sherpa"):
             asset = f"{binary}-{candidate['target']}.tar.gz"
-            path = self.directory / asset
+            path = directory / asset
             if candidate["artifact_directory"]:
                 source = ROOT / candidate["artifact_directory"] / asset
                 path.write_bytes(source.read_bytes())
             else:
                 url = f"{candidate['download_url']}/{candidate['version']}/{asset}"
-                self.command(f"download-{binary}", ["curl", "-fSL", "--connect-timeout",
+                self.command(f"download-{candidate['version']}-{binary}", ["curl", "-fSL", "--connect-timeout",
                              str(self.config["timeouts"]["connect"]), "--max-time",
                              str(self.config["timeouts"]["download"]), "-o", str(path), url],
                              self.config["timeouts"]["download"])
-            self.report["artifacts"][f"{binary}_archive_sha256"] = sha256(path)
-            self.report["artifacts"][f"{binary}_binary_sha256"] = archive_binary_hash(path, binary)
-        self.save()
+            artifacts[f"{binary}_archive_sha256"] = sha256(path)
+            artifacts[f"{binary}_binary_sha256"] = archive_binary_hash(path, binary)
+        return artifacts
 
     def provision(self):
         manifest = tomllib.loads((ROOT / self.config["vm"]["manifest"]).read_text())
@@ -410,7 +449,20 @@ class Runner:
         self.report["run"]["resource_state"] = "allocated"
         self.save()
 
+    def wait_guest(self):
+        deadline = time.monotonic() + self.config["timeouts"]["startup"]
+        while time.monotonic() < deadline:
+            code, _ = self.ssh("guest-ssh-ready", ["true"],
+                               self.config["timeouts"]["connect"] + self.config["timeouts"]["terminate"],
+                               check=False)
+            if code == 0:
+                return
+            time.sleep(self.config["timeouts"]["poll"])
+        raise TimeoutError("Guest SSH did not become ready before workspace creation")
+
     def transfer(self):
+        if self.report["run"]["scenario"] == "upgrade":
+            self.wait_guest()
         remote = self.config["guest"]["workspace_prefix"] + "-" + self.run_id
         guard = ("from pathlib import Path; import socket; "
                  f"assert Path('/sys/class/dmi/id/product_uuid').read_text().strip().lower() == {self.guest_uuid!r}; "
@@ -435,6 +487,8 @@ class Runner:
             "credentials": {"db_password": database_password, "admin_password": admin_password,
                             "admin_username": self.config["guest"]["admin_prefix"] + self.run_id[:8]},
         }
+        if self.report["run"]["scenario"] == "upgrade":
+            payload["baseline"] = dict(self.report["baseline"])
         payload_path = self.directory / "guest.toml"
         payload_path.write_text(encode_toml(payload))
         payload_path.chmod(0o600)
@@ -442,7 +496,9 @@ class Runner:
                  str(self.directory / "sherpa_install.sh"), str(self.directory / "sherpa_uninstall.sh")]
         if self.config["candidate"]["artifact_directory"]:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
-        self.command("upload", ["scp", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
+        if "baseline" in payload:
+            files.append(str(self.directory / "baseline"))
+        self.command("upload", ["scp", "-r", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
                                "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                *files, f"{self.node_name}.{self.lab_id}:{remote}/"],
                      self.config["timeouts"]["download"])
@@ -454,11 +510,11 @@ class Runner:
         self.report["run"]["active_step"] = name
         self.save()
         timeout = self.config["timeouts"]["command"]
-        if name in ("install", "reinstall", "restore", "new-database"):
+        if name in ("install", "reinstall", "restore", "new-database", "install-baseline", "upgrade"):
             timeout = self.config["timeouts"]["install"]
         elif name in ("initialize", "baseline"):
             timeout = self.config["timeouts"]["initialize"]
-        elif name == "authenticate":
+        elif name in ("authenticate", "seed-upgrade", "verify-upgrade", "verify-upgrade-reboot"):
             timeout = self.config["timeouts"]["startup"]
         elif name == "fault-wait" and self.report["run"]["scenario"] == "fault-timeout":
             timeout = self.config["faults"]["command_timeout"]
@@ -497,6 +553,15 @@ class Runner:
         if self.guest_uuid and hasattr(self, "remote_directory"):
             try:
                 self.step("diagnostics")
+                if self.report["run"]["scenario"] == "upgrade":
+                    self.command("upgrade-evidence", ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
+                                 "-o", "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
+                                 f"{self.node_name}.{self.lab_id}:{self.remote_directory}/upgrade-state.toml",
+                                 str(self.directory)], self.config["timeouts"]["command"])
+                    evidence = tomllib.loads((self.directory / "upgrade-state.toml").read_text())
+                    if tuple(self.report["run"]["completed_steps"]) == UPGRADE_STEPS:
+                        validate_upgrade_evidence(evidence, self.report["baseline"], self.report["artifacts"])
+                    self.report["run"]["upgrade_evidence_sha256"] = sha256(self.directory / "upgrade-state.toml")
                 for mode in ("keep-data", "remove-data", "remove-all"):
                     if mode in self.report["run"]["completed_steps"]:
                         self.command("inventory-" + mode, ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
@@ -506,7 +571,7 @@ class Runner:
                                      self.config["timeouts"]["command"])
             except (RuntimeError, subprocess.TimeoutExpired):
                 print("[diagnostics] Guest collection failed; provisioning and step logs are retained", flush=True)
-                if tuple(self.report["run"]["completed_steps"]) == STEPS:
+                if tuple(self.report["run"]["completed_steps"]) in (STEPS, UPGRADE_STEPS):
                     raise
         if self.lab_id:
             self.sherpa("inspect-final", ["inspect"], self.config["timeouts"]["command"])
@@ -563,6 +628,9 @@ class Runner:
     def run(self, scenario):
         success = False
         required = STEPS if scenario == "lifecycle" else STEPS[:2]
+        if scenario == "upgrade":
+            validate_upgrade_config(self.config)
+            required = UPGRADE_STEPS
         if scenario in ("fault-timeout", "fault-interrupt"):
             required = ("baseline", "fault-wait")
         self.report["run"]["scenario"] = scenario
@@ -623,10 +691,12 @@ class Runner:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "dev/release-test/config.toml")
-    parser.add_argument("--scenario", choices=("lifecycle", "preflight", "failure-checks", "fault-timeout",
+    parser.add_argument("--scenario", choices=("lifecycle", "upgrade", "preflight", "failure-checks", "fault-timeout",
                                                "fault-interrupt", "fault-provision"), default="lifecycle")
     parser.add_argument("--version", help="Override the explicit candidate version in TOML")
     parser.add_argument("--artifact-dir", help="Use local release archives instead of GitHub downloads")
+    parser.add_argument("--baseline-version", help="Explicit previous release for the upgrade scenario")
+    parser.add_argument("--baseline-artifact-dir", help="Optional local previous-release archives")
     parser.add_argument("--keep-vm", action="store_true", help="Retain the run's VM even after success")
     parser.add_argument("--cleanup-run", type=Path, help="Verify identity and remove a retained run's lab")
     parser.add_argument("--result-file", type=Path, help="Write a nonsecret TOML reference to this run's receipt")
@@ -649,11 +719,118 @@ def main():
         config["candidate"]["version"] = args.version
     if args.artifact_dir:
         config["candidate"]["artifact_directory"] = str(Path(args.artifact_dir).resolve())
+    if args.baseline_version:
+        config["baseline"] = {"version": args.baseline_version,
+                              "artifact_directory": str(Path(args.baseline_artifact_dir).resolve())
+                              if args.baseline_artifact_dir else ""}
+    elif args.baseline_artifact_dir:
+        parser.error("--baseline-artifact-dir requires --baseline-version")
+    if args.scenario != "upgrade" and (args.baseline_version or args.baseline_artifact_dir):
+        parser.error("Baseline inputs require --scenario upgrade")
     validate_config(config)
     return Runner(config, args.keep_vm, args.result_file).run(args.scenario)
 
 
 class HarnessTests(unittest.TestCase):
+    def test_upgrade_waits_for_transient_guest_ssh_failure_without_mutating_it(self):
+        config = self.upgrade_config()
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            with patch.object(runner, "ssh", side_effect=[(255, "refused"), (0, "")]) as ssh, \
+                 patch.object(time, "sleep"):
+                runner.wait_guest()
+                self.assertEqual(ssh.call_count, 2)
+                for call in ssh.call_args_list:
+                    self.assertEqual(call.args[1], ["true"])
+
+    def test_upgrade_guest_ssh_wait_is_bounded(self):
+        config = self.upgrade_config()
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            with patch.object(runner, "ssh", return_value=(255, "refused")), \
+                 patch.object(time, "monotonic", side_effect=[0, 0, 1000]), \
+                 patch.object(time, "sleep"), self.assertRaises(TimeoutError):
+                runner.wait_guest()
+
+    def upgrade_config(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        config["candidate"].update(version="v0.3.80", artifact_directory="/candidate")
+        config["baseline"] = {"version": "v0.3.79", "artifact_directory": ""}
+        return config
+
+    def test_upgrade_requires_distinct_versions_and_local_candidate(self):
+        validate_upgrade_config(self.upgrade_config())
+        for field, value in (("version", "v0.3.79"), ("artifact_directory", "")):
+            config = self.upgrade_config()
+            config["candidate"][field] = value
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_upgrade_config(config)
+
+    def test_upgrade_refuses_identical_baseline_and_candidate_bytes(self):
+        baseline = {f"{binary}_binary_sha256": "a" * 64 for binary in ("sherpa", "sherpad")}
+        candidate = {f"{binary}_binary_sha256": "b" * 64 for binary in ("sherpa", "sherpad")}
+        validate_upgrade_artifacts(baseline, candidate)
+        for binary in ("sherpa", "sherpad"):
+            changed = dict(candidate)
+            changed[f"{binary}_binary_sha256"] = baseline[f"{binary}_binary_sha256"]
+            with self.subTest(binary=binary), self.assertRaises(ValueError):
+                validate_upgrade_artifacts(baseline, changed)
+
+    def test_upgrade_runs_both_versions_and_rechecks_state_after_reboot(self):
+        config = self.upgrade_config()
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            def step(name, label=None):
+                runner.report["run"]["completed_steps"].append(name)
+            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
+                 patch.object(runner, "transfer"), patch.object(runner, "collect"), \
+                 patch.object(runner, "step", side_effect=step), \
+                 patch.object(runner, "reboot", side_effect=lambda: step("reboot")), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.run("upgrade"), 0)
+            self.assertEqual(runner.report["run"]["completed_steps"],
+                             ["baseline", "install-baseline", "initialize", "authenticate",
+                              "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
+                              "reboot", "authenticate", "verify-upgrade-reboot"])
+
+    def test_upgrade_failure_keeps_failed_receipt_and_verifies_targeted_cleanup(self):
+        config = self.upgrade_config()
+        config["runner"]["retain_failed"] = False
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.lab_id = "12345678"
+            def step(name, label=None):
+                if name == "upgrade":
+                    raise TimeoutError("upgrade timed out")
+                runner.report["run"]["completed_steps"].append(name)
+            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
+                 patch.object(runner, "transfer"), patch.object(runner, "collect") as collect, \
+                 patch.object(runner, "step", side_effect=step), \
+                 patch.object(runner, "cleanup") as cleanup, redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.run("upgrade"), 1)
+                cleanup.assert_called_once()
+                collect.assert_called_once()
+            report = tomllib.loads((runner.directory / "result.toml").read_text())
+            self.assertEqual(report["run"]["failure_kind"], "timeout")
+            self.assertNotIn("verify-upgrade", report["run"]["completed_steps"])
+
+    def test_completed_upgrade_fails_when_evidence_collection_fails(self):
+        config = self.upgrade_config()
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.guest_uuid = "expected"
+            runner.remote_directory = "/unused-test-workspace"
+            runner.report["run"].update(scenario="upgrade", completed_steps=list(UPGRADE_STEPS))
+            with patch.object(runner, "step"), \
+                 patch.object(runner, "command", side_effect=RuntimeError("missing upgrade evidence")), \
+                 redirect_stdout(io.StringIO()), self.assertRaises(RuntimeError):
+                runner.collect()
+
     def test_configured_jump_host_is_used_for_guest_commands(self):
         config = load_config(ROOT / "dev/release-test/config.toml")
         config["host"]["ssh_destination"] = "remote-user@example.test"

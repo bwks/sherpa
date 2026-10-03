@@ -207,7 +207,7 @@ docker restart sherpa-db
 - `vm_release_test.py` - Local VM test orchestration
 - `vm_release_guest.py` - Guest identity checks and lifecycle assertions
 - `vm_release_faults.py` - Live failure checks and verified cleanup
-- `verify_release_test.py` - Exact artifact verification and selected release evidence
+- `verify_release_test.py` - Exact artifact verification and selected local test evidence
 - `TESTING.md` - Test documentation
 - `create_blank_disks.sh` - Disk creation utility
 - `create_iosv_disk.sh` - IOSv disk creation utility

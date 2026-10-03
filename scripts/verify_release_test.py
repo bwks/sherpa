@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Require a complete VM result for the exact scripts and archives being released."""
+"""Validate a local VM result against the candidate scripts and archives."""
 
 import argparse
 from copy import deepcopy
@@ -20,19 +20,19 @@ def validate_release(receipt, artifacts, version, commit, require_clean=True, so
     report = tomllib.loads(receipt.read_text())
     run, candidate = report["run"], report["candidate"]
     if run["status"] != "passed" or run["scenario"] != "lifecycle":
-        raise ValueError("Release requires a passed complete lifecycle run")
+        raise ValueError("Verification requires a passed complete lifecycle run")
     if tuple(run["completed_steps"]) != STEPS or run.get("diagnostics_before") != ["keep-data", "remove-data", "remove-all"]:
         raise ValueError("Required scenarios or pre-uninstall diagnostics are missing")
     if run["retained"] or run.get("resource_state") != "removed" or not run.get("cleanup_verified"):
         raise ValueError("Disposable lab cleanup was not verified")
     if any(run.get(key) for key in ("error", "failure_kind", "cleanup_error", "evidence_error", "cancel_error")):
-        raise ValueError("Failed or timed-out evidence cannot approve a release")
+        raise ValueError("Failed or timed-out evidence cannot pass local verification")
     if candidate["version"] != version or candidate["commit"] != commit:
         raise ValueError("Receipt refers to a different candidate version or commit")
     if not candidate["artifact_directory"]:
-        raise ValueError("Published-release baselines cannot approve an unpublished candidate")
+        raise ValueError("Local verification requires supplied candidate archives")
     if require_clean and candidate["dirty"]:
-        raise ValueError("Release evidence must come from a clean checkout")
+        raise ValueError("Candidate results must come from a clean checkout")
     if report["vm"]["version"] != "26.04":
         raise ValueError("Required Ubuntu 26.04 run is missing")
     for name in ("sherpa_install.sh", "sherpa_uninstall.sh", "vm_release_test.py", "vm_release_guest.py"):
@@ -83,7 +83,7 @@ def main():
     cleanliness = parser.add_mutually_exclusive_group()
     cleanliness.add_argument("--require-clean", action="store_true", help="Require a clean checkout (the default)")
     cleanliness.add_argument("--allow-dirty", action="store_true", help="Verify local development artifacts without requiring a clean source checkout")
-    parser.add_argument("--stage-evidence", type=Path, help="Copy only nonsecret release evidence for CI upload")
+    parser.add_argument("--stage-evidence", type=Path, help="Copy selected nonsecret local test evidence")
     args = parser.parse_args()
     if args.self_test:
         unittest.main(argv=[sys.argv[0]])
@@ -109,15 +109,15 @@ def main():
         report = validate_release(receipt, args.artifact_dir, args.version, commit, not args.allow_dirty)
         if args.stage_evidence:
             stage_evidence(report, receipt, args.stage_evidence)
-        mode = "local verification (dirty checkout allowed)" if args.allow_dirty else "release gate"
+        mode = "local verification (dirty checkout allowed)" if args.allow_dirty else "local verification"
         print(f"PASS {mode}: {args.version}, commit {commit}, exact tested scripts and archives")
         return 0
     except (ValueError, OSError, KeyError) as error:
-        print(f"FAIL release gate: {error}", file=sys.stderr)
+        print(f"FAIL local verification: {error}", file=sys.stderr)
         return 1
 
 
-class GateTests(unittest.TestCase):
+class VerificationTests(unittest.TestCase):
     def test_staged_evidence_excludes_credentials_and_connection_settings(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -173,7 +173,7 @@ class GateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_release(receipt, directory, "v0.3.80", "a" * 40, sources=sources)
 
-    def test_failed_timed_out_skipped_or_dirty_results_block_release(self):
+    def test_failed_timed_out_skipped_or_dirty_results_fail_local_verification(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
             receipt, report, sources = self.fixture(directory)

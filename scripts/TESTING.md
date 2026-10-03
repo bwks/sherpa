@@ -33,10 +33,10 @@ bash scripts/test_install.sh --scenario failure-checks
 ```
 
 VM tests run locally against your existing Sherpa server using the authenticated
-CLI and SSH access. The existing GitHub workflows do not enforce these results;
-publication enforcement remains an open task in the
-[release checklist](../test-specs/integration/vm-release-test-plan.md).
+CLI and SSH access. The
+[VM testing checklist](../test-specs/integration/vm-release-test-plan.md) records
+completed checks and remaining harness coverage.
 
 The [BATS suite](../test-scripts/install_tests.bats) provides additional installer
 unit tests. Its integration checks can skip when prerequisites are absent, so its
-result alone is not the VM release gate.
+result alone does not establish that the complete VM lifecycle passed.

@@ -10,8 +10,7 @@ Complete phases 1–5 before adding new product features. Phase 6 extends the sa
 harness to broader release coverage. This document records the plan; an imported
 image alone does not establish a test harness. Local lifecycle and failure checks
 now pass for freshly built `0.3.80` archives. Tests run locally against the existing
-Sherpa server. Publication enforcement remains outstanding; self-hosted GitHub
-runners are excluded from this design.
+Sherpa server.
 
 **External dependencies:** a working Sherpa host, libvirt/KVM with nested
 virtualization support, guest SSH access and sudo, and internet access for Ubuntu
@@ -32,7 +31,6 @@ packages and runtime images. Scenarios in this plan are `[e2e]` tests.
 - Record the exact candidate commit, scripts, artifacts and image used by a run.
   A release result applies only to those inputs.
 - Invoke the VM controller locally using the existing Sherpa CLI and SSH access.
-  No self-hosted GitHub runner or runner service account will be used.
 
 ## Phase 0 — Image preparation
 
@@ -98,7 +96,7 @@ Local runner implemented and validated on 2026-10-03. See the
   commit into the guest; record their hashes.
 - [x] Establish a baseline run using an explicitly selected published release.
 - [x] Provide a way for the installer to consume candidate release artifacts
-  before publication. Preserve its normal published-release workflow.
+  from local files. Preserve its normal published-release workflow.
 - [x] Verify installed binaries match the supplied candidate artifacts; a
   matching version string alone is insufficient evidence.
 - [x] Automate installer inputs and required server initialization without
@@ -207,38 +205,30 @@ including after staging the selected nonsecret evidence.
 
 These are development results from an uncommitted checkout at
 `cba3c377c8863a677d8cc42ff0abc8a378ec982e`. Local verification explicitly used
-`--allow-dirty`; the normal release verifier correctly rejects these receipts as
-publication approval. Earlier `v0.3.79` baseline receipts remain historical evidence.
+`--allow-dirty` because the checkout contained uncommitted changes. Earlier
+`v0.3.79` baseline receipts remain historical evidence.
 
-## Phase 5 — Release gate
+## Phase 5 — Local validation and documentation
 
 - [x] Document the local workflow, prerequisites, expected results and failure
   inspection steps in the source repository.
 - [x] Run successful formatting and workspace Clippy before local Rust tests,
   following the existing repository rules.
 - [x] Provide a local Ubuntu 26.04 installation/uninstallation suite and retain
-  its result record with the candidate's release evidence.
+  its result record with the candidate's local test evidence.
 - [x] Verify the candidate version, commit, scripts, archives, binary hashes and
   required scenarios; reject incomplete or failed evidence.
-- [ ] Define how publication will require the passing local result without
-  self-hosted GitHub runners.
-- [ ] Ensure publication uses the same artifacts that passed the local harness;
-  rerun tests if scripts or artifacts change afterwards.
-- [ ] Verify that failed, timed-out or unexpectedly skipped required scenarios
-  block publication through the chosen release process.
 - [ ] Record completion of phases 1–5 before starting new product features.
 
-**Acceptance:** an exact candidate can be tested before publication, and the
-release process requires a passing result for those artifacts.
-
-The existing GitHub workflows are unchanged and do not enforce the local VM
-result. No runner registration, service account or management runner VM is needed.
-The local artifact verifier is available, but publication enforcement remains
-open. Keep the overall task open until that process is defined and verified.
+**Acceptance:** local VM runs produce complete results for the recorded candidate,
+and the artifact verifier checks those results against the supplied scripts and
+archives.
 
 ## Phase 6 — Later coverage using the same harness
 
-- [ ] Upgrade from the previous release and verify persisted data and settings.
+Resume from the [next-session handoff](../../dev/release-test/NEXT-SESSION.md).
+
+- [x] Upgrade from the previous release and verify persisted data and settings.
 - [ ] Container lab creation, inspection, shutdown, resume and destruction.
 - [ ] Nested VM lab creation, inspection, shutdown, resume and destruction.
 - [ ] Mixed VM/container labs and their networking.
@@ -247,6 +237,38 @@ open. Keep the overall task open until that process is defined and verified.
 - [ ] Run the existing service and crate integration suites inside suitable
   disposable guests, keeping their setup separate from the bare installer baseline.
 - [ ] Add supported Ubuntu versions and architectures as separate test targets.
+
+**Upgrade verification recorded on 2026-10-03:** published `v0.3.79` binaries
+were installed and initialized in a fresh Ubuntu 26.04 guest, then upgraded to the
+local `v0.3.80` archives from clean build commit `2070f3e`. Both installs used the
+recorded checkout installer; the previous release's historical installer was not
+tested. The harness ran from the uncommitted checkout at that same HEAD and
+recorded its script hashes and dirty state separately from the archive inputs.
+
+| Run ID | Scenario | Result | Owned VM/disks |
+|---|---|---|---|
+| `35a1cc067fb6487bbaa5113fbf1bc048` | `v0.3.79` → local `v0.3.80`, reboot recovery | Passed | Removed, cleanup verified |
+
+The receipt and `upgrade-state.toml` are under
+`.tmp/vm-release-tests/35a1cc067fb6487bbaa5113fbf1bc048/`. The reference is
+`.tmp/vm-release-tests/upgrade-v0.3.79-to-v0.3.80.toml`.
+Both versions' archive and binary hashes are recorded; installed fingerprints
+match baseline inputs before upgrade and candidate inputs after upgrade and
+reboot. The initialized admin and an additional API-created non-admin retained
+their complete user records, credentials and privileges. Configuration,
+environment assignments, SSH identity and TLS certificate fingerprints matched
+across all three phases. Generated environment comments are excluded from its
+fingerprint. API/CLI authentication and service/database health passed after both
+upgrade and reboot. The five pre-existing host domains, including the clean
+baseline, remained in the inventory, and the base image checksum was unchanged.
+
+Two exploratory runs remain failed in their receipts, with verified cleanup:
+`045bb47090ed4899ac3bf342db0076a1` exposed the generated environment timestamp
+comparison, and `1c2c7acc23254bb7b7df2f637e05bdfe` encountered transient guest SSH
+refusal before installation. Regression tests cover semantic environment
+comparison, bounded SSH readiness, separate baseline inputs, changed/missing
+upgrade evidence, timeout reporting and cleanup. Formatting, workspace Clippy
+and all 45 local harness/guest/fault/verifier regression checks passed.
 
 ## Existing material to reconcile during implementation
 

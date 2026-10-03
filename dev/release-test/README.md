@@ -71,7 +71,7 @@ whether it is dirty, script hashes, archive and installed binary hashes, base
 image checksum and VM identity. This is a published-release baseline for the
 current scripts, not proof that unpublished source changes are in those binaries.
 
-To test release archives before publication:
+To test locally built candidate archives:
 
 ```sh
 ./scripts/test_install.sh --version v0.3.80 --artifact-dir /path/to/release-artifacts
@@ -110,6 +110,43 @@ original package set. Server journal and database logs are captured before each
 uninstall. A daemon log file is captured as well when present; the systemd service
 runs in foreground mode and writes its server logs to the journal.
 
+## Upgrade testing
+
+Select both versions explicitly and supply locally built candidate archives:
+
+```sh
+./scripts/test_install.sh --scenario upgrade --baseline-version v0.3.79 --version v0.3.80 --artifact-dir /path/to/release-artifacts --result-file /path/to/upgrade-reference.toml
+```
+
+The runner downloads the previous release on the controller and transfers it
+separately from the candidate. Use `--baseline-artifact-dir /path/to/previous-artifacts`
+to supply the previous release locally. The optional TOML `[baseline]` section has
+`version` and `artifact_directory` settings; the CLI flags override them.
+Both installations use the recorded checkout's real installer. This verifies a
+binary upgrade using that installer; it does not test the previous release's
+historical installer. Both input archive/binary hashes and the baseline installer
+hash/source are recorded. Equal versions, identical binary bytes or a missing
+local candidate selection are rejected before provisioning.
+
+The upgrade scenario creates a fresh guest, installs and initializes the baseline,
+then creates an additional non-admin user through its authenticated API. It upgrades
+the same installation without reinitializing the database. It checks candidate
+binary versions/hashes, API/CLI authentication, both persisted users' credentials
+and privileges, complete user records, configuration, environment, SSH identity
+and TLS certificate fingerprints. It repeats those checks after a real reboot.
+Environment fingerprints cover every assignment while excluding generated
+comments and blank lines, so the installer's timestamp comment can change.
+Before creating the workspace, upgrade runs wait for authenticated SSH within
+the configured startup timeout. Guest identity checks still run before changes.
+
+`upgrade-state.toml` records retained state before upgrade, after upgrade and after
+reboot, including installed binary fingerprints for all three phases. A completed
+run requires that evidence to be collected and validated. The receipt records its
+SHA-256 along with both sets of inputs. Upgrade receipts are separate from complete
+install/uninstall lifecycle receipts; the existing lifecycle artifact verifier
+continues to require the lifecycle scenario. Failure retention, diagnostics and
+targeted cleanup use the same settings and ownership checks as other scenarios.
+
 ## Failure checks and artifact verification
 
 Run the live harness failure suite with the same candidate inputs:
@@ -133,11 +170,11 @@ python3 scripts/verify_release_test.py --receipt /path/to/run/result.toml --arti
 ```
 
 Alternatively use `--result-file` with the reference written by the runner.
-Changed installer/harness scripts, archive or binary hashes, missing required
-steps, incomplete resource evidence, failed cleanup and dirty checkouts block
-release approval. The verifier checks the recorded candidate commit against the
-current checkout's HEAD, or the explicit `--commit` value, and requires a clean
-source checkout for the recorded run. `--allow-dirty` permits local development
+The verifier rejects changed installer/harness scripts, archive or binary hashes,
+missing required steps, incomplete resource evidence, failed cleanup and dirty
+checkouts. It checks the recorded candidate commit against the current checkout's
+HEAD, or the explicit `--commit` value, and requires a clean source checkout for
+the recorded run. `--allow-dirty` permits local development
 verification. Its optional `--stage-evidence` directory contains
 only the selected receipt and guest resource inventories, without connection
 settings, credentials or SSH keys.
@@ -168,9 +205,7 @@ python3 scripts/vm_release_faults.py --self-test
 python3 scripts/verify_release_test.py --self-test
 ```
 
-The [release checklist](../../test-specs/integration/vm-release-test-plan.md)
-tracks verified VM runs and the remaining release gate work. Run the VM harness
+The [VM testing checklist](../../test-specs/integration/vm-release-test-plan.md)
+tracks verified VM runs and remaining harness coverage. Run the VM harness
 locally against the existing Sherpa server using your authenticated CLI and SSH
-access. No GitHub runner service or additional account is required. The existing
-GitHub workflows do not consume these receipts or enforce the local VM result;
-publication enforcement remains outstanding.
+access.
