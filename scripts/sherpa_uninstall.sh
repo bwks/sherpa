@@ -256,6 +256,23 @@ remove_sherpad_binary() {
     else
         print_info "Binary not found"
     fi
+
+    remove_binary_symlink /usr/local/bin/sherpad "${SHERPA_BASE_DIR}/bin/sherpad"
+    if [ "$REMOVE_ALL" = true ]; then
+        remove_binary_symlink /usr/local/bin/sherpa "${SHERPA_BASE_DIR}/bin/sherpa"
+    fi
+}
+
+remove_binary_symlink() {
+    local link="$1"
+    local target="$2"
+
+    # Preserve files and links belonging to other installations, including when
+    # our target binary has already been removed and the link is dangling.
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+        rm -f "$link"
+        print_success "Removed binary symlink: ${link}"
+    fi
 }
 
 ################################################################################

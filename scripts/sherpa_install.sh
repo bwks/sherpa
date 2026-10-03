@@ -47,6 +47,7 @@ GITHUB_DOWNLOAD_URL="https://github.com/${GITHUB_REPO}/releases/download"
 TARGET="x86_64-unknown-linux-gnu"
 SHERPA_VERSION=""
 INSTALLED_VERSION=""
+SHERPA_ARTIFACT_DIR="${SHERPA_ARTIFACT_DIR:-}"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -106,6 +107,8 @@ Environment Variables:
   SHERPA_SERVER_HTTP_PORT     HTTP certificate endpoint port (default: 3031)
   SHERPA_DB_PASSWORD   SurrealDB password
   SHERPA_DB_PORT       SurrealDB port (default: 8000)
+  SHERPA_ARTIFACT_DIR  Local release archives instead of GitHub downloads
+                      Requires --version; expects the normal release filenames
 
 Examples:
   # Interactive (will prompt for password)
@@ -271,7 +274,8 @@ install_system_packages() {
         gzip
         unzip
         # QEMU/KVM/libvirt
-        qemu-kvm
+        # qemu-kvm is ambiguous on Ubuntu 26.04 (standard and HWE providers).
+        qemu-system-x86
         libvirt-daemon-system
         libvirt-clients
         libvirt-dev
@@ -684,7 +688,16 @@ install_binaries() {
         done
 
         print_info "Downloading ${asset}..."
-        if curl -sfL -o "${tmp_dir}/${asset}" "${url}"; then
+        local downloaded=false
+        if [ -n "$SHERPA_ARTIFACT_DIR" ]; then
+            if cp "${SHERPA_ARTIFACT_DIR}/${asset}" "${tmp_dir}/${asset}"; then
+                downloaded=true
+            fi
+        elif curl -sfL -o "${tmp_dir}/${asset}" "${url}"; then
+            downloaded=true
+        fi
+
+        if [ "$downloaded" = true ]; then
             print_success "Downloaded ${asset}"
 
             # Extract and install
@@ -1037,6 +1050,10 @@ main() {
     while [ $# -gt 0 ]; do
         case "$1" in
             --version)
+                if [ $# -lt 2 ] || [ -z "$2" ] || [[ "$2" == --* ]]; then
+                    print_error "--version requires a version"
+                    exit 1
+                fi
                 SHERPA_VERSION="$2"
                 shift 2
                 ;;
@@ -1052,6 +1069,17 @@ main() {
         esac
     done
     
+    if [ -n "$SHERPA_ARTIFACT_DIR" ]; then
+        if [ -z "$SHERPA_VERSION" ]; then
+            print_error "Local artifacts require --version"
+            exit 1
+        fi
+        if [ ! -f "${SHERPA_ARTIFACT_DIR}/sherpad-${TARGET}.tar.gz" ]; then
+            print_error "Required sherpad artifact not found in ${SHERPA_ARTIFACT_DIR}"
+            exit 1
+        fi
+    fi
+
     # Set up error trap
     trap cleanup_on_error EXIT
     

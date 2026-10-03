@@ -44,3 +44,5 @@ jobs:
     uses: ./.github/workflows/release.yml
     with:
       version: ${{ needs.check-version.outputs.version }}
+    secrets:
+      SHERPA_RELEASE_APP_PRIVATE_KEY: ${{ secrets.SHERPA_RELEASE_APP_PRIVATE_KEY }}

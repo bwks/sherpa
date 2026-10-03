@@ -6,6 +6,9 @@ on:
       version:
         required: true
         type: string
+    secrets:
+      SHERPA_RELEASE_APP_PRIVATE_KEY:
+        required: true
 
 permissions:
   contents: write
@@ -99,6 +102,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -124,14 +128,27 @@ jobs:
         env:
           GITHUB_REPO: ${{ github.repository }}
 
-      - name: Create changelog PR and auto-merge
+      - name: Generate changelog App token
+        id: changelog-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3
+        with:
+          client-id: ${{ vars.SHERPA_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SHERPA_RELEASE_APP_PRIVATE_KEY }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Create changelog PR
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.changelog-token.outputs.token }}
+          APP_SLUG: ${{ steps.changelog-token.outputs.app-slug }}
         run: |
           BRANCH="changelog/${{ inputs.version }}"
 
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          BOT_ID=$(gh api "users/${APP_SLUG}[bot]" --jq '.id')
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${BOT_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
+          gh auth setup-git
 
           # Clean up stale branch from a previous failed run
           git push origin --delete "$BRANCH" 2>/dev/null || true
@@ -147,17 +164,24 @@ jobs:
             --base main \
             --head "$BRANCH"
 
+      - name: Merge changelog PR
+        env:
+          # Keep the merge from triggering another release before its tag exists.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          BRANCH="changelog/${{ inputs.version }}"
+
           # Merge directly if clean, otherwise enable auto-merge and wait
           if ! gh pr merge "$BRANCH" --merge; then
             gh pr merge "$BRANCH" --merge --auto
 
-            for i in $(seq 1 30); do
+            for i in $(seq 1 120); do
               STATE=$(gh pr view "$BRANCH" --json state --jq '.state')
               if [ "$STATE" = "MERGED" ]; then
                 echo "PR merged successfully."
                 break
               fi
-              if [ "$i" -eq 30 ]; then
+              if [ "$i" -eq 120 ]; then
                 echo "Timed out waiting for PR to merge."
                 exit 1
               fi

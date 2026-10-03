@@ -1,0 +1,10 @@
+name = "sherpa-release-test"
+ready_timeout = 600
+
+[[nodes]]
+name = "testbox"
+model = "ubuntu_linux"
+version = "26.04"
+cpu_count = 4
+memory = 8192
+boot_disk_size = 60

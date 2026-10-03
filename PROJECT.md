@@ -1,5 +1,9 @@
 # Project Backlog
 
+## Release Testing — Required Before New Features
+
+- [ ] **VM release test harness** — Build repeatable release testing in disposable Sherpa-managed VMs, starting with server install/uninstall on bare Ubuntu 26.04. Task checklist: [VM release testing plan](test-specs/integration/vm-release-test-plan.md). Complete its phases 1–5 before adding new product features.
+
 ## Build Performance
 
 - [x] **Baseline build timings** — Clean debug workspace build: 8m 40s; incremental rebuild after touching `crates/shared/src/lib.rs`: 12.9s; `cargo clippy --workspace -- -D warnings`: 4m 47s.

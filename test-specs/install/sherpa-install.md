@@ -2,7 +2,7 @@
 
 > **Script:** `scripts/sherpa_install.sh`
 > **External Dependencies:** Ubuntu 24.04+, root access, Docker, libvirt, internet (GitHub API + container registry)
-> **Existing Tests:** None
+> **Existing Tests:** `test-scripts/install_tests.bats`, `scripts/test_install.sh`
 
 ---
 
@@ -12,6 +12,9 @@
 - `--help` prints usage and exits 0 `[unit]` **P0**
 - `--version v0.3.4` sets SHERPA_VERSION correctly `[unit]` **P0**
 - Unknown flag prints error + usage, exits 1 `[unit]` **P0**
+- Missing `--version` value fails before any system changes `[unit]` **P0**
+- `SHERPA_ARTIFACT_DIR` selects local release archives with an explicit version `[e2e]` **P0**
+- A missing required local artifact fails before package or container changes `[unit]` **P0**
 - Env vars populate defaults: `SHERPA_DB_PASSWORD`, `SHERPA_DB_PORT`, `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT`, `SHERPA_SERVER_HTTP_PORT` `[unit]` **P0**
 
 ---
@@ -84,6 +87,7 @@
 
 **What to test:**
 - All expected packages are passed to apt-get install `[integration]` **P1**
+- Select concrete `qemu-system-x86` instead of the ambiguous Ubuntu 26.04 `qemu-kvm` virtual package `[unit]` **P0**
 - DEBIAN_FRONTEND=noninteractive is set `[unit]` **P1**
 
 ---
@@ -169,6 +173,65 @@
 - Stops existing sherpad process/service before overwriting `[integration]` **P1**
 - Force-kills sherpad if graceful stop fails `[integration]` **P2**
 - Temp directory cleaned up on return `[unit]` **P2**
+
+## Uninstallation
+
+The VM runner checks the actual script exit status and resulting state. Default
+server removal retains the CLI; full removal removes both binaries. Docker,
+libvirt, their images and resources, and users/groups are retained in all modes.
+
+- Remove the server service, binary and its owned symlink `[e2e]` **P0**
+- Keep data: retain the database, server configuration and SSH identity, then
+  reinstall and authenticate the persisted test admin `[e2e]` **P0**
+- Remove data: empty the database while retaining configuration and identity `[e2e]` **P0**
+- Full removal: remove the installation directory and both owned symlinks `[e2e]` **P0**
+- Preserve unrelated files and symlinks at binary locations `[unit]` **P0**
+- Repeated full uninstall succeeds when the installation is already absent `[e2e]` **P0**
+- Compare package, user/group, Docker image/volume/unrelated container and libvirt
+  domain/network/pool inventories before and after each uninstall mode `[e2e]` **P0**
+- Record retained libvirt definitions even when full removal deletes their backing
+  installation directory; do not assume uninstall restores bare Ubuntu `[e2e]` **P1**
+
+## VM harness evidence and failure handling
+
+### Upgrade from the previous release
+
+- Install explicitly selected previous-release binaries in a fresh disposable
+  guest using the recorded checkout installer; record both baseline and candidate
+  archive/binary hashes and the installer hash `[e2e]` **P0**
+- Reject equal baseline/candidate versions, identical binary bytes and upgrade
+  runs without supplied local candidate archives before provisioning `[unit]` **P0**
+- Initialize the baseline, authenticate, and create an additional non-admin user
+  through the API; retain both user records, configuration, environment, SSH
+  identity and TLS certificate fingerprints `[e2e]` **P0**
+- Upgrade the same guest with the real installer and verify candidate versions
+  and binary hashes; authenticate both persisted users and compare retained state
+  before and after upgrade and again after reboot `[e2e]` **P0**
+- Environment comparisons ignore generated comments and blank lines but detect
+  changed assignments, including database credentials and listen settings `[unit]` **P0**
+- Upgrade guests must pass a bounded read-only SSH readiness wait before workspace
+  creation; transient refusal can recover, and continued refusal fails before
+  any installation commands `[unit]` **P0**
+- Missing or changed upgrade evidence fails the run; installer failures/timeouts
+  retain a failed receipt and diagnostics with the existing targeted cleanup
+  policy `[unit]` **P0**
+
+- Capture server systemd journal entries and database container logs before each
+  uninstall; foreground service logging does not require a file log `[e2e]` **P0**
+- An actual command timeout stops the guest probe, fails the run and records owned
+  resources for verified cleanup `[e2e]` **P0**
+- SIGTERM interrupts the runner and stops its active guest probe; retain a failed
+  receipt before attempting diagnostics and targeted cleanup `[e2e]` **P0**
+- Incomplete provisioning must be rejected before installation, including when
+  `sherpa up` reports readiness warnings with exit status zero `[e2e]` **P0**
+- Cleanup refuses changed lab identity or domain UUID, handles missing local SSH
+  files, verifies owned resource removal and rechecks the base image `[e2e]` **P0**
+- Local verification requires all lifecycle steps, pre-uninstall diagnostics,
+  matching script/archive/binary hashes and verified cleanup `[unit]` **P0**
+- Failed, timed-out, incomplete, published-baseline and dirty-checkout receipts
+  cannot pass strict local verification `[unit]` **P0**
+- Shared evidence excludes credentials, connection settings and SSH private keys
+  while preserving the required inventories and provenance `[unit]` **P0**
 
 ---
 
