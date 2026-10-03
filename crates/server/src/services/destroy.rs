@@ -1,11 +1,15 @@
 use std::fs;
+use std::future::Future;
 
 use anyhow::{Context, Result, anyhow};
 use opentelemetry::KeyValue;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
-use container::{delete_network, kill_container, list_containers, list_networks, remove_container};
+use container::tailscale::{gateway_name, is_gateway, remove_gateway};
+use container::{
+    Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
+};
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
 use shared::data::{
@@ -35,7 +39,8 @@ use crate::services::progress::ProgressSender;
 /// - Lab directory
 ///
 /// Error handling: Continue with all resources even if some fail,
-/// tracking successes and failures separately.
+/// tracking successes and failures separately. Retain ownership and saved
+/// configuration if Tailscale cleanup fails so the owner can retry destruction.
 ///
 /// TODO: Currently accepts username without authentication. This assumes a trusted
 /// environment where the client can be trusted to send correct username. In production,
@@ -241,54 +246,15 @@ pub async fn destroy_lab(
         "Network interface deletion completed"
     );
 
-    // 6. Clean up database
-    tracing::info!(lab_id = %lab_id, "Cleaning up database records");
-    let _ = progress.send_status(
-        "Cleaning up database records...".to_string(),
-        StatusKind::Progress,
-    );
-    match cleanup_database(lab_id, &state.db).await {
-        Ok(_) => {
-            summary.database_records_deleted = true;
-            let _ = progress.send_status("Database records cleaned".to_string(), StatusKind::Done);
-            tracing::info!(lab_id = %lab_id, "Database cleanup successful");
-        }
-        Err(e) => {
-            summary.database_records_deleted = false;
-            errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
-            tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
-        }
-    }
-
-    // 7. Delete lab directory
-    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
-    let _ = progress.send_status(
-        "Deleting lab directory...".to_string(),
-        StatusKind::Progress,
-    );
-    if dir_exists(&lab_dir) {
-        match fs::remove_dir_all(&lab_dir) {
-            Ok(_) => {
-                summary.lab_directory_deleted = true;
-                let _ = progress.send_status("Lab directory deleted".to_string(), StatusKind::Done);
-                tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
-            }
-            Err(e) => {
-                summary.lab_directory_deleted = false;
-                errors.push(DestroyError::new(
-                    "filesystem",
-                    &lab_dir,
-                    format!("{:?}", e),
-                ));
-                tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
-            }
-        }
-    } else {
-        // Directory doesn't exist - consider it success (idempotent)
-        summary.lab_directory_deleted = true;
-        let _ = progress.send_status("Lab directory deleted".to_string(), StatusKind::Done);
-        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
-    }
+    cleanup_lab_metadata(
+        lab_id,
+        &lab_dir,
+        cleanup_database(lab_id, &state.db),
+        &mut summary,
+        &mut errors,
+        Some(&progress),
+    )
+    .await;
 
     // Determine overall success
     let success = errors.is_empty();
@@ -327,10 +293,85 @@ pub async fn destroy_lab(
     })
 }
 
+/// Finish database and filesystem cleanup after infrastructure teardown.
+/// Keep metadata when Tailscale resources remain; the database future is only
+/// polled once their cleanup succeeds.
+#[instrument(skip(database_cleanup, summary, errors, progress), fields(%lab_id), level = "debug")]
+pub(crate) async fn cleanup_lab_metadata(
+    lab_id: &str,
+    lab_dir: &str,
+    database_cleanup: impl Future<Output = Result<()>>,
+    summary: &mut DestroySummary,
+    errors: &mut Vec<DestroyError>,
+    progress: Option<&ProgressSender>,
+) {
+    let send_status = |message: String, kind: StatusKind| {
+        if let Some(progress) = progress {
+            let _ = progress.send_status(message, kind);
+        }
+    };
+    if errors
+        .iter()
+        .any(|error| error.resource_type == "tailscale")
+    {
+        tracing::warn!(lab_id = %lab_id, "Retaining lab ownership and saved configuration after Tailscale cleanup failure");
+        send_status(
+            "Tailscale cleanup failed; lab ownership and saved configuration retained for a cleanup retry."
+                .to_string(),
+            StatusKind::Info,
+        );
+        return;
+    }
+
+    tracing::info!(lab_id = %lab_id, "Cleaning up database records");
+    send_status(
+        "Cleaning up database records...".to_string(),
+        StatusKind::Progress,
+    );
+    match database_cleanup.await {
+        Ok(_) => {
+            summary.database_records_deleted = true;
+            send_status("Database records cleaned".to_string(), StatusKind::Done);
+            tracing::info!(lab_id = %lab_id, "Database cleanup successful");
+        }
+        Err(e) => {
+            summary.database_records_deleted = false;
+            errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
+        }
+    }
+
+    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
+    send_status(
+        "Deleting lab directory...".to_string(),
+        StatusKind::Progress,
+    );
+    if dir_exists(lab_dir) {
+        match fs::remove_dir_all(lab_dir) {
+            Ok(_) => {
+                summary.lab_directory_deleted = true;
+                send_status("Lab directory deleted".to_string(), StatusKind::Done);
+                tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
+            }
+            Err(e) => {
+                summary.lab_directory_deleted = false;
+                errors.push(DestroyError::new("filesystem", lab_dir, format!("{:?}", e)));
+                tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
+            }
+        }
+    } else {
+        // Directory doesn't exist - consider it success (idempotent)
+        summary.lab_directory_deleted = true;
+        send_status("Lab directory deleted".to_string(), StatusKind::Done);
+        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
+    }
+}
+
 /// Destroy all containers for a lab
+#[instrument(skip(docker, summary, errors), fields(%lab_id), level = "debug")]
 pub(crate) async fn destroy_containers(
     lab_id: &str,
-    docker: &bollard::Docker,
+    docker: &Docker,
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
 ) {
@@ -359,6 +400,10 @@ pub(crate) async fn destroy_containers(
                         // Extract the actual container name (remove leading /)
                         if let Some(container_name) = names.first() {
                             let name = container_name.trim_start_matches('/');
+                            // Gateways are removed below after verifying exact ownership.
+                            if container.labels.as_ref().is_some_and(is_gateway) {
+                                continue;
+                            }
                             tracing::debug!(
                                 lab_id = %lab_id,
                                 container_name = %name,
@@ -412,6 +457,19 @@ pub(crate) async fn destroy_containers(
             ));
             tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list containers");
         }
+    }
+
+    // Remove ordinary nodes first, including nodes named like the gateway.
+    // Gateway cleanup still runs if listing or removing ordinary nodes fails.
+    if let Err(error) = remove_gateway(docker, lab_id).await {
+        errors.push(DestroyError::new(
+            "tailscale",
+            lab_id,
+            format!(
+                "{error:#}; lab ownership and saved configuration retained for a cleanup retry"
+            ),
+        ));
+        summary.containers_failed.push(gateway_name(lab_id));
     }
 }
 
@@ -669,4 +727,244 @@ pub(crate) async fn cleanup_database(lab_id: &str, db: &db::Database) -> Result<
         .await
         .context("Failed to delete lab")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, Mutex};
+
+    use axum::http::{Method, StatusCode, Uri};
+    use axum::{Json, Router};
+    use bollard::Docker;
+    use serde_json::{Value, json};
+    use tempfile::tempdir;
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+
+    use super::*;
+
+    struct DockerMock {
+        docker: Docker,
+        requests: Arc<Mutex<Vec<String>>>,
+        task: JoinHandle<()>,
+    }
+
+    impl DockerMock {
+        async fn new(containers: Value, gateway_failure: bool, volume_failure: bool) -> Self {
+            let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let requests = Arc::new(Mutex::new(Vec::new()));
+            let captured = Arc::clone(&requests);
+            let router = Router::new().fallback(move |method: Method, uri: Uri| {
+                let captured = Arc::clone(&captured);
+                let containers = containers.clone();
+                async move {
+                    captured.lock().unwrap().push(format!("{method} {uri}"));
+                    let path = uri.path();
+                    let (status, body) = if path.ends_with("/containers/json") {
+                        (StatusCode::OK, containers)
+                    } else if method == Method::GET
+                        && path.ends_with("/containers/sherpa-tailnet-test1234/json")
+                        && gateway_failure
+                    {
+                        (
+                            StatusCode::OK,
+                            json!({"Id":"gateway-id","Config":{"Labels":{
+                                "sh.erpa.tailscale.lab":"test1234",
+                                "sh.erpa.role":"tailnet-gateway"
+                            }}}),
+                        )
+                    } else if method == Method::GET
+                        && path.ends_with("/volumes/sherpa-tailnet-state-test1234")
+                        && volume_failure
+                    {
+                        (
+                            StatusCode::OK,
+                            json!({"Name":"sherpa-tailnet-state-test1234",
+                                "Driver":"local","Mountpoint":"/mock/volume",
+                                "Options":{},"Scope":"local","Labels":{
+                                "sh.erpa.tailscale.lab":"test1234",
+                                "sh.erpa.role":"tailnet-gateway"
+                            }}),
+                        )
+                    } else if method == Method::DELETE
+                        && ((path.ends_with("/containers/gateway-id") && gateway_failure)
+                            || (path.ends_with("/volumes/sherpa-tailnet-state-test1234")
+                                && volume_failure))
+                    {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            json!({"message":"cleanup failed"}),
+                        )
+                    } else if method == Method::DELETE || path.ends_with("/kill") {
+                        (StatusCode::NO_CONTENT, Value::Null)
+                    } else {
+                        (StatusCode::NOT_FOUND, json!({"message":"missing"}))
+                    };
+                    (status, Json(body))
+                }
+            });
+            let task = tokio::spawn(async move {
+                axum::serve(listener, router).await.unwrap();
+            });
+            let docker = Docker::connect_with_http(
+                &format!("http://{address}"),
+                5,
+                bollard::API_DEFAULT_VERSION,
+            )
+            .unwrap();
+            Self {
+                docker,
+                requests,
+                task,
+            }
+        }
+    }
+
+    impl Drop for DockerMock {
+        fn drop(&mut self) {
+            self.task.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn cleanup_removes_ordinary_nodes_with_tailnet_names() {
+        let mock = DockerMock::new(
+            json!([
+                {"Id":"node-id","Names":["/sherpa-tailnet-app-test1234"],"Labels":{}},
+                {"Id":"exact-name-node","Names":["/sherpa-tailnet-test1234"],"Labels":{}}
+            ]),
+            false,
+            false,
+        )
+        .await;
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        assert_eq!(
+            summary.containers_destroyed,
+            vec!["sherpa-tailnet-app-test1234", "sherpa-tailnet-test1234"]
+        );
+        assert!(errors.is_empty());
+        let requests = mock.requests.lock().unwrap();
+        let node_removal = requests
+            .iter()
+            .position(|request| {
+                request.starts_with("DELETE ")
+                    && request.contains("/containers/sherpa-tailnet-test1234?")
+            })
+            .unwrap();
+        let gateway_inspection = requests
+            .iter()
+            .position(|request| request.contains("/containers/sherpa-tailnet-test1234/json"))
+            .unwrap();
+        assert!(node_removal < gateway_inspection);
+    }
+
+    #[tokio::test]
+    async fn generic_cleanup_preserves_gateways_identified_by_labels() {
+        let mock = DockerMock::new(
+            json!([{"Id":"foreign-id","Names":["/renamed-test1234-gateway"],"Labels":{
+                "sh.erpa.tailscale.lab":"another",
+                "sh.erpa.role":"tailnet-gateway"
+            }}]),
+            false,
+            false,
+        )
+        .await;
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        assert!(summary.containers_destroyed.is_empty());
+        assert!(errors.is_empty());
+        assert!(
+            mock.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|request| !request.starts_with("DELETE ") && !request.contains("/kill"))
+        );
+    }
+
+    async fn assert_gateway_cleanup_can_be_retried(gateway_failure: bool, volume_failure: bool) {
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("test1234");
+        fs::create_dir(&lab_dir).unwrap();
+        let lab_file = lab_dir.join(LAB_FILE_NAME);
+        let manifest_file = lab_dir.join("manifest.toml");
+        fs::write(&lab_file, "saved lab info").unwrap();
+        fs::write(&manifest_file, "name='test'\nnodes=[]").unwrap();
+        let database_deleted = AtomicBool::new(false);
+        let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].resource_type, "tailscale");
+        let failed_resource = if gateway_failure {
+            "/containers/gateway-id"
+        } else {
+            "/volumes/sherpa-tailnet-state-test1234"
+        };
+        assert!(
+            mock.requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|request| request.starts_with("DELETE ") && request.contains(failed_resource))
+        );
+        cleanup_lab_metadata(
+            "test1234",
+            lab_dir.to_str().unwrap(),
+            async {
+                database_deleted.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+        assert!(!database_deleted.load(Ordering::SeqCst));
+        assert!(!summary.database_records_deleted);
+        assert!(!summary.lab_directory_deleted);
+        assert_eq!(fs::read_to_string(&lab_file).unwrap(), "saved lab info");
+        assert_eq!(
+            fs::read_to_string(&manifest_file).unwrap(),
+            "name='test'\nnodes=[]"
+        );
+
+        let retry = DockerMock::new(json!([]), false, false).await;
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+        destroy_containers("test1234", &retry.docker, &mut summary, &mut errors).await;
+        cleanup_lab_metadata(
+            "test1234",
+            lab_dir.to_str().unwrap(),
+            async {
+                database_deleted.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+        assert!(database_deleted.load(Ordering::SeqCst));
+        assert!(summary.database_records_deleted);
+        assert!(summary.lab_directory_deleted);
+        assert!(!lab_dir.exists());
+        assert!(errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn failed_gateway_removal_retains_metadata_until_retry() {
+        assert_gateway_cleanup_can_be_retried(true, false).await;
+    }
+
+    #[tokio::test]
+    async fn failed_identity_volume_removal_retains_metadata_until_retry() {
+        assert_gateway_cleanup_can_be_retried(false, true).await;
+    }
 }

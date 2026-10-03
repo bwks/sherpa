@@ -265,8 +265,8 @@ mod tests {
     fn test_validate_version_in_db_found() {
         let model = NodeModel::AristaVeos;
         let configs = vec![
-            create_test_node_image(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_image(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
+            create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
+            create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
         let result = validate_version_in_db(&model, "4.28.0F", &configs);
@@ -277,8 +277,8 @@ mod tests {
     fn test_validate_version_in_db_not_found() {
         let model = NodeModel::AristaVeos;
         let configs = vec![
-            create_test_node_image(model.clone(), "4.28.0F", NodeKind::VirtualMachine),
-            create_test_node_image(model.clone(), "4.29.2F", NodeKind::VirtualMachine),
+            create_test_node_image(model, "4.28.0F", NodeKind::VirtualMachine),
+            create_test_node_image(model, "4.29.2F", NodeKind::VirtualMachine),
         ];
 
         let result = validate_version_in_db(&model, "4.30.0F", &configs);

@@ -128,31 +128,30 @@ async fn test_image_set_default() -> Result<()> {
     // List images to get a model and version
     let list_resp = ws.rpc_call("image.list", json!({ "token": token })).await?;
 
-    if let Some(result) = list_resp.get("result") {
-        if let Some(images) = result.as_array() {
-            if let Some(first) = images.first() {
-                let model = first.get("model").and_then(|v| v.as_str()).unwrap_or("");
-                let version = first.get("version").and_then(|v| v.as_str()).unwrap_or("");
+    if let Some(result) = list_resp.get("result")
+        && let Some(images) = result.as_array()
+        && let Some(first) = images.first()
+    {
+        let model = first.get("model").and_then(|v| v.as_str()).unwrap_or("");
+        let version = first.get("version").and_then(|v| v.as_str()).unwrap_or("");
 
-                if !model.is_empty() && !version.is_empty() {
-                    let response = ws
-                        .rpc_call(
-                            "image.set_default",
-                            json!({
-                                "token": token,
-                                "model": model,
-                                "version": version,
-                            }),
-                        )
-                        .await?;
+        if !model.is_empty() && !version.is_empty() {
+            let response = ws
+                .rpc_call(
+                    "image.set_default",
+                    json!({
+                        "token": token,
+                        "model": model,
+                        "version": version,
+                    }),
+                )
+                .await?;
 
-                    assert!(
-                        response.get("result").is_some(),
-                        "set_default should succeed: {:?}",
-                        response
-                    );
-                }
-            }
+            assert!(
+                response.get("result").is_some(),
+                "set_default should succeed: {:?}",
+                response
+            );
         }
     }
 

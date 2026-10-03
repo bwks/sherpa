@@ -27,3 +27,10 @@ If omitted, Sherpa uses the default interface count from the node image/model
 configuration. Overrides are validated against the interface names supported by
 the selected model, so requesting more interfaces than the model can name will
 fail manifest validation.
+
+## Tailscale connection
+
+An optional `[tailscale]` section enables management access through the owner's
+tailnet. Set `enabled = true` and `auth_key_env` to the name of a client-side
+environment variable containing a Tailscale auth key. Secrets must not be included
+in the manifest. See [Tailnet setup and route approval](TAILNET.md).

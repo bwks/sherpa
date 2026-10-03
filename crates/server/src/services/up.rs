@@ -18,6 +18,7 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::services::tailscale;
 use crate::tls;
 
 use shared::data;
@@ -281,6 +282,13 @@ pub async fn up_lab(
     // Deserialize manifest from JSON Value
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+
+    let tailnet_enabled = tailscale::validate_enrollment(
+        &manifest,
+        request.tailscale_auth_key.as_ref(),
+        state.config.tls.enabled,
+    )?;
+    db::validate_lab_id(lab_id)?;
 
     tracing::info!(
         "Starting lab creation: lab_id={}, name={}",
@@ -796,10 +804,10 @@ pub async fn up_lab(
         util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())?;
 
         // Save the manifest for future redeploy operations
-        let manifest_json = serde_json::to_string_pretty(&manifest)
-            .context("Failed to serialize manifest for saving")?;
+        let manifest_toml =
+            toml::to_string_pretty(&manifest).context("Failed to serialize manifest for saving")?;
         let manifest_path = format!("{lab_dir}/{SHERPA_LAB_MANIFEST_FILE}");
-        util::create_file(&manifest_path, manifest_json)?;
+        util::create_file(&manifest_path, manifest_toml)?;
         util::set_file_permissions(&manifest_path, 0o600)?;
 
         let mgmt_net = data::SherpaNetwork {
@@ -868,6 +876,29 @@ pub async fn up_lab(
             network = %format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),
             "Created Docker bridge network"
         );
+
+        let tailnet_status = if tailnet_enabled {
+            let _ = progress.send_status(
+                "Connecting lab to Tailscale".to_string(),
+                StatusKind::Progress,
+            );
+            let key = request
+                .tailscale_auth_key
+                .as_ref()
+                .context("Missing Tailscale enrollment credential")?;
+            let status = tailscale::provision(state, &lab_record, &lab_info, key).await?;
+            for warning in &status.warnings {
+                let _ = progress.send_status(format!("Warning: {warning}"), StatusKind::Info);
+                errors.push(data::UpError {
+                    phase: "Tailscale".into(),
+                    message: warning.clone(),
+                    is_critical: false,
+                });
+            }
+            Some(status)
+        } else {
+            None
+        };
 
         phases_completed.push("LabNetworkSetup".to_string());
 
@@ -2758,6 +2789,7 @@ pub async fn up_lab(
         let total_time = start_time.elapsed().as_secs();
 
         let response = data::UpResponse {
+            tailscale: tailnet_status,
             success,
             lab_info: lab_info.clone(),
             total_time_secs: total_time,

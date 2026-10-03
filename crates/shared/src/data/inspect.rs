@@ -1,3 +1,4 @@
+use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,8 @@ pub struct InspectRequest {
 /// Response structure for inspect operation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct InspectResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale: Option<TailnetStatus>,
     pub lab_info: LabInfo,
     pub lab_state: LabState,
     pub devices: Vec<DeviceInfo>,

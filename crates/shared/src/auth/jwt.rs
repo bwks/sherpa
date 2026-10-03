@@ -65,7 +65,7 @@ mod tests {
         let claims = Claims::new(username.clone(), false, expiry);
 
         assert_eq!(claims.sub, username);
-        assert_eq!(claims.is_admin, false);
+        assert!(!claims.is_admin);
         assert!(claims.exp > claims.iat);
         assert_eq!(claims.exp - claims.iat, expiry);
     }
@@ -73,13 +73,13 @@ mod tests {
     #[test]
     fn test_claims_new_admin() {
         let claims = Claims::new("admin".to_string(), true, 3600);
-        assert_eq!(claims.is_admin, true);
+        assert!(claims.is_admin);
     }
 
     #[test]
     fn test_claims_not_expired() {
         let claims = Claims::new("user".to_string(), false, 3600);
-        assert_eq!(claims.is_expired(), false);
+        assert!(!claims.is_expired());
     }
 
     #[test]
@@ -91,7 +91,7 @@ mod tests {
             iat: now - 3700,
             is_admin: false,
         };
-        assert_eq!(claims.is_expired(), true);
+        assert!(claims.is_expired());
     }
 
     #[test]

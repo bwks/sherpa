@@ -219,3 +219,10 @@ All P0 gaps have been addressed. Current status: 79 tests passing.
 | `data_interface_count` validation | 1 test | Done |
 | Multi-node IPv6 validation | 2 tests | Done |
 | Error message content assertions | Covered in most modules | Done |
+
+## Tailscale Server Settings
+
+- Packaged gateway defaults pass validation `[unit]` **P0**
+- Empty or whitespace-containing images fail with the field name `[unit]` **P0**
+- Relative, empty, NUL-containing, and oversized socket paths fail `[unit]` **P0**
+- Zero timeouts and stop grace periods exceeding Docker's signed integer range fail `[unit]` **P0**

@@ -3,6 +3,7 @@ use std::path::Path;
 
 use ipnet::{Ipv4Net, Ipv6Net};
 use serde_derive::{Deserialize, Serialize};
+use tracing::instrument;
 
 use super::container::ContainerImage;
 // use super::node::NodeConfig;
@@ -203,7 +204,35 @@ impl Default for ScannerConfig {
     }
 }
 
-/// Full server configuration. All server-specific fields are required.
+/// Server-side Tailscale gateway settings, overridable in `sherpa.toml`.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(default, deny_unknown_fields)]
+pub struct TailscaleGatewaySettings {
+    pub image: String,
+    pub socket_path: String,
+    pub exec_timeout_secs: u32,
+    pub daemon_ready_timeout_secs: u32,
+    pub enrollment_timeout_secs: u32,
+    pub connection_timeout_secs: u32,
+    pub stop_timeout_secs: u32,
+}
+
+impl Default for TailscaleGatewaySettings {
+    #[instrument(level = "debug")]
+    fn default() -> Self {
+        Self {
+            image: "tailscale/tailscale:v1.102.3".to_owned(),
+            socket_path: "/run/tailscale/tailscaled.sock".to_owned(),
+            exec_timeout_secs: 75,
+            daemon_ready_timeout_secs: 20,
+            enrollment_timeout_secs: 60,
+            connection_timeout_secs: 30,
+            stop_timeout_secs: 10,
+        }
+    }
+}
+
+/// Full server configuration with defaults for optional sections.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
     pub name: String,
@@ -238,6 +267,8 @@ pub struct Config {
     pub otel: OtelConfig,
     #[serde(default)]
     pub scanner: ScannerConfig,
+    #[serde(default)]
+    pub tailscale: TailscaleGatewaySettings,
 }
 
 fn default_server_ipv4() -> Ipv4Addr {
@@ -293,11 +324,55 @@ impl Sherpa {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::util::default_config;
+
+    #[test]
+    fn tailscale_serde_defaults_apply_without_loader_merging() {
+        let mut value = toml::Value::try_from(default_config()).unwrap();
+        value.as_table_mut().unwrap().remove("tailscale");
+        let config: Config = toml::from_str(&toml::to_string(&value).unwrap()).unwrap();
+        let actual = toml::Value::try_from(config).unwrap();
+        let settings = actual
+            .get("tailscale")
+            .expect("server config always has gateway settings");
+        assert_eq!(
+            settings["image"].as_str(),
+            Some("tailscale/tailscale:v1.102.3")
+        );
+        assert_eq!(settings["exec_timeout_secs"].as_integer(), Some(75));
+    }
+
+    #[test]
+    fn tailscale_serde_partial_sections_preserve_defaults_and_overrides() {
+        let settings: TailscaleGatewaySettings = toml::from_str(
+            "image='registry.example/tailscale:custom'\nsocket_path='/run/custom/socket'\nexec_timeout_secs=90",
+        ).unwrap();
+        assert_eq!(settings.image, "registry.example/tailscale:custom");
+        assert_eq!(settings.socket_path, "/run/custom/socket");
+        assert_eq!(settings.exec_timeout_secs, 90);
+        assert_eq!(settings.daemon_ready_timeout_secs, 20);
+        assert_eq!(settings.enrollment_timeout_secs, 60);
+        assert_eq!(settings.connection_timeout_secs, 30);
+        assert_eq!(settings.stop_timeout_secs, 10);
+    }
+
+    #[test]
+    fn tailscale_serde_default_server_config_includes_gateway_settings() {
+        let actual = toml::Value::try_from(default_config()).unwrap();
+        let settings = actual
+            .get("tailscale")
+            .expect("default config includes gateway settings");
+        assert_eq!(
+            settings["socket_path"].as_str(),
+            Some("/run/tailscale/tailscaled.sock")
+        );
+        assert_eq!(settings["stop_timeout_secs"].as_integer(), Some(10));
+    }
 
     #[test]
     fn test_ztp_server_default() {
         let ztp = ZtpServer::default();
-        assert_eq!(ztp.enable, true);
+        assert!(ztp.enable);
         assert_eq!(ztp.username, Some(SHERPA_USERNAME.to_owned()));
         assert_eq!(ztp.password, Some(SHERPA_PASSWORD.to_owned()));
     }
@@ -311,7 +386,7 @@ mod tests {
         };
         let json = serde_json::to_string(&ztp).expect("serializes");
         let back: ZtpServer = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back.enable, false);
+        assert!(!back.enable);
         assert_eq!(back.username, Some("test".to_string()));
         assert!(back.password.is_none());
     }
@@ -319,9 +394,9 @@ mod tests {
     #[test]
     fn test_configuration_management_default() {
         let cm = ConfigurationManagement::default();
-        assert_eq!(cm.ansible, false);
-        assert_eq!(cm.pyats, false);
-        assert_eq!(cm.nornir, false);
+        assert!(!cm.ansible);
+        assert!(!cm.pyats);
+        assert!(!cm.nornir);
     }
 
     #[test]
@@ -329,18 +404,18 @@ mod tests {
         let sc = ServerConnection::default();
         assert!(sc.url.is_none());
         assert_eq!(sc.timeout_secs, 3);
-        assert_eq!(sc.validate_certs, true);
+        assert!(sc.validate_certs);
         assert!(sc.ca_cert_path.is_none());
-        assert_eq!(sc.insecure, false);
+        assert!(!sc.insecure);
     }
 
     #[test]
     fn test_tls_config_default() {
         let tls = TlsConfig::default();
-        assert_eq!(tls.enabled, true);
+        assert!(tls.enabled);
         assert!(tls.cert_path.is_none());
         assert!(tls.key_path.is_none());
-        assert_eq!(tls.auto_generate_cert, true);
+        assert!(tls.auto_generate_cert);
         assert_eq!(tls.cert_validity_days, 365);
         assert!(tls.san.is_empty());
     }

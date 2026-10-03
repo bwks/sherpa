@@ -92,6 +92,7 @@ pub async fn create_lab(
         management_network: management_network.to_string(),
         gateway_ipv4: gateway_ipv4.to_string(),
         router_ipv4: router_ipv4.to_string(),
+        tailscale_container_id: None,
         management_network_v6: None,
         gateway_ipv6: None,
         router_ipv6: None,

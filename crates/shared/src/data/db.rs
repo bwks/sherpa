@@ -24,6 +24,7 @@ pub struct DbLab {
     pub management_network: String,
     pub gateway_ipv4: String,
     pub router_ipv4: String,
+    pub tailscale_container_id: Option<String>,
     pub management_network_v6: Option<String>,
     pub gateway_ipv6: Option<String>,
     pub router_ipv6: Option<String>,

@@ -7,6 +7,7 @@ use shared::konst::{
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
 use std::sync::Arc;
+use tracing::instrument;
 
 use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::jwt;
@@ -56,7 +57,10 @@ pub struct AppState {
 
 impl AppState {
     /// Create a new AppState with all infrastructure connections
+    #[instrument(skip(config, metrics))]
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
+        validate::validate_tailscale_gateway_settings(&config.tailscale)
+            .context("Invalid server Tailscale settings")?;
         // Load or generate JWT secret
         let jwt_secret =
             jwt::load_or_generate_secret().context("Failed to load or generate JWT secret")?;
