@@ -94,6 +94,7 @@ test-specs/
   install/
     sherpa-install.md
   integration/
+    vm-release-test-plan.md
     lab-lifecycle-e2e.md
     image-management-e2e.md
     user-management-e2e.md
@@ -217,6 +218,7 @@ Tests that exercise multiple crates together through realistic workflows.
 
 | File | Purpose |
 |------|---------|
+| [vm-release-test-plan.md](integration/vm-release-test-plan.md) | Task checklist for disposable VM release testing, starting with server install/uninstall on bare Ubuntu 26.04. |
 | [tailscale.md](integration/tailscale.md) | Developer verification guide for Tailscale regressions, Docker smoke checks, live enrollment, mixed VM/container acceptance, and cleanup retries. |
 | `lab-lifecycle-e2e.md` | What to test for the complete lab lifecycle: client sends manifest via WebSocket, server validates and parses, database records are created, networks are provisioned, VMs and containers are created with correct ZTP configs, progress is streamed back to client, inspect returns accurate state, `down` gracefully stops all nodes, `destroy` cleans up all resources (VMs, containers, networks, DB records). Covers the happy path, partial failure during provisioning, destroying a partially-created lab, and mixed VM+container labs. |
 | `image-management-e2e.md` | What to test for image workflows end-to-end: importing a VM image from file, scanning disk for available images, setting a default image version, deleting an image (with and without nodes using it), pulling a container image from registry, and downloading a VM image. Each flow goes from client command through RPC to server service to database state change. |

@@ -1,0 +1,54 @@
+# Local installer/uninstaller test settings. Run scripts/test_install.sh.
+# No credentials are stored here; each run generates disposable passwords.
+[host]
+sherpa = "sherpa"
+# Empty means use the authenticated CLI's existing server configuration.
+server_url = ""
+libvirt_uri = "qemu:///system"
+
+[vm]
+manifest = "dev/release-test/manifest.toml"
+lab_prefix = "release-"
+node_prefix = "rt"
+
+[image]
+path = "/opt/sherpa/images/ubuntu_linux/26.04/virtioa.qcow2"
+build = "20260927"
+sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
+
+[candidate]
+version = "v0.3.79"
+# Optional directory containing the two normal release tarballs.
+artifact_directory = ""
+target = "x86_64-unknown-linux-gnu"
+download_url = "https://github.com/bwks/sherpa/releases/download"
+scripts_directory = "scripts"
+
+[runner]
+output_directory = ".tmp/vm-release-tests"
+retain_failed = true
+retain_successful = false
+
+[guest]
+workspace_prefix = "/var/tmp/sherpa-release-test"
+listen_ip = "127.0.0.1"
+client_host = "localhost"
+ws_port = 3030
+http_port = 3031
+db_port = 8000
+admin_prefix = "release-admin-"
+surrealdb_image = "surrealdb/surrealdb:v3.0.0"
+router_image = "ghcr.io/bwks/sherpa-router:latest"
+
+[timeouts]
+provision = 900
+connect = 10
+command = 90
+download = 300
+install = 1800
+initialize = 300
+startup = 180
+reboot = 300
+cleanup = 300
+poll = 3
+terminate = 10

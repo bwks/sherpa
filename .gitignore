@@ -38,6 +38,7 @@ lab-info.toml
 # test-scripts/ — tracked in repo
 manifest*.toml*
 !dev/integration-test/manifest.toml
+!dev/release-test/manifest.toml
 
 # Tailwind CSS
 tailwindcss

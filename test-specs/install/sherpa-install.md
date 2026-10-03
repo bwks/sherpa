@@ -2,7 +2,7 @@
 
 > **Script:** `scripts/sherpa_install.sh`
 > **External Dependencies:** Ubuntu 24.04+, root access, Docker, libvirt, internet (GitHub API + container registry)
-> **Existing Tests:** None
+> **Existing Tests:** `test-scripts/install_tests.bats`, `scripts/test_install.sh`
 
 ---
 
@@ -12,6 +12,9 @@
 - `--help` prints usage and exits 0 `[unit]` **P0**
 - `--version v0.3.4` sets SHERPA_VERSION correctly `[unit]` **P0**
 - Unknown flag prints error + usage, exits 1 `[unit]` **P0**
+- Missing `--version` value fails before any system changes `[unit]` **P0**
+- `SHERPA_ARTIFACT_DIR` selects local release archives with an explicit version `[e2e]` **P0**
+- A missing required local artifact fails before package or container changes `[unit]` **P0**
 - Env vars populate defaults: `SHERPA_DB_PASSWORD`, `SHERPA_DB_PORT`, `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT`, `SHERPA_SERVER_HTTP_PORT` `[unit]` **P0**
 
 ---
@@ -84,6 +87,7 @@
 
 **What to test:**
 - All expected packages are passed to apt-get install `[integration]` **P1**
+- Select concrete `qemu-system-x86` instead of the ambiguous Ubuntu 26.04 `qemu-kvm` virtual package `[unit]` **P0**
 - DEBIAN_FRONTEND=noninteractive is set `[unit]` **P1**
 
 ---
@@ -169,6 +173,20 @@
 - Stops existing sherpad process/service before overwriting `[integration]` **P1**
 - Force-kills sherpad if graceful stop fails `[integration]` **P2**
 - Temp directory cleaned up on return `[unit]` **P2**
+
+## Uninstallation
+
+The VM runner checks the actual script exit status and resulting state. Default
+server removal retains the CLI; full removal removes both binaries. Docker,
+libvirt, their images and resources, and users/groups are retained in all modes.
+
+- Remove the server service, binary and its owned symlink `[e2e]` **P0**
+- Keep data: retain the database, server configuration and SSH identity, then
+  reinstall and authenticate the persisted test admin `[e2e]` **P0**
+- Remove data: empty the database while retaining configuration and identity `[e2e]` **P0**
+- Full removal: remove the installation directory and both owned symlinks `[e2e]` **P0**
+- Preserve unrelated files and symlinks at binary locations `[unit]` **P0**
+- Repeated full uninstall succeeds when the installation is already absent `[e2e]` **P0**
 
 ---
 
