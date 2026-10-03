@@ -1,18 +1,16 @@
-use std::fs;
-
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
 use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo};
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
-use shared::util::{dir_exists, load_file};
+use shared::util::load_file;
 
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
 use crate::services::destroy::{
-    cleanup_database, destroy_containers, destroy_docker_networks, destroy_interfaces,
-    destroy_libvirt_networks, destroy_vms_and_disks,
+    cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
+    destroy_interfaces, destroy_libvirt_networks, destroy_vms_and_disks,
 };
 
 /// Clean all resources for a lab without ownership validation
@@ -21,7 +19,8 @@ use crate::services::destroy::{
 /// - Does not require the lab to exist in the database
 /// - Does not validate user ownership (admin-only, verified at RPC layer)
 /// - Tolerates missing lab info files
-/// - Always attempts all resource types regardless of partial failures
+/// - Continues infrastructure teardown after partial failures
+/// - Retains lab ownership and saved configuration if Tailscale cleanup fails
 #[instrument(skip(state), fields(%lab_id))]
 pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
     let start_time = std::time::Instant::now();
@@ -121,42 +120,15 @@ pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse
         "Network interface cleanup completed"
     );
 
-    // 6. Clean up database (tolerate missing records)
-    tracing::info!(lab_id = %lab_id, "Cleaning database records");
-    match cleanup_database(lab_id, &state.db).await {
-        Ok(_) => {
-            summary.database_records_deleted = true;
-            tracing::info!(lab_id = %lab_id, "Database cleanup successful");
-        }
-        Err(e) => {
-            summary.database_records_deleted = false;
-            errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
-            tracing::warn!(lab_id = %lab_id, error = ?e, "Database cleanup failed (may not exist)");
-        }
-    }
-
-    // 7. Delete lab directory
-    tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
-    if dir_exists(&lab_dir) {
-        match fs::remove_dir_all(&lab_dir) {
-            Ok(_) => {
-                summary.lab_directory_deleted = true;
-                tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory deleted");
-            }
-            Err(e) => {
-                summary.lab_directory_deleted = false;
-                errors.push(DestroyError::new(
-                    "filesystem",
-                    &lab_dir,
-                    format!("{:?}", e),
-                ));
-                tracing::error!(lab_id = %lab_id, lab_dir = %lab_dir, error = ?e, "Failed to delete lab directory");
-            }
-        }
-    } else {
-        summary.lab_directory_deleted = true;
-        tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
-    }
+    cleanup_lab_metadata(
+        lab_id,
+        &lab_dir,
+        cleanup_database(lab_id, &state.db),
+        &mut summary,
+        &mut errors,
+        None,
+    )
+    .await;
 
     let success = errors.is_empty();
     let total_duration = start_time.elapsed().as_secs();

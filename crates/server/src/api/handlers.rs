@@ -49,8 +49,8 @@ use shared::data::{
     ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
     ZtpMethod,
 };
-use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_SERVER_CERT_PATH};
-use shared::util::{generate_lab_name, get_id_for_user};
+use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_LABS_PATH, SHERPA_SERVER_CERT_PATH};
+use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
 
 /// Authenticate user and issue JWT token
 ///
@@ -1237,20 +1237,11 @@ pub async fn node_redeploy_handler(
         return Err(ApiError::forbidden("You do not have access to this lab"));
     }
 
-    // Read the saved manifest from the lab directory
-    let manifest_path = format!(
-        "{}/{}/{}",
-        shared::konst::SHERPA_LABS_PATH,
-        lab_id,
-        shared::konst::SHERPA_LAB_MANIFEST_FILE
-    );
-    let manifest_str = std::fs::read_to_string(&manifest_path).map_err(|e| {
-        tracing::error!("Failed to read manifest at {}: {:?}", manifest_path, e);
-        ApiError::internal("Lab manifest not found. Labs created before this feature cannot be redeployed from the web UI.")
-    })?;
-    let manifest: serde_json::Value = serde_json::from_str(&manifest_str).map_err(|e| {
-        tracing::error!("Failed to parse manifest: {:?}", e);
-        ApiError::internal("Failed to parse lab manifest")
+    // New labs persist TOML; older JSON manifests remain readable.
+    let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(&lab_id);
+    let manifest = load_saved_manifest(&lab_dir).map_err(|error| {
+        tracing::error!(%error, "Failed to load saved lab manifest");
+        ApiError::internal("Unable to load saved lab manifest")
     })?;
 
     let request = RedeployRequest {
@@ -3781,6 +3772,7 @@ pub async fn lab_create_post_handler(
     let request = UpRequest {
         lab_id,
         manifest: manifest_value,
+        tailscale_auth_key: None,
         username: auth.username,
     };
 

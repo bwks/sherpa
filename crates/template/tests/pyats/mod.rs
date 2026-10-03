@@ -36,6 +36,7 @@ const EXPECTED_PYATS_INVENTORY: &str = "devices:
 #[test]
 fn test_pyats_inventory_from_manifest() {
     let manifest = Manifest {
+        tailscale: None,
         name: "test-lab".to_string(),
         ready_timeout: None,
         nodes: vec![topology::Node {

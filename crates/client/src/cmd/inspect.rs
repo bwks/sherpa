@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use shared::util::render_tailnet_table;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, InspectResponse};
@@ -94,6 +95,10 @@ pub async fn inspect(
         serde_json::from_value(result).context("Failed to parse inspect response")?;
 
     // Display results (similar format to original inspect command)
+    if let Some(status) = &inspect_data.tailscale {
+        println!("{}", render_tailnet_table(status));
+    }
+
     let lab_info_table = render_lab_info_table(&inspect_data.lab_info);
     println!("{}", lab_info_table);
 

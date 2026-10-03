@@ -3,11 +3,14 @@ use serde::{Deserialize, Serialize};
 
 use super::lab::LabInfo;
 use super::node::{NodeModel, NodeState};
+use super::{TailnetAuthKey, TailnetStatus};
 
 /// Request type for starting a lab
 /// Note: manifest is passed as JSON Value to avoid cyclic dependencies
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale_auth_key: Option<TailnetAuthKey>,
     pub lab_id: String,
     pub manifest: serde_json::Value,
     /// Username of the requesting user
@@ -19,6 +22,8 @@ pub struct UpRequest {
 /// Response type for lab startup operation
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct UpResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale: Option<TailnetStatus>,
     pub success: bool,
     pub lab_info: LabInfo,
     pub total_time_secs: u64,

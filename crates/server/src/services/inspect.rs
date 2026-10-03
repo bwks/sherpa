@@ -59,6 +59,8 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
         ));
     }
 
+    let tailscale = super::tailscale::inspect(state, &db_lab).await;
+
     let lab_record_id = db_lab
         .id
         .ok_or_else(|| anyhow::anyhow!("Lab missing record ID"))?;
@@ -208,6 +210,7 @@ async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<
     }
 
     Ok(InspectResponse {
+        tailscale,
         lab_info,
         lab_state: db_lab.status,
         devices,

@@ -27,6 +27,12 @@ pub async fn start_lab_nodes(
         .await
         .context(format!("Lab '{}' not found in database", lab_id))?;
 
+    let tailscale = if node_name.is_none() {
+        super::tailscale::resume(state, &db_lab).await?
+    } else {
+        super::tailscale::inspect(state, &db_lab).await
+    };
+
     let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
     // Get all nodes for this lab
@@ -136,7 +142,7 @@ pub async fn start_lab_nodes(
         &[KeyValue::new("operation.type", "resume")],
     );
 
-    Ok(LabNodeActionResponse { results })
+    Ok(LabNodeActionResponse { results, tailscale })
 }
 
 async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeActionResult {

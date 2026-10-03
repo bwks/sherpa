@@ -66,7 +66,10 @@ pub use table::{
     CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,
     render_image_detail_table, render_images_table, render_lab_info_table, render_links_table,
     render_nodes_table, render_scanned_images_table, render_server_status_table,
-    render_ssh_config_inspection_table,
+    render_ssh_config_inspection_table, render_tailnet_table,
 };
 pub use text::split_node_int;
 pub use user::{get_username, sherpa_user};
+
+mod manifest;
+pub use manifest::load_saved_manifest;

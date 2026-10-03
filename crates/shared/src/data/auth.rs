@@ -74,7 +74,7 @@ mod tests {
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: LoginResponse = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.token, "jwt.token.here");
-        assert_eq!(back.is_admin, true);
+        assert!(back.is_admin);
         assert_eq!(back.expires_at, 1700000000);
     }
 
@@ -88,7 +88,7 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: ValidateResponse = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back.valid, true);
+        assert!(back.valid);
         assert_eq!(back.username, Some("admin".to_string()));
     }
 
@@ -102,7 +102,7 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: ValidateResponse = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back.valid, false);
+        assert!(!back.valid);
         assert!(back.username.is_none());
     }
 }

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{create_lab, create_user, get_lab, update_lab};
+use db::{create_lab, create_user, get_lab, update_lab, update_lab_state};
 use shared::data::{DbLab, LabState, RecordId};
 
 use crate::helper::{setup_db, teardown_db};
@@ -50,6 +50,7 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        tailscale_container_id: None,
         management_network_v6: None,
         gateway_ipv6: None,
         router_ipv6: None,
@@ -83,6 +84,7 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         management_network: "172.31.1.0/24".to_string(),
         gateway_ipv4: "172.31.1.1".to_string(),
         router_ipv4: "172.31.1.2".to_string(),
+        tailscale_container_id: None,
         management_network_v6: None,
         gateway_ipv6: None,
         router_ipv6: None,
@@ -270,4 +272,45 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
 
     teardown_db(&db).await?;
     Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn tailnet_inventory_survives_lab_state_updates() -> Result<()> {
+    let database = setup_db("tailnet_inventory").await?;
+    let result: Result<()> = async {
+        let user = create_user(
+            &database,
+            "tailnet-owner".into(),
+            "TestPass123!",
+            false,
+            vec![],
+        )
+        .await?;
+        let mut lab = create_lab(
+            &database,
+            "tailnet",
+            "tailnet1",
+            &user,
+            "192.0.2.0/24",
+            "198.51.100.0/24",
+            "198.51.100.1",
+            "198.51.100.2",
+        )
+        .await?;
+        assert!(lab.tailscale_container_id.is_none());
+        lab.tailscale_container_id = Some("exact-docker-id".into());
+        let updated = update_lab(&database, lab).await?;
+        update_lab_state(&database, updated.id.unwrap(), LabState::default()).await?;
+        let loaded = get_lab(&database, "tailnet1").await?;
+        assert_eq!(
+            loaded.tailscale_container_id.as_deref(),
+            Some("exact-docker-id")
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = teardown_db(&database).await;
+    result?;
+    cleanup
 }

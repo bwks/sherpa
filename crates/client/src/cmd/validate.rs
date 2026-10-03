@@ -13,6 +13,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     let manifest = Manifest::load_file(manifest_path)
         .context(format!("Failed to load manifest from '{}'", manifest_path))?;
 
+    validate::validate_tailscale(&manifest)?;
     println!("✓ Manifest loaded successfully");
     println!();
 

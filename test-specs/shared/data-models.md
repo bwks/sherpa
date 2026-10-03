@@ -87,6 +87,10 @@
 **What to test:**
 - ClientConfig serialization/deserialization `[unit]` **P0**
 - Server Config and Sherpa types `[unit]` **P1**
+- Server configuration generation writes typed Tailscale defaults to TOML `[unit]` **P0**
+- Missing or partial Tailscale sections use Serde defaults while preserving overrides `[unit]` **P0**
+- Default server configs and direct deserialization include Tailscale settings without loader merging `[unit]` **P0**
+- Mistyped and unknown Tailscale server settings are rejected `[unit]` **P0**
 - TlsConfig paths and skip_verify flag `[unit]` **P1**
 
 **Existing coverage:** Inline tests in node.rs and interface.rs cover some model and interface mapping

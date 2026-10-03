@@ -1,3 +1,4 @@
+use super::TailnetStatus;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -12,5 +13,7 @@ pub struct NodeActionResult {
 /// Response for lab-wide node actions (down/resume)
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct LabNodeActionResponse {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale: Option<TailnetStatus>,
     pub results: Vec<NodeActionResult>,
 }

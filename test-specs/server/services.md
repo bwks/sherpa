@@ -166,3 +166,25 @@
 - `ProgressSender::send_phase()` serializes phase with count `[unit]` **P1**
 - `ProgressSender::send_status()` serializes status with kind `[unit]` **P1**
 - Messages delivered via WebSocket `[integration]` **P1**
+
+## Tailscale Gateway
+
+- Disabled/legacy manifests require no credential or gateway `[unit]` **P0**
+- Missing credentials and plaintext transport fail before resource creation `[unit]` **P0**
+- Enrollment errors invoke startup rollback `[integration]` **P0**
+- Pending or unknown route approval is a noncritical warning with the Sherpa documentation URL `[unit]` **P0**
+- Full shutdown stops the gateway, full resume preserves identity, individual node operations leave it alone `[integration]` **P0**
+- Inspect refreshes status and retains the existing lab ownership checks `[integration]` **P0**
+- Cleanup verifies exact resource ownership and preserves identity when container deletion fails `[integration]` **P0**
+- Ordinary nodes named with the Tailscale prefix, including the exact gateway name, are removed; gateway labels exclude gateways from generic cleanup regardless of name `[unit]` **P0**
+- Gateway or identity volume deletion failure retains database ownership and saved lab files in both destroy and admin clean; a successful retry removes them `[unit]` **P0**
+- Gateway status omits peer inventory and succeeds even when full tailnet status exceeds the Docker exec output limit `[unit]` **P0**
+- Resolved manifests use TOML; redeploy can still read legacy JSON `[unit]` **P0**
+
+Container-local Docker API mock tests cover lifecycle failures without a real daemon.
+The ignored `live_gateway_daemon_smoke` exercises dual-stack gateway startup,
+forwarding restrictions, secret stdin delivery, restart, and cleanup. The ignored
+`live_tailnet_enrollment_stop_resume_cleanup` requires an explicitly supplied test
+tailnet credential. See [Tailscale setup](../../docs/TAILNET.md) for configuration
+and [Tailscale testing](../integration/tailscale.md) for commands, prerequisites,
+mixed VM/container acceptance, and cleanup-retry checks.

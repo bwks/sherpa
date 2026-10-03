@@ -27,6 +27,7 @@ pub(crate) struct LabRow {
     pub management_network: String,
     pub gateway_ipv4: String,
     pub router_ipv4: String,
+    pub tailscale_container_id: Option<String>,
     pub management_network_v6: Option<String>,
     pub gateway_ipv6: Option<String>,
     pub router_ipv6: Option<String>,
@@ -207,6 +208,7 @@ impl TryFrom<&DbLab> for LabRow {
             management_network: value.management_network.clone(),
             gateway_ipv4: value.gateway_ipv4.clone(),
             router_ipv4: value.router_ipv4.clone(),
+            tailscale_container_id: value.tailscale_container_id.clone(),
             management_network_v6: value.management_network_v6.clone(),
             gateway_ipv6: value.gateway_ipv6.clone(),
             router_ipv6: value.router_ipv6.clone(),
@@ -229,6 +231,7 @@ impl TryFrom<LabRow> for DbLab {
             management_network: value.management_network,
             gateway_ipv4: value.gateway_ipv4,
             router_ipv4: value.router_ipv4,
+            tailscale_container_id: value.tailscale_container_id,
             management_network_v6: value.management_network_v6,
             gateway_ipv6: value.gateway_ipv6,
             router_ipv6: value.router_ipv6,
@@ -500,5 +503,21 @@ mod tests {
 
         assert_eq!(converted.model, original.model);
         assert_eq!(converted.kind, original.kind);
+    }
+    #[test]
+    fn lab_gateway_inventory_round_trip_and_legacy_default() {
+        let json = serde_json::json!({
+            "id": null, "lab_id": "test1234", "name": "test", "user": {"table":"user","key":"alice"},
+            "loopback_network":"192.0.2.0/24", "management_network":"198.51.100.0/24",
+            "gateway_ipv4":"198.51.100.1", "router_ipv4":"198.51.100.2"
+        });
+        // Use a serialized RecordId so this fixture follows the public ID representation.
+        let mut json = json;
+        json["user"] = serde_json::to_value(RecordId::new("user", "alice")).unwrap();
+        let mut lab: DbLab = serde_json::from_value(json).unwrap();
+        assert!(lab.tailscale_container_id.is_none());
+        lab.tailscale_container_id = Some("docker-container-id".into());
+        let restored = DbLab::try_from(LabRow::try_from(&lab).unwrap()).unwrap();
+        assert_eq!(restored.tailscale_container_id, lab.tailscale_container_id);
     }
 }

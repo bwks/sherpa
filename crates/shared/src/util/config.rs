@@ -3,13 +3,14 @@ use std::net::Ipv4Addr;
 use std::path::Path;
 use std::str::FromStr;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use ipnet::Ipv4Net;
+use tracing::instrument;
 
 use super::file_system::create_file;
 use crate::data::{
     ClientConfig, Config, ConfigurationManagement, ContainerImage, OtelConfig, ScannerConfig,
-    ServerConnection, TlsConfig, VmProviders, ZtpServer,
+    ServerConnection, TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
@@ -32,18 +33,21 @@ pub fn build_websocket_url(config: &Config) -> String {
     format!("{}://{}:{}/ws", scheme, host, port)
 }
 
+#[instrument(skip(config), level = "debug")]
 pub fn create_config(config: &Config, path: &str) -> Result<()> {
-    let toml_string = toml::to_string_pretty(&config)?;
+    let toml_string =
+        toml::to_string_pretty(config).context("Unable to serialize server config")?;
     create_file(path, toml_string)?;
     Ok(())
 }
+#[instrument(level = "debug")]
 pub fn load_config(file_path: &str) -> Result<Config> {
     let expanded_path = shellexpand::tilde(file_path);
     let config_path = Path::new(expanded_path.as_ref());
 
-    let contents = fs::read_to_string(config_path)?;
-    let config: Config = toml::from_str(&contents)?;
-    Ok(config)
+    let contents = fs::read_to_string(config_path)
+        .with_context(|| format!("Unable to read server config: {}", config_path.display()))?;
+    toml::from_str(&contents).context("Invalid server configuration")
 }
 
 /// Build WebSocket URL from client config
@@ -74,6 +78,7 @@ pub fn load_client_config(file_path: &str) -> Result<ClientConfig> {
     Ok(config)
 }
 
+#[instrument(level = "debug")]
 pub fn default_config() -> Config {
     let container_images: Vec<ContainerImage> =
         vec![ContainerImage::dnsmasq(), ContainerImage::webdir()];
@@ -113,6 +118,7 @@ pub fn default_config() -> Config {
         tls: TlsConfig::default(),
         otel: OtelConfig::default(),
         scanner: ScannerConfig::default(),
+        tailscale: TailscaleGatewaySettings::default(),
     }
 }
 
@@ -120,6 +126,59 @@ pub fn default_config() -> Config {
 mod tests {
     use super::*;
     use crate::data::Sherpa;
+
+    fn tailscale_defaults() -> toml::Value {
+        toml::Value::try_from(TailscaleGatewaySettings::default()).unwrap()
+    }
+
+    fn load_server_fixture(extra: &str) -> Result<Config> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("sherpa.toml");
+        let mut config = toml::Value::try_from(default_config())?;
+        config.as_table_mut().unwrap().remove("tailscale");
+        fs::write(&path, format!("{}\n{extra}", toml::to_string(&config)?))?;
+        load_config(path.to_str().unwrap())
+    }
+
+    #[test]
+    fn tailscale_config_loads_defaults_for_existing_server_files() {
+        let config = load_server_fixture("").unwrap();
+        let actual = toml::Value::try_from(config).unwrap();
+        assert_eq!(actual.get("tailscale"), Some(&tailscale_defaults()));
+    }
+
+    #[test]
+    fn tailscale_config_supports_partial_operator_overrides() {
+        let config = load_server_fixture(
+            "[tailscale]\nimage='registry.example/tailscale:custom'\nsocket_path='/run/custom/daemon.sock'\nexec_timeout_secs=90",
+        ).unwrap();
+        let actual = toml::Value::try_from(config).unwrap();
+        let mut expected = tailscale_defaults();
+        expected["image"] = "registry.example/tailscale:custom".into();
+        expected["socket_path"] = "/run/custom/daemon.sock".into();
+        expected["exec_timeout_secs"] = 90.into();
+        assert_eq!(actual.get("tailscale"), Some(&expected));
+    }
+
+    #[test]
+    fn tailscale_config_generation_writes_defaults_to_server_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("sherpa.toml");
+        create_config(&default_config(), path.to_str().unwrap()).unwrap();
+        let actual: toml::Value = toml::from_str(&fs::read_to_string(path).unwrap()).unwrap();
+        assert_eq!(actual.get("tailscale"), Some(&tailscale_defaults()));
+    }
+
+    #[test]
+    fn tailscale_config_rejects_malformed_and_unknown_settings() {
+        for extra in [
+            "[tailscale]\nexec_timeout_secs='slow'",
+            "[tailscale]\nexec_timeout_sec=10",
+            "[tailscale]\nstop_timeout_secs=-1",
+        ] {
+            assert!(load_server_fixture(extra).is_err(), "accepted {extra}");
+        }
+    }
 
     #[test]
     fn test_build_websocket_url_with_tls() {

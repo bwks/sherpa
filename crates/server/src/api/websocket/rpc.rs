@@ -2115,6 +2115,23 @@ async fn handle_up(
     let request = data::UpRequest {
         lab_id,
         manifest: manifest_value,
+        tailscale_auth_key: match params.get("tailscale_auth_key") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(value) => match serde_json::from_value(value.clone()) {
+                Ok(key) => Some(key),
+                Err(_) => {
+                    send_rpc_error(
+                        connection,
+                        id,
+                        RpcErrorCode::InvalidParams,
+                        "Invalid Tailscale credential field".to_string(),
+                        None,
+                    )
+                    .await;
+                    return;
+                }
+            },
+        },
         username: auth_ctx.username.clone(),
     };
 

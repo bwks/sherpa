@@ -30,3 +30,5 @@ pub use image::{
 
 // Re-export Docker type for convenience
 pub use bollard::Docker;
+
+pub mod tailscale;

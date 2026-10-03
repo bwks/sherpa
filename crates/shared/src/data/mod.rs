@@ -31,7 +31,7 @@ pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 
 pub use config::{
     ClientConfig, Config, ConfigurationManagement, OtelConfig, ScannerConfig, ServerConnection,
-    Sherpa, TlsConfig, ZtpServer,
+    Sherpa, TailscaleGatewaySettings, TlsConfig, ZtpServer,
 };
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
@@ -83,3 +83,6 @@ pub use user_management::{
 pub use vm_action::{LabNodeActionResponse, NodeActionResult};
 pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
+
+pub mod tailscale;
+pub use tailscale::{RouteApproval, TAILNET_DOCS_URL, TailnetAuthKey, TailnetState, TailnetStatus};

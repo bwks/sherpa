@@ -21,3 +21,8 @@ pub use link::{
 };
 pub use node_image::validate_node_image_update;
 pub use version::validate_and_resolve_node_versions;
+
+mod tailscale;
+pub use tailscale::{
+    validate_tailscale, validate_tailscale_gateway_settings, validate_tailscale_key,
+};

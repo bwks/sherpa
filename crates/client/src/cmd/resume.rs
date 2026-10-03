@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use shared::util::render_tailnet_table;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, LabNodeActionResponse};
@@ -94,6 +95,10 @@ pub async fn resume(
 
     let action_response: LabNodeActionResponse =
         serde_json::from_value(result).context("Failed to parse resume response")?;
+
+    if let Some(status) = &action_response.tailscale {
+        println!("{}", render_tailnet_table(status));
+    }
 
     for node_result in &action_response.results {
         if node_result.success {

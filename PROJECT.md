@@ -40,3 +40,8 @@
 ## Frontend
 
 - [ ] **Dioxus native GUI frontend** — Planned but not yet started.
+
+## Tailnet access
+
+- [x] **Manifest-driven Tailscale gateway** — Per-lab management routing, client-environment auth keys, lifecycle integration, and nonfatal route-approval warnings. Setup: `docs/TAILNET.md`.
+- [ ] **Live tailnet acceptance** — Run mixed VM/container, dual-stack access and cross-lab isolation checks against a disposable tailnet; see `test-specs/integration/tailscale.md`.

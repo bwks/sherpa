@@ -13,6 +13,8 @@ use shared::util::{generate_lab_name, load_file as load_file_util};
 #[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tailscale: Option<TailscaleConfig>,
     pub name: String,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,6 +28,16 @@ pub struct Manifest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub config_management: Option<ConfigurationManagement>,
+}
+
+/// Optional per-lab tailnet enrollment. Secrets are resolved by the client.
+#[derive(Debug, Deserialize, Serialize, Default)]
+#[serde(deny_unknown_fields)]
+pub struct TailscaleConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auth_key_env: Option<String>,
 }
 
 impl Manifest {
@@ -107,6 +119,12 @@ impl Manifest {
             doc["links"] = Item::Value(Value::Array(link_array));
         }
 
+        if let Some(tailscale) = &self.tailscale {
+            doc["tailscale"]["enabled"] = Item::Value(Value::from(tailscale.enabled));
+            if let Some(name) = &tailscale.auth_key_env {
+                doc["tailscale"]["auth_key_env"] = Item::Value(Value::from(name.as_str()));
+            }
+        }
         fs::write(file_path, doc.to_string())?;
         Ok(())
     }
@@ -121,6 +139,18 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tailscale_manifest_round_trip() {
+        let input = "name = 'tailnet-lab'\nnodes = []\n[tailscale]\nenabled = true\nauth_key_env = 'SHERPA_TAILSCALE_KEY'\n";
+        let manifest: Manifest = toml::from_str(input).expect("tailnet configuration must parse");
+        let value = toml::Value::try_from(&manifest).unwrap();
+        assert_eq!(value["tailscale"]["enabled"].as_bool(), Some(true));
+        assert_eq!(
+            value["tailscale"]["auth_key_env"].as_str(),
+            Some("SHERPA_TAILSCALE_KEY")
+        );
+    }
 
     #[test]
     fn test_manifest_deserialize_ready_timeout() {
@@ -192,5 +222,30 @@ nodes = [
         assert_eq!(manifest.nodes[0].skip_ready_check, None);
         assert_eq!(manifest.nodes[1].skip_ready_check, Some(true));
         assert_eq!(manifest.nodes[2].skip_ready_check, Some(false));
+    }
+    #[test]
+    fn disabled_and_legacy_manifests_do_not_require_auth_keys() {
+        let legacy: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
+        assert!(legacy.tailscale.is_none());
+        let disabled: Manifest =
+            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=false").unwrap();
+        assert!(!disabled.tailscale.unwrap().enabled);
+        assert!(
+            toml::from_str::<Manifest>(
+                "name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key='do-not-store-secrets'"
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn resolved_manifest_serializes_to_toml_with_tailnet_reference() {
+        let manifest: Manifest = toml::from_str("name='test'\nnodes=[{name='r1',model='cisco_iosv'}]\n[tailscale]\nenabled=true\nauth_key_env='KEY'").unwrap();
+        let saved = toml::to_string_pretty(&manifest).unwrap();
+        let restored: Manifest = toml::from_str(&saved).unwrap();
+        assert_eq!(restored.nodes.len(), 1);
+        assert_eq!(
+            restored.tailscale.unwrap().auth_key_env.as_deref(),
+            Some("KEY")
+        );
     }
 }

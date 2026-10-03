@@ -121,7 +121,7 @@ mod tests {
         };
         let json = serde_json::to_string(&resp).expect("serializes");
         let back: DestroyResponse = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back.success, true);
+        assert!(back.success);
         assert_eq!(back.lab_id, "abc12345");
         assert_eq!(back.summary.containers_destroyed, vec!["c1"]);
         assert_eq!(back.summary.vms_destroyed, vec!["vm1"]);

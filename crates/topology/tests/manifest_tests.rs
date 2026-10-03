@@ -311,6 +311,7 @@ fn test_example_manifest() {
 #[test]
 fn test_write_load_roundtrip() {
     let manifest = Manifest {
+        tailscale: None,
         name: "roundtrip-lab".to_string(),
         ready_timeout: None,
         nodes: vec![

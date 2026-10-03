@@ -27,7 +27,10 @@ pub async fn shutdown_lab_nodes(
         .await
         .context(format!("Lab '{}' not found in database", lab_id))?;
 
-    let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;
+    let lab_record_id = db_lab
+        .id
+        .clone()
+        .ok_or_else(|| anyhow!("Lab missing record ID"))?;
 
     // Get all nodes for this lab
     let db_nodes = db::list_nodes_by_lab(&state.db, lab_record_id)
@@ -110,12 +113,29 @@ pub async fn shutdown_lab_nodes(
         results.push(result);
     }
 
+    if node_name.is_none()
+        && let Some(id) = db_lab.tailscale_container_id.as_deref()
+    {
+        let stopped =
+            container::tailscale::stop_gateway(&state.docker, id, lab_id, &state.config.tailscale)
+                .await;
+        results.push(NodeActionResult {
+            name: "Tailscale gateway".into(),
+            success: stopped.is_ok(),
+            message: match stopped {
+                Ok(()) => "Stopped".into(),
+                Err(error) => format!("Unable to stop Tailscale gateway: {error:#}"),
+            },
+        });
+    }
+    let tailscale = super::tailscale::inspect(state, &db_lab).await;
+
     state.metrics.operation_duration.record(
         start.elapsed().as_secs_f64(),
         &[KeyValue::new("operation.type", "down")],
     );
 
-    Ok(LabNodeActionResponse { results })
+    Ok(LabNodeActionResponse { results, tailscale })
 }
 
 /// Check if the QEMU guest agent is available by sending a ping command.

@@ -4,8 +4,8 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{
-    Config, ConfigurationManagement, OtelConfig, ScannerConfig, ServerConnection, TlsConfig,
-    VmProviders, ZtpServer,
+    Config, ConfigurationManagement, OtelConfig, ScannerConfig, ServerConnection,
+    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
 };
 use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
@@ -74,6 +74,7 @@ impl TestServer {
             tls: TlsConfig::default(),
             otel: OtelConfig::default(),
             scanner: ScannerConfig::default(),
+            tailscale: TailscaleGatewaySettings::default(),
         };
 
         let jwt_secret: Vec<u8> = (0..32).map(|_| rand::random::<u8>()).collect();

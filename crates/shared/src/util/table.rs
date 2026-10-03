@@ -1,11 +1,13 @@
 use tabled::{
     Table, Tabled,
+    builder::Builder,
     settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
 };
 
 use super::ssh::SshConfigInspectionEntry;
 use crate::data::{
     BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ScannedImage,
+    TailnetStatus,
 };
 
 /// Represents a row in the SSH config inspection table
@@ -545,6 +547,24 @@ pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> Stri
         .with(Style::modern())
         .with(BorderCorrection::span())
         .to_string()
+}
+
+/// Show connection and approval separately; connected does not imply reachable.
+#[tracing::instrument(skip(status), level = "debug")]
+pub fn render_tailnet_table(status: &TailnetStatus) -> String {
+    let rows = vec![
+        ("Gateway", format!("{:?}", status.state)),
+        ("Route approval", format!("{:?}", status.approval)),
+        ("Management routes", status.routes.join(", ")),
+        ("Tailscale addresses", status.tailscale_ips.join(", ")),
+        ("Warnings", status.warnings.join("\n")),
+    ];
+    let mut builder = Builder::default();
+    builder.push_record(["Tailscale", "Details"]);
+    for (label, value) in rows {
+        builder.push_record([label, value.as_str()]);
+    }
+    builder.build().with(Style::modern()).to_string()
 }
 
 #[cfg(test)]

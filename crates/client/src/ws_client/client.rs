@@ -120,7 +120,7 @@ impl RpcClient {
         // Serialize and send request
         let request_json =
             serde_json::to_string(&request).context("Failed to serialize request")?;
-        tracing::debug!("Sending RPC request: {}", request_json);
+        tracing::debug!(method = %request.method, id = %request.id, "Sending RPC request");
 
         self.write
             .send(Message::Text(request_json.into()))
@@ -191,7 +191,7 @@ impl RpcClient {
         // Serialize and send request
         let request_json =
             serde_json::to_string(&request).context("Failed to serialize request")?;
-        tracing::debug!("Sending streaming RPC request: {}", request_json);
+        tracing::debug!(method = %request.method, id = %request.id, "Sending streaming RPC request");
 
         self.write
             .send(Message::Text(request_json.into()))

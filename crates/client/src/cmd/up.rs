@@ -4,12 +4,13 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, StatusKind, StatusMessage, UpResponse};
+use shared::data::{ClientConfig, StatusKind, StatusMessage, TailnetAuthKey, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
     Emoji, add_lab_ssh_include, base64_encode, expand_path, get_cwd, get_username, load_file,
-    render_lab_info_table, render_nodes_table, term_msg_surround, term_msg_underline,
+    render_lab_info_table, render_nodes_table, render_tailnet_table, term_msg_surround,
+    term_msg_underline,
 };
 use topology::StartupScript;
 
@@ -79,6 +80,8 @@ pub async fn up(
     let mut manifest = topology::Manifest::load_file(manifest_path)
         .with_context(|| format!("Failed to parse manifest: {}", manifest_path))?;
 
+    let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
+
     // Read per-node ztp_config file paths and base64 encode their contents
     resolve_ztp_configs(&mut manifest, manifest_path)?;
 
@@ -121,6 +124,7 @@ pub async fn up(
         serde_json::json!({
             "lab_id": lab_id,
             "manifest": manifest_value,
+            "tailscale_auth_key": tailscale_auth_key,
             "token": token,
         }),
     );
@@ -300,6 +304,45 @@ pub async fn up(
     display_up_results(&up_data)?;
 
     Ok(())
+}
+
+/// Resolve the enrollment key separately so the manifest never contains it.
+#[tracing::instrument(skip(manifest, config), level = "debug")]
+fn resolve_tailscale_key(
+    manifest: &topology::Manifest,
+    server_url: &str,
+    config: &ClientConfig,
+) -> Result<Option<TailnetAuthKey>> {
+    resolve_tailscale_key_using(manifest, server_url, config, |name| {
+        std::env::var(name).ok()
+    })
+}
+
+fn resolve_tailscale_key_using(
+    manifest: &topology::Manifest,
+    server_url: &str,
+    config: &ClientConfig,
+    lookup: impl FnOnce(&str) -> Option<String>,
+) -> Result<Option<TailnetAuthKey>> {
+    validate::validate_tailscale(manifest)?;
+    let Some(tailscale) = manifest.tailscale.as_ref().filter(|c| c.enabled) else {
+        return Ok(None);
+    };
+    // WebSocketClient always validates its custom CA or TOFU trust store unless insecure.
+    if !server_url.starts_with("wss://") || config.server_connection.insecure {
+        bail!("Tailscale enrollment requires WSS with certificate validation enabled");
+    }
+    let name = tailscale
+        .auth_key_env
+        .as_deref()
+        .context("Missing tailscale.auth_key_env")?;
+    let key = lookup(name).with_context(|| {
+        format!(
+            "Tailscale auth-key environment variable '{name}' is not set or is not valid Unicode"
+        )
+    })?;
+    validate::validate_tailscale_key(&key)?;
+    Ok(Some(TailnetAuthKey::new(key)))
 }
 
 /// Resolve `ztp_config` file paths in manifest nodes.
@@ -549,6 +592,10 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
     // Lab Info
     let lab_info_table = render_lab_info_table(&response.lab_info);
     println!("{}", lab_info_table);
+
+    if let Some(tailscale) = &response.tailscale {
+        println!("{}", render_tailnet_table(tailscale));
+    }
 
     // Node information
     if !response.nodes.is_empty() {
@@ -948,5 +995,46 @@ Host 172.31.1.12 dev02.abc123
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("KEY=VALUE"));
+    }
+    #[test]
+    fn tailnet_key_resolution_requires_secure_transport_and_never_changes_manifest() {
+        let manifest: topology::Manifest =
+            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'")
+                .unwrap();
+        let mut config = ClientConfig::default();
+        let key = "tskey-auth-testfixture";
+        let resolved =
+            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| {
+                Some(key.into())
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(resolved.expose(), key);
+        assert!(!serde_json::to_string(&manifest).unwrap().contains(key));
+        assert!(
+            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| None)
+                .is_err()
+        );
+        assert!(
+            resolve_tailscale_key_using(&manifest, "ws://example.invalid", &config, |_| Some(
+                key.into()
+            ))
+            .is_err()
+        );
+        config.server_connection.insecure = true;
+        assert!(
+            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| Some(
+                key.into()
+            ))
+            .is_err()
+        );
+        let disabled = topology::Manifest::default();
+        assert!(
+            resolve_tailscale_key_using(&disabled, "ws://example.invalid", &config, |_| panic!(
+                "disabled tailnet must not resolve secrets"
+            ))
+            .unwrap()
+            .is_none()
+        );
     }
 }

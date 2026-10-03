@@ -14,3 +14,5 @@ pub mod redeploy;
 pub mod resume;
 pub mod scanner;
 pub mod up;
+
+pub(crate) mod tailscale;
