@@ -17,8 +17,9 @@ scenario. The next unchecked scenario is container lifecycle coverage.
   a new request.
 - Read `AGENTS.md` before working. Run `cargo fmt`, then
   `cargo clippy --workspace -- -D warnings`, and require both to pass before tests.
-- Preserve existing workloads and the clean baseline VM. Installation and removal
-  operations belong inside fresh disposable test guests.
+- Preserve unrelated workloads. Installation and removal operations belong inside
+  fresh disposable test guests; destroy test labs when finished.
+- Manage test VM lifecycle through Sherpa commands (`up`, `inspect`, `destroy`).
 
 ## Completed upgrade scenario
 
@@ -142,9 +143,14 @@ it for a different candidate. Files under `.tmp/` are ignored and may disappear.
 
 The image is official Ubuntu 26.04 amd64, build `20260927`. Its location and
 checksum are configured in `config.toml`; guest resources are in `manifest.toml`.
-The original clean baseline is lab `f804c420`, domain `testbox-f804c420`.
-The harness creates separate guests for tests. Preserve that baseline and unrelated
-labs; recheck current server state before any resource operations.
+The original clean baseline lab `f804c420`, domain `testbox-f804c420`, was destroyed
+on 2026-10-03 at the user's request using `sherpa destroy --yes` from
+`dev/release-test`. Sherpa reported removal of its VM, both disks, router,
+Docker/libvirt networks and lab records; subsequent `sherpa inspect` returned
+`Lab not found: f804c420`. Do not assume that baseline VM still exists or retain
+another baseline indefinitely. The manifest and verified base image remain
+available for fresh disposable guests. Preserve unrelated labs and recheck current
+server state through Sherpa before resource operations.
 
 The default runner configuration selects published `v0.3.79` binaries. Use an
 explicit version and artifact directory for candidate tests. The existing ignored

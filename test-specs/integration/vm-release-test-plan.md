@@ -77,6 +77,9 @@ Manifest: [`dev/release-test/manifest.toml`](../../dev/release-test/manifest.tom
 The [baseline record and access instructions](../../dev/release-test/README.md)
 cover lab `f804c420`, running Ubuntu 26.04.1 LTS. A temporary KVM VM was created
 successfully inside the guest. No server runtime or extra packages were installed.
+That baseline lab was subsequently destroyed on 2026-10-03 at the user's request
+using `sherpa destroy --yes`; `sherpa inspect` confirmed it no longer exists.
+Future runs use fresh guests and remove their test labs through Sherpa.
 
 **Acceptance:** Sherpa can create a clean, reachable Ubuntu 26.04 guest suitable
 for testing the installer. No development image or preinstalled server runtime

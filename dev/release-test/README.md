@@ -1,7 +1,7 @@
 # Bare Ubuntu release-test VM
 
-This lab provides the clean Ubuntu baseline for testing Sherpa's server installer
-and uninstaller. The test runtime will be installed inside the guest; the existing
+This manifest defines a disposable clean Ubuntu guest for testing Sherpa's server
+installer and uninstaller. The test runtime is installed inside the guest; the existing
 Sherpa host manages the outer VM.
 
 The [manifest](manifest.toml) selects Ubuntu `26.04` explicitly and allocates
@@ -11,10 +11,11 @@ when needed. The image build and checksum are recorded in the
 
 ## Access
 
-From the repository root:
+From the repository root, create a fresh standalone test lab when needed:
 
 ```sh
 cd dev/release-test
+sherpa up
 sherpa inspect
 sherpa ssh testbox
 ```
@@ -22,6 +23,9 @@ sherpa ssh testbox
 Use `sherpa up` from this directory to create or start the lab on the configured
 Sherpa server. Sherpa generates `lab-info.toml`, an SSH configuration and an SSH
 key locally; these runtime files are ignored by Git.
+Destroy this standalone test lab with `sherpa destroy --yes` from this directory
+when finished. The automated runner creates and destroys its own separate labs
+through the Sherpa CLI.
 
 ## Verified baseline
 
@@ -43,7 +47,10 @@ to the host's virtualization settings were needed. Existing VMs were left unchan
 
 The KVM check created and closed an in-memory VM handle; it did not boot an inner
 guest. Registry checks establish connectivity, not successful image pulls.
-The automated runner creates separate VMs; this original baseline lab stays clean.
+The automated runner creates separate VMs. The original baseline lab was destroyed
+on 2026-10-03 using `sherpa destroy --yes`; its VM, both disks, router, networks and
+lab records were removed. A subsequent `sherpa inspect` confirmed the lab was not
+found. The checks above are a historical baseline record, not a retained VM.
 
 ## Automated install/uninstall tests
 
