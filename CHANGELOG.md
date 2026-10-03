@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.79] - 2026-10-03
+
+### Features
+
+- Add configurable per-lab Tailscale gateways by @bwks ([e43719b](https://github.com/bwks/sherpa/commit/e43719b3a0076bcf43be10b2bd65f18a6045a35b))
+
+### Miscellaneous
+
+- Merge pull request #279 from bwks/v0.3.79
+
+V0.3.79 by @bwks in [#279](https://github.com/bwks/sherpa/pull/279) ([f9d7c54](https://github.com/bwks/sherpa/commit/f9d7c5408e5321ce61f87d2f03bb214cd333582f))
+- Bump all crates to v0.3.79 by @bwks ([723bfb8](https://github.com/bwks/sherpa/commit/723bfb8fa7e96c7aa8d92675998def29efed95a1))
+- Merge pull request #275 from bwks/changelog/v0.3.78
+
+chore(release): update changelog for v0.3.78 by @github-actions[bot] in [#275](https://github.com/bwks/sherpa/pull/275) ([08094f3](https://github.com/bwks/sherpa/commit/08094f3dd5751ff7960b2ddc5bb2704c3cc79b07))
 ## [0.3.78] - 2026-08-19
 
 ### Bug Fixes
@@ -282,6 +297,15 @@ V0.3.63 by @bwks in [#237](https://github.com/bwks/sherpa/pull/237) ([3120659](h
 chore(release): update changelog for v0.3.62 by @github-actions[bot] in [#236](https://github.com/bwks/sherpa/pull/236) ([446cf1d](https://github.com/bwks/sherpa/commit/446cf1df9c092c1eb87bc719c9a4e30f5705aa6c))
 ## [0.3.62] - 2026-04-06
 
+### Bug Fixes
+
+- Lab templates by @bwks ([e623a8d](https://github.com/bwks/sherpa/commit/e623a8d2d009b30ccdaf387170d9628e6cc391f6))
+- Dark mode flash by @bwks ([e7da437](https://github.com/bwks/sherpa/commit/e7da437d2bba20dce9fcbd0ed1f3879b5420ebab))
+
+### Features
+
+- Lab state tracking by @bwks ([48b5d2f](https://github.com/bwks/sherpa/commit/48b5d2f0b65f9e42cfa69fdf47a25f4b7d41b057))
+
 ### Miscellaneous
 
 - Merge pull request #235 from bwks/v0.3.62
@@ -292,24 +316,18 @@ V0.3.62 by @bwks in [#235](https://github.com/bwks/sherpa/pull/235) ([6c91938](h
 - Merge pull request #234 from bwks/changelog/v0.3.61
 
 chore(release): update changelog for v0.3.61 by @github-actions[bot] in [#234](https://github.com/bwks/sherpa/pull/234) ([e479cb1](https://github.com/bwks/sherpa/commit/e479cb116b1d1248ac143ac6a1392f66906545c3))
+- Version bump by @bwks ([d14c8a1](https://github.com/bwks/sherpa/commit/d14c8a1986fdcfdfd0eb45d67cd82e0dba2139ef))
 ## [0.3.61] - 2026-04-06
 
 ### Bug Fixes
 
-- Lab templates by @bwks ([e623a8d](https://github.com/bwks/sherpa/commit/e623a8d2d009b30ccdaf387170d9628e6cc391f6))
-- Dark mode flash by @bwks ([e7da437](https://github.com/bwks/sherpa/commit/e7da437d2bba20dce9fcbd0ed1f3879b5420ebab))
 - Graceful shutdown fix by @bwks ([fe80198](https://github.com/bwks/sherpa/commit/fe80198cd0742fb4baa61653f4b533da9e07925a))
-
-### Features
-
-- Lab state tracking by @bwks ([48b5d2f](https://github.com/bwks/sherpa/commit/48b5d2f0b65f9e42cfa69fdf47a25f4b7d41b057))
 
 ### Miscellaneous
 
 - Merge pull request #233 from bwks/v0.3.61
 
 V0.3.61 by @bwks in [#233](https://github.com/bwks/sherpa/pull/233) ([3d15f8a](https://github.com/bwks/sherpa/commit/3d15f8a6798a3863c990f00ebb74ed757339ce3c))
-- Version bump by @bwks ([d14c8a1](https://github.com/bwks/sherpa/commit/d14c8a1986fdcfdfd0eb45d67cd82e0dba2139ef))
 - Version bump by @bwks ([128fe73](https://github.com/bwks/sherpa/commit/128fe7383a05b46054f619e23a8190dac06cade4))
 - Merge pull request #231 from bwks/changelog/v0.3.60
 
