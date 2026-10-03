@@ -2,6 +2,7 @@
 """Guest-only checks. Never invoke this helper on the Sherpa host."""
 
 import fcntl
+from contextlib import suppress
 import hashlib
 import json
 import os
@@ -17,8 +18,10 @@ import sys
 import time
 import tomllib
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 
 
 def require(condition, message):
@@ -39,6 +42,16 @@ def digest(path):
 def validate_binary_version(binary, version, output):
     require(output.split() == [binary, version.removeprefix("v")],
             f"Unexpected {binary} version")
+
+
+def validate_retained_resources(before, after):
+    require(set(before) == set(after), "Resource inventory categories changed")
+    for category, items in before.items():
+        require(items == after[category], f"Uninstall changed retained {category}")
+
+
+def interrupted(signum, _frame):
+    raise KeyboardInterrupt(f"Guest interrupted by {signal.Signals(signum).name}")
 
 
 class Guest:
@@ -70,22 +83,27 @@ class Guest:
             output = output.replace(secret, "[REDACTED]")
         return output
 
-    def command(self, command, timeout=None, env=None, check=True):
+    def command(self, command, timeout=None, env=None, check=True, display=True):
         process = subprocess.Popen(command, cwd=self.workspace, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    text=True, env=env, start_new_session=True)
         try:
             output, _ = process.communicate(timeout=timeout or self.timeouts["command"])
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGTERM)
+        except (subprocess.TimeoutExpired, KeyboardInterrupt) as error:
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
             try:
                 output, _ = process.communicate(timeout=self.timeouts["terminate"])
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
                 output, _ = process.communicate()
             print(self.redact(output), flush=True)
+            if isinstance(error, KeyboardInterrupt):
+                raise
             raise TimeoutError(f"Command timed out: {command[0]}")
-        print(self.redact(output), end="", flush=True)
+        if display:
+            print(self.redact(output), end="", flush=True)
         if check:
             require(process.returncode == 0, f"Command failed ({process.returncode}): {command[0]}")
         return process.returncode, output
@@ -243,11 +261,21 @@ class Guest:
                     break
             if waited == 0:
                 waited, status = os.waitpid(pid, os.WNOHANG)
+                # EOF on the PTY can precede sudo's actual process exit.
+                while not waited and time.monotonic() < deadline:
+                    time.sleep(self.timeouts["poll"])
+                    waited, status = os.waitpid(pid, os.WNOHANG)
                 if not waited:
                     os.killpg(pid, signal.SIGKILL)
-                    os.waitpid(pid, 0)
+                    waited, status = os.waitpid(pid, 0)
                     raise TimeoutError("Server initialization timed out")
             require(os.waitstatus_to_exitcode(status) == 0 and not prompts, "Server initialization failed")
+        except (Exception, KeyboardInterrupt):
+            if not waited:
+                with suppress(ProcessLookupError):
+                    os.killpg(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+            raise
         finally:
             os.close(descriptor)
             print(self.redact(output.decode(errors="replace")), flush=True)
@@ -324,7 +352,14 @@ class Guest:
         self.command(["systemctl", "start", "sherpad"])
 
     def uninstall(self, mode):
+        before = self.resources()
+        evidence = self.workspace / ("resources-" + mode.removeprefix("--") + ".toml")
+        self.write_resources(evidence, {"before": before})
         self.command(["bash", str(self.workspace / "sherpa_uninstall.sh"), mode, "--force"])
+        after = self.resources()
+        self.write_resources(evidence, {"before": before, "after": after})
+        validate_retained_resources(before, after)
+        print("PASS retained packages, users/groups, images, volumes and libvirt resources")
         require(not Path("/etc/systemd/system/sherpad.service").exists(), "Service unit remains")
         require(not Path("/etc/logrotate.d/sherpad").exists(), "Logrotate entry remains")
         binaries = ("sherpa", "sherpad") if mode == "--remove-all" else ("sherpad",)
@@ -351,7 +386,49 @@ class Guest:
             files = list((self.base / "db").iterdir())
             require(bool(files) if mode == "--keep-data" else not files, "Incorrect database retention")
 
-    def diagnostics(self):
+    def write_resources(self, path, sections):
+        lines = []
+        for section, values in sections.items():
+            lines.append(f"[{section}]")
+            lines.extend(f"{key} = {json.dumps(value)}" for key, value in values.items())
+        path.write_text("\n".join(lines) + "\n")
+
+    def resources(self):
+        def query(command):
+            return self.command(command, display=False)[1].strip()
+        inventory = {
+            "packages": sorted(query(["dpkg-query", "-W", "-f=${binary:Package}\t${db:Status-Status}\t${Version}\n"]).splitlines()),
+            "users": sorted(query(["getent", "passwd"]).splitlines()),
+            "groups": sorted(query(["getent", "group"]).splitlines()),
+            "images": sorted(query(["docker", "image", "ls", "--no-trunc", "--format",
+                                    "{{.Repository}}:{{.Tag}} {{.ID}}"] ).splitlines()),
+            "volumes": sorted(query(["docker", "volume", "ls", "--format", "{{.Name}}"] ).splitlines()),
+            "containers": sorted(line for line in query(["docker", "ps", "-a", "--no-trunc", "--format",
+                                "{{.Names}} {{.ID}} {{.Image}} {{.State}}"] ).splitlines()
+                                 if line.split()[0] != "sherpa-db"),
+        }
+        for kind, category in (("net", "networks"), ("pool", "pools"), ("dom", "domains")):
+            list_command = "list" if kind == "dom" else kind + "-list"
+            names = query(["virsh", "-c", "qemu:///system", list_command, "--all", "--name"]).split()
+            entries = []
+            for name in sorted(names):
+                xml = query(["virsh", "-c", "qemu:///system", kind + "-dumpxml" if kind != "dom" else "dumpxml", name])
+                root = ET.fromstring(xml)
+                for field in ("capacity", "allocation", "available"):
+                    element = root.find(field)
+                    if element is not None:
+                        root.remove(element)
+                identity = hashlib.sha256(ET.tostring(root)).hexdigest()
+                info = query(["virsh", "-c", "qemu:///system", kind + "info" if kind == "dom" else kind + "-info", name])
+                state = [line.strip() for line in info.splitlines()
+                         if line.split(":", 1)[0].strip() in ("State", "Active", "Persistent", "Autostart")]
+                entries.append(name + " " + identity + " " + " ".join(state))
+            inventory[category] = entries
+        print("Resource inventory: " + ", ".join(f"{key}={len(value)}" for key, value in inventory.items()))
+        return inventory
+
+    def diagnostics(self, required=False):
+        print("Collecting server/database logs, systemd status and boot diagnostics", flush=True)
         commands = (["systemctl", "status", "--no-pager", "sherpad", "docker", "libvirtd"],
                     ["journalctl", "--no-pager", "-u", "sherpad", "-n", "200"],
                     ["journalctl", "--no-pager", "-b", "-p", "warning", "-n", "100"],
@@ -361,15 +438,50 @@ class Guest:
                     ["df", "-h"])
         for command in commands:
             try:
-                self.command(command, check=False)
+                code, output = self.command(command, check=False)
+                if required and command[:2] == ["docker", "logs"]:
+                    require(code == 0, "Database logs unavailable before uninstall")
+                if required and command[0] == "journalctl" and "sherpad" in command:
+                    require(code == 0 and output.strip() and output.strip() != "-- No entries --",
+                            "Server journal unavailable before uninstall")
             except FileNotFoundError:
                 print(f"Diagnostic tool not installed: {command[0]}")
         log = self.base / "logs/sherpad.log"
         if log.is_file():
             self.command(["tail", "-n", "200", str(log)])
+        if required:
+            print("PASS live server and database logs captured before uninstall")
+
+    def fault_wait(self):
+        code = ("from pathlib import Path; import os, time; "
+                f"Path({str(self.workspace / 'fault-child.pid')!r}).write_text(str(os.getpid())); "
+                "print('Fault probe running', flush=True); "
+                f"time.sleep({self.config['faults']['wait']})")
+        self.command([sys.executable, "-c", code], timeout=self.config["faults"]["wait"])
+
+    def cancel(self):
+        active = self.workspace / "active.pid"
+        if active.exists():
+            require(active.stat().st_uid == 0, "Active PID marker must be root-owned")
+            pid = int(active.read_text())
+            process = Path(f"/proc/{pid}")
+            if process.exists():
+                args = (process / "cmdline").read_bytes().split(b"\0")
+                require(str(self.workspace / "vm_release_guest.py").encode() in args
+                        and str(self.workspace / "guest.toml").encode() in args,
+                        "Refusing to signal an unrelated process")
+                os.kill(pid, signal.SIGTERM)
+                deadline = time.monotonic() + self.timeouts["terminate"]
+                while process.exists() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                require(not process.exists(), "Guest helper did not stop after cancellation")
+        child = self.workspace / "fault-child.pid"
+        if child.exists():
+            require(not Path(f"/proc/{int(child.read_text())}").exists(), "Fault command survived cancellation")
+        print("PASS guest command stopped; no probe process remains")
 
     def run(self, step):
-        self.guard(baseline=step == "baseline")
+        self.guard(baseline=step in ("baseline", "diagnostics", "cancel"))
         actions = {"baseline": self.baseline, "preflight": self.preflight,
                    "install": self.install, "initialize": self.initialize,
                    "authenticate": self.authenticate, "reboot": self.reboot,
@@ -379,12 +491,82 @@ class Guest:
                    "remove-all": lambda: self.uninstall("--remove-all"),
                    "repeat-uninstall": lambda: self.uninstall("--remove-all"),
                    "diagnostics": self.diagnostics,
+                   "diagnostics-live": lambda: self.diagnostics(required=True),
+                   "fault-wait": self.fault_wait, "cancel": self.cancel,
                    "new-database": lambda: (self.install(), self.initialize())}
         require(step in actions, "Unknown guest step")
-        actions[step]()
+        if step == "cancel":
+            self.cancel()
+            return
+        active = self.workspace / "active.pid"
+        with active.open("x") as stream:
+            stream.write(str(os.getpid()))
+        active.chmod(0o600)
+        previous = signal.signal(signal.SIGTERM, interrupted)
+        try:
+            actions[step]()
+        finally:
+            active.unlink(missing_ok=True)
+            signal.signal(signal.SIGTERM, previous)
 
 
 class GuestTests(unittest.TestCase):
+    def test_initialization_allows_child_to_exit_after_terminal_closes(self):
+        guest = Guest.__new__(Guest)
+        guest.base = Path("/unused-test-guest")
+        guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
+        guest.timeouts = {"initialize": 1, "poll": 1}
+        guest.passwords = []
+        guest.snapshot = lambda: None
+        guest.command = lambda *args: (0, "")
+        with patch.object(pty, "fork", return_value=(1234, 99)), \
+             patch.object(time, "monotonic", return_value=0), patch.object(time, "sleep"), \
+             patch.object(select, "select", return_value=([99], [], [])), \
+             patch.object(os, "read", side_effect=[b"Admin username: ", b"Password for test-admin: ",
+                                                    b"Confirm password: ", OSError("PTY closed")]), \
+             patch.object(os, "write"), \
+             patch.object(os, "waitpid", side_effect=[(0, 0)] * 4 + [(1234, 0)]), \
+             patch.object(os, "killpg") as terminate, patch.object(os, "close"):
+            guest.initialize()
+            terminate.assert_not_called()
+
+    def test_initialization_timeout_reports_timeout_after_reaping_child(self):
+        guest = Guest.__new__(Guest)
+        guest.base = Path("/unused-test-guest")
+        guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
+        guest.timeouts = {"initialize": 1, "poll": 1}
+        guest.passwords = []
+        with patch.object(pty, "fork", return_value=(1234, 99)), \
+             patch.object(time, "monotonic", side_effect=[0, 2, 2]), \
+             patch.object(os, "waitpid", side_effect=[(0, 0), (1234, 9), ChildProcessError()]), \
+             patch.object(os, "killpg"), patch.object(os, "close"):
+            with self.assertRaises(TimeoutError):
+                guest.initialize()
+
+    def test_systemd_journal_satisfies_server_logging_without_a_log_file(self):
+        guest = Guest.__new__(Guest)
+        guest.base = Path("/nonexistent-sherpa-test-installation")
+        guest.command = lambda *args, **kwargs: (0, "server/database log entry\n")
+        guest.diagnostics(required=True)
+
+    def test_retention_checks_detect_removed_or_changed_resources(self):
+        before = {"packages": ["docker:1", "libvirt:2"], "users": ["sherpa:1000"],
+                  "groups": ["docker:999:sherpa"], "images": ["sha256:db", "sha256:router"],
+                  "networks": ["sherpa-bridge:uuid"], "pools": ["sherpa-pool:uuid"],
+                  "domains": [], "volumes": [], "containers": []}
+        validate_retained_resources(before, before)
+        for category in before:
+            after = dict(before, **{category: ["unexpected"]})
+            with self.subTest(category=category), self.assertRaises(RuntimeError):
+                validate_retained_resources(before, after)
+
+    def test_live_diagnostics_require_both_log_sources(self):
+        guest = Guest.__new__(Guest)
+        guest.base = Path("/nonexistent-sherpa-test-installation")
+        guest.command = lambda *args, **kwargs: (1, "missing")
+        with self.assertRaises(RuntimeError):
+            guest.diagnostics(required=True)
+
     def test_binary_version_requires_exact_match(self):
         validate_binary_version("sherpad", "v0.3.79", "sherpad 0.3.79\n")
         for output in ("sherpad 0.3.790", "other 0.3.79"):
@@ -410,6 +592,6 @@ if __name__ == "__main__":
     else:
         try:
             Guest(Path(sys.argv[1])).run(sys.argv[2])
-        except Exception as error:
+        except (Exception, KeyboardInterrupt) as error:
             print(f"FAIL: {error}", file=sys.stderr)
             sys.exit(1)

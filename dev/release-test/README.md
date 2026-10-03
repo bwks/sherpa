@@ -77,6 +77,10 @@ To test release archives before publication:
 ./scripts/test_install.sh --version v0.3.80 --artifact-dir /path/to/release-artifacts
 ```
 
+Use `--result-file /path/to/result-reference.toml` to write a stable, nonsecret
+TOML reference to the generated receipt. This identifies one exact run when the
+output directory contains earlier results.
+
 The directory must contain `sherpad-x86_64-unknown-linux-gnu.tar.gz` and
 `sherpa-x86_64-unknown-linux-gnu.tar.gz`, with the corresponding binary at each
 archive's root. The installer uses `SHERPA_ARTIFACT_DIR` for these supplied files;
@@ -97,6 +101,47 @@ and CLI. `--remove-all` removes the installation directory and its binary symlin
 Docker/libvirt packages, images, users/groups and libvirt resources are retained by
 all modes; recreating the guest provides a genuinely fresh baseline.
 
+Each uninstall compares package versions, account/group entries, Docker images,
+volumes and unrelated containers, and libvirt domain/network/pool definitions and
+state before and after removal. The resource inventories are retained with the
+result. Full removal deletes `/opt/sherpa`, including paths referenced by retained
+libvirt pool definitions; it does not remove those definitions or restore Ubuntu's
+original package set. Server journal and database logs are captured before each
+uninstall. A daemon log file is captured as well when present; the systemd service
+runs in foreground mode and writes its server logs to the journal.
+
+## Failure checks and artifact verification
+
+Run the live harness failure suite with the same candidate inputs:
+
+```sh
+./scripts/test_install.sh --scenario failure-checks --version v0.3.80 --artifact-dir /path/to/release-artifacts
+```
+
+It creates separate fresh guests for a timed-out command, SIGTERM interruption
+while a guest command is running, and incomplete provisioning after a readiness
+timeout. The existing CLI can report readiness warnings with exit status zero;
+the harness must still reject the unready guest. Each fault case must produce a
+failed receipt and nonzero exit, preserve resource identity and diagnostics, stop
+its guest command when applicable, and pass verified targeted cleanup. Expected
+faults count as a passing failure-suite result, never as a passing lifecycle run.
+
+After a complete lifecycle run, verify the exact archives and checkout:
+
+```sh
+python3 scripts/verify_release_test.py --receipt /path/to/run/result.toml --artifact-dir /path/to/release-artifacts --version v0.3.80
+```
+
+Alternatively use `--result-file` with the reference written by the runner.
+Changed installer/harness scripts, archive or binary hashes, missing required
+steps, incomplete resource evidence, failed cleanup and dirty checkouts block
+release approval. The verifier checks the recorded candidate commit against the
+current checkout's HEAD, or the explicit `--commit` value, and requires a clean
+source checkout for the recorded run. `--allow-dirty` permits local development
+verification. Its optional `--stage-evidence` directory contains
+only the selected receipt and guest resource inventories, without connection
+settings, credentials or SSH keys.
+
 ## Evidence and failure inspection
 
 Each run writes `result.toml`, candidate inputs and numbered logs under
@@ -110,13 +155,22 @@ as well. For a retained run, enter its result directory and use `sherpa inspect`
 use the receipt's `node_name` with `sherpa ssh` to connect. Run `sherpa destroy --yes`
 from that same directory when finished inspecting its manifest and lab identity.
 
+For verified removal, including partially provisioned runs without local SSH
+files, use `./scripts/test_install.sh --cleanup-run /absolute/path/to/run-directory`.
+The receipt keeps its original pass/fail status and records verified removal.
+
 Harness regression checks do not provision a VM:
 
 ```sh
 ./scripts/test_install.sh --self-test
 python3 scripts/vm_release_guest.py --self-test
+python3 scripts/vm_release_faults.py --self-test
+python3 scripts/verify_release_test.py --self-test
 ```
 
 The [release checklist](../../test-specs/integration/vm-release-test-plan.md)
-tracks verified VM runs and the remaining release gate work. CI/release pipeline
-integration is a separate step.
+tracks verified VM runs and the remaining release gate work. Run the VM harness
+locally against the existing Sherpa server using your authenticated CLI and SSH
+access. No GitHub runner service or additional account is required. The existing
+GitHub workflows do not consume these receipts or enforce the local VM result;
+publication enforcement remains outstanding.

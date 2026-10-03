@@ -5,6 +5,8 @@ sherpa = "sherpa"
 # Empty means use the authenticated CLI's existing server configuration.
 server_url = ""
 libvirt_uri = "qemu:///system"
+# Empty uses the resolved server hostname and the local SSH configuration.
+ssh_destination = ""
 
 [vm]
 manifest = "dev/release-test/manifest.toml"
@@ -52,3 +54,11 @@ reboot = 300
 cleanup = 300
 poll = 3
 terminate = 10
+
+[faults]
+# Deliberate failures, used only by scripts/vm_release_faults.py.
+wait = 120
+command_timeout = 3
+ready_timeout = 1
+ready_port = 65534
+trigger_timeout = 120

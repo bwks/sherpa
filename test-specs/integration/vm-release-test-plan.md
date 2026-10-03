@@ -8,9 +8,10 @@ the real server installation and uninstallation scripts.
 
 Complete phases 1–5 before adding new product features. Phase 6 extends the same
 harness to broader release coverage. This document records the plan; an imported
-image alone does not establish a test harness. The local runner now passes the
-Ubuntu installation/uninstallation lifecycle; remaining diagnostic, isolation
-and release gate tasks are listed below.
+image alone does not establish a test harness. Local lifecycle and failure checks
+now pass for freshly built `0.3.80` archives. Tests run locally against the existing
+Sherpa server. Publication enforcement remains outstanding; self-hosted GitHub
+runners are excluded from this design.
 
 **External dependencies:** a working Sherpa host, libvirt/KVM with nested
 virtualization support, guest SSH access and sudo, and internet access for Ubuntu
@@ -30,6 +31,8 @@ packages and runtime images. Scenarios in this plan are `[e2e]` tests.
 - Run installer and uninstaller operations only inside the disposable guest.
 - Record the exact candidate commit, scripts, artifacts and image used by a run.
   A release result applies only to those inputs.
+- Invoke the VM controller locally using the existing Sherpa CLI and SSH access.
+  No self-hosted GitHub runner or runner service account will be used.
 
 ## Phase 0 — Image preparation
 
@@ -132,7 +135,7 @@ and produces an unambiguous pass or fail result without manual intervention.
   other retained files follow the documented `--remove-data` contract.
 - [x] Full uninstall: verify removal of Sherpa's installation directory,
   service, symlinks, logrotate entry and database container.
-- [ ] Define and verify which dependencies, users, groups and external resources
+- [x] Define and verify which dependencies, users, groups and external resources
   each uninstall mode intentionally retains. Full uninstall is not assumed to
   restore the original Ubuntu package set.
 - [x] Repeat uninstall: verify the documented behavior on an already removed
@@ -149,7 +152,7 @@ scenarios on Ubuntu 26.04. Database health alone is not a server startup check.
   scenarios; do not use uninstall as a substitute for a fresh baseline.
 - [x] Assign each run its own lab/resources and prevent concurrent runs from
   sharing guest disks, credentials or result directories.
-- [ ] Capture scenario results, script output, server/database logs, systemd
+- [x] Capture scenario results, script output, server/database logs, systemd
   status and boot diagnostics before cleanup, including on timeout or failure.
 - [x] Record the candidate commit/version, artifact/script hashes, Ubuntu build,
   image checksum and resolved VM settings with the results.
@@ -158,7 +161,7 @@ scenarios on Ubuntu 26.04. Database health alone is not a server startup check.
   remove that specific run's resources.
 - [x] Verify normal cleanup removes only resources owned by the run and leaves
   the stable host, other labs and base image intact.
-- [ ] Verify interruptions and partial provisioning leave enough information for
+- [x] Verify interruptions and partial provisioning leave enough information for
   targeted cleanup.
 - [x] Run the complete required suite twice from fresh guests and investigate
   any difference in outcomes.
@@ -166,48 +169,72 @@ scenarios on Ubuntu 26.04. Database health alone is not a server startup check.
 **Acceptance:** runs are repeatable, failures are diagnosable and cleanup is
 limited to the disposable test environment.
 
-**Verification recorded on 2026-10-03:** both complete lifecycle runs passed
-with the same installer, uninstaller and binary hashes in different fresh VMs.
+**Verification recorded on 2026-10-03:** two complete lifecycle runs passed
+with identical installer, uninstaller, harness and binary hashes in separate fresh
+VMs. A third run then verified the final host helper's configurable SSH destination.
 
 | Run ID | Binary source | Result | Owned VM/disks |
 |---|---|---|---|
-| `3f052e69107b42e796ece077f21aff51` | GitHub release `v0.3.79` | Passed | Removed |
-| `8478c7676f0c459aa92748e9210c9490` | Supplied local `v0.3.79` archives | Passed | Removed |
+| `f0455214fff0475dab4ed3bf945364f1` | Fresh local `v0.3.80` archives | Passed | Removed |
+| `d5f9c5c7e7014843bdaada67edde79d9` | Same local `v0.3.80` archives | Passed | Removed |
+| `dc227d81ea624a7597b19ec7e44fb4df` | Same archives, final host helper | Passed | Removed |
 
 Each local receipt is at `.tmp/vm-release-tests/<run-id>/result.toml`. The
-base image checksum remained unchanged after both runs. The original bare
-lab and pre-existing VMs remained unchanged. Four earlier failed labs are
-retained under the configured failure-retention policy.
+base image checksum remained unchanged after cleanup. The original bare lab and
+pre-existing VMs remain. The four previously retained failed labs were removed at
+the user's request. Failed exploratory runs from this implementation were also
+removed after their evidence was collected.
 
-Both runs used the checkout's scripts and `v0.3.79` binaries. For a future
-candidate, supply that candidate's archives with `--version` and
-`--artifact-dir`. Formatting, workspace Clippy and 17 harness regression
-checks passed. No CI/release pipeline definitions were changed.
+Every uninstall mode now compares inventories of packages, users, groups, Docker
+images/volumes/unrelated containers, and libvirt domains/networks/pools. All were
+retained unchanged during uninstall. Full removal leaves libvirt definitions and
+Docker volumes; it removes `/opt/sherpa`, including the pool's backing directory.
+It does not restore bare Ubuntu. Server journal entries and database container
+logs were captured before all three uninstall modes.
 
-Still outstanding: explicit assertions for all retained external resources,
-server/database log collection before each uninstall, and live interruption
-or partial-provisioning checks. The runner already retains failure evidence
-and conservatively records possible resources when provisioning is interrupted;
-that reporting behavior has a regression test.
+Live timeout, SIGTERM interruption and incomplete-provisioning checks passed in
+three separate fresh guests. Their intentionally failed receipts recorded the
+allocated lab, domain UUID and disks; targeted cleanup verified their removal.
+The controller also verified that active guest probe processes stopped.
+Combined evidence: `.tmp/vm-release-tests/failure-checks/`
+`c86086494ed7441c95a98e5164fbe374/fault-results.toml`.
+
+All 11 crate versions are `0.3.80`. Formatting, workspace Clippy, the locked
+workspace test suite and 34 harness regression checks passed. The server and CLI
+were built with the release profile and packaged locally. The final receipt's
+scripts, archive hashes and extracted binary hashes passed the artifact verifier,
+including after staging the selected nonsecret evidence.
+
+These are development results from an uncommitted checkout at
+`cba3c377c8863a677d8cc42ff0abc8a378ec982e`. Local verification explicitly used
+`--allow-dirty`; the normal release verifier correctly rejects these receipts as
+publication approval. Earlier `v0.3.79` baseline receipts remain historical evidence.
 
 ## Phase 5 — Release gate
 
 - [x] Document the local workflow, prerequisites, expected results and failure
   inspection steps in the source repository.
-- [ ] Require successful formatting and workspace Clippy before Rust tests,
+- [x] Run successful formatting and workspace Clippy before local Rust tests,
   following the existing repository rules.
-- [ ] Require the Ubuntu 26.04 installation/uninstallation suite for every
-  release candidate and retain its result record with the release evidence.
-- [ ] Publish the same artifacts that passed the harness; rerun the gate if
-  scripts or artifacts change afterwards.
-- [ ] Integrate the local entry point into the release workflow after review of
-  the required CI/release pipeline changes.
-- [ ] Confirm a failed, timed-out or unexpectedly skipped required scenario
-  blocks release publication.
+- [x] Provide a local Ubuntu 26.04 installation/uninstallation suite and retain
+  its result record with the candidate's release evidence.
+- [x] Verify the candidate version, commit, scripts, archives, binary hashes and
+  required scenarios; reject incomplete or failed evidence.
+- [ ] Define how publication will require the passing local result without
+  self-hosted GitHub runners.
+- [ ] Ensure publication uses the same artifacts that passed the local harness;
+  rerun tests if scripts or artifacts change afterwards.
+- [ ] Verify that failed, timed-out or unexpectedly skipped required scenarios
+  block publication through the chosen release process.
 - [ ] Record completion of phases 1–5 before starting new product features.
 
 **Acceptance:** an exact candidate can be tested before publication, and the
 release process requires a passing result for those artifacts.
+
+The existing GitHub workflows are unchanged and do not enforce the local VM
+result. No runner registration, service account or management runner VM is needed.
+The local artifact verifier is available, but publication enforcement remains
+open. Keep the overall task open until that process is defined and verified.
 
 ## Phase 6 — Later coverage using the same harness
 

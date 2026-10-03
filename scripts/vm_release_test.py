@@ -3,6 +3,7 @@
 
 import argparse
 from contextlib import redirect_stdout
+from contextlib import suppress
 import hashlib
 import io
 import json
@@ -30,6 +31,17 @@ STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
          "reboot", "authenticate", "reinstall", "authenticate",
          "keep-data", "restore", "authenticate", "remove-data",
          "new-database", "authenticate", "remove-all", "repeat-uninstall")
+
+
+def interrupted(signum, _frame):
+    raise KeyboardInterrupt(f"Runner interrupted by {signal.Signals(signum).name}")
+
+
+def inspection_identity(output, name):
+    match = re.search(r"Sherpa Environment - " + re.escape(name) + r"-([0-9a-f]{8})\b", output)
+    if not match:
+        raise ValueError("Cannot resolve the generated lab identity from Sherpa")
+    return match[1]
 
 
 def value_toml(value):
@@ -87,6 +99,13 @@ def jump_host_arguments(value):
     return arguments + [parsed.hostname]
 
 
+def ssh_jump_options(destination):
+    if not destination:
+        return []
+    jump_host_arguments(destination)
+    return ["-o", "ProxyJump=" + destination]
+
+
 def load_config(path):
     config = tomllib.loads(path.read_text())
     return validate_config(config)
@@ -94,7 +113,7 @@ def load_config(path):
 
 def validate_config(config):
     required = {
-        "host": ("sherpa", "server_url", "libvirt_uri"),
+        "host": ("sherpa", "server_url", "libvirt_uri", "ssh_destination"),
         "vm": ("manifest", "lab_prefix", "node_prefix"),
         "image": ("path", "build", "sha256"),
         "candidate": ("version", "artifact_directory", "target", "download_url", "scripts_directory"),
@@ -103,6 +122,7 @@ def validate_config(config):
                   "admin_prefix", "surrealdb_image", "router_image"),
         "timeouts": ("provision", "connect", "command", "download", "install", "initialize",
                      "startup", "reboot", "cleanup", "poll", "terminate"),
+        "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
     }
     if set(config) != set(required):
         raise ValueError("Unknown or missing configuration section")
@@ -112,6 +132,11 @@ def validate_config(config):
     for key, value in config["timeouts"].items():
         if type(value) is not int or value <= 0:
             raise ValueError(f"Timeout {key} must be a positive integer")
+    for key, value in config["faults"].items():
+        if type(value) is not int or value <= 0:
+            raise ValueError(f"Fault setting {key} must be a positive integer")
+    if config["faults"]["ready_port"] > 65535:
+        raise ValueError("Invalid fault readiness port")
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", config["candidate"]["version"]):
         raise ValueError("Select an explicit release version, such as v0.3.79")
     if not re.fullmatch(r"[0-9a-f]{64}", config["image"]["sha256"]):
@@ -126,7 +151,7 @@ def validate_config(config):
 
 
 class Runner:
-    def __init__(self, config, keep_vm=False):
+    def __init__(self, config, keep_vm=False, result_file=None):
         self.config = config
         self.run_id = uuid.uuid4().hex
         self.directory = (ROOT / config["runner"]["output_directory"] / self.run_id).resolve()
@@ -141,6 +166,7 @@ class Runner:
         self.keep_vm = keep_vm
         self.secrets = []
         self.sequence = 0
+        self.result_file = result_file.resolve() if result_file else None
         self.report = {
             "run": {"id": self.run_id, "status": "running", "directory": str(self.directory),
                     "lab_name": self.lab_name, "node_name": self.node_name, "retained": False,
@@ -152,13 +178,66 @@ class Runner:
         }
         self.save()
 
+    @classmethod
+    def resume(cls, directory):
+        directory = directory.resolve()
+        report = tomllib.loads((directory / "result.toml").read_text())
+        run = report["run"]
+        if run["id"] != directory.name or not re.fullmatch(r"[0-9a-f]{32}", run["id"]):
+            raise ValueError("Refusing cleanup: result directory identity changed")
+        config = load_config(directory / "runner-config.toml")
+        if (run["lab_name"] != config["vm"]["lab_prefix"] + run["id"][:8]
+                or run["node_name"] != config["vm"]["node_prefix"] + run["id"][:8]):
+            raise ValueError("Refusing cleanup: generated resource names changed")
+        runner = cls.__new__(cls)
+        runner.config, runner.report, runner.directory = config, report, directory
+        runner.run_id, runner.lab_name, runner.node_name = run["id"], run["lab_name"], run["node_name"]
+        runner.lab_id, runner.guest_uuid, runner.jump_host = run.get("lab_id", ""), run.get("guest_uuid", ""), run.get("jump_host", "")
+        runner.keep_vm, runner.secrets = False, []
+        runner.sequence = max((int(path.name.split("-", 1)[0]) for path in directory.glob("[0-9]*-*.log")), default=0)
+        payload = directory / "guest.toml"
+        if payload.exists():
+            data = tomllib.loads(payload.read_text())
+            validate = data["identity"]
+            if validate["uuid"] != runner.guest_uuid or validate["nonce"] != runner.run_id:
+                raise ValueError("Refusing cleanup: guest payload identity changed")
+            runner.remote_directory = validate["workspace"]
+            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password")]
+        return runner
+
+    def remove_retained(self):
+        try:
+            if self.report["run"].get("resource_state") == "removed":
+                raise ValueError("This run is already recorded as removed")
+            if hasattr(self, "remote_directory"):
+                self.step("cancel")
+            self.cleanup()
+            self.report["run"]["cleanup_verified"] = True
+            self.save()
+            print(f"[cleanup] Verified removal: {self.directory / 'result.toml'}", flush=True)
+            return 0
+        except (Exception, KeyboardInterrupt) as error:
+            self.report["run"]["cleanup_error"] = self.redact(str(error))
+            self.save()
+            print(f"[fail] Cleanup refused or failed: {error}", flush=True)
+            return 1
+
     def redact(self, output):
         for secret in self.secrets:
             output = output.replace(secret, "[REDACTED]")
         return output
 
     def save(self):
-        (self.directory / "result.toml").write_text(encode_toml(self.report))
+        temporary = self.directory / ".result.toml.tmp"
+        temporary.write_text(encode_toml(self.report))
+        temporary.replace(self.directory / "result.toml")
+        if getattr(self, "result_file", None):
+            self.result_file.parent.mkdir(parents=True, exist_ok=True)
+            reference = {"result": {"receipt": str(self.directory / "result.toml"),
+                                    "run_id": self.run_id, "status": self.report["run"]["status"]}}
+            temporary = self.result_file.with_name("." + self.result_file.name + ".tmp")
+            temporary.write_text(encode_toml(reference))
+            temporary.replace(self.result_file)
 
     def command(self, label, command, timeout, cwd=None, input_text=None, check=True):
         self.sequence += 1
@@ -169,11 +248,13 @@ class Runner:
         try:
             output, _ = process.communicate(input_text, timeout=timeout)
         except (subprocess.TimeoutExpired, KeyboardInterrupt):
-            os.killpg(process.pid, signal.SIGTERM)
+            with suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGTERM)
             try:
                 output, _ = process.communicate(timeout=self.config["timeouts"]["terminate"])
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
                 output, _ = process.communicate()
             log.write_text(self.redact(output))
             raise
@@ -182,24 +263,25 @@ class Runner:
             raise RuntimeError(f"{label} exited {process.returncode}; see {log}")
         return process.returncode, output
 
-    def sherpa(self, label, arguments, timeout):
+    def sherpa(self, label, arguments, timeout, check=True):
         command = [self.config["host"]["sherpa"], *arguments]
         if self.config["host"]["server_url"]:
             command.extend(["--server-url", self.config["host"]["server_url"]])
-        return self.command(label, command, timeout, cwd=self.directory)
+        return self.command(label, command, timeout, cwd=self.directory, check=check)
 
     def ssh(self, label, command, timeout, check=True):
         return self.command(label, ["ssh", "-F", str(self.directory / "sherpa_ssh_config"),
+                                  *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                   "-o", "BatchMode=yes", "-o",
                                   f"ConnectTimeout={self.config['timeouts']['connect']}",
                                   f"{self.node_name}.{self.lab_id}", shlex.join(command)],
                             timeout, check=check)
 
-    def host(self, label, command):
+    def host(self, label, command, check=True):
         return self.command(label, ["ssh", "-o", "BatchMode=yes", "-o",
                                    f"ConnectTimeout={self.config['timeouts']['connect']}",
                                    *jump_host_arguments(self.jump_host), shlex.join(command)],
-                            self.config["timeouts"]["command"])
+                            self.config["timeouts"]["command"], check=check)
 
     def inputs(self):
         candidate = self.config["candidate"]
@@ -208,6 +290,10 @@ class Runner:
         if len(urls) != 1 or "online" not in status:
             raise RuntimeError("Could not resolve an online Sherpa host")
         self.config["host"]["server_url"] = urls[0]
+        self.jump_host = self.config["host"]["ssh_destination"] or urlsplit(urls[0]).hostname
+        if not self.jump_host:
+            raise ValueError("Cannot resolve the Sherpa SSH host")
+        self.report["run"]["jump_host"] = self.jump_host
         self.report["host"] = dict(self.config["host"])
         self.report["host"]["cli_version"] = self.command(
             "host-cli-version", [self.config["host"]["sherpa"], "--version"],
@@ -249,38 +335,64 @@ class Runner:
             raise ValueError("The runner requires a dedicated single-Ubuntu manifest")
         node = dict(manifest["nodes"][0])
         node["name"] = self.node_name
+        if self.report["run"].get("scenario") == "fault-provision":
+            manifest["ready_timeout"] = self.config["faults"]["ready_timeout"]
+            node["ready_port"] = self.config["faults"]["ready_port"]
         text = f"name = {value_toml(self.lab_name)}\nready_timeout = {manifest['ready_timeout']}\n\n[[nodes]]\n"
         text += "\n".join(f"{key} = {value_toml(value)}" for key, value in node.items()) + "\n"
         (self.directory / "manifest.toml").write_text(text)
         self.report["vm"] = node
         self.sherpa("validate", ["validate"], self.config["timeouts"]["command"])
+        code, output = self.sherpa("inspect-before", ["inspect"],
+                                   self.config["timeouts"]["command"], check=False)
+        if code == 0:
+            raise ValueError("Refusing to provision: generated lab already exists")
+        self.lab_id = inspection_identity(output, self.lab_name)
+        self.report["run"]["lab_id"] = self.lab_id
+        _, names = self.host("domains-before", ["virsh", "-c", self.config["host"]["libvirt_uri"],
+                                              "list", "--all", "--name"])
+        if f"{self.node_name}-{self.lab_id}" in names.splitlines():
+            raise ValueError("Refusing to provision: generated domain already exists")
         # A failed up call can leave resources before lab-info.toml is written.
         self.report["run"]["retained"] = True
         self.report["run"]["resource_state"] = "provisioning"
         self.save()
         print(f"[provision] Creating fresh lab {self.lab_name}", flush=True)
         try:
-            self.sherpa("up", ["up"], self.config["timeouts"]["provision"])
+            _, up_output = self.sherpa("up", ["up"], self.config["timeouts"]["provision"])
+            if self.report["run"].get("scenario") == "fault-provision":
+                self.report["run"]["readiness_timed_out"] = "[NodeReadiness]" in up_output
+                self.save()
         finally:
             info_path = self.directory / "lab-info.toml"
             if info_path.exists():
                 info = tomllib.loads(info_path.read_text())
-                if info["name"] != self.lab_name:
-                    raise ValueError("Unexpected lab returned by Sherpa")
+                check_lab(info, self.lab_name, self.lab_id)
                 self.lab_id = info["id"]
                 self.report["run"]["lab_id"] = self.lab_id
                 self.report["run"]["retained"] = True
                 self.report["run"]["resource_state"] = "allocated"
                 self.save()
+            # A failed up can have created the domain without writing local SSH files.
+            self.bind_vm(required=False)
         _, expanded = self.command("ssh-settings", ["ssh", "-G", "-F",
                        str(self.directory / "sherpa_ssh_config"), f"{self.node_name}.{self.lab_id}"],
                        self.config["timeouts"]["command"])
         settings = dict(line.split(" ", 1) for line in expanded.splitlines() if " " in line)
-        self.jump_host = settings["proxyjump"]
+        self.jump_host = self.config["host"]["ssh_destination"] or settings["proxyjump"]
         if self.jump_host == "none" or "," in self.jump_host:
             raise ValueError("A single Sherpa SSH jump host is required")
-        self.guest_uuid = self.host("domain-uuid", ["virsh", "-c", self.config["host"]["libvirt_uri"],
-                                    "domuuid", f"{self.node_name}-{self.lab_id}"])[1].strip().lower()
+        self.bind_vm()
+
+    def bind_vm(self, required=True):
+        code, output = self.host("domain-uuid", ["virsh", "-c", self.config["host"]["libvirt_uri"],
+                                    "domuuid", f"{self.node_name}-{self.lab_id}"], check=required)
+        if code:
+            return
+        actual_uuid = output.strip().lower()
+        if self.guest_uuid and actual_uuid != self.guest_uuid:
+            raise ValueError("Refusing to bind a changed domain identity")
+        self.guest_uuid = actual_uuid
         uuid.UUID(self.guest_uuid)
         actual_hash = self.host("base-image", ["sha256sum", self.config["image"]["path"]])[1].split()[0]
         if actual_hash != self.config["image"]["sha256"]:
@@ -295,6 +407,7 @@ class Runner:
         if not sources or any(not Path(path).name.startswith((domain + "-", domain + ".")) for path in sources):
             raise ValueError("Unexpected disk ownership in the test domain")
         self.report["run"]["owned_disks"] = sources
+        self.report["run"]["resource_state"] = "allocated"
         self.save()
 
     def transfer(self):
@@ -318,6 +431,7 @@ class Runner:
             "guest": dict(self.config["guest"]),
             "vm": dict(self.report["vm"]),
             "timeouts": dict(self.config["timeouts"]),
+            "faults": dict(self.config["faults"]),
             "credentials": {"db_password": database_password, "admin_password": admin_password,
                             "admin_username": self.config["guest"]["admin_prefix"] + self.run_id[:8]},
         }
@@ -329,12 +443,16 @@ class Runner:
         if self.config["candidate"]["artifact_directory"]:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
         self.command("upload", ["scp", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
-                               "BatchMode=yes", *files, f"{self.node_name}.{self.lab_id}:{remote}/"],
+                               "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
+                               *files, f"{self.node_name}.{self.lab_id}:{remote}/"],
                      self.config["timeouts"]["download"])
         self.remote_directory = remote
 
-    def step(self, name):
-        print(f"[test] {name}", flush=True)
+    def step(self, name, label=None):
+        label = label or name
+        print(f"[test] {label}", flush=True)
+        self.report["run"]["active_step"] = name
+        self.save()
         timeout = self.config["timeouts"]["command"]
         if name in ("install", "reinstall", "restore", "new-database"):
             timeout = self.config["timeouts"]["install"]
@@ -342,15 +460,24 @@ class Runner:
             timeout = self.config["timeouts"]["initialize"]
         elif name == "authenticate":
             timeout = self.config["timeouts"]["startup"]
+        elif name == "fault-wait" and self.report["run"]["scenario"] == "fault-timeout":
+            timeout = self.config["faults"]["command_timeout"]
         command = ["sudo", "-n", "timeout", "--signal=TERM",
                    f"--kill-after={self.config['timeouts']['terminate']}", str(timeout),
                    "python3", f"{self.remote_directory}/vm_release_guest.py",
                    f"{self.remote_directory}/guest.toml", name]
-        self.ssh(name, command, timeout + self.config["timeouts"]["terminate"])
-        if name != "diagnostics":
+        code, _ = self.ssh(label, command, timeout + self.config["timeouts"]["terminate"], check=False)
+        if code:
+            if code == 124:
+                raise TimeoutError(f"{label} timed out; see {self.directory}")
+            raise RuntimeError(f"{label} exited {code}; see {self.directory}")
+        if name not in ("diagnostics", "diagnostics-live", "cancel"):
             self.report["run"]["completed_steps"].append(name)
+        if name == "diagnostics-live":
+            self.report["run"].setdefault("diagnostics_before", []).append(label.removeprefix("before-"))
+        self.report["run"].pop("active_step", None)
         self.save()
-        print(f"[pass] {name}", flush=True)
+        print(f"[pass] {label}", flush=True)
 
     def reboot(self):
         old_boot = self.ssh("boot-before", ["cat", "/proc/sys/kernel/random/boot_id"],
@@ -367,19 +494,33 @@ class Runner:
         raise TimeoutError("Guest did not return with a new boot ID")
 
     def collect(self):
-        if not self.guest_uuid or not hasattr(self, "remote_directory"):
-            return
-        try:
-            self.step("diagnostics")
-        except (RuntimeError, subprocess.TimeoutExpired):
-            print("[diagnostics] Guest collection failed; provisioning and step logs are retained", flush=True)
-        self.sherpa("inspect-final", ["inspect"], self.config["timeouts"]["command"])
+        if self.guest_uuid and hasattr(self, "remote_directory"):
+            try:
+                self.step("diagnostics")
+                for mode in ("keep-data", "remove-data", "remove-all"):
+                    if mode in self.report["run"]["completed_steps"]:
+                        self.command("inventory-" + mode, ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
+                                     "-o", "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
+                                     f"{self.node_name}.{self.lab_id}:"
+                                     f"{self.remote_directory}/resources-{mode}.toml", str(self.directory)],
+                                     self.config["timeouts"]["command"])
+            except (RuntimeError, subprocess.TimeoutExpired):
+                print("[diagnostics] Guest collection failed; provisioning and step logs are retained", flush=True)
+                if tuple(self.report["run"]["completed_steps"]) == STEPS:
+                    raise
+        if self.lab_id:
+            self.sherpa("inspect-final", ["inspect"], self.config["timeouts"]["command"])
 
     def cleanup(self):
         if not self.lab_id or not self.guest_uuid:
             raise ValueError("Cannot verify provisioned lab ownership; retain it for inspection")
-        info = tomllib.loads((self.directory / "lab-info.toml").read_text())
-        check_lab(info, self.lab_name, self.lab_id)
+        info_path = self.directory / "lab-info.toml"
+        if info_path.exists():
+            check_lab(tomllib.loads(info_path.read_text()), self.lab_name, self.lab_id)
+        else:
+            _, output = self.sherpa("inspect-partial", ["inspect"], self.config["timeouts"]["command"])
+            check_lab({"name": self.lab_name, "id": inspection_identity(output, self.lab_name)},
+                      self.lab_name, self.lab_id)
         manifest = tomllib.loads((self.directory / "manifest.toml").read_text())
         if manifest["name"] != self.lab_name or manifest["nodes"][0]["name"] != self.node_name:
             raise ValueError("Refusing cleanup: manifest ownership changed")
@@ -399,11 +540,22 @@ class Runner:
                       "print('Remaining owned disks:', remaining); "
                       "raise SystemExit(bool(remaining))")
         self.host("cleanup-disks", ["python3", "-c", disk_check])
+        for label, command, targets in (
+            ("libvirt-networks", ["virsh", "-c", self.config["host"]["libvirt_uri"], "net-list", "--all", "--name"],
+             [f"sherpa-management-{self.lab_id}", f"sherpa-isolated-{self.node_name}-{self.lab_id}"]),
+            ("docker-networks", ["docker", "network", "ls", "--format", "{{.Name}}"],
+             [f"sherpa-management-{self.lab_id}"]),
+            ("router", ["docker", "ps", "-a", "--format", "{{.Names}}"], [f"sherpa-router-{self.lab_id}"]),
+        ):
+            _, names = self.host("cleanup-" + label, command)
+            if any(target in names.splitlines() for target in targets):
+                raise RuntimeError(f"Owned {label} remain after cleanup")
         actual_hash = self.host("base-after-cleanup", ["sha256sum", self.config["image"]["path"]])[1].split()[0]
         if actual_hash != self.config["image"]["sha256"]:
             raise RuntimeError("Base image changed during the run")
         self.report["run"]["retained"] = False
         self.report["run"]["resource_state"] = "removed"
+        self.report["run"]["cleanup_verified"] = True
         # Delete only local test credentials, retaining logs, inputs and the run receipt.
         for name in ("guest.toml", "sherpa_ssh_key"):
             (self.directory / name).unlink(missing_ok=True)
@@ -411,7 +563,10 @@ class Runner:
     def run(self, scenario):
         success = False
         required = STEPS if scenario == "lifecycle" else STEPS[:2]
+        if scenario in ("fault-timeout", "fault-interrupt"):
+            required = ("baseline", "fault-wait")
         self.report["run"]["scenario"] = scenario
+        previous = signal.signal(signal.SIGTERM, interrupted)
         try:
             self.inputs()
             self.provision()
@@ -420,25 +575,47 @@ class Runner:
                 if step == "reboot":
                     self.reboot()
                 else:
+                    if step in ("keep-data", "remove-data", "remove-all"):
+                        self.step("diagnostics-live", label="before-" + step)
                     self.step(step)
             if tuple(self.report["run"]["completed_steps"]) != required:
                 raise RuntimeError("Required steps are missing")
             success = True
         except (Exception, KeyboardInterrupt) as error:
+            self.report["run"]["failure_kind"] = ("interrupted" if isinstance(error, KeyboardInterrupt)
+                                                  else "timeout" if isinstance(error, (TimeoutError, subprocess.TimeoutExpired))
+                                                  else "error")
+            if isinstance(error, KeyboardInterrupt):
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
             self.report["run"]["error"] = self.redact(str(error))
+            self.report["run"]["status"] = "failed"
+            self.save()
             print(f"[fail] {self.redact(str(error))}", flush=True)
         finally:
+            if not success and hasattr(self, "remote_directory"):
+                try:
+                    self.step("cancel")
+                    self.report["run"]["command_stopped"] = True
+                except (Exception, KeyboardInterrupt) as error:
+                    self.report["run"]["cancel_error"] = self.redact(str(error))
+                    print(f"[fail] Guest cancellation failed: {self.redact(str(error))}", flush=True)
             try:
                 self.collect()
-                retain = self.config["runner"]["retain_successful" if success else "retain_failed"]
-                if self.lab_id and not (retain or self.keep_vm):
-                    self.cleanup()
             except (Exception, KeyboardInterrupt) as error:
                 success = False
-                self.report["run"]["cleanup_error"] = self.redact(str(error))
-                print(f"[fail] Evidence collection or cleanup failed: {error}", flush=True)
+                self.report["run"]["evidence_error"] = self.redact(str(error))
+                print(f"[fail] Evidence collection failed: {self.redact(str(error))}", flush=True)
+            retain = self.config["runner"]["retain_successful" if success else "retain_failed"]
+            if self.lab_id and not (retain or self.keep_vm):
+                try:
+                    self.cleanup()
+                except (Exception, KeyboardInterrupt) as error:
+                    success = False
+                    self.report["run"]["cleanup_error"] = self.redact(str(error))
+                    print(f"[fail] Cleanup failed: {self.redact(str(error))}", flush=True)
             self.report["run"]["status"] = "passed" if success else "failed"
             self.save()
+            signal.signal(signal.SIGTERM, previous)
             print(f"[result] {self.report['run']['status']}: {self.directory / 'result.toml'}", flush=True)
         return 0 if success else 1
 
@@ -446,35 +623,166 @@ class Runner:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "dev/release-test/config.toml")
-    parser.add_argument("--scenario", choices=("lifecycle", "preflight"), default="lifecycle")
+    parser.add_argument("--scenario", choices=("lifecycle", "preflight", "failure-checks", "fault-timeout",
+                                               "fault-interrupt", "fault-provision"), default="lifecycle")
     parser.add_argument("--version", help="Override the explicit candidate version in TOML")
     parser.add_argument("--artifact-dir", help="Use local release archives instead of GitHub downloads")
     parser.add_argument("--keep-vm", action="store_true", help="Retain the run's VM even after success")
+    parser.add_argument("--cleanup-run", type=Path, help="Verify identity and remove a retained run's lab")
+    parser.add_argument("--result-file", type=Path, help="Write a nonsecret TOML reference to this run's receipt")
     parser.add_argument("--self-test", action="store_true", help="Run host-independent harness regression tests")
     args = parser.parse_args()
+    if args.cleanup_run:
+        return Runner.resume(args.cleanup_run).remove_retained()
     if args.self_test:
         unittest.main(argv=[sys.argv[0]])
         return 0
+    if args.scenario == "failure-checks":
+        command = [sys.executable, str(ROOT / "scripts/vm_release_faults.py"), "--config", str(args.config)]
+        if args.version:
+            command.extend(["--version", args.version])
+        if args.artifact_dir:
+            command.extend(["--artifact-dir", args.artifact_dir])
+        os.execv(sys.executable, command)
     config = load_config(args.config)
     if args.version:
         config["candidate"]["version"] = args.version
     if args.artifact_dir:
         config["candidate"]["artifact_directory"] = str(Path(args.artifact_dir).resolve())
     validate_config(config)
-    return Runner(config, args.keep_vm).run(args.scenario)
+    return Runner(config, args.keep_vm, args.result_file).run(args.scenario)
 
 
 class HarnessTests(unittest.TestCase):
+    def test_configured_jump_host_is_used_for_guest_commands(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        config["host"]["ssh_destination"] = "remote-user@example.test"
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.lab_id = "12345678"
+            with patch.object(runner, "command", return_value=(0, "")) as command:
+                runner.ssh("probe", ["true"], 1)
+            self.assertIn("ProxyJump=remote-user@example.test", command.call_args.args[1])
+
+    def test_result_reference_tracks_status_without_credentials(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            reference = Path(directory) / "reference.toml"
+            runner = Runner(config, result_file=reference)
+            runner.secrets = ["private-password"]
+            runner.report["run"]["status"] = "failed"
+            runner.save()
+            data = tomllib.loads(reference.read_text())["result"]
+            self.assertEqual(data, {"receipt": str(runner.directory / "result.toml"),
+                                    "run_id": runner.run_id, "status": "failed"})
+            self.assertNotIn("private-password", reference.read_text())
+
+    def test_cleanup_refuses_a_replaced_domain_before_destroy(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            runner.lab_id, runner.guest_uuid = "12345678", str(uuid.uuid4())
+            (runner.directory / "lab-info.toml").write_text(
+                f'id = "12345678"\nname = "{runner.lab_name}"\n')
+            (runner.directory / "manifest.toml").write_text(
+                f'name = "{runner.lab_name}"\n[[nodes]]\nname = "{runner.node_name}"\n')
+            with patch.object(runner, "host", return_value=(0, str(uuid.uuid4()))), \
+                 patch.object(runner, "sherpa") as destroy:
+                with self.assertRaises(ValueError):
+                    runner.cleanup()
+                destroy.assert_not_called()
+
+    def test_resuming_cleanup_rejects_tampered_resource_names(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            (runner.directory / "runner-config.toml").write_text(encode_toml(config))
+            runner.report["run"]["node_name"] = "another-lab"
+            runner.save()
+            with self.assertRaises(ValueError):
+                Runner.resume(runner.directory)
+
+    def test_logs_are_collected_before_each_uninstall(self):
+        config = load_config(ROOT / "dev/release-test/config.toml")
+        with tempfile.TemporaryDirectory() as directory:
+            config["runner"]["output_directory"] = directory
+            runner = Runner(config)
+            events = []
+            def step(name, label=None):
+                events.append(label or name)
+                if name not in ("diagnostics", "diagnostics-live"):
+                    runner.report["run"]["completed_steps"].append(name)
+            with patch.object(runner, "inputs"), patch.object(runner, "provision"), \
+                 patch.object(runner, "transfer"), patch.object(runner, "collect"), \
+                 patch.object(runner, "step", side_effect=step), \
+                 patch.object(runner, "reboot", side_effect=lambda: step("reboot")), \
+                 redirect_stdout(io.StringIO()):
+                self.assertEqual(runner.run("lifecycle"), 0)
+            for mode in ("keep-data", "remove-data", "remove-all"):
+                index = events.index(mode)
+                self.assertEqual(events[index - 1], "before-" + mode)
+
+    def test_sigterm_records_failure_and_stops_the_active_command(self):
+        with tempfile.TemporaryDirectory() as directory:
+            code = f"""
+import sys, time
+from pathlib import Path
+sys.path.insert(0, {str(ROOT / 'scripts')!r})
+from vm_release_test import Runner, load_config, ROOT
+config = load_config(ROOT / 'dev/release-test/config.toml')
+config['runner']['output_directory'] = {directory!r}
+runner = Runner(config)
+runner.inputs = lambda: None
+runner.provision = lambda: None
+runner.transfer = lambda: None
+runner.collect = lambda: None
+def step(name):
+    runner.command('active', [sys.executable, '-c', "from pathlib import Path; import os, time; Path({str(Path(directory) / 'active')!r}).write_text(str(os.getpid())); print('started', flush=True); time.sleep(60)"], 60)
+runner.step = step
+sys.exit(runner.run('preflight'))
+"""
+            process = subprocess.Popen([sys.executable, "-c", code], stdout=subprocess.PIPE,
+                                       stderr=subprocess.STDOUT, text=True)
+            try:
+                ready = Path(directory) / "active"
+                deadline = time.monotonic() + 10
+                while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertTrue(ready.exists())
+                child = int(ready.read_text())
+                process.send_signal(signal.SIGTERM)
+                output, _ = process.communicate(timeout=15)
+                self.assertNotEqual(process.returncode, 0, output)
+                receipt = tomllib.loads(next(Path(directory).glob("*/result.toml")).read_text())
+                self.assertEqual(receipt["run"]["status"], "failed")
+                self.assertEqual(receipt["run"]["failure_kind"], "interrupted")
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(child, 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+                if (Path(directory) / "active").exists():
+                    with suppress(ProcessLookupError):
+                        os.killpg(int((Path(directory) / "active").read_text()), signal.SIGKILL)
+
     def test_partial_provisioning_is_not_reported_as_clean(self):
         config = load_config(ROOT / "dev/release-test/config.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
-            def fail_up(label, arguments, timeout):
+            def fail_up(label, arguments, timeout, check=True):
                 if label == "up":
                     raise RuntimeError("interrupted provisioning")
+                if label == "inspect-before":
+                    return 1, f"Sherpa Environment - {runner.lab_name}-12345678"
                 return 0, ""
-            with patch.object(runner, "sherpa", side_effect=fail_up), redirect_stdout(io.StringIO()):
+            with patch.object(runner, "sherpa", side_effect=fail_up), \
+                 patch.object(runner, "host", return_value=(1, "")), redirect_stdout(io.StringIO()):
                 with self.assertRaises(RuntimeError):
                     runner.provision()
             receipt = tomllib.loads((runner.directory / "result.toml").read_text())
@@ -522,7 +830,7 @@ install_system_packages
         self.assertNotIn(" qemu-kvm ", result.stdout)
 
     def test_jump_host_brackets_and_ports(self):
-        self.assertEqual(jump_host_arguments("bradmin@[10.100.58.10]"), ["-l", "bradmin", "10.100.58.10"])
+        self.assertEqual(jump_host_arguments("user@[192.0.2.10]"), ["-l", "user", "192.0.2.10"])
         self.assertEqual(jump_host_arguments("user@[2001:db8::1]:2222"),
                          ["-p", "2222", "-l", "user", "2001:db8::1"])
 

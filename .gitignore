@@ -33,6 +33,7 @@ sherpa_ssh_*
 .claude/*
 !.claude/skills/
 .ruff_cache
+__pycache__/
 lab-info.toml
 *.env
 # test-scripts/ — tracked in repo

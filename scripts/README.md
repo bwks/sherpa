@@ -110,6 +110,9 @@ Run as the user with the authenticated CLI; guest operations use sudo internally
 - Server initialization and authenticated API/CLI access
 - Reboot recovery
 - Exact candidate artifact and script hashes
+- Retained dependency/resource inventories for each uninstall mode
+- Server and database logs before uninstall
+- Live timeout, interruption and incomplete-provisioning checks
 
 **See also:** [VM release-test guide](../dev/release-test/README.md) and
 [TOML settings](../dev/release-test/config.toml).
@@ -203,6 +206,8 @@ docker restart sherpa-db
 - `test_install.sh` - Automated test suite
 - `vm_release_test.py` - Local VM test orchestration
 - `vm_release_guest.py` - Guest identity checks and lifecycle assertions
+- `vm_release_faults.py` - Live failure checks and verified cleanup
+- `verify_release_test.py` - Exact artifact verification and selected release evidence
 - `TESTING.md` - Test documentation
 - `create_blank_disks.sh` - Disk creation utility
 - `create_iosv_disk.sh` - IOSv disk creation utility

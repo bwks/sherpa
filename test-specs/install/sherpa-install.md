@@ -187,6 +187,29 @@ libvirt, their images and resources, and users/groups are retained in all modes.
 - Full removal: remove the installation directory and both owned symlinks `[e2e]` **P0**
 - Preserve unrelated files and symlinks at binary locations `[unit]` **P0**
 - Repeated full uninstall succeeds when the installation is already absent `[e2e]` **P0**
+- Compare package, user/group, Docker image/volume/unrelated container and libvirt
+  domain/network/pool inventories before and after each uninstall mode `[e2e]` **P0**
+- Record retained libvirt definitions even when full removal deletes their backing
+  installation directory; do not assume uninstall restores bare Ubuntu `[e2e]` **P1**
+
+## VM harness evidence and failure handling
+
+- Capture server systemd journal entries and database container logs before each
+  uninstall; foreground service logging does not require a file log `[e2e]` **P0**
+- An actual command timeout stops the guest probe, fails the run and records owned
+  resources for verified cleanup `[e2e]` **P0**
+- SIGTERM interrupts the runner and stops its active guest probe; retain a failed
+  receipt before attempting diagnostics and targeted cleanup `[e2e]` **P0**
+- Incomplete provisioning must be rejected before installation, including when
+  `sherpa up` reports readiness warnings with exit status zero `[e2e]` **P0**
+- Cleanup refuses changed lab identity or domain UUID, handles missing local SSH
+  files, verifies owned resource removal and rechecks the base image `[e2e]` **P0**
+- Release verification requires all lifecycle steps, pre-uninstall diagnostics,
+  matching script/archive/binary hashes and verified cleanup `[unit]` **P0**
+- Failed, timed-out, incomplete, published-baseline and dirty-checkout receipts
+  cannot approve a clean-source release candidate `[unit]` **P0**
+- Shared evidence excludes credentials, connection settings and SSH private keys
+  while preserving the required inventories and provenance `[unit]` **P0**
 
 ---
 
