@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.80] - 2026-10-04
+
+### Bug Fixes
+
+- Use GitHub App for changelog PRs [skip ci] by @bwks ([711e3ba](https://github.com/bwks/sherpa/commit/711e3ba4ae1d03eab9fd2a5ae91395d3ffc32b8d))
+
+### Documentation
+
+- Record release-test baseline cleanup [skip ci] by @bwks ([5c28fa6](https://github.com/bwks/sherpa/commit/5c28fa6c0c31494d36a7ebd53ca8cc16bb702098))
+
+### Miscellaneous
+
+- Merge pull request #281 from bwks/v0.3.80
+
+V0.3.80 by @bwks in [#281](https://github.com/bwks/sherpa/pull/281) ([42ef5c2](https://github.com/bwks/sherpa/commit/42ef5c2b1909c7f6bd6e17b683197f20b82bb17d))
+- E2e tests by @bwks ([b1a4545](https://github.com/bwks/sherpa/commit/b1a454559f2ed36a035eb2f57577b53dfaafbaab))
+- Sherpa install/uninstall testing by @bwks ([cba3c37](https://github.com/bwks/sherpa/commit/cba3c377c8863a677d8cc42ff0abc8a378ec982e))
+- Merge pull request #280 from bwks/changelog/v0.3.79
+
+chore(release): update changelog for v0.3.79 by @github-actions[bot] in [#280](https://github.com/bwks/sherpa/pull/280) ([32417db](https://github.com/bwks/sherpa/commit/32417dbe8fe6008f966c030e70909323a986a647))
+
+### Testing
+
+- Verify release cleanup and failure handling in VMs by @bwks ([2070f3e](https://github.com/bwks/sherpa/commit/2070f3ee77d36dc8c74f39a1c6d4a5eaeb4a22af))
 ## [0.3.79] - 2026-10-03
 
 ### Features
