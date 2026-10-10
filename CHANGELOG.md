@@ -2,7 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## [0.3.80] - 2026-10-04
+## [0.3.81] - 2026-10-10
+
+### Features
+
+- Simplify web UI themes and default to Soda Pop by @bwks ([1b0f079](https://github.com/bwks/sherpa/commit/1b0f079b5cb27ba48c98304365fa3cc833ab66b5))
+
+### Miscellaneous
+
+- Merge pull request #283 from bwks/v0.3.81
+
+feat: simplify web UI themes and default to Soda Pop by @bwks in [#283](https://github.com/bwks/sherpa/pull/283) ([c3b5ea5](https://github.com/bwks/sherpa/commit/c3b5ea50f2e0eaaf707bd8f18091a1437892a899))
+- Merge pull request #282 from bwks/changelog/v0.3.80
+
+chore(release): update changelog for v0.3.80 by @github-actions[bot] in [#282](https://github.com/bwks/sherpa/pull/282) ([415e143](https://github.com/bwks/sherpa/commit/415e143e6dd6d4b0b62cb590de4d94c5da314eb2))
+## [0.3.80] - 2026-10-03
 
 ### Bug Fixes
 
