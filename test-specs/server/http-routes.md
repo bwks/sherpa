@@ -81,3 +81,13 @@
 **What to test:**
 - Static files served from correct path `[integration]` **P2**
 - Missing static files return 404 `[integration]` **P2**
+
+## Web UI Themes
+
+Run the isolated browser-state checks with `node scripts/test_theme.cjs`.
+
+- Offer only Catppuccin Frappé, Soda Pop, Dracula, Nord and Gruvbox in every theme menu `[unit]` **P1**
+- Default to Soda Pop for new visitors and migrate removed or unknown saved palettes to Soda Pop `[unit]` **P1**
+- Preserve supported saved palettes and synchronize all menus when switching palettes `[unit]` **P1**
+- Follow the system light/dark preference until explicitly overridden `[unit]` **P1**
+- Include only retained light/dark palettes in source and built CSS, with Soda Pop as the CSS fallback `[unit]` **P1**

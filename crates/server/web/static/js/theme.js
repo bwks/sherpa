@@ -1,28 +1,13 @@
 (function () {
   var root = document.documentElement;
   var stored = localStorage.getItem("theme");
+  var defaultPalette = "theme-sodapop";
   var palettes = [
-    "theme-zinc-emerald",
-    "theme-stone-amber",
-    "theme-neon-cyber",
-    "theme-matrix",
-    "theme-retro-nes",
-    "theme-pixel-quest",
-    "theme-c64",
-    "theme-ctp-latte",
     "theme-ctp-frappe",
-    "theme-ctp-macchiato",
-    "theme-ctp-mocha",
-    "theme-gruvbox",
-    "theme-sodapop",
-    "theme-nord",
-    "theme-rose-pine",
-    "theme-rose-pine-moon",
-    "theme-rose-pine-dawn",
-    "theme-tokyo-night",
-    "theme-tokyo-storm",
     "theme-dracula",
-    "theme-ant-bloody",
+    "theme-gruvbox",
+    "theme-nord",
+    "theme-sodapop",
   ];
 
   function applyTheme(dark) {
@@ -34,12 +19,12 @@
   }
 
   function applyPalette(name) {
+    name = palettes.indexOf(name) !== -1 ? name : defaultPalette;
     for (var i = 0; i < palettes.length; i++) {
       root.classList.remove(palettes[i]);
     }
-    if (name && name !== "theme-zinc-emerald") {
-      root.classList.add(name);
-    }
+    root.classList.add(name);
+    return name;
   }
 
   // Apply dark/light immediately to prevent flash
@@ -52,8 +37,11 @@
   }
 
   // Apply palette immediately
-  var storedPalette = localStorage.getItem("palette") || "theme-zinc-emerald";
-  applyPalette(storedPalette);
+  var storedPalette = localStorage.getItem("palette");
+  var currentPalette = applyPalette(storedPalette);
+  if (storedPalette && storedPalette !== currentPalette) {
+    localStorage.setItem("palette", currentPalette);
+  }
 
   // Listen for OS theme changes (only when no explicit override)
   window
@@ -92,7 +80,8 @@
 
   // Global palette setter
   window.setPalette = function (name) {
-    applyPalette(name);
+    name = applyPalette(name);
+    currentPalette = name;
     localStorage.setItem("palette", name);
     // Update any palette selectors on the page
     var selectors = document.querySelectorAll(".palette-selector");
@@ -104,10 +93,9 @@
 
   // Sync palette selectors and favicon on page load
   function syncSelectors() {
-    var current = localStorage.getItem("palette") || "theme-zinc-emerald";
     var selectors = document.querySelectorAll(".palette-selector");
     for (var i = 0; i < selectors.length; i++) {
-      selectors[i].value = current;
+      selectors[i].value = currentPalette;
     }
     updateFavicon();
   }
