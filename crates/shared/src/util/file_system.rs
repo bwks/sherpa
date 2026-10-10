@@ -193,8 +193,9 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
 ///
 /// DOGWATER: Implement this functionality in pure Rust.
 #[cfg(unix)]
+#[tracing::instrument(level = "debug")]
 pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
-    Command::new("genisoimage")
+    let status = Command::new("genisoimage")
         .args([
             "-output",
             iso_dst,
@@ -210,7 +211,11 @@ pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
             "utf-8",
             &src_dir,
         ])
-        .status()?;
+        .status()
+        .context("Failed to run genisoimage for ZTP ISO")?;
+    if !status.success() {
+        bail!("genisoimage failed to create ZTP ISO {iso_dst}: {status}");
+    }
     tracing::debug!(path = %iso_dst, source_dir = %src_dir, "ISO created successfully");
 
     Ok(())
@@ -557,6 +562,22 @@ mod tests {
         assert_eq!(dir_mode, 0o775);
         let file_mode = fs::metadata(&file)?.permissions().mode() & 0o777;
         assert_eq!(file_mode, 0o660);
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_create_ztp_iso_rejects_failed_generation() -> Result<()> {
+        let dir = TempDir::new()?;
+        let destination = dir.path().join("cidata.iso");
+        let missing_source = dir.path().join("missing-source");
+        assert!(
+            create_ztp_iso(
+                destination.to_str().unwrap(),
+                missing_source.to_str().unwrap().to_owned(),
+            )
+            .is_err()
+        );
         Ok(())
     }
 }

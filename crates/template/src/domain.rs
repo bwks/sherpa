@@ -30,6 +30,8 @@ pub struct DomainTemplate {
     pub isolated_network: String,
     pub reserved_network: String,
     pub is_windows: bool,
+    pub video_model: String,
+    pub video_vram: Option<u32>,
     pub cpu_features: Vec<CpuFeature>,
 }
 

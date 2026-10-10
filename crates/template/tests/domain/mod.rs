@@ -48,6 +48,8 @@ fn base_domain_template() -> DomainTemplate {
         isolated_network: String::new(),
         reserved_network: String::new(),
         is_windows: false,
+        video_model: "cirrus".to_owned(),
+        video_vram: Some(16384),
         cpu_features: vec![],
     }
 }

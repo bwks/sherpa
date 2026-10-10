@@ -34,3 +34,33 @@ An optional `[tailscale]` section enables management access through the owner's
 tailnet. Set `enabled = true` and `auth_key_env` to the name of a client-side
 environment variable containing a Tailscale auth key. Secrets must not be included
 in the manifest. See [Tailnet setup and route approval](TAILNET.md).
+
+## Omarchy Linux
+
+Use `model = "omarchy_linux"` with a preinstalled QCOW2 image that has
+cloud-init installed and enabled. Import it through the same image workflow
+as other Linux VMs:
+
+```sh
+sherpa server image import --model omarchy_linux --version VERSION --src /absolute/path/omarchy.qcow2
+```
+
+The source path is on the server. The model defaults to UEFI, Q35, four CPUs,
+8 GiB RAM, VirtIO networking and disks, and VirtIO graphics.
+
+```toml
+name = "omarchy-lab"
+
+[[nodes]]
+name = "desktop"
+model = "omarchy_linux"
+version = "VERSION"
+```
+
+Sherpa uses its existing cloud-init provisioning and VM lifecycle, including
+management networking, the Sherpa user, file injection, and startup scripts.
+The administrator group is `wheel`, matching Arch Linux.
+
+The Omarchy installer ISO is not a cloud-ready disk image. Prepare the installed
+image with cloud-init and a clean instance state before importing it. Sherpa
+does not run the ISO installer or consume its unattended configuration files.
