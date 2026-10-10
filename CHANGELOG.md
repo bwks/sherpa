@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.82] - 2026-10-10
+
+### Features
+
+- Add Omarchy Linux cloud-init VM support by @bwks ([dcf60b0](https://github.com/bwks/sherpa/commit/dcf60b0ec10b4625474eb0fa6fd5eab9dc04115a))
+
+### Miscellaneous
+
+- Merge pull request #289 from bwks/feat/omarchy-linux
+
+feat: add Omarchy Linux cloud-init support by @bwks in [#289](https://github.com/bwks/sherpa/pull/289) ([7982a94](https://github.com/bwks/sherpa/commit/7982a94fc855220d1b4729053efecfddc70f0114))
+- Merge pull request #284 from bwks/changelog/v0.3.81
+
+chore(release): update changelog for v0.3.81 by @github-actions[bot] in [#284](https://github.com/bwks/sherpa/pull/284) ([7c0629c](https://github.com/bwks/sherpa/commit/7c0629c09a0b0f21e93067fcd502e81d316eecb4))
 ## [0.3.81] - 2026-10-10
 
 ### Features
