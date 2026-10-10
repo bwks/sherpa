@@ -1027,6 +1027,18 @@ fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
 // VM ZTP sub-methods
 // ============================================================================
 
+#[instrument(level = "debug")]
+fn cloud_init_user_settings(
+    model: &data::NodeModel,
+    os_variant: &data::OsVariant,
+) -> (&'static str, &'static str) {
+    match (model, os_variant) {
+        (data::NodeModel::OmarchyLinux, _) => ("wheel", "/bin/bash"),
+        (_, data::OsVariant::Bsd) => ("wheel", "/bin/sh"),
+        _ => ("sudo", "/bin/bash"),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn generate_cloud_init_ztp(
     node: &topology::NodeExpanded,
@@ -1056,6 +1068,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::RedhatLinux
         | data::NodeModel::SuseLinux
         | data::NodeModel::UbuntuLinux
+        | data::NodeModel::OmarchyLinux
         | data::NodeModel::KaliLinux
         | data::NodeModel::InfrahubServer
         | data::NodeModel::JenkinsServer
@@ -1065,12 +1078,10 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::VirtServer
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => {
-            let (admin_group, shell) = match node_image.os_variant {
-                data::OsVariant::Bsd => ("wheel".to_string(), "/bin/sh".to_string()),
-                _ => ("sudo".to_string(), "/bin/bash".to_string()),
-            };
-            cloud_init_user.groups = vec![admin_group];
-            cloud_init_user.shell = shell;
+            let (admin_group, shell) =
+                cloud_init_user_settings(&node.model, &node_image.os_variant);
+            cloud_init_user.groups = vec![admin_group.to_owned()];
+            cloud_init_user.shell = shell.to_owned();
 
             let mut write_files = match cert_paths {
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
@@ -2264,6 +2275,11 @@ fn generate_ignition_ztp(
 // ============================================================================
 
 /// Build a DomainTemplate from node data, image config, disks, interfaces, and networks.
+#[instrument(
+    level = "debug",
+    skip(node, node_image, disks, interfaces, qemu_commands),
+    fields(node_name = %node.name)
+)]
 #[allow(clippy::too_many_arguments)]
 pub fn build_domain_template(
     node: &topology::NodeExpanded,
@@ -2279,6 +2295,10 @@ pub fn build_domain_template(
     reserved_network: String,
 ) -> template::DomainTemplate {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
+    let (video_model, video_vram) = match node_image.model {
+        data::NodeModel::OmarchyLinux => ("virtio", None),
+        _ => ("cirrus", Some(16384)),
+    };
 
     template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
@@ -2313,6 +2333,8 @@ pub fn build_domain_template(
             data::NodeModel::WindowsServer | data::NodeModel::DevboxWindows
         ),
         cpu_features: cpu_features_for_model(&node_image.model),
+        video_model: video_model.to_owned(),
+        video_vram,
     }
 }
 
@@ -3106,5 +3128,51 @@ mod tests {
         assert!(result.contains("netdev.ipv4_subnet_mask=255.255.255.0"));
         // Unikraft does not support IPv6 via cmdline
         assert!(!result.contains("ipv6"));
+    }
+    #[test]
+    fn test_omarchy_cloud_init_user_settings() {
+        assert_eq!(
+            cloud_init_user_settings(&data::NodeModel::OmarchyLinux, &data::OsVariant::Linux),
+            ("wheel", "/bin/bash")
+        );
+        assert_eq!(
+            cloud_init_user_settings(&data::NodeModel::UbuntuLinux, &data::OsVariant::Linux),
+            ("sudo", "/bin/bash")
+        );
+        assert_eq!(
+            cloud_init_user_settings(&data::NodeModel::FreeBsd, &data::OsVariant::Bsd),
+            ("wheel", "/bin/sh")
+        );
+    }
+
+    #[test]
+    fn test_omarchy_uses_standard_vm_domain() {
+        let config = data::NodeConfig::omarchy_linux();
+        let node = topology::NodeExpanded {
+            name: "desktop".to_owned(),
+            model: config.model,
+            ..Default::default()
+        };
+        let domain = build_domain_template(
+            &node,
+            &config,
+            "lab1",
+            "/usr/bin/qemu-system-x86_64",
+            vec![],
+            vec![],
+            vec![],
+            "127.0.0.1".to_owned(),
+            "mgmt".to_owned(),
+            String::new(),
+            String::new(),
+        );
+        let xml = domain.render().unwrap();
+        assert_eq!(domain.video_model, "virtio");
+        assert!(domain.video_vram.is_none());
+        assert!(xml.contains("<model type='virtio' heads='1'/>"));
+        assert!(xml.contains("OVMF_CODE_4M.fd"));
+        assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
+        assert_eq!(config.ztp_method, data::ZtpMethod::CloudInit);
+        assert!(config.cdrom.is_none());
     }
 }

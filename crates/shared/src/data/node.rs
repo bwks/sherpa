@@ -86,6 +86,7 @@ pub enum NodeModel {
     OpensuseLinux,
     SuseLinux,
     UbuntuLinux,
+    OmarchyLinux,
     KaliLinux,
     FlatcarLinux,
     SonicLinux,
@@ -181,6 +182,7 @@ impl fmt::Display for NodeModel {
             NodeModel::OpensuseLinux => write!(f, "opensuse_linux"),
             NodeModel::SuseLinux => write!(f, "suse_linux"),
             NodeModel::UbuntuLinux => write!(f, "ubuntu_linux"),
+            NodeModel::OmarchyLinux => write!(f, "omarchy_linux"),
             NodeModel::KaliLinux => write!(f, "kali_linux"),
             NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
             NodeModel::SonicLinux => write!(f, "sonic_linux"),
@@ -279,6 +281,7 @@ impl std::str::FromStr for NodeModel {
             "opensuse_linux" => Ok(NodeModel::OpensuseLinux),
             "suse_linux" => Ok(NodeModel::SuseLinux),
             "ubuntu_linux" => Ok(NodeModel::UbuntuLinux),
+            "omarchy_linux" => Ok(NodeModel::OmarchyLinux),
             "kali_linux" => Ok(NodeModel::KaliLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
             "sonic_linux" => Ok(NodeModel::SonicLinux),
@@ -842,6 +845,7 @@ impl NodeConfig {
             NodeModel::OpensuseLinux => NodeConfig::opensuse_linux(),
             NodeModel::SuseLinux => NodeConfig::suse_linux(),
             NodeModel::UbuntuLinux => NodeConfig::ubuntu_linux(),
+            NodeModel::OmarchyLinux => NodeConfig::omarchy_linux(),
             NodeModel::KaliLinux => NodeConfig::kali_linux(),
             NodeModel::SonicLinux => NodeConfig::sonic_linux(),
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
@@ -1899,6 +1903,17 @@ impl NodeConfig {
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
+        }
+    }
+    #[tracing::instrument(level = "debug")]
+    pub fn omarchy_linux() -> NodeConfig {
+        NodeConfig {
+            model: NodeModel::OmarchyLinux,
+            bios: BiosTypes::Uefi,
+            cpu_count: 4,
+            memory: 8192,
+            interface_mtu: MTU_STD,
+            ..NodeConfig::ubuntu_linux()
         }
     }
     pub fn kali_linux() -> NodeConfig {
@@ -2959,5 +2974,22 @@ mod tests {
                 model
             );
         }
+    }
+    #[test]
+    fn test_omarchy_model_defaults() {
+        let model: super::NodeModel = "omarchy_linux".parse().unwrap();
+        let config = super::NodeConfig::get_model(model);
+        assert_eq!(model.to_string(), "omarchy_linux");
+        assert!(matches!(config.bios, super::BiosTypes::Uefi));
+        assert_eq!(config.ztp_method, super::ZtpMethod::CloudInit);
+        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
+        assert!(config.cdrom.is_none());
+        assert_eq!(config.memory, 8192);
+        assert_eq!(config.cpu_count, 4);
+        let encoded = serde_json::to_string(&model).unwrap();
+        assert_eq!(
+            serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
+            model
+        );
     }
 }
