@@ -8,6 +8,7 @@ use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
+use tracing::instrument;
 
 use super::{BridgeKind, DbNode, NodeKind, NodeModel, NodeState};
 
@@ -70,6 +71,9 @@ pub struct LabIdentity {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LabInfo {
+    /// Personal SSH accounts actually provisioned for lab nodes.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ssh_usernames: Vec<NodeSshUsername>,
     pub id: String,
     pub name: String,
     pub user: String,
@@ -90,6 +94,36 @@ pub struct LabInfo {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub ipv6_router: Option<Ipv6Addr>,
+}
+
+/// Saved personal SSH identity of a provisioned node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct NodeSshUsername {
+    pub node_name: String,
+    pub username: String,
+}
+
+impl LabInfo {
+    #[instrument(level = "debug", skip(self))]
+    pub fn ssh_username(&self, node_name: &str) -> Option<&str> {
+        self.ssh_usernames
+            .iter()
+            .find(|entry| entry.node_name == node_name)
+            .map(|entry| entry.username.as_str())
+    }
+
+    /// Replace one node's SSH identity while preserving other nodes' identities.
+    #[instrument(level = "debug", skip(self))]
+    pub fn set_ssh_username(&mut self, node_name: &str, username: Option<&str>) {
+        self.ssh_usernames
+            .retain(|entry| entry.node_name != node_name);
+        if let Some(username) = username {
+            self.ssh_usernames.push(NodeSshUsername {
+                node_name: node_name.to_owned(),
+                username: username.to_owned(),
+            });
+        }
+    }
 }
 impl fmt::Display for LabInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -269,6 +303,7 @@ mod tests {
 
     fn make_lab_info() -> LabInfo {
         LabInfo {
+            ssh_usernames: Vec::new(),
             id: "lab-001".to_string(),
             name: "test-lab".to_string(),
             user: "alice".to_string(),
@@ -294,6 +329,72 @@ mod tests {
             parsed.ipv4_gateway,
             "192.168.100.1".parse::<std::net::Ipv4Addr>().unwrap()
         );
+    }
+
+    #[test]
+    fn legacy_lab_info_defaults_to_legacy_ssh() {
+        let saved = make_lab_info().to_string();
+        assert!(!saved.contains("ssh_usernames"));
+        let restored: LabInfo = saved.parse().unwrap();
+        assert!(restored.ssh_usernames.is_empty());
+    }
+
+    #[test]
+    fn ssh_usernames_are_saved_as_typed_entries() {
+        let saved = format!(
+            "{}\n[[ssh_usernames]]\nnode_name='vm'\nusername='alice'\n",
+            make_lab_info()
+        );
+        let restored: LabInfo = saved.parse().unwrap();
+        let serialized = toml::Value::try_from(&restored).unwrap();
+        let entries = serialized["ssh_usernames"].as_array().unwrap();
+        assert_eq!(entries[0]["node_name"].as_str(), Some("vm"));
+        assert_eq!(entries[0]["username"].as_str(), Some("alice"));
+    }
+
+    #[test]
+    fn personal_ssh_metadata_survives_toml_round_trip() {
+        let mut lab = make_lab_info();
+        lab.set_ssh_username("vm.one", Some("alice"));
+        let restored: LabInfo = lab.to_string().parse().unwrap();
+        assert_eq!(restored.ssh_usernames, lab.ssh_usernames);
+    }
+
+    #[test]
+    fn updating_one_nodes_ssh_identity_preserves_other_nodes() {
+        let mut lab = make_lab_info();
+        lab.set_ssh_username("vm1", Some("alice"));
+        lab.set_ssh_username("vm2", Some("bob"));
+        lab.set_ssh_username("vm1", Some("carol"));
+        assert_eq!(lab.ssh_username("vm1"), Some("carol"));
+        assert_eq!(lab.ssh_username("vm2"), Some("bob"));
+        assert_eq!(lab.ssh_usernames.len(), 2);
+
+        lab.set_ssh_username("vm1", None);
+        assert_eq!(lab.ssh_username("vm1"), None);
+        assert_eq!(lab.ssh_username("vm2"), Some("bob"));
+        assert_eq!(lab.ssh_usernames.len(), 1);
+    }
+
+    #[test]
+    fn typed_ssh_identity_requires_node_name_and_username() {
+        for entry in ["node_name='vm'", "username='alice'"] {
+            let saved = format!("{}\n[[ssh_usernames]]\n{entry}\n", make_lab_info());
+            assert!(saved.parse::<LabInfo>().is_err());
+        }
+    }
+
+    #[test]
+    fn personal_ssh_metadata_survives_json_round_trip() {
+        let mut lab = make_lab_info();
+        lab.set_ssh_username("vm1", Some("alice"));
+        let json = serde_json::to_value(&lab).unwrap();
+        assert_eq!(
+            json["ssh_usernames"],
+            serde_json::json!([{ "node_name": "vm1", "username": "alice" }])
+        );
+        let restored: LabInfo = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.ssh_usernames, lab.ssh_usernames);
     }
 
     #[test]

@@ -157,7 +157,10 @@ impl CloudInitConfig {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CloudInitUser {
     pub name: String,
-    pub plain_text_passwd: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plain_text_passwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub homedir: Option<String>,
     pub lock_passwd: bool,
     pub ssh_authorized_keys: Vec<String>,
     pub sudo: String,
@@ -169,7 +172,8 @@ impl CloudInitUser {
         let ssh_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
         Ok(Self {
             name: SHERPA_USERNAME.to_owned(),
-            plain_text_passwd: SHERPA_PASSWORD.to_owned(),
+            plain_text_passwd: Some(SHERPA_PASSWORD.to_owned()),
+            homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key.to_owned())],
             sudo: "ALL=(ALL) NOPASSWD:ALL".to_owned(),

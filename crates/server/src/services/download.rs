@@ -1,11 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
-use shared::data::{DownloadLabResponse, InspectRequest};
-use shared::konst::{SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH};
+use shared::data::{DownloadLabResponse, LabInfo};
+use shared::konst::{
+    LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PRIVATE_KEY_PATH,
+};
 
 use crate::daemon::state::AppState;
-use crate::services::inspect;
 
 /// Download lab files (lab-info, SSH config, SSH key) for CLI use.
 #[instrument(skip(state), fields(%lab_id, %username))]
@@ -14,28 +16,41 @@ pub async fn download_lab_files(
     username: &str,
     state: &AppState,
 ) -> Result<DownloadLabResponse> {
-    // Use inspect to get lab info (handles ownership check via the caller)
-    let request = InspectRequest {
-        lab_id: lab_id.to_string(),
-        username: username.to_string(),
-    };
-    let inspect_response = inspect::inspect_lab(request, state)
+    let user = db::get_user(&state.db, username)
         .await
-        .context("Failed to inspect lab")?;
+        .context("Failed to get authenticated user")?;
+    let lab = db::get_lab(&state.db, lab_id)
+        .await
+        .context("Failed to get lab")?;
+    ensure!(
+        user.is_admin || user.id.as_ref() == Some(&lab.user),
+        "Permission denied: lab belongs to another user"
+    );
 
     let lab_dir = format!("{}/{}", SHERPA_LABS_PATH, lab_id);
+    let lab_info: LabInfo = tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))
+        .await
+        .context("Failed to read lab info")?
+        .parse()?;
 
     let ssh_config_path = format!("{}/{}", lab_dir, SHERPA_SSH_CONFIG_FILE);
     let ssh_config = tokio::fs::read_to_string(&ssh_config_path)
         .await
         .context("SSH config not found. Has the lab been started?")?;
 
-    let ssh_private_key = tokio::fs::read_to_string(SHERPA_SSH_PRIVATE_KEY_PATH)
-        .await
-        .context("SSH key not found on server")?;
+    let ssh_private_key = if ssh_config
+        .lines()
+        .any(|line| line.trim() == format!("IdentityFile {SHERPA_SSH_PRIVATE_KEY_FILE}"))
+    {
+        tokio::fs::read_to_string(SHERPA_SSH_PRIVATE_KEY_PATH)
+            .await
+            .context("SSH key not found on server")?
+    } else {
+        String::new()
+    };
 
     Ok(DownloadLabResponse {
-        lab_info: inspect_response.lab_info.clone(),
+        lab_info,
         ssh_config,
         ssh_private_key,
     })

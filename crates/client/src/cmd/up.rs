@@ -240,33 +240,35 @@ pub async fn up(
         }
     }
 
-    // Write SSH private key to local directory with 0600 permissions
-    match get_cwd() {
-        Ok(cwd) => {
-            let local_ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
-            match write_private_key(&local_ssh_key_path, &up_data.ssh_private_key) {
-                Ok(_) => {
-                    println!(
-                        "{} SSH private key created: {}",
-                        Emoji::Success,
-                        local_ssh_key_path.display()
-                    );
-                }
-                Err(e) => {
-                    println!(
-                        "\n{} Warning: Failed to create local SSH private key: {}",
-                        Emoji::Warning,
-                        e
-                    );
+    if !up_data.ssh_private_key.is_empty() {
+        // Write SSH private key to local directory with 0600 permissions
+        match get_cwd() {
+            Ok(cwd) => {
+                let local_ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
+                match write_private_key(&local_ssh_key_path, &up_data.ssh_private_key) {
+                    Ok(_) => {
+                        println!(
+                            "{} SSH private key created: {}",
+                            Emoji::Success,
+                            local_ssh_key_path.display()
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "\n{} Warning: Failed to create local SSH private key: {}",
+                            Emoji::Warning,
+                            e
+                        );
+                    }
                 }
             }
-        }
-        Err(e) => {
-            println!(
-                "\n{} Warning: Could not determine working directory: {}",
-                Emoji::Warning,
-                e
-            );
+            Err(e) => {
+                println!(
+                    "\n{} Warning: Could not determine working directory: {}",
+                    Emoji::Warning,
+                    e
+                );
+            }
         }
     }
 

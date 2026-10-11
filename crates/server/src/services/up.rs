@@ -17,14 +17,15 @@ use virt::storage_pool::StoragePool;
 
 use crate::daemon::state::AppState;
 use crate::services::clean;
+use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
-use crate::services::tailscale;
+use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
 use shared::data;
-use shared::data::{NodeState, StatusKind};
+use shared::data::{NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
@@ -275,10 +276,7 @@ pub async fn up_lab(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<data::UpResponse> {
-    // TODO: Currently accepts username without authentication. This assumes a trusted
-    // environment where the client can be trusted to send correct username. In production,
-    // this should be replaced with proper authentication (JWT, session, etc.) where the
-    // username is extracted from a verified token rather than client-provided param.
+    // All API entry points set request.username from verified authentication.
 
     let start_time = Instant::now();
     let mut phases_completed = Vec::new();
@@ -433,6 +431,31 @@ pub async fn up_lab(
             node.boot_disk_size,
         )
         .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
+    }
+
+    let mut personal_nodes = Vec::new();
+    if manifest.provision_current_user {
+        for node in &nodes_expanded {
+            let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+            guest_account::validate_node(node, &image)?;
+            if guest_account::supports_guest_account(&image) {
+                personal_nodes.push(node.name.clone());
+            }
+        }
+    }
+    let personal_account = if personal_nodes.is_empty() {
+        None
+    } else {
+        Some(guest_account::from_user(&db_user)?)
+    };
+    let mut ssh_usernames = Vec::new();
+    if let Some(account) = &personal_account {
+        for name in personal_nodes {
+            ssh_usernames.push(NodeSshUsername {
+                node_name: name,
+                username: account.username.clone(),
+            });
+        }
     }
 
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
@@ -853,6 +876,7 @@ pub async fn up_lab(
         );
 
         let lab_info = data::LabInfo {
+            ssh_usernames: ssh_usernames.clone(),
             id: lab_id.to_string(),
             user: current_user.clone(),
             name: manifest.name.clone(),
@@ -1608,6 +1632,7 @@ pub async fn up_lab(
                 &progress,
                 None,
                 Some(&cert_paths),
+                personal_account.as_ref(),
             )?;
 
             // Persist management MAC to the database
@@ -2279,12 +2304,13 @@ pub async fn up_lab(
         );
 
         // Generate SSH config file with ProxyJump
-        let ssh_config_template = template::SshConfigTemplate {
-            ztp_records: ztp_records.clone(),
-            proxy_user: proxy_user.to_string(),
-            server_ipv4: config.server_ipv4.to_string(),
-            lab_id: lab_id.to_string(),
-        };
+        let ssh_config_template = ssh_config::build_ssh_config(
+            &ztp_records,
+            &ssh_usernames,
+            lab_id,
+            proxy_user,
+            config.server_ipv4,
+        );
         let ssh_config_content = ssh_config_template.render()?;
         let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");
         util::create_file(&ssh_config_path, ssh_config_content.clone())?;
@@ -2296,8 +2322,16 @@ pub async fn up_lab(
         let _ = progress.send_status("SSH config file created".to_string(), StatusKind::Done);
 
         // Read SSH private key for transfer to client
-        let ssh_private_key = util::load_file(SHERPA_SSH_PRIVATE_KEY_PATH)
-            .context("Failed to read SSH private key")?;
+        let ssh_private_key = if ssh_config_template
+            .hosts
+            .iter()
+            .any(|host| host.identity_file.is_some())
+        {
+            util::load_file(SHERPA_SSH_PRIVATE_KEY_PATH)
+                .context("Failed to read SSH private key")?
+        } else {
+            String::new()
+        };
         tracing::debug!(
             lab_id = %lab_id,
             key_path = %SHERPA_SSH_PRIVATE_KEY_PATH,

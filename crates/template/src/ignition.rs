@@ -98,8 +98,12 @@ pub struct Passwd {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct IgnitionUser {
     pub name: String,
-    #[serde(rename = "passwordHash")]
-    pub password_hash: String,
+    #[serde(rename = "passwordHash", skip_serializing_if = "Option::is_none")]
+    pub password_hash: Option<String>,
+    #[serde(rename = "homeDir", skip_serializing_if = "Option::is_none")]
+    pub home_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shell: Option<String>,
     #[serde(rename = "sshAuthorizedKeys")]
     pub ssh_authorized_keys: Vec<String>,
     pub groups: Vec<String>,

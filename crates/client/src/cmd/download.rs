@@ -132,14 +132,17 @@ pub async fn download(
         }
     }
 
-    // Write SSH private key with 0600 permissions
-    let ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
-    write_private_key(&ssh_key_path, &data.ssh_private_key).context("Failed to write SSH key")?;
-    println!(
-        "{} SSH private key created: {}",
-        Emoji::Success,
-        ssh_key_path.display()
-    );
+    if !data.ssh_private_key.is_empty() {
+        // Write SSH private key with 0600 permissions
+        let ssh_key_path = Path::new(&cwd).join(SHERPA_SSH_PRIVATE_KEY_FILE);
+        write_private_key(&ssh_key_path, &data.ssh_private_key)
+            .context("Failed to write SSH key")?;
+        println!(
+            "{} SSH private key created: {}",
+            Emoji::Success,
+            ssh_key_path.display()
+        );
+    }
 
     // Write lab-info.toml
     fs::write(&lab_info_path, data.lab_info.to_string())

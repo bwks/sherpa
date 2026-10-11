@@ -1213,10 +1213,10 @@ async fn handle_redeploy_streaming(
         }
     };
 
-    // Check authorization: user must own the lab or be an admin
+    // Redeploy is restricted to the current owner, including for administrators
     match db::get_lab_owner_username(&state.db, &lab_id).await {
         Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
+            if !auth_ctx.can_redeploy(&owner_username) {
                 tracing::warn!(
                     "User '{}' attempted to redeploy node '{}' in lab '{}' owned by '{}'",
                     auth_ctx.username,

@@ -770,6 +770,7 @@ mod tests {
         use std::net::Ipv4Addr;
 
         let lab_info = LabInfo {
+            ssh_usernames: Default::default(),
             id: "039ab286".to_string(),
             name: "simple-ceos-test".to_string(),
             user: "admin".to_string(),

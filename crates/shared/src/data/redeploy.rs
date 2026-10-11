@@ -7,6 +7,7 @@ pub struct RedeployRequest {
     pub lab_id: String,
     pub node_name: String,
     pub manifest: serde_json::Value,
+    /// Authenticated requester, set by server entry points; client input is ignored.
     pub username: String,
 }
 

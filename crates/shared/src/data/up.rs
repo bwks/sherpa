@@ -13,9 +13,7 @@ pub struct UpRequest {
     pub tailscale_auth_key: Option<TailnetAuthKey>,
     pub lab_id: String,
     pub manifest: serde_json::Value,
-    /// Username of the requesting user
-    /// TODO: This is username-without-authentication. When adding authentication layer,
-    /// replace this with verified identity from auth token/session.
+    /// Authenticated creator, set by server API entry points. Client input is ignored.
     pub username: String,
 }
 

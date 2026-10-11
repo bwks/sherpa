@@ -56,5 +56,5 @@ pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
 pub use pyats::PyatsInventory;
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
-pub use ssh::SshConfigTemplate;
+pub use ssh::{SshConfigTemplate, SshHostConfig};
 pub use vault::VaultConfigTemplate;

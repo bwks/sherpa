@@ -1,10 +1,15 @@
 mod helpers;
 
-use anyhow::Result;
+use anyhow::{Context, Result, ensure};
+use reqwest::{Client, StatusCode};
 use serde_json::json;
+use shared::error::RpcErrorCode;
+use sherpad::auth::cookies::AUTH_COOKIE_NAME;
+use std::fs;
+use std::process::Command;
 use std::time::Duration;
 
-use helpers::test_server::TestServer;
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 
 /// Helper to create a minimal container-only manifest
@@ -468,5 +473,247 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         error_message
     );
 
+    Ok(())
+}
+
+/// Run only on a disposable Sherpa host; see test-specs/integration/current-user.md.
+#[tokio::test]
+#[ignore = "requires Linux VM image, host infrastructure and two explicit SSH key pairs"]
+async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
+    let private_key = std::env::var("SHERPA_GUEST_TEST_KEY")
+        .context("Set SHERPA_GUEST_TEST_KEY to the original private key path")?;
+    let rotated_key = std::env::var("SHERPA_GUEST_TEST_ROTATED_KEY")
+        .context("Set SHERPA_GUEST_TEST_ROTATED_KEY to a different private key path")?;
+    let public_key = fs::read_to_string(format!("{private_key}.pub"))?;
+    let rotated_public_key = fs::read_to_string(format!("{rotated_key}.pub"))?;
+    ensure!(
+        public_key.split_whitespace().nth(1) != rotated_public_key.split_whitespace().nth(1),
+        "Use distinct SSH key pairs"
+    );
+    let model =
+        std::env::var("SHERPA_GUEST_TEST_MODEL").unwrap_or_else(|_| "ubuntu_linux".to_owned());
+    let server =
+        TestServer::start_with_config(std::env::var("SHERPA_GUEST_TEST_IMAGES_DIR").ok()).await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+    bootstrap_images(&mut ws, &admin_token).await?;
+    let username = format!("guest{}", std::process::id());
+    let mut owner = db::create_user(
+        &server.db,
+        username.clone(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![public_key.trim().to_owned()],
+    )
+    .await?;
+    let owner_token = ws.login(&username, TEST_ADMIN_PASSWORD).await?;
+    let lab_id = format!("{:08x}", rand::random::<u32>());
+    ensure!(
+        db::get_lab(&server.db, &lab_id).await.is_err(),
+        "Acceptance lab ID is already in use"
+    );
+    let manifest = json!({ "name": lab_id, "provision_current_user": true, "nodes": [{ "name": "vm", "model": model }] });
+    let timeout = Duration::from_secs(900);
+
+    // Return failures as errors so cleanup still runs when any check fails.
+    let checks: Result<()> = async {
+        let mut no_keys = owner.clone();
+        no_keys.ssh_keys.clear();
+        db::update_user(&server.db, no_keys).await?;
+        let (_, rejected) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest }), timeout).await?;
+        ensure!(rejected.get("error").is_some(), "Startup accepted an owner without keys");
+        ensure!(db::get_lab(&server.db, &lab_id).await.is_err(), "Rejected startup created a lab record");
+        db::update_user(&server.db, owner.clone()).await?;
+        let (_, response) = ws.rpc_call_streaming("up", json!({ "token": owner_token, "lab_id": lab_id, "manifest": manifest, "username": "admin" }), timeout).await?;
+        ensure!(response.get("error").is_none(), "Startup failed: {response}");
+        ensure!(response["result"]["lab_info"]["user"] == username, "Client-spoofed username selected lab owner");
+        ensure!(response["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Personal SSH metadata missing");
+        let lab = db::get_lab(&server.db, &lab_id).await?;
+        ensure!(Some(lab.user.clone()) == owner.id, "Database owner differs from authenticated creator");
+        let node = db::get_node_by_name_and_lab(&server.db, "vm", db::get_lab_id(&lab)?).await?;
+        let ip = node.mgmt_ipv4.context("VM management address missing")?;
+        let destination = format!("{username}@{ip}");
+
+        let login = |key: &str| -> Result<bool> {
+            let status = Command::new("ssh")
+                .args(["-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-i", key, &destination,
+                    "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true"])
+                .status().context("Failed to run SSH acceptance check")?;
+            Ok(status.success())
+        };
+        ensure!(login(&private_key)?, "Personal login/home/Bash/passwordless sudo failed");
+        let (_, admin_rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": admin_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest, "username": username }), timeout).await?;
+        ensure!(admin_rejected["error"]["code"] == json!(RpcErrorCode::AccessDenied), "Non-owner admin was allowed to redeploy");
+        ensure!(login(&private_key)?, "Denied admin redeploy affected the running guest");
+        let mut no_keys = owner.clone();
+        no_keys.ssh_keys.clear();
+        db::update_user(&server.db, no_keys).await?;
+        let (_, rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
+        ensure!(rejected.get("error").is_some(), "Missing keys were accepted during redeploy");
+        ensure!(login(&private_key)?, "Rejected redeploy tore down existing guest");
+
+        owner.ssh_keys = vec![rotated_public_key.trim().to_owned()];
+        db::update_user(&server.db, owner.clone()).await?;
+        for method in ["down", "resume"] {
+            let (_, result) = ws.rpc_call_streaming(method, json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
+            ensure!(result.get("error").is_none(), "{method} failed: {result}");
+        }
+        ensure!(login(&private_key)?, "Resume replaced existing guest keys");
+        ensure!(!login(&rotated_key)?, "Profile key was synchronized during resume");
+
+        let (_, redeployed) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
+        ensure!(redeployed.get("error").is_none(), "Owner redeploy failed: {redeployed}");
+        ensure!(login(&rotated_key)?, "Redeploy did not provision owner's current keys");
+        ensure!(!login(&private_key)?, "Redeploy retained removed owner key");
+        let downloaded = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
+        ensure!(downloaded.get("error").is_none(), "Admin configuration refresh failed: {downloaded}");
+        ensure!(downloaded["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Refreshed configuration selected administrator");
+        let config = downloaded["result"]["ssh_config"].as_str().context("SSH config missing")?;
+        ensure!(config.contains(&format!("User {username}")) && !config.contains("IdentityFile") && !config.contains("IdentitiesOnly"), "Personal SSH config restricts local keys");
+        Ok(())
+    }.await;
+    let (_, cleanup) = ws
+        .rpc_call_streaming(
+            "destroy",
+            json!({ "token": admin_token, "lab_id": lab_id }),
+            timeout,
+        )
+        .await?;
+    checks?;
+    ensure!(
+        cleanup.get("error").is_none(),
+        "Acceptance lab cleanup failed: {cleanup}"
+    );
+    Ok(())
+}
+
+/// Database and local API sockets only; no VM, container or lab files are created.
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+    let admin = db::get_user(&server.db, "admin").await?;
+    let alice = db::create_user(
+        &server.db,
+        "alice".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    let bob = db::create_user(
+        &server.db,
+        "bob".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    let alice_token = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let bob_token = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
+    let http = Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let callers = [
+        ("alice", alice_token.as_str()),
+        ("bob", bob_token.as_str()),
+        ("admin", admin_token.as_str()),
+    ];
+    // Lab ownership is immutable, so exercise both regular-user and admin-owned labs.
+    for (index, owner) in [&alice, &bob, &admin].into_iter().enumerate() {
+        let lab_id = format!("{:08x}", rand::random::<u32>());
+        let lab = db::create_lab(
+            &server.db,
+            "redeploy-auth",
+            &lab_id,
+            owner,
+            &format!("127.127.{index}.0/24"),
+            &format!("10.200.{index}.0/24"),
+            &format!("10.200.{index}.1"),
+            &format!("10.200.{index}.2"),
+        )
+        .await?;
+        for (username, token) in callers {
+            let owns_lab = username == owner.username;
+            let (statuses, response) = ws.rpc_call_streaming("redeploy", json!({
+                "token": token, "lab_id": lab_id, "node_name": "vm",
+                "username": owner.username,
+                "manifest": { "name": "auth-test", "nodes": [{ "name": "vm", "model": "ubuntu_linux" }] },
+            }), Duration::from_secs(30)).await?;
+            let expected = if owns_lab {
+                RpcErrorCode::ServerError
+            } else {
+                RpcErrorCode::AccessDenied
+            };
+            ensure!(
+                response["error"]["code"] == json!(expected),
+                "Wrong RPC authorization for {username}: {response}"
+            );
+            if owns_lab {
+                ensure!(
+                    response["error"]["context"]
+                        .as_str()
+                        .is_some_and(|message| message.contains("Node 'vm' not found")),
+                    "Owner did not reach node lookup: {response}"
+                );
+            } else {
+                ensure!(
+                    statuses.is_empty(),
+                    "Unauthorized request started streaming node operations"
+                );
+            }
+            // Missing manifest yields 400 only after owner authorization passes.
+            let response = http
+                .post(format!(
+                    "http://{}/api/v1/labs/{lab_id}/nodes/vm/redeploy",
+                    server.addr
+                ))
+                .bearer_auth(token)
+                .json(&json!({ "username": owner.username }))
+                .send()
+                .await?;
+            ensure!(
+                response.status()
+                    == if owns_lab {
+                        StatusCode::BAD_REQUEST
+                    } else {
+                        StatusCode::FORBIDDEN
+                    },
+                "Wrong HTTP authorization for {username}: {}",
+                response.status()
+            );
+            // An authorized cookie request stops at the absent saved manifest.
+            let response = http
+                .post(format!(
+                    "http://{}/labs/{lab_id}/nodes/vm/redeploy",
+                    server.addr
+                ))
+                .header(
+                    reqwest::header::COOKIE,
+                    format!("{AUTH_COOKIE_NAME}={token}"),
+                )
+                .send()
+                .await?;
+            ensure!(
+                response.status()
+                    == if owns_lab {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    } else {
+                        StatusCode::FORBIDDEN
+                    },
+                "Wrong cookie authorization for {username}: {}",
+                response.status()
+            );
+        }
+        ensure!(
+            db::list_nodes_by_lab(&server.db, db::get_lab_id(&lab)?)
+                .await?
+                .is_empty(),
+            "Authorization checks created node resources"
+        );
+        db::delete_lab(&server.db, &lab_id).await?;
+    }
     Ok(())
 }

@@ -4,6 +4,7 @@
 mod connection;
 mod device;
 mod environment;
+mod guest_username;
 mod interface_count;
 mod ipv6;
 mod link;
@@ -13,6 +14,7 @@ mod version;
 pub use connection::tcp_connect;
 pub use device::check_duplicate_device;
 pub use environment::validate_environment_variables;
+pub use guest_username::validate_guest_username;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};
 pub use ipv6::validate_manifest_ipv6_addresses;
 pub use link::{

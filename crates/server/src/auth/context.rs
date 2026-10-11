@@ -23,11 +23,26 @@ impl AuthContext {
     pub fn can_access(&self, owner_username: &str) -> bool {
         self.is_admin || self.username == owner_username
     }
+
+    /// Redeploy authorization is restricted to the current lab owner.
+    #[tracing::instrument(level = "debug", skip(self))]
+    pub fn can_redeploy(&self, owner_username: &str) -> bool {
+        self.username == owner_username
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_current_owner_can_redeploy_regardless_of_admin_role() {
+        for is_admin in [false, true] {
+            let ctx = AuthContext::new("alice".to_owned(), is_admin);
+            assert!(ctx.can_redeploy("alice"));
+            assert!(!ctx.can_redeploy("bob"));
+        }
+    }
 
     #[test]
     fn test_regular_user_can_access_own_resources() {
