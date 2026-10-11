@@ -28,6 +28,43 @@ configuration. Overrides are validated against the interface names supported by
 the selected model, so requesting more interfaces than the model can name will
 fail manifest validation.
 
+## VM boot disk provisioning
+
+VM boot disks use sparse QCOW2 overlays by default. `boot_disk_clone_method` is a
+node-level setting with supported values `overlay` and `copy`:
+
+```toml
+name = "overlay-lab"
+nodes = [
+  { name = "vm", model = "omarchy_linux", version = "VERSION" },
+  { name = "copied", model = "ubuntu_linux", boot_disk_clone_method = "copy" },
+]
+```
+
+Omitting the setting on a VM selects `overlay`. Use `boot_disk_clone_method = "copy"`
+on a VM to provision an independent full copy, including when its source image
+is ineligible for overlays. A lab-level `boot_disk_clone_method` is rejected.
+Containers and unikernels keep their existing provisioning when this setting is
+omitted; explicit overlay requests for these kinds are rejected. Auxiliary disks
+and configuration media are always copied.
+
+The selected base must be a standalone, unencrypted QCOW2 image without external
+data files, another backing image, or unsafe/unknown incompatible features.
+Ineligible bases fail before startup creates resources or redeploy removes
+the existing VM. Imported images must remain immutable and at the same absolute
+path while overlays exist.
+
+An omitted `boot_disk_size` inherits the base's virtual capacity. An explicit size
+in GiB may equal or exceed that capacity; it cannot shrink the base. Only the new
+overlay receives the requested capacity. Existing disks are never converted.
+Resume preserves writes. Redeploy replaces the node disk using the requested
+method and the image version pinned in the database at creation.
+
+Image deletion is blocked by database node references and by backing paths in
+managed disks, including stopped VMs and orphaned overlays. Unreadable dependency
+metadata blocks deletion. Failed VM/disk cleanup retains lab records and saved
+configuration so cleanup can be retried.
+
 ## Tailscale connection
 
 An optional `[tailscale]` section enables management access through the owner's

@@ -97,6 +97,9 @@ impl Manifest {
             device_table.decor_mut().set_prefix("\n  ");
             device_table.insert("name", Value::from(device.name.as_str()));
             device_table.insert("model", Value::from(device.model.to_string()));
+            if let Some(method) = device.boot_disk_clone_method {
+                device_table.insert("boot_disk_clone_method", Value::from(method.to_string()));
+            }
             devices_array.push_formatted(Value::from(device_table));
         }
 
@@ -139,6 +142,41 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lab_level_boot_disk_clone_method_is_rejected() {
+        assert!(
+            toml::from_str::<Manifest>("name='test'\nnodes=[]\nboot_disk_clone_method='overlay'")
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn disk_method_defaults_and_unknown_values() {
+        let manifest: Manifest =
+            toml::from_str("name='test'\nnodes=[{name='vm',model='ubuntu_linux'}]").unwrap();
+        assert_eq!(manifest.nodes[0].boot_disk_clone_method, None);
+        assert!(
+            toml::from_str::<Manifest>(
+                "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk_clone_method='snapshot'}]"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn boot_disk_clone_method_round_trip() {
+        let manifest: Manifest = toml::from_str(
+            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',boot_disk_clone_method='copy'}]",
+        )
+        .unwrap();
+        let value = toml::Value::try_from(&manifest).unwrap();
+        assert!(value.get("boot_disk_clone_method").is_none());
+        assert_eq!(
+            value["nodes"][0]["boot_disk_clone_method"].as_str(),
+            Some("copy")
+        );
+    }
 
     #[test]
     fn tailscale_manifest_round_trip() {

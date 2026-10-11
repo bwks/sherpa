@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::NodeModel;
+use shared::data::{DiskImageCloneMethod, NodeModel};
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -14,6 +14,8 @@ pub struct Node {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub boot_disk_size: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub boot_disk_clone_method: Option<DiskImageCloneMethod>,
     pub data_interface_count: Option<u8>,
     pub ipv4_address: Option<Ipv4Addr>,
     pub ipv6_address: Option<Ipv6Addr>,
@@ -52,6 +54,7 @@ pub struct NodeExpanded {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub boot_disk_size: Option<u16>,
+    pub boot_disk_clone_method: Option<DiskImageCloneMethod>,
     pub data_interface_count: Option<u8>,
     pub ipv4_address: Option<Ipv4Addr>,
     pub ipv6_address: Option<Ipv6Addr>,

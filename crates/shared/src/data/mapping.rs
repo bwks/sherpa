@@ -1,6 +1,8 @@
 use serde_derive::{Deserialize, Serialize};
 
-use super::disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
+use super::disk::{
+    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,
+};
 
 #[derive(Clone, Debug)]
 // Device name to IP address mapping
@@ -16,6 +18,7 @@ pub struct CloneDisk {
     pub src: String,
     pub dst: String,
     pub disk_size: Option<u16>,
+    pub method: DiskImageCloneMethod,
 }
 
 #[derive(Debug, Deserialize, Serialize)]

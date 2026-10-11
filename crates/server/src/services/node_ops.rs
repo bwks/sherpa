@@ -1,12 +1,16 @@
 // Shared per-node operations extracted from up.rs for reuse by redeploy.rs
 
+use std::collections::HashSet;
+use std::fs;
 use std::net::Ipv4Addr;
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use tracing::instrument;
 
+use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
 
 use shared::data;
@@ -32,10 +36,12 @@ use shared::konst::{
     SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
     SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
     SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL_PATH,
-    SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT,
+    ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
+use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 // ============================================================================
@@ -533,6 +539,7 @@ pub fn generate_vm_ztp(
         src: src_boot_disk,
         dst: dst_boot_disk.clone(),
         disk_size: node.boot_disk_size,
+        method: node.boot_disk_clone_method.unwrap_or_default(),
     });
 
     // Handle CDROM ISO
@@ -717,6 +724,7 @@ pub fn generate_vm_ztp(
             src: src_iso,
             dst: dst_iso.clone(),
             disk_size: None,
+            method: data::DiskImageCloneMethod::Copy,
         });
         disks.push(data::NodeDisk {
             disk_device: data::DiskDevices::Cdrom,
@@ -744,6 +752,7 @@ pub fn generate_vm_ztp(
             src: src_disk,
             dst: dst_disk.clone(),
             disk_size: None,
+            method: data::DiskImageCloneMethod::Copy,
         });
         disks.push(data::NodeDisk {
             disk_device: data::DiskDevices::File,
@@ -761,6 +770,7 @@ pub fn generate_vm_ztp(
             src: src_disk,
             dst: dst_disk.clone(),
             disk_size: None,
+            method: data::DiskImageCloneMethod::Copy,
         });
         // USB and SATA share the sd* target namespace, so count existing sd* targets
         // to avoid duplicate target device names.
@@ -788,6 +798,7 @@ pub fn generate_vm_ztp(
             src: src_ignition,
             dst: dst_ignition,
             disk_size: None,
+            method: data::DiskImageCloneMethod::Copy,
         });
     }
 
@@ -2391,16 +2402,32 @@ fn cpu_features_for_model(model: &data::NodeModel) -> Vec<data::CpuFeature> {
 // ============================================================================
 
 /// Clone a list of disks in parallel using libvirt.
-#[instrument(skip(qemu_conn, clone_disks, progress), fields(%lab_id), level = "debug")]
+#[instrument(skip(qemu_conn, clone_disks, progress, image_leases), fields(%lab_id), level = "debug")]
 pub async fn clone_node_disks(
     qemu_conn: Arc<libvirt::QemuConnection>,
     clone_disks: Vec<data::CloneDisk>,
     lab_id: &str,
     progress: &ProgressSender,
+    image_leases: Vec<ImageLease>,
 ) -> Result<()> {
     if clone_disks.is_empty() {
         let _ = progress.send_status("No disks to clone".to_string(), StatusKind::Info);
         return Ok(());
+    }
+
+    let mut destinations = HashSet::new();
+    for disk in &clone_disks {
+        anyhow::ensure!(
+            destinations.insert(&disk.dst),
+            "Duplicate disk destination: {}",
+            disk.dst
+        );
+        anyhow::ensure!(
+            fs::symlink_metadata(&disk.dst)
+                .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
+            "Disk destination exists or cannot be inspected: {}",
+            disk.dst
+        );
     }
 
     let disk_count = clone_disks.len();
@@ -2418,6 +2445,8 @@ pub async fn clone_node_disks(
             let src = disk.src.clone();
             let dst = disk.dst.clone();
             let disk_size = disk.disk_size;
+            let method = disk.method;
+            let leases = image_leases.clone();
             let lab_id_task = lab_id_clone.clone();
 
             tokio::task::spawn(async move {
@@ -2442,22 +2471,20 @@ pub async fn clone_node_disks(
                 let dst_for_blocking = dst.clone();
 
                 tokio::task::spawn_blocking(move || -> Result<()> {
-                    libvirt::clone_disk(&conn_for_blocking, &src_for_blocking, &dst_for_blocking)
-                        .with_context(|| {
-                        format!(
-                            "Failed to clone disk from: {} to: {}",
-                            src_for_blocking, dst_for_blocking
-                        )
-                    })?;
-
-                    if let Some(size_gb) = disk_size {
-                        libvirt::resize_disk(&conn_for_blocking, &dst_for_blocking, size_gb)
-                            .with_context(|| {
-                                format!(
-                                    "Failed to resize disk '{}' to {}G",
-                                    dst_for_blocking, size_gb
-                                )
-                            })?;
+                    let _leases = leases;
+                    match method {
+                        data::DiskImageCloneMethod::Overlay => libvirt::create_overlay(&conn_for_blocking, &src_for_blocking, &dst_for_blocking, disk_size)?,
+                        data::DiskImageCloneMethod::Copy => {
+                            libvirt::clone_disk(&conn_for_blocking, &src_for_blocking, &dst_for_blocking)
+                                .with_context(|| format!("Failed to copy {src_for_blocking} to {dst_for_blocking}"))?;
+                            if let Some(size_gb) = disk_size
+                                && let Err(error) = libvirt::resize_disk(&conn_for_blocking, &dst_for_blocking, size_gb)
+                            {
+                                let name = Path::new(&dst_for_blocking).file_name().and_then(|name| name.to_str()).context("Invalid disk filename")?;
+                                libvirt::delete_disk(&conn_for_blocking, name).with_context(|| format!("Resize failed ({error:#}); cannot remove newly created disk {dst_for_blocking}"))?;
+                                return Err(error).context("Failed to resize copied disk");
+                            }
+                        }
                     }
 
                     Ok(())
@@ -2465,14 +2492,41 @@ pub async fn clone_node_disks(
                 .await
                 .map_err(|e| anyhow!("Task join error: {:?}", e))??;
 
-                progress_clone.send_status(format!("Cloned disk to: {}", dst), StatusKind::Done)?;
-                Ok::<(), anyhow::Error>(())
+                let _ = progress_clone.send_status(format!("Provisioned disk to: {}", dst), StatusKind::Done);
+                Ok::<String, anyhow::Error>(dst)
             })
         })
         .collect();
 
+    // Wait for every task before rollback; no detached task may create a disk
+    // after cleanup has completed.
+    let mut created = Vec::new();
+    let mut failures = Vec::new();
     for task in tasks {
-        task.await.context("Disk cloning task failed")??;
+        match task.await.context("Disk provisioning task failed") {
+            Ok(Ok(path)) => created.push(path),
+            Ok(Err(error)) | Err(error) => failures.push(format!("{error:#}")),
+        }
+    }
+    if !failures.is_empty() {
+        let conn = qemu_conn.clone();
+        let cleanup_errors = tokio::task::spawn_blocking(move || {
+            let mut errors = Vec::new();
+            for path in created {
+                if let Some(name) = Path::new(&path).file_name().and_then(|name| name.to_str())
+                    && let Err(error) = libvirt::delete_disk(&conn, name)
+                {
+                    errors.push(format!(
+                        "Cannot remove newly created disk {path}: {error:#}"
+                    ));
+                }
+            }
+            errors
+        })
+        .await
+        .context("Disk rollback task failed")?;
+        failures.extend(cleanup_errors);
+        bail!("Disk provisioning failed: {}", failures.join("; "));
     }
 
     let _ = progress.send_status(
@@ -2637,6 +2691,7 @@ pub fn generate_unikernel_setup(
                 src: src_disk,
                 dst: dst_disk.clone(),
                 disk_size: node.boot_disk_size,
+                method: data::DiskImageCloneMethod::Copy,
             };
 
             let disk = data::NodeDisk {
@@ -2666,6 +2721,7 @@ pub fn generate_unikernel_setup(
                 src: src_kernel,
                 dst: dst_kernel.clone(),
                 disk_size: None,
+                method: data::DiskImageCloneMethod::Copy,
             };
 
             Ok(UnikernelSetupResult {
@@ -2837,13 +2893,20 @@ pub async fn destroy_vm_node(
     let conn = qemu_conn.clone();
     let vm_name = node_name_with_lab.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        if let Ok(domain) = virt::domain::Domain::lookup_by_name(&conn, &vm_name) {
-            if domain.is_active()? {
-                domain.destroy()?;
+        match virt::domain::Domain::lookup_by_name(&conn, &vm_name) {
+            Ok(domain) => {
+                if domain.is_active()? {
+                    domain.destroy()?;
+                }
+                domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)?;
+                tracing::info!(vm_name = %vm_name, "VM destroyed and undefined");
             }
-            domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)?;
-            tracing::info!(vm_name = %vm_name, "VM destroyed and undefined");
+            Err(error) if error.code() == ErrorNumber::NoDomain => {}
+            Err(error) => {
+                return Err(error).context("Cannot determine VM existence; refusing disk removal");
+            }
         }
+
         Ok(())
     })
     .await
@@ -2853,18 +2916,26 @@ pub async fn destroy_vm_node(
     let conn = qemu_conn.clone();
     let disk_prefix = node_name_with_lab;
     tokio::task::spawn_blocking(move || -> Result<()> {
-        if let Ok(pool) = virt::storage_pool::StoragePool::lookup_by_name(&conn, "sherpa-pool")
-            && let Ok(volumes) = pool.list_all_volumes(0)
+        let pool = virt::storage_pool::StoragePool::lookup_by_name(&conn, SHERPA_STORAGE_POOL)
+            .context("Cannot find storage pool during node cleanup")?;
+        pool.refresh(0)
+            .context("Cannot refresh storage pool during node cleanup")?;
+        for vol in pool
+            .list_all_volumes(0)
+            .context("Cannot list volumes during node cleanup")?
         {
-            for vol in volumes {
-                if let Ok(vol_name) = vol.get_name()
-                    && vol_name.starts_with(&disk_prefix)
-                {
-                    tracing::info!(volume = %vol_name, "Deleting disk");
-                    let _ = vol.delete(0);
-                }
+            let vol_name = vol
+                .get_name()
+                .context("Cannot identify volume during node cleanup")?;
+            if vol_name.starts_with(&disk_prefix) {
+                vol.delete(0).with_context(|| {
+                    format!(
+                        "Cannot delete node disk {vol_name}; retaining image reference for retry"
+                    )
+                })?;
             }
         }
+
         Ok(())
     })
     .await

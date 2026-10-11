@@ -9,8 +9,10 @@ use opentelemetry::KeyValue;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::services::up::process_manifest_nodes;
 
 use shared::data;
 use shared::data::{NodeState, RedeployRequest, RedeployResponse, StatusKind};
@@ -59,42 +61,7 @@ pub async fn redeploy_node(
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
 
-    // Find the target node in the manifest
-    let manifest_nodes: Vec<topology::NodeExpanded> = manifest
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(idx, node)| topology::NodeExpanded {
-            name: node.name.clone(),
-            model: node.model,
-            index: idx as u16 + 1,
-            version: node.version.clone(),
-            memory: node.memory,
-            cpu_count: node.cpu_count,
-            boot_disk_size: node.boot_disk_size,
-            data_interface_count: node.data_interface_count,
-            ipv4_address: node.ipv4_address,
-            ipv6_address: node.ipv6_address,
-            ssh_authorized_keys: node.ssh_authorized_keys.clone(),
-            ssh_authorized_key_files: node.ssh_authorized_key_files.clone(),
-            text_files: node.text_files_data.clone(),
-            binary_files: node.binary_files.clone(),
-            systemd_units: node.systemd_units.clone(),
-            image: node.image.clone(),
-            privileged: node.privileged,
-            shm_size: node.shm_size,
-            environment_variables: node.environment_variables.clone(),
-            volumes: node.volumes.clone(),
-            commands: node.commands.clone(),
-            user: node.user.clone(),
-            skip_ready_check: node.skip_ready_check,
-            ztp_config: node.ztp_config.clone(),
-            startup_scripts: node.startup_scripts_data.clone(),
-            user_scripts: node.user_scripts_data.clone(),
-            kernel_cmdline: node.kernel_cmdline.clone(),
-            ready_port: node.ready_port,
-        })
-        .collect();
+    let manifest_nodes = process_manifest_nodes(&manifest.nodes);
 
     let mut target_node = manifest_nodes
         .iter()
@@ -147,6 +114,15 @@ pub async fn redeploy_node(
         "Data interface count validation failed for node: {}",
         node_name
     ))?;
+
+    let image_guard = lease_image(node_image.model, &node_image.version).await;
+    target_node.version = Some(node_image.version.clone());
+    validate_disk_method(
+        target_node.boot_disk_clone_method,
+        &node_image,
+        &state.config.images_dir,
+        target_node.boot_disk_size,
+    )?;
 
     // Load lab info from filesystem
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
@@ -677,8 +653,14 @@ pub async fn redeploy_node(
                 StatusKind::Progress,
             );
 
-            node_ops::clone_node_disks(qemu_conn.clone(), vm_ztp.clone_disks, lab_id, &progress)
-                .await?;
+            node_ops::clone_node_disks(
+                qemu_conn.clone(),
+                vm_ztp.clone_disks,
+                lab_id,
+                &progress,
+                vec![image_guard.clone()],
+            )
+            .await?;
 
             // Build interfaces from DB links
             let loopback_subnet = lab_info.loopback_network;

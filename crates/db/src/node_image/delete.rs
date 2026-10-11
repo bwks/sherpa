@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use shared::data::RecordId;
 use std::sync::Arc;
 use surrealdb::Surreal;
@@ -26,6 +26,20 @@ use crate::persistence::{NodeImageRow, to_surreal_id};
 /// - If there's a database error during deletion
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_node_image(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
+    // Check explicitly as well as relying on REFERENCE ON DELETE REJECT. Some
+    // database versions do not enforce reverse references consistently.
+    let mut references = db
+        .query("SELECT count() FROM node WHERE image = $image GROUP ALL")
+        .bind(("image", to_surreal_id(&id)))
+        .await
+        .context("Cannot check image references before deletion")?;
+    let count: Option<usize> = references.take("count")?;
+    ensure!(
+        count.unwrap_or(0) == 0,
+        "Cannot delete node_image {:?}: referenced by managed nodes",
+        id
+    );
+
     // Execute DELETE query
     let deleted: Option<NodeImageRow> = db
         .delete(to_surreal_id(&id))

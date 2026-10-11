@@ -38,7 +38,9 @@ pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
 pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use dhcp::DhcpLease;
-pub use disk::{DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskTargets};
+pub use disk::{
+    DiskBuses, DiskDevices, DiskDrivers, DiskFormats, DiskImageCloneMethod, DiskTargets,
+};
 pub use dns::{Dns, NameServer};
 pub use download::DownloadLabResponse;
 pub use impairment::{UpdateImpairmentRequest, UpdateImpairmentResponse};
