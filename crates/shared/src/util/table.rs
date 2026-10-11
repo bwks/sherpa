@@ -1,7 +1,10 @@
 use tabled::{
     Table, Tabled,
     builder::Builder,
-    settings::{Alignment, Modify, Panel, Remove, Style, object::Rows, themes::BorderCorrection},
+    settings::{
+        Alignment, Modify, Panel, Remove, Style, Width, object::Rows, peaker::PriorityMax,
+        themes::BorderCorrection,
+    },
 };
 
 use super::ssh::SshConfigInspectionEntry;
@@ -564,13 +567,89 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
     for (label, value) in rows {
         builder.push_record([label, value.as_str()]);
     }
-    builder.build().with(Style::modern()).to_string()
+    builder
+        .build()
+        .with(Style::modern())
+        // Bound the whole table, including padding and borders. Reduce the
+        // widest column first so the property labels remain readable.
+        .with(
+            Width::wrap(80)
+                .keep_words(true)
+                .priority(PriorityMax::right()),
+        )
+        .to_string()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::data::{NodeKind, NodeModel, NodeState};
+
+    #[test]
+    fn tailnet_table_wraps_pending_route_warning() {
+        let status = TailnetStatus::from_daemon(
+            r#"{"BackendState":"Running","Self":{"AllowedIPs":[]}}"#,
+            vec!["172.31.3.0/24".into(), "fd00:b00b:0:3::/64".into()],
+        )
+        .unwrap();
+
+        let table = render_tailnet_table(&status);
+        assert!(table.lines().all(|line| line.chars().count() <= 80));
+        assert!(table.contains("Management routes"));
+        assert!(table.contains("Tailscale addresses"));
+        assert!(table.contains("Pending"));
+
+        // Recover cell content to check that wrapping loses no warning text,
+        // including long URLs that must be split across lines.
+        let details: String = table
+            .lines()
+            .filter_map(|line| line.split('│').nth(2))
+            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
+            .collect();
+        let warning: String = status.warnings[0]
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .collect();
+        assert!(details.contains(&warning));
+    }
+
+    #[test]
+    fn tailnet_table_preserves_multiple_warnings() {
+        let mut status = TailnetStatus::unavailable(vec!["172.31.3.0/24".into()]);
+        status.warnings.push("Another gateway warning.".into());
+
+        let table = render_tailnet_table(&status);
+        assert!(table.lines().all(|line| line.chars().count() <= 80));
+        assert!(table.contains("Unavailable"));
+        assert!(table.contains("Another gateway warning."));
+        let details: String = table
+            .lines()
+            .filter_map(|line| line.split('│').nth(2))
+            .flat_map(|cell| cell.chars().filter(|c| !c.is_whitespace()))
+            .collect();
+        for warning in status.warnings {
+            let warning: String = warning.chars().filter(|c| !c.is_whitespace()).collect();
+            assert!(details.contains(&warning));
+        }
+    }
+
+    #[test]
+    fn tailnet_table_renders_approved_status_without_warnings() {
+        let status = TailnetStatus::from_daemon(
+            r#"{"BackendState":"Running","TailscaleIPs":["100.64.0.1"],"Self":{"AllowedIPs":["172.31.3.0/24"]}}"#,
+            vec!["172.31.3.0/24".into()],
+        )
+        .unwrap();
+
+        let table = render_tailnet_table(&status);
+        assert!(table.lines().all(|line| line.chars().count() <= 80));
+        assert!(table.contains("Connected"));
+        assert!(table.contains("Approved"));
+        assert!(table.contains("172.31.3.0/24"));
+        assert!(table.contains("100.64.0.1"));
+        assert!(table.contains("Warnings"));
+        assert_eq!(table.lines().count(), 13);
+    }
 
     #[test]
     fn test_render_single_node() {
