@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.84] - 2026-10-11
+
+### Features
+
+- Provision lab owner accounts in Linux VMs by @bwks ([03a9cc0](https://github.com/bwks/sherpa/commit/03a9cc0c894b48e497ea3a938b854e57d8ee25ea))
+
+### Miscellaneous
+
+- Merge pull request #294 from bwks/feat/provision-current-user
+
+Provision lab owner accounts in Linux VMs by @bwks in [#294](https://github.com/bwks/sherpa/pull/294) ([e27c7d9](https://github.com/bwks/sherpa/commit/e27c7d9600b65732782d2652cf62c4cb54ddb508))
+- Merge pull request #293 from bwks/changelog/v0.3.83
+
+chore(release): update changelog for v0.3.83 by @github-actions[bot] in [#293](https://github.com/bwks/sherpa/pull/293) ([6afd026](https://github.com/bwks/sherpa/commit/6afd026d94ec8143e28df6242462f803708cf0a2))
 ## [0.3.83] - 2026-10-11
 
 ### Features
