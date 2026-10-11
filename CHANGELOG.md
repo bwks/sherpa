@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.85] - 2026-10-11
+
+### Bug Fixes
+
+- Wrap Tailscale status output within 80 columns by @bwks ([ea17c15](https://github.com/bwks/sherpa/commit/ea17c155535f3826cadcb1978a8ac918c5ffb989))
+
+### Miscellaneous
+
+- Merge pull request #296 from bwks/fix/tailscale-table-wrapping
+
+fix: wrap Tailscale status output within 80 columns by @bwks in [#296](https://github.com/bwks/sherpa/pull/296) ([7453960](https://github.com/bwks/sherpa/commit/74539602ef0cfb0f7a93a55d9247f255200ddbb5))
+- Merge pull request #295 from bwks/changelog/v0.3.84
+
+chore(release): update changelog for v0.3.84 by @github-actions[bot] in [#295](https://github.com/bwks/sherpa/pull/295) ([cefe08c](https://github.com/bwks/sherpa/commit/cefe08c51eb24cf8ab91b85a58703d6e7657d225))
 ## [0.3.84] - 2026-10-11
 
 ### Features
