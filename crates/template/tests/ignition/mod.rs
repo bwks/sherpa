@@ -76,7 +76,9 @@ WantedBy=multi-user.target
 fn test_ignition_full_config() {
     let user = IgnitionUser {
         name: "core".to_string(),
-        password_hash: "$6$abc$xyz".to_string(),
+        password_hash: Some("$6$abc$xyz".to_string()),
+        home_dir: None,
+        shell: None,
         ssh_authorized_keys: vec!["ssh-rsa AAAA...".to_string()],
         groups: vec!["sudo".to_string(), "docker".to_string()],
     };

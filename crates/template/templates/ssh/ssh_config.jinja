@@ -1,11 +1,13 @@
-{%- for record in ztp_records %}
-Host {{ record.ipv4_address }} {{ record.node_name }}.{{ lab_id }} {{ record.node_name }}.{{ lab_id }}.{{ SHERPA_DOMAIN_NAME }}
-    HostName {{ record.ipv4_address }}
-    Port {{ record.ssh_port }}
-    User {{ SHERPA_USERNAME }}
-    ProxyJump {{ proxy_user }}@{{ server_ipv4 }}
-    IdentityFile {{ SHERPA_SSH_PRIVATE_KEY_FILE }}
+{%- for host in hosts %}
+Host {{ host.aliases }}
+    HostName {{ host.hostname }}
+    Port {{ host.port }}
+    User {{ host.username }}
+    ProxyJump {{ proxy_jump }}
+    {%- if let Some(identity_file) = host.identity_file %}
+    IdentityFile {{ identity_file }}
     IdentitiesOnly yes
+    {%- endif %}
     StrictHostKeyChecking no
     UserKnownHostsFile /dev/null
     PubkeyAcceptedAlgorithms +ssh-rsa

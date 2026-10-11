@@ -75,6 +75,7 @@
 - Container networks recreated `[integration]` **P1**
 - Unikernel nodes explicitly unsupported (error) `[integration]` **P1**
 - Streaming progress during redeploy `[integration]` **P1**
+- Redeploy checks the authenticated requester against the current database owner before node state changes or teardown; admins have no bypass `[integration]` **P0**
 
 ---
 

@@ -311,6 +311,7 @@ fn test_example_manifest() {
 #[test]
 fn test_write_load_roundtrip() {
     let manifest = Manifest {
+        provision_current_user: true,
         tailscale: None,
         name: "roundtrip-lab".to_string(),
         ready_timeout: None,
@@ -342,6 +343,7 @@ fn test_write_load_roundtrip() {
     let loaded = Manifest::load_file(tmp_path).expect("loads file");
 
     assert_eq!(loaded.name, "roundtrip-lab");
+    assert!(loaded.provision_current_user);
     assert_eq!(loaded.nodes.len(), 2);
     assert_eq!(loaded.nodes[0].name, "r1");
     assert_eq!(loaded.nodes[0].model, NodeModel::CiscoIosv);

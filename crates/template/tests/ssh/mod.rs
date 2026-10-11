@@ -2,8 +2,7 @@ use std::net::Ipv4Addr;
 
 use askama::Template;
 
-use shared::data::{ZtpMethod, ZtpRecord};
-use template::SshConfigTemplate;
+use template::{SshConfigTemplate, SshHostConfig};
 
 // ============================================================================
 // Expected configs
@@ -56,18 +55,14 @@ Host 172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local
 #[test]
 fn test_ssh_config() {
     let t = SshConfigTemplate {
-        ztp_records: vec![ZtpRecord {
-            node_name: "router1".to_string(),
-            config_file: "router1.cfg".to_string(),
-            ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
-            ipv6_address: None,
-            mac_address: "52:54:00:aa:bb:cc".to_string(),
-            ztp_method: ZtpMethod::None,
-            ssh_port: 22,
+        hosts: vec![SshHostConfig {
+            aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local".to_string(),
+            username: "sherpa".to_owned(),
+            identity_file: Some("sherpa_ssh_key".to_owned()),
+            hostname: Ipv4Addr::new(172, 20, 0, 10),
+            port: 22,
         }],
-        proxy_user: "sherpa".to_string(),
-        server_ipv4: "10.0.0.1".to_string(),
-        lab_id: "abcd1234".to_string(),
+        proxy_jump: "sherpa@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG);
@@ -76,29 +71,25 @@ fn test_ssh_config() {
 #[test]
 fn test_ssh_config_multiple_hosts() {
     let t = SshConfigTemplate {
-        ztp_records: vec![
-            ZtpRecord {
-                node_name: "router1".to_string(),
-                config_file: "router1.cfg".to_string(),
-                ipv4_address: Ipv4Addr::new(172, 20, 0, 10),
-                ipv6_address: None,
-                mac_address: "52:54:00:aa:bb:cc".to_string(),
-                ztp_method: ZtpMethod::None,
-                ssh_port: 22,
+        hosts: vec![
+            SshHostConfig {
+                aliases: "172.20.0.10 router1.abcd1234 router1.abcd1234.sherpa.lab.local"
+                    .to_string(),
+                username: "sherpa".to_owned(),
+                identity_file: Some("sherpa_ssh_key".to_owned()),
+                hostname: Ipv4Addr::new(172, 20, 0, 10),
+                port: 22,
             },
-            ZtpRecord {
-                node_name: "switch1".to_string(),
-                config_file: "switch1.cfg".to_string(),
-                ipv4_address: Ipv4Addr::new(172, 20, 0, 11),
-                ipv6_address: None,
-                mac_address: "52:54:00:dd:ee:ff".to_string(),
-                ztp_method: ZtpMethod::None,
-                ssh_port: 830,
+            SshHostConfig {
+                aliases: "172.20.0.11 switch1.abcd1234 switch1.abcd1234.sherpa.lab.local"
+                    .to_string(),
+                username: "sherpa".to_owned(),
+                identity_file: Some("sherpa_ssh_key".to_owned()),
+                hostname: Ipv4Addr::new(172, 20, 0, 11),
+                port: 830,
             },
         ],
-        proxy_user: "sherpa".to_string(),
-        server_ipv4: "10.0.0.1".to_string(),
-        lab_id: "abcd1234".to_string(),
+        proxy_jump: "sherpa@10.0.0.1".to_string(),
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SSH_CONFIG_MULTI);

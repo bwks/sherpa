@@ -99,6 +99,7 @@ test-specs/
     image-management-e2e.md
     user-management-e2e.md
     tailscale.md
+    current-user.md
 ```
 
 ---
@@ -220,6 +221,7 @@ Tests that exercise multiple crates together through realistic workflows.
 |------|---------|
 | [vm-release-test-plan.md](integration/vm-release-test-plan.md) | Task checklist for disposable VM release testing, starting with server install/uninstall on bare Ubuntu 26.04. |
 | [tailscale.md](integration/tailscale.md) | Developer verification guide for Tailscale regressions, Docker smoke checks, live enrollment, mixed VM/container acceptance, and cleanup retries. |
+| [current-user.md](integration/current-user.md) | Gated personal Linux VM login, sudo, resume persistence, key rotation on owner redeploy, and refreshed SSH metadata. |
 | `lab-lifecycle-e2e.md` | What to test for the complete lab lifecycle: client sends manifest via WebSocket, server validates and parses, database records are created, networks are provisioned, VMs and containers are created with correct ZTP configs, progress is streamed back to client, inspect returns accurate state, `down` gracefully stops all nodes, `destroy` cleans up all resources (VMs, containers, networks, DB records). Covers the happy path, partial failure during provisioning, destroying a partially-created lab, and mixed VM+container labs. |
 | `image-management-e2e.md` | What to test for image workflows end-to-end: importing a VM image from file, scanning disk for available images, setting a default image version, deleting an image (with and without nodes using it), pulling a container image from registry, and downloading a VM image. Each flow goes from client command through RPC to server service to database state change. |
 | `user-management-e2e.md` | What to test for user workflows end-to-end: creating a user (admin and non-admin), login and token issuance, token validation on subsequent requests, password change, SSH key management (add/remove), user deletion (with and without owned labs), admin permission boundaries (non-admin cannot access admin operations), and the last-admin safety check (cannot delete the only admin). |

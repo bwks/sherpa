@@ -12,6 +12,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
+use crate::auth::context::AuthContext;
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
@@ -1230,12 +1231,8 @@ pub async fn node_redeploy_handler(
     State(state): State<AppState>,
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
+    let auth = auth.into_context();
+    require_redeploy_owner(&auth, &lab_id, &state).await?;
 
     // New labs persist TOML; older JSON manifests remain readable.
     let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(&lab_id);
@@ -2874,6 +2871,22 @@ async fn require_lab_access(
     Ok(())
 }
 
+/// Require current lab ownership for redeploy, without an admin bypass.
+#[tracing::instrument(level = "debug", skip(auth, state))]
+async fn require_redeploy_owner(
+    auth: &AuthContext,
+    lab_id: &str,
+    state: &AppState,
+) -> Result<(), ApiError> {
+    let owner = db::get_lab_owner_username(&state.db, lab_id)
+        .await
+        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
+    if !auth.can_redeploy(&owner) {
+        return Err(ApiError::forbidden("Only the lab owner can redeploy nodes"));
+    }
+    Ok(())
+}
+
 /// Helper to require admin privileges
 fn require_admin_auth(auth: &AuthenticatedUser) -> Result<(), ApiError> {
     if !auth.is_admin {
@@ -2979,7 +2992,8 @@ pub async fn redeploy_node_json(
     Path((lab_id, node_name)): Path<(String, String)>,
     Json(payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
-    require_lab_access(&auth, &lab_id, &state).await?;
+    let auth = auth.into_context();
+    require_redeploy_owner(&auth, &lab_id, &state).await?;
 
     let manifest = payload
         .get("manifest")

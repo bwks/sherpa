@@ -1,25 +1,30 @@
 // Server-side implementation of the redeploy operation for a single node
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use askama::Template;
+use dashmap::DashMap;
 use opentelemetry::KeyValue;
 
+use tokio::sync::Mutex;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::services::ssh_config;
 use crate::services::up::process_manifest_nodes;
 
 use shared::data;
 use shared::data::{NodeState, RedeployRequest, RedeployResponse, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SSH_PORT, TAP_PREFIX,
-    TFTP_DIR, ZTP_DIR,
+    READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
+    SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 
@@ -32,6 +37,10 @@ struct P2pContainerVeth {
     admin_down: bool,
 }
 
+// Redeploy updates shared lab files. Serialize redeploys within each lab so one
+// node's new identity cannot overwrite another node's concurrent update.
+static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
+
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
 #[instrument(skip(state, progress), fields(lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn redeploy_node(
@@ -42,6 +51,20 @@ pub async fn redeploy_node(
     let start_time = Instant::now();
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
+    let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
+    locks.retain(|_, lock| lock.strong_count() > 0);
+    let lab_lock = {
+        let mut entry = locks.entry(lab_id.clone()).or_default();
+        match entry.upgrade() {
+            Some(lock) => lock,
+            None => {
+                let lock = Arc::new(Mutex::new(()));
+                *entry = Arc::downgrade(&lock);
+                lock
+            }
+        }
+    };
+    let _lab_guard = lab_lock.lock().await;
 
     tracing::info!(
         lab_id = %lab_id,
@@ -83,6 +106,13 @@ pub async fn redeploy_node(
     let db_lab = db::get_lab(&db, lab_id)
         .await
         .context(format!("Lab '{}' not found in database", lab_id))?;
+    let requester = db::get_user(&db, &request.username)
+        .await
+        .context("Failed to resolve authenticated redeploy requester")?;
+    ensure!(
+        db::get_user_id(&requester)? == db_lab.user,
+        "Only the lab owner can redeploy nodes"
+    );
 
     let lab_record_id = db::get_lab_id(&db_lab).context("Failed to get lab record ID")?;
 
@@ -105,6 +135,11 @@ pub async fn redeploy_node(
         .first()
         .ok_or_else(|| anyhow!("Node image config not found for node '{}'", node_name))?
         .clone();
+    ensure!(
+        target_node.model == node_image.model,
+        "Redeploy cannot change node model; expected {}",
+        node_image.model
+    );
     let data_interface_count = validate::effective_data_interface_count(
         node_name,
         target_node.data_interface_count,
@@ -128,7 +163,7 @@ pub async fn redeploy_node(
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_file = util::load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file")?;
-    let lab_info: data::LabInfo = lab_file.parse().context("Failed to parse lab info file")?;
+    let mut lab_info: data::LabInfo = lab_file.parse().context("Failed to parse lab info file")?;
 
     let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
     let mgmt_net = data::SherpaNetwork {
@@ -173,6 +208,49 @@ pub async fn redeploy_node(
         let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
         target_node.ipv6_address = Some(addr);
     }
+
+    let personal_account =
+        if manifest.provision_current_user && guest_account::supports_guest_account(&node_image) {
+            guest_account::validate_node(&target_node, &node_image)?;
+            Some(guest_account::resolve_owner(&db, db_lab.user.clone()).await?)
+        } else {
+            None
+        };
+    // Calculate the next SSH config before teardown, preserving every other node's identity.
+    lab_info.set_ssh_username(
+        node_name,
+        personal_account
+            .as_ref()
+            .map(|account| account.username.as_str()),
+    );
+    let ssh_nodes = db::list_nodes_by_lab(&db, lab_record_id.clone())
+        .await
+        .context("Failed to load nodes for SSH configuration")?;
+    let mut ssh_records = Vec::new();
+    for node in ssh_nodes {
+        if let Some(ip) = node.mgmt_ipv4 {
+            ssh_records.push(data::ZtpRecord {
+                node_name: node.name,
+                ipv4_address: ip
+                    .parse()
+                    .context("Invalid saved node management address")?,
+                ipv6_address: None,
+                mac_address: String::new(),
+                config_file: String::new(),
+                ztp_method: data::ZtpMethod::None,
+                ssh_port: SSH_PORT,
+            });
+        }
+    }
+    let ssh_config = ssh_config::build_ssh_config(
+        &ssh_records,
+        &lab_info.ssh_usernames,
+        lab_id,
+        &lab_info.user,
+        state.config.server_ipv4,
+    )
+    .render()
+    .context("Failed to regenerate SSH configuration")?;
 
     // Update node state to Starting
     db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
@@ -640,6 +718,7 @@ pub async fn redeploy_node(
                 &progress,
                 db_node.mgmt_mac.as_deref(),
                 None,
+                personal_account.as_ref(),
             )?;
 
             let _ = progress.send_status(
@@ -962,6 +1041,11 @@ pub async fn redeploy_node(
             bail!("Redeploy not supported for unikernel nodes");
         }
     }
+
+    util::create_file(&format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"), ssh_config)
+        .context("Node redeployed, but failed to save SSH configuration")?;
+    util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())
+        .context("Node redeployed, but failed to save SSH account metadata")?;
 
     let total_time = start_time.elapsed().as_secs();
 

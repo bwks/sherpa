@@ -10,6 +10,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
 use tracing::instrument;
 
+use crate::services::guest_account::{self, GuestAccount};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
 
@@ -500,7 +501,20 @@ pub fn generate_container_ztp(
 /// Generate ZTP configuration for a VM node.
 /// Returns ZTP record, clone disks, disk definitions, MAC address, and QEMU commands.
 #[allow(clippy::too_many_arguments)]
-pub fn generate_vm_ztp(
+#[instrument(
+    level = "debug",
+    skip(
+        node,
+        node_image,
+        sherpa_user,
+        mgmt_net,
+        dns,
+        progress,
+        cert_paths,
+        guest_account
+    )
+)]
+pub(crate) fn generate_vm_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_id: &str,
@@ -514,7 +528,12 @@ pub fn generate_vm_ztp(
     progress: &ProgressSender,
     mgmt_mac: Option<&str>,
     cert_paths: Option<&NodeCertPaths>,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<VmZtpResult> {
+    let guest_account = guest_account.filter(|_| guest_account::supports_guest_account(node_image));
+    if guest_account.is_some() {
+        guest_account::validate_node(node, node_image)?;
+    }
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let hdd_bus = node_image.hdd_bus.clone();
     let cdrom_bus = node_image.cdrom_bus.clone();
@@ -592,6 +611,7 @@ pub fn generate_vm_ztp(
                     &mac_address,
                     progress,
                     cert_paths,
+                    guest_account,
                 )?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
@@ -685,6 +705,7 @@ pub fn generate_vm_ztp(
                     &node_name_with_lab,
                     progress,
                     cert_paths,
+                    guest_account,
                 )?;
                 src_ignition_disk = Some(src_ign);
                 dst_ignition_disk = Some(dst_ign);
@@ -1060,6 +1081,7 @@ fn generate_cloud_init_ztp(
     mac_address: &str,
     progress: &ProgressSender,
     cert_paths: Option<&NodeCertPaths>,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
     let _ = progress.send_status(
         format!("Creating Cloud-Init config for VM: {}", node.name),
@@ -1198,7 +1220,13 @@ fn generate_cloud_init_ztp(
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
-                users: vec![cloud_init_user],
+                users: {
+                    let mut users = vec![cloud_init_user];
+                    if let Some(account) = guest_account {
+                        users.push(guest_account::cloud_init_user(account));
+                    }
+                    users
+                },
                 write_files: cloud_init_write_files,
                 runcmd: cloud_init_runcmd,
                 ..Default::default()
@@ -1440,7 +1468,14 @@ fn generate_cloud_init_ztp(
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: true,
                 ssh_pwauth: true,
-                users: vec![cloud_init_user],
+                packages: guest_account.map(|_| vec!["bash".to_owned(), "sudo".to_owned()]),
+                users: {
+                    let mut users = vec![cloud_init_user];
+                    if let Some(account) = guest_account {
+                        users.push(guest_account::cloud_init_user(account));
+                    }
+                    users
+                },
                 write_files: cloud_init_write_files,
                 runcmd: cloud_init_runcmd,
                 ..Default::default()
@@ -2083,6 +2118,7 @@ fn generate_ignition_ztp(
     node_name_with_lab: &str,
     progress: &ProgressSender,
     cert_paths: Option<&NodeCertPaths>,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<(String, String, String, String)> {
     let _ = progress.send_status(
         format!("Creating Ignition config for VM: {}", node.name),
@@ -2124,7 +2160,9 @@ fn generate_ignition_ztp(
 
     let ignition_user = template::IgnitionUser {
         name: user.username.clone(),
-        password_hash: SHERPA_PASSWORD_HASH.to_owned(),
+        password_hash: Some(SHERPA_PASSWORD_HASH.to_owned()),
+        home_dir: None,
+        shell: None,
         ssh_authorized_keys: authorized_keys,
         groups: vec!["wheel".to_owned(), "docker".to_owned()],
     };
@@ -2237,8 +2275,13 @@ fn generate_ignition_ztp(
                 });
             }
 
+            let mut users = vec![ignition_user];
+            if let Some(account) = guest_account {
+                users.push(guest_account::ignition_user(account));
+                files.push(guest_account::sudoers_file(account));
+            }
             let ignition_config = template::IgnitionConfig::new(
-                vec![ignition_user],
+                users,
                 files,
                 vec![],
                 units,
@@ -3010,6 +3053,8 @@ pub async fn destroy_container_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::tempdir;
+    use tokio::sync::mpsc;
 
     #[test]
     fn test_build_env_profile_script_basic() {
@@ -3245,5 +3290,117 @@ mod tests {
         assert!(xml.find("<boot dev='cdrom'/>").unwrap() < xml.find("<boot dev='hd'/>").unwrap());
         assert_eq!(config.ztp_method, data::ZtpMethod::CloudInit);
         assert!(config.cdrom.is_none());
+    }
+
+    #[test]
+    fn flatcar_sudoers_matches_existing_ignition_provisioning() {
+        let dir = tempdir().unwrap();
+        let root = dir.path().to_str().unwrap();
+        let blank_dir = dir.path().join(SHERPA_BLANK_DISK_DIR);
+        fs::create_dir(&blank_dir).unwrap();
+        // Generation only copies this fixture; no filesystem is mounted or VM started.
+        fs::write(
+            blank_dir.join(SHERPA_BLANK_DISK_EXT4_500MB),
+            b"disk-fixture",
+        )
+        .unwrap();
+        let node = topology::NodeExpanded {
+            name: "vm".to_owned(),
+            model: data::NodeModel::FlatcarLinux,
+            ..Default::default()
+        };
+        let image = data::NodeConfig::get_model(data::NodeModel::FlatcarLinux);
+        let user = data::User {
+            username: SHERPA_USERNAME.to_owned(),
+            password: None,
+            ssh_public_key: data::SshPublicKey {
+                algorithm: data::SshKeyAlgorithms::SshEd25519,
+                key: "legacy-key-fixture".to_owned(),
+                comment: None,
+            },
+            sudo: true,
+        };
+        let account = GuestAccount {
+            username: "alice".to_owned(),
+            ssh_keys: vec!["ssh-ed25519 personal-key-fixture".to_owned()],
+        };
+        let network = data::SherpaNetwork {
+            v4: data::NetworkV4 {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                first: "192.0.2.1".parse().unwrap(),
+                last: "192.0.2.255".parse().unwrap(),
+                boot_server: "192.0.2.2".parse().unwrap(),
+                network: "192.0.2.0".parse().unwrap(),
+                subnet_mask: "255.255.255.0".parse().unwrap(),
+                hostmask: "0.0.0.255".parse().unwrap(),
+                prefix_length: 24,
+            },
+            v6: None,
+        };
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let progress = ProgressSender::new(tx);
+        for personal in [None, Some(&account)] {
+            let (config_path, _, _, _) = generate_ignition_ztp(
+                &node,
+                &image,
+                root,
+                root,
+                &user,
+                &network,
+                "192.0.2.10".parse().unwrap(),
+                "vm-test",
+                &progress,
+                None,
+                personal,
+            )
+            .unwrap();
+            let json: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
+            let files = json["storage"]["files"].as_array().unwrap();
+            let legacy = files
+                .iter()
+                .find(|file| file["path"] == format!("/etc/sudoers.d/{SHERPA_USERNAME}"))
+                .unwrap();
+            assert_eq!(legacy["mode"], 0o440);
+            let legacy_rule = util::base64_decode(
+                legacy["contents"]["source"]
+                    .as_str()
+                    .unwrap()
+                    .strip_prefix("data:;base64,")
+                    .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                legacy_rule,
+                format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL")
+            );
+            assert_eq!(
+                json["passwd"]["users"][0]["groups"],
+                serde_json::json!(["wheel", "docker"])
+            );
+            let personal_file = files
+                .iter()
+                .find(|file| file["path"] == "/etc/sudoers.d/alice");
+            if personal.is_some() {
+                let personal_file = personal_file.unwrap();
+                assert_eq!(personal_file["mode"], legacy["mode"]);
+                assert_eq!(personal_file.get("user"), legacy.get("user"));
+                assert_eq!(personal_file.get("group"), legacy.get("group"));
+                let rule = util::base64_decode(
+                    personal_file["contents"]["source"]
+                        .as_str()
+                        .unwrap()
+                        .strip_prefix("data:;base64,")
+                        .unwrap(),
+                )
+                .unwrap();
+                assert_eq!(rule, "alice ALL=(ALL) NOPASSWD: ALL\n");
+                assert_eq!(json["passwd"]["users"][1]["name"], "alice");
+                assert!(json["passwd"]["users"][1].get("passwordHash").is_none());
+            } else {
+                assert!(personal_file.is_none());
+                assert_eq!(json["passwd"]["users"].as_array().unwrap().len(), 1);
+            }
+        }
     }
 }

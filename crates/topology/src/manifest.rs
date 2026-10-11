@@ -13,6 +13,9 @@ use shared::util::{generate_lab_name, load_file as load_file_util};
 #[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    /// Provision the authenticated lab owner's Linux account on supported VMs.
+    #[serde(default)]
+    pub provision_current_user: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailscaleConfig>,
     pub name: String,
@@ -78,6 +81,7 @@ impl Manifest {
         let mut doc = DocumentMut::new();
 
         doc["name"] = Item::Value(Value::from(self.name.to_string()));
+        doc["provision_current_user"] = Item::Value(Value::from(self.provision_current_user));
         if let Some(table) = doc
             .as_table_mut()
             .get_mut("name")
@@ -142,6 +146,30 @@ impl Manifest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn current_user_flag_round_trip() {
+        let manifest: Manifest =
+            toml::from_str("name='test'\nnodes=[]\nprovision_current_user=true").unwrap();
+        let saved = toml::to_string(&manifest).unwrap();
+        assert_eq!(
+            toml::from_str::<toml::Value>(&saved).unwrap()["provision_current_user"].as_bool(),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn current_user_flag_defaults_false_and_rejects_overrides() {
+        let manifest: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
+        assert!(!manifest.provision_current_user);
+        for input in [
+            "name='test'\nnodes=[]\nprovision_current_user='true'",
+            "name='test'\nnodes=[]\nprovision_username='alice'",
+            "name='test'\nnodes=[{name='vm',model='ubuntu_linux',provision_current_user=true}]",
+        ] {
+            assert!(toml::from_str::<Manifest>(input).is_err());
+        }
+    }
 
     #[test]
     fn lab_level_boot_disk_clone_method_is_rejected() {

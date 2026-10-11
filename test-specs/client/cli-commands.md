@@ -160,9 +160,13 @@
 
 **What to test:**
 - SSH invoked with correct node name and sherpa-ssh-config `[integration]` **P0**
+- Unknown node names fail with a node-not-found error before private-key checks or SSH invocation `[unit]` **P0**
+- When a local manifest exists, unknown nodes are rejected before loading SSH configuration, lab metadata or private keys `[unit]` **P0**
+- Downloaded lab files support SSH without a local manifest; generated Host aliases identify configured nodes `[unit]` **P0**
 - Existing private key permissions are repaired before SSH is invoked `[unit]` **P0**
 - SSH is not invoked when private key permissions cannot be secured `[unit]` **P0**
-- Missing SSH config file handled gracefully `[integration]` **P1**
+- Missing lab metadata or SSH configuration gives actionable `sherpa up` and `sherpa download <lab-id> --force` guidance without inferring remote lab status `[unit]` **P0**
+- Other connection-file read errors preserve the underlying cause `[unit]` **P1**
 - Existing `sherpa ssh <node>` command shape remains unchanged `[unit]` **P0**
 
 **Existing coverage:** Node name qualification unit tests in `cmd/ssh.rs`; CLI parse test for `sherpa ssh <node>`

@@ -8,6 +8,7 @@ use shared::util::{Emoji, term_msg_surround};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
+use super::download::download;
 use super::up::{
     resolve_environment_variables, resolve_startup_scripts, resolve_user_scripts,
     resolve_ztp_configs,
@@ -123,6 +124,10 @@ pub async fn redeploy(
         result.node_name,
         result.total_time_secs
     );
+
+    download(lab_id, true, server_url, config)
+        .await
+        .with_context(|| format!("Node redeployed, but local SSH configuration refresh failed; run sherpa download {lab_id} --force"))?;
 
     Ok(())
 }

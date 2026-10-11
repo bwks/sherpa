@@ -4,6 +4,7 @@ pub mod delete;
 pub mod destroy;
 pub mod down;
 pub mod download;
+pub(crate) mod guest_account;
 pub mod impairment;
 pub mod import;
 pub mod inspect;
@@ -13,6 +14,7 @@ pub mod progress;
 pub mod redeploy;
 pub mod resume;
 pub mod scanner;
+pub(crate) mod ssh_config;
 pub mod up;
 
 pub(crate) mod tailscale;

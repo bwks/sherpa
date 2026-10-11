@@ -319,7 +319,7 @@ fn build_operations() -> Vec<OperationDef> {
         // Node operations
         OperationDef {
             name: "node.redeploy".to_string(),
-            description: "Destroy and recreate a node with fresh configuration".to_string(),
+            description: "Destroy and recreate a node with fresh configuration; only the current lab owner may redeploy".to_string(),
             category: Category::Node,
             auth: AuthRequirement::Authenticated,
             streaming: true,

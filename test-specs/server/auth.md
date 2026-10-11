@@ -62,3 +62,22 @@
 - WebSocket RPC requests validated against auth context `[integration]` **P0**
 - Admin-only RPC methods reject non-admin callers `[integration]` **P0**
 - Auth token passed in RPC request parameters `[integration]` **P1**
+
+## Redeploy ownership
+
+- Only the current database lab owner may redeploy; admins have no bypass `[unit]` `[integration]` **P0**
+- Non-owner regular users and admins are denied before node state changes or teardown across WebSocket, JSON/SSE and cookie routes `[integration]` **P0**
+- Authorization uses database ownership; caller-supplied usernames are ignored `[integration]` **P0**
+- An admin who owns the lab may redeploy; other admin operations retain their access rules `[unit]` `[integration]` **P0**
+
+The ignored `redeploy_only_allows_current_owner_on_all_transports` test in
+`lab_lifecycle_tests.rs` uses the disposable test database and local API sockets.
+It creates database metadata only and does not start or destroy lab resources.
+
+Start the disposable database with `SHERPA_DEV_DB_USER=sherpa`, matching the
+account used by the DB client, and supply its test password to the test runner:
+
+```sh
+SHERPA_DEV_DB_USER=sherpa dev/testdb start
+SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_owner_on_all_transports -- --ignored --nocapture
+```
