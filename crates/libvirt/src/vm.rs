@@ -1,8 +1,10 @@
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
+use std::fs::{self, File};
+use std::io::Read;
 use std::path::Path;
+use std::time::Instant;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
+use askama::Template;
 use tracing::instrument;
 
 use virt::connect::Connect;
@@ -13,10 +15,28 @@ use virt::stream::Stream;
 
 use shared::konst::SHERPA_STORAGE_POOL;
 
+#[derive(Template)]
+#[template(path = "copy.xml", ext = "xml", escape = "xml")]
+struct CopyVolume<'a> {
+    name: &'a str,
+    destination: &'a str,
+    format: &'a str,
+}
+
 /// Clone a disk image.
 #[instrument(level = "debug", skip(conn))]
 pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> {
+    let start = Instant::now();
+    ensure!(
+        fs::symlink_metadata(dst_path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound),
+        "Disk destination already exists or cannot be inspected: {dst_path}"
+    );
+    let mut src_file = File::open(src_path).context("Cannot open disk source")?;
+    let file_size = src_file.metadata()?.len();
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
+    pool.refresh(0)
+        .context("Cannot refresh storage pool before copy")?;
 
     let file_path = Path::new(dst_path);
     let file_name = file_path
@@ -31,6 +51,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
         .ok_or_else(|| anyhow::anyhow!("Invalid file extension"))?;
 
     let format_type = match file_extension.to_lowercase().as_str() {
+        "raw" => "raw",
         "iso" => "raw",
         "json" => "raw",
         "ign" => "raw",
@@ -45,52 +66,57 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
         }
     };
 
-    let vol_xml = format!(
-        r#"<volume>
-            <name>{file_name}</name>
-            <allocation>0</allocation>
-            <capacity>0</capacity>
-            <target>
-                <path>{dst_path}</path>
-                <format type='{format_type}'/>
-                <permissions>
-                    <mode>0644</mode>
-                </permissions>
-            </target>
-        </volume>"#
-    );
+    let vol_xml = CopyVolume {
+        name: file_name,
+        destination: dst_path,
+        format: format_type,
+    }
+    .render()?;
 
     // Create the new volume using the Connect struct
     let new_vol = StorageVol::create_xml(&pool, &vol_xml, 0)?;
 
-    // Open the source file
-    let mut src_file = File::open(src_path)?;
-
-    // Get the file size
-    let file_size = src_file.seek(SeekFrom::End(0))?;
-    src_file.seek(SeekFrom::Start(0))?;
-
-    // Create a new stream
-    let stream = Stream::new(conn, 0)?;
-
-    // Start the upload
-    new_vol.upload(&stream, 0, file_size, 0)?;
-
-    // Define chunk size (e.g., 25 MB)
-    const CHUNK_SIZE: usize = 25 * 1024 * 1024;
-    let mut buffer = vec![0; CHUNK_SIZE];
-
-    // Read and send data in chunks
-    loop {
-        let bytes_read = src_file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
+    let result = (|| -> Result<()> {
+        let stream = Stream::new(conn, 0)?;
+        let upload = (|| -> Result<()> {
+            new_vol.upload(&stream, 0, file_size, 0)?;
+            const CHUNK_SIZE: usize = 25 * 1024 * 1024;
+            let mut buffer = vec![0; CHUNK_SIZE];
+            loop {
+                let bytes_read = src_file.read(&mut buffer)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                let mut sent = 0;
+                while sent < bytes_read {
+                    let count = stream.send(&buffer[sent..bytes_read])?;
+                    ensure!(count > 0, "Disk upload stream stopped accepting bytes");
+                    sent += count;
+                }
+            }
+            Ok(())
+        })();
+        match upload {
+            Ok(()) => stream.finish().context("Cannot finish disk upload"),
+            Err(error) => {
+                let _ = stream.abort();
+                Err(error)
+            }
         }
-        stream.send(&buffer[..bytes_read])?;
+    })();
+    if let Err(error) = result {
+        new_vol.delete(0).with_context(|| {
+            format!(
+                "Disk upload failed ({error:#}); failed to remove newly created volume {dst_path}"
+            )
+        })?;
+        return Err(error).context("Disk copy failed; newly created volume removed");
     }
-
-    // Finish the stream
-    stream.finish()?;
+    tracing::info!(
+        disk_creation_seconds = start.elapsed().as_secs_f64(),
+        method = "copy",
+        "Disk provisioned"
+    );
 
     Ok(())
 }

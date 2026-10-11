@@ -138,35 +138,9 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         "Node should reference the config we created"
     );
 
-    // Attempt to delete the config
-    // NOTE: The database schema defines REFERENCE ON DELETE REJECT, but this
-    // constraint may not be enforced in all SurrealDB versions. This test
-    // documents the actual behavior rather than asserting expected behavior.
     let result = delete_node_image(&db, config_id.clone()).await;
-
-    // Document the actual behavior
-    if let Err(err) = result {
-        // Constraint enforced - deletion failed as expected
-        println!("INFO: Config deletion failed as expected: {}", err);
-        let err_str = err.to_string();
-
-        // The error is wrapped by our context message. The underlying SurrealDB
-        // error (ON DELETE REJECT) is present in the error chain.
-        let has_expected_error = err_str.contains("Failed to delete node_image")
-            || err_str.contains("constraint")
-            || err_str.contains("referenced")
-            || err_str.contains("REJECT")
-            || err_str.contains("Cannot delete");
-
-        assert!(
-            has_expected_error,
-            "Error should indicate deletion failure, got: {}",
-            err_str
-        );
-    } else {
-        // Constraint NOT enforced - deletion succeeded despite reference
-        println!("INFO: Config deletion succeeded despite node reference (SurrealDB limitation)");
-    }
+    assert!(result.is_err(), "Referenced images must never be deleted");
+    assert!(get_node_image_by_id(&db, config_id).await?.is_some());
 
     teardown_db(&db).await?;
     Ok(())

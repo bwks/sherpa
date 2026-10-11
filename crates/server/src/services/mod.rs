@@ -16,3 +16,5 @@ pub mod scanner;
 pub mod up;
 
 pub(crate) mod tailscale;
+
+pub(crate) mod image_lifecycle;

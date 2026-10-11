@@ -312,11 +312,11 @@ pub(crate) async fn cleanup_lab_metadata(
     };
     if errors
         .iter()
-        .any(|error| error.resource_type == "tailscale")
+        .any(|error| matches!(error.resource_type.as_str(), "tailscale" | "vm" | "disk"))
     {
-        tracing::warn!(lab_id = %lab_id, "Retaining lab ownership and saved configuration after Tailscale cleanup failure");
+        tracing::warn!(lab_id = %lab_id, "Retaining lab ownership and saved configuration after resource cleanup failure");
         send_status(
-            "Tailscale cleanup failed; lab ownership and saved configuration retained for a cleanup retry."
+            "Resource cleanup failed; lab ownership and saved configuration retained for a cleanup retry."
                 .to_string(),
             StatusKind::Info,
         );
@@ -339,6 +339,10 @@ pub(crate) async fn cleanup_lab_metadata(
             errors.push(DestroyError::new("database", lab_id, format!("{:?}", e)));
             tracing::error!(lab_id = %lab_id, error = ?e, "Database cleanup failed");
         }
+    }
+
+    if !summary.database_records_deleted {
+        return;
     }
 
     tracing::info!(lab_id = %lab_id, lab_dir = %lab_dir, "Deleting lab directory");
@@ -504,18 +508,16 @@ pub(crate) fn destroy_vms_and_disks(
             continue;
         }
 
-        let is_active = domain.is_active().unwrap_or(false);
-
-        // UEFI domains will have an NVRAM file that must be deleted.
-        let result = domain
-            .undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)
-            .context("Failed to undefine domain")
-            .and_then(|_| {
-                if is_active {
-                    domain.destroy().context("Failed to destroy domain")?;
-                }
-                Ok(())
-            });
+        // Stop before undefining so a failed stop remains discoverable on retry.
+        let result = (|| -> Result<()> {
+            if domain.is_active().context("Cannot determine VM state")? {
+                domain.destroy().context("Failed to destroy domain")?;
+            }
+            domain
+                .undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)
+                .context("Failed to undefine domain")?;
+            Ok(())
+        })();
 
         match result {
             Ok(_) => {
@@ -530,11 +532,18 @@ pub(crate) fn destroy_vms_and_disks(
         }
     }
 
+    if errors.iter().any(|error| error.resource_type == "vm") {
+        return Ok(());
+    }
+
     // Delete all disks belonging to this lab
 
     let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
         format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
     )?;
+    storage_pool
+        .refresh(0)
+        .context("Cannot refresh storage pool before disk cleanup")?;
     let pool_disks = storage_pool
         .list_volumes()
         .context("Failed to list storage volumes")?;
@@ -966,5 +975,50 @@ mod tests {
     #[tokio::test]
     async fn failed_identity_volume_removal_retains_metadata_until_retry() {
         assert_gateway_cleanup_can_be_retried(false, true).await;
+    }
+    #[tokio::test]
+    async fn vm_and_disk_cleanup_failures_retain_metadata_until_retry() {
+        for resource_type in ["vm", "disk"] {
+            let root = tempdir().unwrap();
+            let lab_dir = root.path().join("lab");
+            fs::create_dir(&lab_dir).unwrap();
+            fs::write(lab_dir.join(LAB_FILE_NAME), "saved metadata").unwrap();
+            let database_deleted = AtomicBool::new(false);
+            let mut summary = DestroySummary::default();
+            let mut errors = vec![DestroyError::new(
+                resource_type,
+                "resource",
+                "cleanup failed",
+            )];
+            cleanup_lab_metadata(
+                "lab",
+                lab_dir.to_str().unwrap(),
+                async {
+                    database_deleted.store(true, Ordering::SeqCst);
+                    Ok(())
+                },
+                &mut summary,
+                &mut errors,
+                None,
+            )
+            .await;
+            assert!(!database_deleted.load(Ordering::SeqCst));
+            assert!(lab_dir.join(LAB_FILE_NAME).exists());
+            errors.clear();
+            cleanup_lab_metadata(
+                "lab",
+                lab_dir.to_str().unwrap(),
+                async {
+                    database_deleted.store(true, Ordering::SeqCst);
+                    Ok(())
+                },
+                &mut summary,
+                &mut errors,
+                None,
+            )
+            .await;
+            assert!(database_deleted.load(Ordering::SeqCst));
+            assert!(!lab_dir.exists());
+        }
     }
 }

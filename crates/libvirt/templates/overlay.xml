@@ -1,0 +1,14 @@
+<volume type='file'>
+  <name>{{ name }}</name>
+  <capacity unit='bytes'>{{ capacity }}</capacity>
+  <allocation unit='bytes'>0</allocation>
+  <target>
+    <path>{{ destination }}</path>
+    <format type='qcow2'/>
+    <permissions><mode>0644</mode></permissions>
+  </target>
+  <backingStore>
+    <path>{{ backing }}</path>
+    <format type='qcow2'/>
+  </backingStore>
+</volume>

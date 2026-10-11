@@ -7,6 +7,24 @@ use serde_derive::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+/// Provisioning policy for VM boot disks. VM boot disks default to overlays.
+#[derive(Copy, Clone, Debug, Deserialize, Default, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum DiskImageCloneMethod {
+    Copy,
+    #[default]
+    Overlay,
+}
+
+impl fmt::Display for DiskImageCloneMethod {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Copy => "copy",
+            Self::Overlay => "overlay",
+        })
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiskDrivers {
@@ -211,6 +229,14 @@ impl DiskTargets {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vm_boot_disk_method_defaults_to_overlay() {
+        assert_eq!(
+            DiskImageCloneMethod::default(),
+            DiskImageCloneMethod::Overlay
+        );
+    }
 
     #[test]
     fn test_disk_drivers_display() {

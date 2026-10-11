@@ -15,6 +15,7 @@ use shared::util::{copy_file, create_dir, file_exists, image_filename};
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use crate::services::image_lifecycle::lock_image;
 use crate::services::progress::ProgressSender;
 
 /// Import an image to the server and track it in the database.
@@ -29,6 +30,7 @@ pub async fn import_image(
 ) -> Result<ImportResponse> {
     let start = Instant::now();
 
+    let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
 
@@ -583,6 +585,7 @@ pub async fn set_default_image(
     request: SetDefaultImageRequest,
     state: &AppState,
 ) -> Result<SetDefaultImageResponse> {
+    let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
 
@@ -643,6 +646,7 @@ pub async fn download_image(
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<ImportResponse> {
+    let _image_guard = lock_image(request.model, &request.version).await;
     let config = NodeConfig::get_model(request.model);
     let kind = config.kind.clone();
 

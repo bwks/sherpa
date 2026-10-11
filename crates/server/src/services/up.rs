@@ -13,9 +13,11 @@ use serde_json;
 use opentelemetry::KeyValue;
 
 use tracing::instrument;
+use virt::storage_pool::StoragePool;
 
 use crate::daemon::state::AppState;
 use crate::services::clean;
+use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::tailscale;
@@ -31,7 +33,8 @@ use shared::konst::{
     SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
     SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
+    ZTP_DIR,
 };
 use shared::util;
 
@@ -141,7 +144,10 @@ fn process_manifest_bridges(
 }
 
 /// Process manifest nodes into expanded format with indices assigned
-fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
+#[instrument(level = "debug", skip(manifest_nodes))]
+pub(crate) fn process_manifest_nodes(
+    manifest_nodes: &[topology::Node],
+) -> Vec<topology::NodeExpanded> {
     manifest_nodes
         .iter()
         .enumerate()
@@ -153,6 +159,7 @@ fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::No
             memory: node.memory,
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
+            boot_disk_clone_method: node.boot_disk_clone_method,
             data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
             ipv6_address: node.ipv6_address,
@@ -392,6 +399,42 @@ pub async fn up_lab(
     .context("Manifest validation failed: version/image validation")?;
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes);
+    // Acquire in a stable order to avoid deadlocks between overlapping labs.
+    // Hold until all provisioning and rollback has completed, so deletion cannot
+    // race between validation, database references and overlay creation.
+    let mut selected_images = nodes_expanded
+        .iter()
+        .map(|node| get_node_image(&node.model, node.version.as_deref(), &node_images))
+        .collect::<Result<Vec<_>>>()?;
+    selected_images.sort_by_key(|image| (image.model.to_string(), image.version.clone()));
+    selected_images.dedup_by(|a, b| a.model == b.model && a.version == b.version);
+    let mut image_guards = Vec::new();
+    for image in &selected_images {
+        image_guards.push(lease_image(image.model, &image.version).await);
+        let current = db::get_node_image_by_model_kind_version(
+            &db,
+            &image.model,
+            &image.kind,
+            &image.version,
+        )
+        .await?
+        .ok_or_else(|| anyhow!("Selected image was deleted before provisioning"))?;
+        anyhow::ensure!(
+            current.id == image.id,
+            "Selected image changed before provisioning; retry startup"
+        );
+    }
+    for node in &nodes_expanded {
+        let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+        validate_disk_method(
+            node.boot_disk_clone_method,
+            &image,
+            &config.images_dir,
+            node.boot_disk_size,
+        )
+        .with_context(|| format!("Disk provisioning validation failed for node {}", node.name))?;
+    }
+
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
         .context("Failed to process manifest links")?;
     let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)
@@ -462,6 +505,28 @@ pub async fn up_lab(
     let _ = progress.send_status("Manifest validation complete".to_string(), StatusKind::Done);
     tracing::info!(lab_id = %lab_id, "Manifest validation completed successfully");
     phases_completed.push("ManifestValidation".to_string());
+
+    // Startup rollback must never remove resources from a previous attempt.
+    if selected_images
+        .iter()
+        .any(|image| image.kind != data::NodeKind::Container)
+    {
+        let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
+        pool.refresh(0)?;
+        anyhow::ensure!(
+            !pool
+                .list_volumes()?
+                .iter()
+                .any(|name| name.contains(lab_id)),
+            "Existing disks for this lab ID must be cleaned before startup"
+        );
+        for domain in qemu_conn.list_all_domains(0)? {
+            anyhow::ensure!(
+                !domain.get_name()?.contains(lab_id),
+                "Existing VM for this lab ID must be cleaned before startup"
+            );
+        }
+    }
 
     // Wrap resource-creating phases in a block so we can auto-clean on failure.
     // Phases 1-2 (Setup, ManifestValidation) don't create resources, so failures
@@ -2023,7 +2088,14 @@ pub async fn up_lab(
         // ========================================================================
         let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string());
 
-        node_ops::clone_node_disks(qemu_conn.clone(), clone_disks, lab_id, &progress).await?;
+        node_ops::clone_node_disks(
+            qemu_conn.clone(),
+            clone_disks,
+            lab_id,
+            &progress,
+            image_guards.clone(),
+        )
+        .await?;
 
         phases_completed.push("DiskCloning".to_string());
 
@@ -2881,5 +2953,79 @@ pub async fn up_lab(
 
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn omitted_clone_method_is_preserved_during_expansion() {
+        let expanded = process_manifest_nodes(&[topology::Node {
+            model: data::NodeModel::UbuntuLinux,
+            ..Default::default()
+        }]);
+        assert!(
+            serde_json::to_value(expanded[0].boot_disk_clone_method)
+                .unwrap()
+                .is_null()
+        );
+    }
+
+    #[test]
+    fn node_expansion_preserves_clone_method_options() {
+        let nodes = vec![
+            topology::Node {
+                name: "default-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "copy-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Copy),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "overlay-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "container".into(),
+                model: data::NodeModel::GenericContainer,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "unikernel".into(),
+                model: data::NodeModel::GenericUnikernel,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "unsupported-overlay".into(),
+                model: data::NodeModel::GenericContainer,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                ..Default::default()
+            },
+        ];
+        let expanded = process_manifest_nodes(&nodes);
+        assert_eq!(expanded[0].boot_disk_clone_method, None);
+        assert_eq!(
+            expanded[1].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Copy)
+        );
+        assert_eq!(
+            expanded[2].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Overlay)
+        );
+        assert_eq!(expanded[3].boot_disk_clone_method, None);
+        assert_eq!(expanded[4].boot_disk_clone_method, None);
+        // Preserve an explicit unsupported request so validation rejects it.
+        assert_eq!(
+            expanded[5].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Overlay)
+        );
     }
 }

@@ -1,10 +1,12 @@
 use anyhow::{Result, anyhow};
+use tracing::instrument;
 
 use shared::data;
 use shared::konst::BRIDGE_PREFIX;
 use shared::util;
 
 /// Process manifest nodes into expanded format with indices assigned
+#[instrument(level = "debug", skip(manifest_nodes))]
 pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology::NodeExpanded> {
     manifest_nodes
         .iter()
@@ -18,6 +20,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             memory: node.memory,
             cpu_count: node.cpu_count,
             boot_disk_size: node.boot_disk_size,
+            boot_disk_clone_method: node.boot_disk_clone_method,
             data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
             ipv6_address: node.ipv6_address,
@@ -156,6 +159,62 @@ mod tests {
     use shared::data::NodeModel;
 
     // ============================================================================
+
+    #[test]
+    fn node_expansion_preserves_clone_method_options() {
+        let nodes = vec![
+            topology::Node {
+                name: "default-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "copy-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Copy),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "overlay-vm".into(),
+                model: data::NodeModel::UbuntuLinux,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "container".into(),
+                model: data::NodeModel::GenericContainer,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "unikernel".into(),
+                model: data::NodeModel::GenericUnikernel,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "unsupported-overlay".into(),
+                model: data::NodeModel::GenericContainer,
+                boot_disk_clone_method: Some(data::DiskImageCloneMethod::Overlay),
+                ..Default::default()
+            },
+        ];
+        let expanded = process_manifest_nodes(&nodes);
+        assert_eq!(expanded[0].boot_disk_clone_method, None);
+        assert_eq!(
+            expanded[1].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Copy)
+        );
+        assert_eq!(
+            expanded[2].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Overlay)
+        );
+        assert_eq!(expanded[3].boot_disk_clone_method, None);
+        assert_eq!(expanded[4].boot_disk_clone_method, None);
+        // Preserve an explicit unsupported request so validation rejects it.
+        assert_eq!(
+            expanded[5].boot_disk_clone_method,
+            Some(data::DiskImageCloneMethod::Overlay)
+        );
+    }
     // process_manifest_nodes
     // ============================================================================
 

@@ -1,0 +1,10 @@
+<volume>
+  <name>{{ name }}</name>
+  <allocation>0</allocation>
+  <capacity>0</capacity>
+  <target>
+    <path>{{ destination }}</path>
+    <format type='{{ format }}'/>
+    <permissions><mode>0644</mode></permissions>
+  </target>
+</volume>
