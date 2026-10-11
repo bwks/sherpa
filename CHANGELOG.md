@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.83] - 2026-10-11
+
+### Features
+
+- Provision VM boot disks with QCOW2 overlays by @bwks ([3b05975](https://github.com/bwks/sherpa/commit/3b05975777f344168dc965840d852b9b21ca0d9f))
+
+### Miscellaneous
+
+- Merge pull request #292 from bwks/v0.3.83
+
+feat: default VM boot disks to QCOW2 overlays (v0.3.83) by @bwks in [#292](https://github.com/bwks/sherpa/pull/292) ([5cd0f4a](https://github.com/bwks/sherpa/commit/5cd0f4a36c931465371dc42591b1d9c7927b871c))
+- Merge pull request #291 from bwks/changelog/v0.3.82
+
+chore(release): update changelog for v0.3.82 by @github-actions[bot] in [#291](https://github.com/bwks/sherpa/pull/291) ([5c5c3ec](https://github.com/bwks/sherpa/commit/5c5c3ecab06cacece90465cc890e2b8ee0c944a5))
 ## [0.3.82] - 2026-10-10
 
 ### Features
