@@ -18,7 +18,7 @@ The server implementation streams image import progress over REST SSE and WebSoc
 - `crates/server/src/api/router.rs` registers `POST /api/v1/images/import` to `import_image_json`.
 - `crates/server/src/api/websocket/handler.rs` includes `image.import` in the streaming RPC method list.
 - `crates/server/src/api/websocket/rpc.rs` dispatches `image.import` through `handle_streaming_rpc_request` and uses `handle_image_import_streaming`.
-- `docs/API.md` was updated to note the mismatch instead of hiding it.
+- `docs/architecture/API.md` was updated to note the mismatch instead of hiding it.
 
 ## Goals
 
@@ -82,7 +82,7 @@ Reasoning:
 
 ### Phase 4: Update docs
 
-- Remove any mismatch language from `docs/API.md` and `docs/SERVER.md` after implementation.
+- Remove any mismatch language from `docs/architecture/API.md` and `docs/architecture/SERVER.md` after implementation.
 - Document `image.import` as a normal streaming operation.
 
 ## Testing plan

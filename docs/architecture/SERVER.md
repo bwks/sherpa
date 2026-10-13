@@ -1004,7 +1004,7 @@ See [`OTEL.md`](OTEL.md) for collector configuration and exported metric names.
 
 ## Known architectural seams
 
-Open implementation seams (handler-driven auth, inconsistent service authorization, spec/streaming parity, in-memory jobs, name-based resource cleanup, blocking libvirt calls) each have a proposal in [`prds/`](prds/).
+Open implementation seams (handler-driven auth, inconsistent service authorization, spec/streaming parity, in-memory jobs, name-based resource cleanup, blocking libvirt calls) each have a proposal in [`../prds/`](../prds/).
 
 ## Source map
 
