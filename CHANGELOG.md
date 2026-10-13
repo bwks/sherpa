@@ -2,6 +2,54 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.87] - 2026-10-13
+
+### Documentation
+
+- Remove CURRENT_USER.md, now covered by sherpa-docs [skip ci] by @bwks ([b0b56b6](https://github.com/bwks/sherpa/commit/b0b56b6d3cfc1fa96c9cac4f629ae024f271d4d6))
+- Remove MANIFEST.md, now covered by sherpa-docs [skip ci] by @bwks ([f48efdf](https://github.com/bwks/sherpa/commit/f48efdf7a9fbf9b9b94258636642966ce1a3fcef))
+- Use a placeholder password in the API login example [skip ci] by @bwks ([d7d42ff](https://github.com/bwks/sherpa/commit/d7d42ff5938cb49af07ec9a68999380843c783b5))
+- Add docs/architecture for application architecture [skip ci] by @bwks ([820b27c](https://github.com/bwks/sherpa/commit/820b27c1a5642f7c797fafb14b83cc818df55f09))
+
+### Miscellaneous
+
+- Merge pull request #306 from bwks/chore/tailnet-docs-link-and-version-bump
+
+chore: bump to v0.3.87 and point Tailscale warnings at the docs site by @bwks in [#306](https://github.com/bwks/sherpa/pull/306) ([1af027a](https://github.com/bwks/sherpa/commit/1af027a605a8bc1aa9d04ca924e3b8f6fbc2040a))
+- Merge origin/main into chore/tailnet-docs-link-and-version-bump
+
+Resolve the docs/README.md conflict: keep main's removal of the
+CURRENT_USER.md row and this branch's updated TAILNET.md row.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com> by @bwks ([612d516](https://github.com/bwks/sherpa/commit/612d51681c522b68f72739f64fd3e52076887bc9))
+- Merge pull request #305 from bwks/docs/remove-current-user-md
+
+docs: remove CURRENT_USER.md, now covered by sherpa-docs by @bwks in [#305](https://github.com/bwks/sherpa/pull/305) ([4b7ba13](https://github.com/bwks/sherpa/commit/4b7ba13b3f3ae79134d552ccb0ab08eaaa2257cd))
+- Bump to v0.3.87 and point Tailscale warnings at the docs site by @bwks ([0d69059](https://github.com/bwks/sherpa/commit/0d69059a2c36182e23f4382b4aa3a6640d3ee5a3))
+- Merge pull request #304 from bwks/docs/remove-manifest-md
+
+docs: remove MANIFEST.md, now covered by sherpa-docs by @bwks in [#304](https://github.com/bwks/sherpa/pull/304) ([1bd86ac](https://github.com/bwks/sherpa/commit/1bd86acaeededa4aba70778498f558c6d401ece7))
+- Merge pull request #303 from bwks/docs/api-placeholder-password
+
+docs: use a placeholder password in the API login example by @bwks in [#303](https://github.com/bwks/sherpa/pull/303) ([fbdcbfa](https://github.com/bwks/sherpa/commit/fbdcbfa5754ee1904a43d1eb07f54aca898d682f))
+- Merge pull request #302 from bwks/docs/architecture-folder
+
+docs: add docs/architecture for application architecture by @bwks in [#302](https://github.com/bwks/sherpa/pull/302) ([071be4a](https://github.com/bwks/sherpa/commit/071be4aa4049949ad094a2fb5c2eb7382aea6c94))
+- Merge pull request #299 from bwks/chore/remove-stale-docs
+
+chore: remove stale documentation and unreferenced scripts by @bwks in [#299](https://github.com/bwks/sherpa/pull/299) ([da9f4a1](https://github.com/bwks/sherpa/commit/da9f4a149a4fe8668af50fc9c43e9284eb2e2cd6))
+- Merge origin/main; restore test-specs [skip ci]
+
+Keep the per-crate test specifications: they still track test goals that
+have no coverage yet. Resolve the modify/delete conflict on
+test-specs/topology/manifest-parsing.md by taking main's version.
+
+Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_017FkqoYN2ywnhencWnEpBSw by @bwks ([c0e0329](https://github.com/bwks/sherpa/commit/c0e0329ae4bccf3cd8db55024d45de60736b29a3))
+- Remove stale documentation and unreferenced scripts by @bwks ([324a232](https://github.com/bwks/sherpa/commit/324a232911b92e9881546ec33c7846afb5cc1a52))
+- Merge pull request #300 from bwks/changelog/v0.3.86
+
+chore(release): update changelog for v0.3.86 by @github-actions[bot] in [#300](https://github.com/bwks/sherpa/pull/300) ([b9dbc55](https://github.com/bwks/sherpa/commit/b9dbc556b503f38dfeee390d0cc0de13f44e7f70))
 ## [0.3.86] - 2026-10-13
 
 ### Features
