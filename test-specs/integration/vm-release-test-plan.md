@@ -229,8 +229,6 @@ archives.
 
 ## Phase 6 — Later coverage using the same harness
 
-Resume from the [next-session handoff](../../dev/release-test/NEXT-SESSION.md).
-
 - [x] Upgrade from the previous release and verify persisted data and settings.
 - [ ] Container lab creation, inspection, shutdown, resume and destruction.
 - [ ] Nested VM lab creation, inspection, shutdown, resume and destruction.
@@ -280,8 +278,6 @@ and all 45 local harness/guest/fault/verifier regression checks passed.
   automated Ubuntu 26.04 workflow and distinguish supplementary BATS coverage.
 - [Existing integration VM instructions](HOW-TO-RUN.md): use a development image
   with dependencies already installed.
-- [Existing integration plan](../../docs/integration-test-plan.md).
-- [Lab lifecycle specification](lab-lifecycle-e2e.md).
 - [Tailscale verification guide](tailscale.md).
 
 Reconcile the remaining service integration instructions as their coverage is

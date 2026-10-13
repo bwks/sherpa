@@ -1002,16 +1002,9 @@ Important spans/metrics are created at these levels:
 
 See [`OTEL.md`](OTEL.md) for collector configuration and exported metric names.
 
-## Current architectural rough edges
+## Known architectural seams
 
-These are not documentation features; they are real implementation seams to keep in mind when modifying the server.
-
-1. **Auth is handler-driven, not route-group driven.** The route table alone does not tell you if a route is protected. Check handler signatures and `require_admin_auth` calls.
-2. **Service authorization is inconsistent.** Some services validate ownership internally; others rely on handlers/RPC dispatchers. New work should move toward a consistent verified-auth-context pattern.
-3. **The generated API spec and implementation disagree on `image.import` streaming.** The implementation streams it; the registry does not mark it streaming.
-4. **`pending_jobs` is in-memory only.** HTML progress jobs do not survive process restart.
-5. **Resource cleanup depends heavily on naming conventions.** Runtime resources must include `lab_id` consistently or destroy/clean paths may miss them.
-6. **libvirt calls are blocking.** Code that performs broad libvirt scans should use blocking-safe patterns like the scanner does.
+Open implementation seams (handler-driven auth, inconsistent service authorization, spec/streaming parity, in-memory jobs, name-based resource cleanup, blocking libvirt calls) each have a proposal in [`prds/`](prds/).
 
 ## Source map
 

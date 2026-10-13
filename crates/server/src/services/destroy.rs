@@ -42,10 +42,7 @@ use crate::services::progress::ProgressSender;
 /// tracking successes and failures separately. Retain ownership and saved
 /// configuration if Tailscale cleanup fails so the owner can retry destruction.
 ///
-/// TODO: Currently accepts username without authentication. This assumes a trusted
-/// environment where the client can be trusted to send correct username. In production,
-/// this should be replaced with proper authentication (JWT, session, etc.) where the
-/// username is extracted from a verified token rather than client-provided param.
+/// Callers populate `request.username` from the verified auth token.
 #[instrument(skip(state, progress), fields(lab_id = %request.lab_id))]
 pub async fn destroy_lab(
     request: DestroyRequest,
