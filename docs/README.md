@@ -16,7 +16,6 @@ Two kinds of documentation exist for Sherpa.
 | [`architecture/`](architecture/README.md) | Server internals, API transports, P2P networking, observability. |
 | [`prds/`](prds/) | Proposals for open server architecture work. |
 | [`TAILNET.md`](TAILNET.md) | Redirect stub to the docs site. Released versions link here from warnings, do not delete. |
-| [`README-IPV6.md`](README-IPV6.md) | IPv6 behavior and configuration. |
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 notes. |
 | [`UNIKERNEL-IMAGES.md`](UNIKERNEL-IMAGES.md) | Unikernel image notes. |
 
