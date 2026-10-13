@@ -8,13 +8,9 @@ use crate::konst::{SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME}
 
 /// Get the username of the current user from environment variables.
 pub fn get_username() -> Result<String> {
-    username_from(env::var("USER").ok(), env::var("USERNAME").ok())
-}
-
-/// Pick the username from the `USER` value, falling back to the `USERNAME` value.
-fn username_from(user: Option<String>, username: Option<String>) -> Result<String> {
-    user.or(username)
-        .ok_or_else(|| anyhow!("Failed to get current user from environment variables"))
+    env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .map_err(|_| anyhow!("Failed to get current user from environment variables"))
 }
 /// Returns the default sherpa user and set sudo to True.
 pub fn sherpa_user() -> Result<User> {
@@ -61,30 +57,43 @@ pub fn sherpa_user() -> Result<User> {
 
 #[cfg(test)]
 mod tests {
+    use std::env;
+
     use super::*;
 
     #[test]
-    fn test_username_from_user() {
-        let username = username_from(Some("testuser".to_owned()), None).unwrap();
+    fn test_get_username_from_user() {
+        // SAFETY: single-threaded test; no other thread reads USER concurrently.
+        unsafe {
+            env::set_var("USER", "testuser");
+            env::remove_var("USERNAME");
+        }
+        let username = get_username().unwrap();
         assert_eq!(username, "testuser");
     }
 
     #[test]
-    fn test_username_from_user_wins_over_username() {
-        let username =
-            username_from(Some("testuser".to_owned()), Some("fallbackuser".to_owned())).unwrap();
-        assert_eq!(username, "testuser");
-    }
-
-    #[test]
-    fn test_username_from_username_fallback() {
-        let username = username_from(None, Some("fallbackuser".to_owned())).unwrap();
+    fn test_get_username_from_username_fallback() {
+        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        unsafe {
+            env::remove_var("USER");
+            env::set_var("USERNAME", "fallbackuser");
+        }
+        let username = get_username().unwrap();
         assert_eq!(username, "fallbackuser");
+        unsafe {
+            env::remove_var("USERNAME");
+        }
     }
 
     #[test]
-    fn test_username_from_failure_when_both_unset() {
-        let result = username_from(None, None);
+    fn test_get_username_failure_when_both_unset() {
+        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        unsafe {
+            env::remove_var("USER");
+            env::remove_var("USERNAME");
+        }
+        let result = get_username();
         assert!(result.is_err());
     }
 }

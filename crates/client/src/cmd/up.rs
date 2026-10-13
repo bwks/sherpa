@@ -556,13 +556,6 @@ pub(crate) fn resolve_text_files(
 /// have the `$VAR` portion resolved from the user's shell environment.
 /// Only exact `$VAR` values are expanded (not partial references like `prefix$VAR`).
 pub(crate) fn resolve_environment_variables(manifest: &mut topology::Manifest) -> Result<()> {
-    resolve_environment_variables_using(manifest, |name| std::env::var(name).ok())
-}
-
-fn resolve_environment_variables_using(
-    manifest: &mut topology::Manifest,
-    lookup: impl Fn(&str) -> Option<String>,
-) -> Result<()> {
     for node in &mut manifest.nodes {
         let env_vars = match &mut node.environment_variables {
             Some(vars) if !vars.is_empty() => vars,
@@ -579,7 +572,7 @@ fn resolve_environment_variables_using(
             };
 
             if let Some(var_name) = value.strip_prefix('$') {
-                let resolved = lookup(var_name).with_context(|| {
+                let resolved = std::env::var(var_name).with_context(|| {
                     format!(
                         "Environment variable '{}' referenced in node '{}' is not set",
                         var_name, node.name
@@ -771,6 +764,9 @@ mod tests {
 
     #[test]
     fn test_resolve_environment_variables_env_ref() {
+        // SAFETY: test-only, run with --test-threads=1
+        unsafe { std::env::set_var("SHERPA_TEST_TOKEN", "secret123") };
+
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -778,20 +774,23 @@ mod tests {
             ..Default::default()
         }]);
 
-        resolve_environment_variables_using(&mut manifest, |name| {
-            (name == "SHERPA_TEST_TOKEN").then(|| "secret123".to_owned())
-        })
-        .expect("should succeed");
+        resolve_environment_variables(&mut manifest).expect("should succeed");
 
         let env_vars = manifest.nodes[0]
             .environment_variables
             .as_ref()
             .expect("should have env vars");
         assert_eq!(env_vars[0], "MY_TOKEN=secret123");
+
+        // SAFETY: test-only cleanup
+        unsafe { std::env::remove_var("SHERPA_TEST_TOKEN") };
     }
 
     #[test]
     fn test_resolve_environment_variables_missing_env_var() {
+        // SAFETY: test-only, ensuring var is not set
+        unsafe { std::env::remove_var("SHERPA_NONEXISTENT_VAR_12345") };
+
         let mut manifest = test_manifest(vec![topology::Node {
             name: "dev01".to_string(),
             model: NodeModel::UbuntuLinux,
@@ -799,7 +798,7 @@ mod tests {
             ..Default::default()
         }]);
 
-        let result = resolve_environment_variables_using(&mut manifest, |_| None);
+        let result = resolve_environment_variables(&mut manifest);
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("SHERPA_NONEXISTENT_VAR_12345"));
