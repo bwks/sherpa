@@ -113,7 +113,7 @@ Implementation direction:
 
 - Remove redundant manual `require_admin_auth` checks where group middleware fully covers the route.
 - Keep explicit ownership checks in operation-specific handlers or move them into service authorization as part of the separate service-auth PRD.
-- Update `docs/SERVER.md` after implementation to remove the rough-edge warning.
+- Update `docs/architecture/SERVER.md` after implementation to remove the rough-edge warning.
 
 ## Acceptance criteria
 

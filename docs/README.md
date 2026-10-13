@@ -1,31 +1,26 @@
 # Sherpa Documentation
 
-This directory contains operator, API, and architecture documentation for Sherpa.
+Two kinds of documentation exist for Sherpa.
 
-## Core docs
+- **Application architecture** lives in [`architecture/`](architecture/README.md) in this repository.
+  It describes how the code is built and is written for contributors.
+- **User documentation** lives in the separate `sherpa-docs` repository at `../sherpa-docs` and is
+  published as the docs site. Installation, CLI reference, manifest reference, configuration and
+  node guides belong there. Any change to user-facing functionality must be reviewed against that
+  repository and updated there.
 
-| Document | Purpose |
+## In this directory
+
+| Path | Purpose |
 |---|---|
-| [`SERVER.md`](SERVER.md) | Application server architecture, startup flow, routing, auth, services, TLS, scanner, and observability. |
-| [`API.md`](API.md) | API transports, generated unified spec, OpenAPI endpoint, auth levels, streaming, and error formats. |
+| [`architecture/`](architecture/README.md) | Server internals, API transports, P2P networking, observability. |
+| [`prds/`](prds/) | Proposals for open server architecture work. |
 | [`MANIFEST.md`](MANIFEST.md) | Lab manifest reference and supported manifest behavior. |
 | [`CURRENT_USER.md`](CURRENT_USER.md) | Provisioning the lab owner's account in Linux VMs. |
-| [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics configuration. |
-| [`prds/`](prds/) | Proposals for open server architecture work. |
-
-## Networking and platform docs
-
-| Document | Purpose |
-|---|---|
+| [`TAILNET.md`](TAILNET.md) | Per-lab Tailscale gateways. Linked from server warnings, do not move. |
 | [`README-IPV6.md`](README-IPV6.md) | IPv6 behavior and configuration. |
-| [`TAILNET.md`](TAILNET.md) | Per-lab Tailscale gateways. |
-| [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md) | Point-to-point link architecture. |
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 notes. |
-
-## Images
-
-| Document | Purpose |
-|---|---|
 | [`UNIKERNEL-IMAGES.md`](UNIKERNEL-IMAGES.md) | Unikernel image notes. |
 
-Test runbooks live in [`../test-specs/`](../test-specs/README.md). Generated API metadata endpoints are listed in [`API.md`](API.md).
+The feature docs listed after `prds/` are user-facing and are candidates to migrate into
+`sherpa-docs`. Test runbooks live in [`../test-specs/`](../test-specs/README.md).
