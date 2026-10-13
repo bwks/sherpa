@@ -29,7 +29,7 @@
 
 ## Server
 
-- [ ] **Rate limiting** — Acknowledged as missing in API.md.
+- [ ] **Rate limiting** — Not implemented on the API or web UI.
 - [ ] **Configurable self-registration** — Signup is always enabled with no way to disable it.
 
 ### Architecture Rough Edges
