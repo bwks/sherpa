@@ -11,8 +11,8 @@ use super::provider::VmProviders;
 
 use crate::konst::{
     OTEL_DEFAULT_ENDPOINT, OTEL_DEFAULT_PROTOCOL, OTEL_DEFAULT_SAMPLE_RATIO,
-    OTEL_DEFAULT_SERVICE_NAME, SHERPA_PASSWORD, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT,
-    SHERPA_USERNAME,
+    OTEL_DEFAULT_SERVICE_NAME, SHERPA_MANAGEMENT_NETWORK_IPV4, SHERPA_PASSWORD,
+    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_WS_PORT, SHERPA_USERNAME,
 };
 use crate::util::path_to_string;
 
@@ -284,12 +284,7 @@ fn default_http_port() -> u16 {
 }
 
 fn default_management_prefix() -> Ipv4Net {
-    use std::str::FromStr;
-    // SAFETY: This is a compile-time constant, so parsing cannot fail.
-    // Using a serde default function which cannot return Result.
-    #[allow(clippy::expect_used)]
-    Ipv4Net::from_str(crate::konst::SHERPA_MANAGEMENT_NETWORK_IPV4)
-        .expect("Failed to parse default management network prefix")
+    SHERPA_MANAGEMENT_NETWORK_IPV4
 }
 
 #[derive(Clone, Debug)]

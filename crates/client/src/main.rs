@@ -1,5 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![cfg_attr(not(test), deny(unsafe_code))]
+#![deny(unsafe_code)]
 
 mod cmd;
 mod private_key;

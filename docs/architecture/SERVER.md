@@ -160,6 +160,7 @@ run_server(foreground)
     +- configure logging
     |     +- foreground: compact stdout/stderr formatter
     |     `- daemon: compact file formatter
+    +- install SIGINT and SIGTERM handlers (startup fails if registration fails)
     +- apply env overrides
     |     +- SHERPA_SERVER_IPV4
     |     +- SHERPA_SERVER_IPV6
@@ -189,7 +190,7 @@ run_server(foreground)
           `- serve with graceful shutdown future
 ```
 
-Shutdown uses SIGINT/SIGTERM. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
+Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
 
 ## Runtime state: `AppState`
 

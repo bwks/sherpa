@@ -10,6 +10,8 @@ use std::fs::OpenOptions;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+#[cfg(unix)]
+use tokio::signal::unix::{Signal, SignalKind, signal};
 use tokio_util::sync::CancellationToken;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::time::FormatTime;
@@ -41,6 +43,62 @@ impl FormatTime for MillisecondTime {
         // Format with millisecond precision (3 decimal places)
         // Format: YYYY-MM-DDTHH:MM:SS.sssZ
         write!(w, "{}", now.strftime("%Y-%m-%dT%H:%M:%S.%3fZ"))
+    }
+}
+
+/// Shutdown signal handlers (SIGINT and SIGTERM).
+///
+/// Installed once, before the server starts listening, so a failure to register a handler stops
+/// startup with a clear error instead of leaving a server that cannot shut down gracefully.
+struct ShutdownSignals {
+    #[cfg(unix)]
+    interrupt: Signal,
+    #[cfg(unix)]
+    terminate: Signal,
+}
+
+impl ShutdownSignals {
+    /// Register the handlers. Must be called from inside the Tokio runtime.
+    #[cfg(unix)]
+    fn install() -> Result<Self> {
+        let interrupt =
+            signal(SignalKind::interrupt()).context("Failed to install SIGINT handler")?;
+        let terminate =
+            signal(SignalKind::terminate()).context("Failed to install SIGTERM handler")?;
+        Ok(Self {
+            interrupt,
+            terminate,
+        })
+    }
+
+    #[cfg(not(unix))]
+    fn install() -> Result<Self> {
+        Ok(Self {})
+    }
+
+    /// Wait for the first shutdown signal.
+    #[cfg(unix)]
+    async fn wait(mut self) {
+        tokio::select! {
+            _ = self.interrupt.recv() => {
+                tracing::info!("Received CTRL+C signal");
+            },
+            _ = self.terminate.recv() => {
+                tracing::info!("Received SIGTERM signal");
+            },
+        }
+
+        tracing::info!("Starting graceful shutdown");
+    }
+
+    #[cfg(not(unix))]
+    async fn wait(self) {
+        match tokio::signal::ctrl_c().await {
+            Ok(()) => tracing::info!("Received CTRL+C signal"),
+            Err(e) => tracing::error!("Failed to listen for CTRL+C, shutting down: {}", e),
+        }
+
+        tracing::info!("Starting graceful shutdown");
     }
 }
 
@@ -202,6 +260,9 @@ pub async fn run_server(foreground: bool) -> Result<()> {
 
     tracing::info!("Starting sherpad server");
 
+    let shutdown_signals =
+        ShutdownSignals::install().context("Failed to install shutdown signal handlers")?;
+
     // Allow SHERPA_SERVER_IPV4 env var to override the config file value
     if let Ok(ip_str) = std::env::var("SHERPA_SERVER_IPV4") {
         match ip_str.parse() {
@@ -350,7 +411,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let shutdown_handle = handle.clone();
         let shutdown_token = cancel_token.clone();
         tokio::spawn(async move {
-            shutdown_signal().await;
+            shutdown_signals.wait().await;
             shutdown_token.cancel();
             shutdown_handle.graceful_shutdown(Some(Duration::from_secs(10)));
         });
@@ -584,7 +645,7 @@ pub async fn run_server(foreground: bool) -> Result<()> {
         let shutdown_token = cancel_token.clone();
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
-                shutdown_signal().await;
+                shutdown_signals.wait().await;
                 shutdown_token.cancel();
             })
             .await
@@ -599,38 +660,38 @@ pub async fn run_server(foreground: bool) -> Result<()> {
     Ok(())
 }
 
-/// Handle shutdown signals (SIGTERM, SIGINT)
-async fn shutdown_signal() {
-    let ctrl_c = async {
-        // SAFETY: Signal handler installation is critical for graceful shutdown.
-        // If this fails, the process cannot be stopped gracefully.
-        #[allow(clippy::expect_used)]
-        tokio::signal::ctrl_c()
-            .await
-            .expect("Failed to install CTRL+C signal handler");
-    };
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    #[cfg(unix)]
-    let terminate = async {
-        // SAFETY: Signal handler installation is critical for graceful shutdown.
-        #[allow(clippy::expect_used)]
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("Failed to install SIGTERM signal handler")
-            .recv()
-            .await;
-    };
-
-    #[cfg(not(unix))]
-    let terminate = std::future::pending::<()>();
-
-    tokio::select! {
-        _ = ctrl_c => {
-            tracing::info!("Received CTRL+C signal");
-        },
-        _ = terminate => {
-            tracing::info!("Received SIGTERM signal");
-        },
+    #[tokio::test]
+    async fn test_shutdown_signals_install_inside_runtime() {
+        assert!(ShutdownSignals::install().is_ok());
     }
 
-    tracing::info!("Starting graceful shutdown");
+    #[cfg(unix)]
+    async fn wait_after_signal(signal_name: &str) {
+        let signals = ShutdownSignals::install().unwrap();
+        let status = std::process::Command::new("kill")
+            .arg(format!("-{signal_name}"))
+            .arg(std::process::id().to_string())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        tokio::time::timeout(Duration::from_secs(5), signals.wait())
+            .await
+            .unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_shutdown_signals_wait_returns_on_sigterm() {
+        wait_after_signal("TERM").await;
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn test_shutdown_signals_wait_returns_on_sigint() {
+        wait_after_signal("INT").await;
+    }
 }

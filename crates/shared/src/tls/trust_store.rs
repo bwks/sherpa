@@ -34,6 +34,14 @@ impl TrustStore {
     /// Creates the directory if it doesn't exist.
     pub fn new() -> Result<Self> {
         let home = dirs::home_dir().context("Failed to determine home directory")?;
+        Self::new_in(&home)
+    }
+
+    /// Create a trust store instance under the given home directory
+    ///
+    /// Initializes the trust store directory at `<home>/.sherpa/trusted_certs/`
+    /// Creates the directory if it doesn't exist.
+    pub fn new_in(home: &Path) -> Result<Self> {
         let store_dir = home.join(".sherpa").join("trusted_certs");
 
         // Create directory if it doesn't exist
@@ -345,11 +353,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_trust_store_new() {
         let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let trust_store = TrustStore::new_in(temp_home.path()).unwrap();
 
         // Check directory was created
         assert!(trust_store.store_dir().exists());
@@ -367,11 +371,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_save_and_get_cert() {
         let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let trust_store = TrustStore::new_in(temp_home.path()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
         // Initially should return None
@@ -390,11 +390,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_remove_cert() {
         let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let trust_store = TrustStore::new_in(temp_home.path()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
         // Save certificate
@@ -416,11 +412,7 @@ AQUAA4IBDwAwggEKAoIBAQDHg6LlvEJKCxvdv3aNi+wN8nL6yGJ9khK1rjqU8NeX
     #[test]
     fn test_invalid_pem_format() {
         let temp_home = TempDir::new().unwrap();
-        unsafe {
-            std::env::set_var("HOME", temp_home.path());
-        }
-
-        let trust_store = TrustStore::new().unwrap();
+        let trust_store = TrustStore::new_in(temp_home.path()).unwrap();
         let server_url = "wss://test.example.com:3030/ws";
 
         // Try to save invalid PEM
