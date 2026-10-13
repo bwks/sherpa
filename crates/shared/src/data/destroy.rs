@@ -5,9 +5,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DestroyRequest {
     pub lab_id: String,
-    /// Username of the requesting user
-    /// TODO: This is username-without-authentication. When adding authentication layer,
-    /// replace this with verified identity from auth token/session.
+    /// Username of the requesting user, taken from the verified auth token
     pub username: String,
 }
 

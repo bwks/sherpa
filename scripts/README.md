@@ -96,23 +96,12 @@ Run as the user with the authenticated CLI; guest operations use sudo internally
 ./scripts/test_install.sh
 ```
 
-**Tests:**
-- Help message display
-- Root privilege checks
-- Password validation
-- Fresh installation
-- Container health
-- Restart policy
-- Idempotent re-installation
-- Data persistence
-- Uninstall with data preservation
-- Complete removal
-- Server initialization and authenticated API/CLI access
-- Reboot recovery
-- Exact candidate artifact and script hashes
-- Retained dependency/resource inventories for each uninstall mode
-- Server and database logs before uninstall
-- Live timeout, interruption and incomplete-provisioning checks
+This wraps `vm_release_test.py`, which installs, exercises and uninstalls a candidate
+build inside a disposable Sherpa-managed VM. Run the harness self-tests with:
+
+```bash
+python3 scripts/vm_release_test.py --self-test
+```
 
 **See also:** [VM release-test guide](../dev/release-test/README.md) and
 [TOML settings](../dev/release-test/config.toml).
@@ -138,7 +127,6 @@ Fixes file permissions for Sherpa directories and files.
 All scripts can be run from the repository root:
 
 ```bash
-# From /home/bradmin/code/rust/sherpa/
 sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 ```
 
@@ -171,8 +159,8 @@ sudo ss -tulnp | grep :8000
 sudo netstat -tulnp | grep :8000
 
 # Stop existing SurrealDB container
-docker stop surrealdb
-docker rm surrealdb
+docker stop sherpa-db
+docker rm sherpa-db
 ```
 
 ### Permission Denied
@@ -195,21 +183,3 @@ docker ps -a | grep sherpa-db
 # Restart container
 docker restart sherpa-db
 ```
-
----
-
-## Files
-
-- `sherpa_install.sh` - Server installation script (Linux)
-- `sherpa_client_install.ps1` - Client installation script (Windows)
-- `sherpa_uninstall.sh` - Uninstallation script
-- `test_install.sh` - Automated test suite
-- `vm_release_test.py` - Local VM test orchestration
-- `vm_release_guest.py` - Guest identity checks and lifecycle assertions
-- `vm_release_faults.py` - Live failure checks and verified cleanup
-- `verify_release_test.py` - Exact artifact verification and selected local test evidence
-- `TESTING.md` - Test documentation
-- `create_blank_disks.sh` - Disk creation utility
-- `create_iosv_disk.sh` - IOSv disk creation utility
-- `create_iosv_disk.py` - Python version of IOSv disk creator
-- `fix-permissions.sh` - Permission fixing utility

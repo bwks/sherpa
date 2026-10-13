@@ -107,6 +107,15 @@ sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --t
 
 Default connection: `ws://localhost:42069` (user: root, pass: root)
 
+## Known Issues
+
+### TAP device creation (kernel 6.8+)
+
+`create_tap()` in `crates/network` uses `InfoKind::Tun` via rtnetlink, which kernel 6.8
+rejects with `EOPNOTSUPP`. The tests `test_create_tap`, `test_get_ifindex` and
+`test_ebpf_redirect_between_taps` detect this at runtime and skip with a printed message.
+The fix is to create the device via ioctl on `/dev/net/tun` without adding the `libc` crate.
+
 ## Test Conventions
 
 - All integration tests use the `#[ignore]` attribute and run with `-- --ignored`
