@@ -23,6 +23,19 @@ in preference to grep/glob. Only fall back to grep when LSP returns no results.
 - Features to implement are tracked in the PROJECT.md file.
 - This file is a record of task/features that are outstanding.
 
+## Documentation
+- Application architecture is documented in `docs/architecture/`. When you change how a subsystem
+  works (server startup, routing, auth, services, networking, observability), update the matching
+  document there, or add one. See `docs/architecture/README.md` for the index and conventions.
+- User-facing documentation lives in a separate repository at `../sherpa-docs` (MkDocs site).
+  Any change to user-facing functionality must be reviewed against that repository, and if the
+  docs there need to change, update them in that repository as part of the same piece of work.
+  User-facing functionality includes CLI commands and flags, manifest fields and defaults,
+  `sherpa.toml` settings, node models and their default parameters, API operations, install and
+  update scripts, and user-visible behaviour or error messages.
+- Do not add user-facing documentation to this repository. Architecture docs describe how the
+  code works, user docs describe how to use it.
+
 ## Configuration / Porject Files
 - All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the 
   TOML format. Do not use any other format like JSON, YAML or INI. TOML is the only acceptable format.
