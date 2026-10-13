@@ -1,7 +1,8 @@
 ---
 name: gh-branch
-description: Create a new git branch and switch to it. Use when the user asks to create or switch to a new GitHub-backed branch.
-allowed-tools: bash
+description: Create a new git branch and switch to it
+allowed-tools: Bash
+model: haiku
 ---
 
 # Git Branch

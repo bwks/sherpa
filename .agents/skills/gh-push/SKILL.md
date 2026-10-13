@@ -1,12 +1,13 @@
 ---
 name: gh-push
-description: Push the current branch to GitHub using gh authentication. Use when the user asks to push commits or publish the current branch.
-allowed-tools: bash
+description: Push the current branch to GitHub using GH_TOKEN for authentication
+allowed-tools: Bash
+model: haiku
 ---
 
 # Git Push
 
-Push the current branch to GitHub, using `gh` authentication.
+Push the current branch to GitHub, using the GH_TOKEN for authentication.
 
 ## Instructions
 
@@ -18,7 +19,8 @@ gh auth setup-git
 
 ### 2. Check state
 
-Run `git status` to confirm there are commits to push. Show the current branch name and how many commits ahead of the remote it is.
+Run `git status` to confirm there are commits to push. Show the current branch name
+and how many commits ahead of the remote it is.
 
 If the branch has no remote tracking branch yet, push with `-u` to set it up:
 
