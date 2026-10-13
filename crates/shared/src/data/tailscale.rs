@@ -5,7 +5,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-pub const TAILNET_DOCS_URL: &str = "https://github.com/bwks/sherpa/blob/main/docs/TAILNET.md";
+pub const TAILNET_DOCS_URL: &str = "https://docs.sherpa.com/architecture/networking/tailscale/";
 
 /// Enrollment credential. Debug output must never expose its contents.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
