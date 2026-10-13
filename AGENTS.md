@@ -8,16 +8,11 @@ The app talks to libvirt/KVM/QEMU for VMs and unikernels, and to Docker for cont
 database in use is SurrealDB.
 
 ## Agent Hints
-- Review this file between each prompt as I will update it as we go along.
 - In planning mode, don't generate implementation code. Stick to high level implementation plan only.
   Code samples don't add value and will likely change during implementation. Do not show code in the terminal.
 - Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before running tests.
   Formatting and linting must pass first. CI will fail if formatting is wrong, so catch it locally
   before committing.
-
-## Code Navigation
-Use LSP operations (goToDefinition, findReferences, hover) for all code navigation 
-in preference to grep/glob. Only fall back to grep when LSP returns no results.
 
 ## Project Tasks
 - Features to implement are tracked in the PROJECT.md file.
@@ -36,15 +31,20 @@ in preference to grep/glob. Only fall back to grep when LSP returns no results.
 - Do not add user-facing documentation to this repository. Architecture docs describe how the
   code works, user docs describe how to use it.
 
-## Configuration / Porject Files
+## Git and Pull Requests
+- Do not include Claude session links or "Generated with Claude Code" footers in commit messages
+  or pull request descriptions.
+- Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only
+  changes.
+
+## Configuration / Project Files
 - All configuration and project files (such as `sherpa.toml` and `manifest.toml`) are to use the 
   TOML format. Do not use any other format like JSON, YAML or INI. TOML is the only acceptable format.
 
 ## Crates
-This project is built in a mono-repo style. Encapsulate functionality in a sensible way.
-Take your time and think about this, it's important that funcionality stays together.
-
-Crates can be found in the `crates/` directory.
+This project is built in a monorepo style. Encapsulate functionality in a sensible way.
+Take your time and think about this, it's important that functionality stays together.
+Functional boundaries are separated into crates, found in the `crates/` directory.
 
 ### Crates and their purpose
 client:
@@ -56,13 +56,17 @@ container:
 db:
 - database management. Schema/instantiation/CRUD operations.
 
+ebpf-redirect:
+- eBPF program used for point-to-point links. It is excluded from the workspace and has its own
+  toolchain.
+
 libvirt:
 - Virtual Machine and Unikernel management logic, including storage pools and networks via the libvirt API.
 
 network:
-- Host network management operaions.
+- Host network management operations.
 
-serever:
+server:
 - Sherpa Server. Public interface users interact with via the Sherpa CLI or via web-ui.
 
 shared:
@@ -75,11 +79,12 @@ topology:
 - Lab management configuration data models transformers.
 
 validate: 
-- Validation primatives to ensure user supplied data is accurate, usable and secure.
+- Validation primitives to ensure user supplied data is accurate, usable and secure.
 - Avoid generating data in this crate, data should be passed to this crate for validation. 
 
 ## Scripts
-Any bash helper scripts go in the `/scripts` directory. 
+- `scripts/` holds install, update and test tooling.
+- `dev/` holds helper scripts for local development, such as `dev/testdb`.
 
 ## Project goals
 
@@ -90,20 +95,10 @@ Any bash helper scripts go in the `/scripts` directory.
 - Favor reliability, observability, and debuggability over clever abstractions.
 - Keep the public API stable and well-documented; avoid gratuitous breaking changes.
 
-## Architecture and boundaries
-
-- This project uses are monorepo architecture.
-- Functional boundaries are seperated into crates.
-- Crates are found in the ./crates directory.
-
 ## Rust code style
 
-Formatting:
-- Always use `cargo fmt` to ensure code is formatted.
-
 Clippy:
-- Always run `cargo clippy` and fix linting issues by following clippy rules. Do no add any code
-  to ignore clippy linting.
+- Fix linting issues by following clippy rules. Do not add any code to ignore clippy linting.
 
 Errors:
 - Use Anyhow for error handling. Prefer adding context errors before they are returned.
@@ -121,7 +116,7 @@ Options:
 
 Use:
 - Always declare `use` statements at the top of files.
-- Never declare a `use` statement inside a fuction.
+- Never declare a `use` statement inside a function.
 - Don't call long imports inline, EG: `shared::data::NodeState::Action`
    Prefer: `use shared::data::NodeState` at top of file | then in code:  `NodeState::Action`
 
@@ -134,8 +129,9 @@ Instrumentation:
 - Use `fields()` to capture key identifiers (e.g. `%lab_id`, `%node_name`, `%iface_name`).
 - Use default level (info) for top-level operations, `level = "debug"` for helpers/internals.
 
-## HTML Code Style
+## HTML Templates
 - Use Askama for HTML templates. Do not manually render HTML as strings.
+- Do not use inline templates, all templates must use files.
 
 ## CSS Code Style
 - Use tailwind css utility classes for styling.
@@ -143,10 +139,7 @@ Instrumentation:
 - Do not create custom CSS classes, use tailwind css utility classes.
 
 ## Javascript Code Style
-- Do not define inline javascipt in templates.
-
-## Askama Templates
-- Do not use inline templates, all templates much use files.
+- Do not define inline javascript in templates.
 
 ## Interacting with libvirt / QEMU
 
@@ -174,15 +167,16 @@ Instrumentation:
   - Any bug fix.
 - Prefer:
   - Unit tests for domain logic (no I/O, no libvirt/Docker).
-  - Integration tests for real libvirt/Docker interactions, guarded by feature flags or environment variables.
+  - Integration tests for real libvirt/Docker/database interactions. Mark them `#[ignore]` and run
+    them with `-- --ignored`.
 - When touching operations that start/stop/destroy resources:
   - Consider failure modes like partial success and rollback.
   - Avoid destructive defaults; be explicit about irreversible operations.
 - Test in local files, should always be at the bottom of the file.
 - Follow Red/Green/Refactor TDD methodology: write a failing test first, make it pass, then refactor.
-- Detailed test specifications for each crate live in `test-specs/`. Consult the relevant spec file
-  before writing tests for a crate. See `test-specs/README.md` for the full directory index and
-  testing principles.
+- `test-specs/` holds the testing principles and the integration and install runbooks. Its per-crate
+  spec files can lag the code, so where a spec and a test disagree, the test is authoritative.
+  See `test-specs/README.md`.
 
 ## Security and permissions
 
@@ -201,19 +195,15 @@ Never:
 - Hard-code credentials, private keys, IPs, or hostnames.
 - Add code that bypasses authentication or authorization layers if they exist.
 
-## Tables
-- Use the `tabled` library for terminal tables. 
-- Use the `modern` style tables
-- Table logic lives in the `shared::util::table.rs`module.
-
-## Terminal Outputs
-- Summary information presented in the terminal should use the `tabled` create.
+## Terminal Output
+- Summary information presented in the terminal uses the `tabled` crate with the `modern` style.
+- Table logic lives in the `shared::util::table` module.
 - Streaming status messages to the terminal do not need to be in table form.
 
 ## Libraries
-Use these prefered libraries for the listed functions.
+Use these preferred libraries for the listed functions.
 - `jiff` - Anything to do with time, do not use `chrono` or `time` or any other time related crate.
-- `tokyo` - Async runtime
+- `tokio` - Async runtime
 - `bollard` - Container related functionality for connection to docker daemon.
 - `virt` - Virtual machine related functionality for connection to libvirt daemon.
 - `clap` - CLI utilities.
@@ -226,9 +216,9 @@ Use these prefered libraries for the listed functions.
 
 ## Test Database
 The following commands can be used to create a database for running tests:
--`dev/testdb start`   — spin up an in-memory SurrealDB v3.0.0 container
--`dev/testdb stop`    — stop the container
--`dev/testdb restart` — destroy and recreate (fresh database)
--`dev/testdb status`  — check if it's running
--`dev/testdb logs`    — tail container logs
--`dev/testdb destroy` — stop and remove the containe
+- `dev/testdb start`   — spin up an in-memory SurrealDB v3.0.0 container
+- `dev/testdb stop`    — stop the container
+- `dev/testdb restart` — destroy and recreate (fresh database)
+- `dev/testdb status`  — check if it's running
+- `dev/testdb logs`    — tail container logs
+- `dev/testdb destroy` — stop and remove the container
