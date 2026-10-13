@@ -15,7 +15,6 @@ Two kinds of documentation exist for Sherpa.
 |---|---|
 | [`architecture/`](architecture/README.md) | Server internals, API transports, P2P networking, observability. |
 | [`prds/`](prds/) | Proposals for open server architecture work. |
-| [`CURRENT_USER.md`](CURRENT_USER.md) | Provisioning the lab owner's account in Linux VMs. |
 | [`TAILNET.md`](TAILNET.md) | Per-lab Tailscale gateways. Linked from server warnings, do not move. |
 | [`README-IPV6.md`](README-IPV6.md) | IPv6 behavior and configuration. |
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 notes. |
