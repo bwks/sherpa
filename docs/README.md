@@ -17,7 +17,6 @@ Two kinds of documentation exist for Sherpa.
 | [`prds/`](prds/) | Proposals for open server architecture work. |
 | [`TAILNET.md`](TAILNET.md) | Redirect stub to the docs site. Released versions link here from warnings, do not delete. |
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 notes. |
-| [`UNIKERNEL-IMAGES.md`](UNIKERNEL-IMAGES.md) | Unikernel image notes. |
 
 The remaining feature docs after `prds/` are user-facing and are candidates to migrate into
 `sherpa-docs`. Test runbooks live in [`../test-specs/`](../test-specs/README.md).
