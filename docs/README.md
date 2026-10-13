@@ -15,8 +15,7 @@ Two kinds of documentation exist for Sherpa.
 |---|---|
 | [`architecture/`](architecture/README.md) | Server internals, API transports, P2P networking, observability. |
 | [`prds/`](prds/) | Proposals for open server architecture work. |
+| [`investigations/`](investigations/README.md) | Debugging and research notes that are not yet settled facts. |
 | [`TAILNET.md`](TAILNET.md) | Redirect stub to the docs site. Released versions link here from warnings, do not delete. |
-| [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 notes. |
 
-The remaining feature docs after `prds/` are user-facing and are candidates to migrate into
-`sherpa-docs`. Test runbooks live in [`../test-specs/`](../test-specs/README.md).
+Test runbooks live in [`../test-specs/`](../test-specs/README.md).

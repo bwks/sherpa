@@ -28,6 +28,9 @@ database in use is SurrealDB.
   User-facing functionality includes CLI commands and flags, manifest fields and defaults,
   `sherpa.toml` settings, node models and their default parameters, API operations, install and
   update scripts, and user-visible behaviour or error messages.
+- Debugging and research notes go in `docs/investigations/`. They record what was tried and found,
+  not settled behaviour. When an investigation produces a lasting fact, move it to
+  `docs/architecture/` or to `../sherpa-docs` and leave a pointer.
 - Do not add user-facing documentation to this repository. Architecture docs describe how the
   code works, user docs describe how to use it.
 
