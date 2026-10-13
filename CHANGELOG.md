@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.86] - 2026-10-13
+
+### Features
+
+- Add optional lab descriptions to manifests by @bwks ([178bc2a](https://github.com/bwks/sherpa/commit/178bc2a52b60350d01bc7e4addac6c5a8a8fbc26))
+
+### Miscellaneous
+
+- Merge pull request #298 from bwks/feat/lab-description
+
+feat: add optional lab descriptions to manifests by @bwks in [#298](https://github.com/bwks/sherpa/pull/298) ([2000827](https://github.com/bwks/sherpa/commit/20008277da0775924a569dfd15b205e27ebecce8))
+- Merge pull request #297 from bwks/changelog/v0.3.85
+
+chore(release): update changelog for v0.3.85 by @github-actions[bot] in [#297](https://github.com/bwks/sherpa/pull/297) ([407e952](https://github.com/bwks/sherpa/commit/407e952d5330e2a3e1a0a8c527c254146c7c3f92))
 ## [0.3.85] - 2026-10-11
 
 ### Bug Fixes
