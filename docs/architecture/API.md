@@ -53,7 +53,7 @@ Sherpa exposes the same operations via three transports:
 ```bash
 curl -X POST https://<server>:3030/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"SecurePass123!"}'
+  -d '{"username":"alice","password":"<password>"}'
 ```
 
 Returns a JWT token valid for 7 days. Use it in subsequent requests:
