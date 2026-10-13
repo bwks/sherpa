@@ -2,6 +2,23 @@
 
 Sherpa lab manifests are TOML files.
 
+## Lab description
+
+Use the optional top-level `description` string to describe the lab's purpose:
+
+```toml
+name = "bgp-practice"
+description = "Practice BGP peering and route policies between two routers."
+
+nodes = [
+  { name = "router01", model = "cisco_iosv" },
+  { name = "router02", model = "cisco_iosv" },
+]
+```
+
+Descriptions support TOML multiline strings and Unicode. Sherpa preserves them
+when saving the manifest; existing manifests can omit the field.
+
 ## Per-node data interfaces
 
 A node can override the number of data interfaces created for that instance with

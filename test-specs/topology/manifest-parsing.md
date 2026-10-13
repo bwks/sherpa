@@ -12,6 +12,8 @@
 - `Manifest::load_file()` parses valid TOML manifest `[unit]` **P0**
 - Minimal manifest: name + one node (no links, no bridges) `[unit]` **P0**
 - Full manifest with all optional fields populated `[unit]` **P0**
+- Optional top-level `description` accepts strings, including multiline text and Unicode, and rejects non-string values `[unit]` **P1**
+- Manifests without `description` remain valid and omit the field when serialized `[unit]` **P1**
 - Invalid TOML syntax produces parse error `[unit]` **P0**
 - Missing required field (name) produces error `[unit]` **P0**
 - Missing required field (nodes) produces error `[unit]` **P0**
@@ -24,6 +26,7 @@
 **What to test:**
 - `Manifest::write_file()` writes valid TOML `[unit]` **P0**
 - Round-trip: load → write → load produces equivalent manifest `[unit]` **P0**
+- Description survives serde TOML serialization and `write_file`/`load_file`, including empty strings, quotes, backslashes, and newlines `[unit]` **P1**
 - TOML formatting: inline tables for nodes, trailing commas for arrays `[unit]` **P2**
 
 ---

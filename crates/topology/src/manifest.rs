@@ -19,6 +19,9 @@ pub struct Manifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailscaleConfig>,
     pub name: String,
+    /// Optional blurb describing the lab's purpose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_timeout: Option<u64>,
@@ -81,6 +84,9 @@ impl Manifest {
         let mut doc = DocumentMut::new();
 
         doc["name"] = Item::Value(Value::from(self.name.to_string()));
+        if let Some(description) = &self.description {
+            doc["description"] = Item::Value(Value::from(description.as_str()));
+        }
         doc["provision_current_user"] = Item::Value(Value::from(self.provision_current_user));
         if let Some(table) = doc
             .as_table_mut()
@@ -145,7 +151,71 @@ impl Manifest {
 
 #[cfg(test)]
 mod tests {
+    use std::{env, process};
+
     use super::*;
+
+    #[test]
+    fn description_round_trip_preserves_multiline_text() {
+        let input = r#"name = 'routing-lab'
+description = '''Practice BGP routing.
+Include "quoted" text, C:\configs, and Unicode: café.'''
+nodes = []
+"#;
+        let manifest: Manifest = toml::from_str(input).unwrap();
+        let saved = toml::to_string_pretty(&manifest).unwrap();
+        let restored: Manifest = toml::from_str(&saved).unwrap();
+        let original: toml::Value = toml::from_str(input).unwrap();
+        let restored = toml::Value::try_from(&restored).unwrap();
+        assert_eq!(restored["description"], original["description"]);
+    }
+
+    #[test]
+    fn description_is_optional_and_omitted_when_absent() {
+        let manifest: Manifest = toml::from_str("name='test'\nnodes=[]").unwrap();
+        assert!(
+            toml::Value::try_from(&manifest)
+                .unwrap()
+                .get("description")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn description_rejects_non_string_values() {
+        for value in ["true", "42", "[]", "{}"] {
+            let input = format!("name='test'\nnodes=[]\ndescription={value}");
+            assert!(toml::from_str::<Manifest>(&input).is_err());
+        }
+    }
+
+    #[test]
+    fn description_survives_manifest_file_write() {
+        let path = env::temp_dir().join(format!("sherpa-description-{}.toml", process::id()));
+        let path = path.to_str().unwrap();
+        for description in [
+            Some("Lab purpose: \"routing\"\nUnicode: café"),
+            Some(""),
+            None,
+        ] {
+            let mut input = toml::from_str::<toml::Value>("name='test'\nnodes=[]").unwrap();
+            if let Some(description) = description {
+                input.as_table_mut().unwrap().insert(
+                    "description".into(),
+                    toml::Value::String(description.into()),
+                );
+            }
+            let manifest: Manifest = input.try_into().unwrap();
+            manifest.write_file(path).unwrap();
+            let restored = Manifest::load_file(path).unwrap();
+            let value = toml::Value::try_from(&restored).unwrap();
+            assert_eq!(
+                value.get("description").and_then(toml::Value::as_str),
+                description
+            );
+        }
+        fs::remove_file(path).unwrap();
+    }
 
     #[test]
     fn current_user_flag_round_trip() {

@@ -39,6 +39,7 @@ fn test_pyats_inventory_from_manifest() {
         provision_current_user: false,
         tailscale: None,
         name: "test-lab".to_string(),
+        description: None,
         ready_timeout: None,
         nodes: vec![topology::Node {
             name: "router1".to_string(),
