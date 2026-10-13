@@ -54,11 +54,9 @@ If no message was provided, analyse the staged changes and draft a concise commi
 
 ### 6. Commit
 
-Create the commit. Always append the co-author trailer:
-
-```
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
-```
+Create the commit. Always append a co-author trailer naming the model that is writing the
+commit, in the form `Co-Authored-By: <model name> <noreply@anthropic.com>`. Use the exact
+model name given in the session's attribution instruction.
 
 Use a HEREDOC to pass the message:
 
@@ -66,7 +64,7 @@ Use a HEREDOC to pass the message:
 git commit -m "$(cat <<'EOF'
 <commit message here>
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+Co-Authored-By: <model name> <noreply@anthropic.com>
 EOF
 )"
 ```

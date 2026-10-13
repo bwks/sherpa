@@ -42,8 +42,8 @@ database in use is SurrealDB.
   TOML format. Do not use any other format like JSON, YAML or INI. TOML is the only acceptable format.
 
 ## Crates
-This project is built in a monorepo style. Encapsulate functionality in a sensible way.
-Take your time and think about this, it's important that functionality stays together.
+This project is built in a monorepo style. Encapsulate functionality in a sensible way, and
+keep related functionality in the same crate.
 Functional boundaries are separated into crates, found in the `crates/` directory.
 
 ### Crates and their purpose
@@ -112,7 +112,8 @@ Options:
 - Never use `.expect()` in production code. Results must be handled.
 - `.unwrap()` and `.expect()` are allowed in test code (`#[test]` functions and `#[cfg(test)]` modules).
 - These rules are enforced by clippy via `#![deny(clippy::unwrap_used, clippy::expect_used)]` in
-  each crate's `lib.rs`/`main.rs`, with test exceptions handled by `clippy.toml`.
+  each workspace crate's `lib.rs`/`main.rs`, with test exceptions handled by `clippy.toml`.
+  The `ebpf-redirect` crate is `no_std` and outside the workspace, so the lint does not apply to it.
 
 Use:
 - Always declare `use` statements at the top of files.
@@ -124,7 +125,8 @@ Structs / Enums
 - Always declare `structs` and `enums` under `use` statements.
 
 Instrumentation:
-- All public functions must have `#[instrument]` attributes from `tracing`.
+- Public functions that perform I/O or lifecycle operations (database, libvirt, Docker, network,
+  filesystem) must have `#[instrument]` attributes from `tracing`. Pure data and validation helpers do not need them.
 - Use `skip()` for non-Debug or large types (e.g. `state`, `docker`, `progress`, `qemu_conn`).
 - Use `fields()` to capture key identifiers (e.g. `%lab_id`, `%node_name`, `%iface_name`).
 - Use default level (info) for top-level operations, `level = "debug"` for helpers/internals.
@@ -203,6 +205,7 @@ Never:
 ## Libraries
 Use these preferred libraries for the listed functions.
 - `jiff` - Anything to do with time, do not use `chrono` or `time` or any other time related crate.
+  The one exception is converting to `time::OffsetDateTime` where `rcgen` requires it (`crates/server/src/tls/generator.rs`).
 - `tokio` - Async runtime
 - `bollard` - Container related functionality for connection to docker daemon.
 - `virt` - Virtual machine related functionality for connection to libvirt daemon.
