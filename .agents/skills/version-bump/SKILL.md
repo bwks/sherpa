@@ -1,7 +1,8 @@
 ---
 name: version-bump
-description: Bump the version of all workspace crates. Use when the user asks to bump crate versions, optionally to a target version such as 0.4.0.
-allowed-tools: bash
+description: "Bump the version of all workspace crates. Optional arg: target version (e.g. /version-bump 0.4.0)"
+allowed-tools: Bash, Grep
+model: haiku
 ---
 
 # Version Bump
@@ -16,8 +17,8 @@ If the user provides a target version as an argument, use that version directly.
 
 Run:
 
-```bash
-rg -n '^version = ' crates/*/Cargo.toml
+```
+grep -rn '^version = ' crates/*/Cargo.toml
 ```
 
 All crates should be on the same version. If they are not, report the discrepancy and stop.
@@ -25,29 +26,20 @@ All crates should be on the same version. If they are not, report the discrepanc
 ### 2. Determine new version
 
 - If the user provided a target version argument: use that version.
-- Otherwise: increment the patch number, for example `0.3.57` becomes `0.3.58`.
+- Otherwise: increment the patch number (e.g. `0.3.57` becomes `0.3.58`).
 
-### 3. Bump the versions
+### 3. Bump the version
 
-Update every `crates/*/Cargo.toml` package version from the old version to the new version.
+Use `sed -i` to replace the old version with the new version across all `crates/*/Cargo.toml` files in a single command.
 
-Also update workspace crate package versions in:
-
-- `Cargo.lock`
-- `crates/ebpf-redirect/Cargo.lock`, if present
-
-Do not run `cargo generate-lockfile` unless necessary, because it may update unrelated third-party dependency versions.
+The `ebpf-redirect` crate is outside the workspace, so cargo does not rewrite its lockfile.
+Also update the `ebpf-redirect` package entry in `crates/ebpf-redirect/Cargo.lock` to the new
+version, then run `cargo check --workspace` so the root `Cargo.lock` picks up the new version.
 
 ### 4. Verify
 
-Run:
-
-```bash
-rg -n '^version = ' crates/*/Cargo.toml
-rg -n '^version = "<old-version>"' crates Cargo.lock
-```
-
-Confirm all workspace crates now show the new version and no workspace crate lockfile entries still use the old version.
+Run the same grep to confirm all crates now show the new version, and confirm `git diff --stat`
+shows both lockfiles changed.
 
 ### Report
 
