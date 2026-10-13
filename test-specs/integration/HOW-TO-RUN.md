@@ -107,11 +107,6 @@ sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad -- --ignored --t
 
 Default connection: `ws://localhost:42069` (user: root, pass: root)
 
-### Unit Tests
-
-The `shared`, `template`, `topology`, `validate` and `client` crates have no external
-dependencies. Run them anywhere with `cargo test -p <crate>`.
-
 ## Known Issues
 
 ### TAP device creation (kernel 6.8+)

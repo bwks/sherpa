@@ -4,7 +4,7 @@ The ignored `current_user_vm_login_sudo_resume_and_owner_redeploy` test in
 `crates/server/tests/lab_lifecycle_tests.rs` requires a disposable Sherpa host
 with Docker, libvirt/KVM, the normal Sherpa configuration and assets, a test
 SurrealDB instance, and a downloaded Linux VM image. Use the existing server
-test setup instructions in [`HOW-TO-RUN.md`](HOW-TO-RUN.md). This test creates and
+test setup instructions in `../server/HOW-TO-RUN.md`. This test creates and
 destroys a VM lab through the existing APIs and uses SSH directly to its
 management address from the server host.
 

@@ -278,6 +278,7 @@ and all 45 local harness/guest/fault/verifier regression checks passed.
   automated Ubuntu 26.04 workflow and distinguish supplementary BATS coverage.
 - [Existing integration VM instructions](HOW-TO-RUN.md): use a development image
   with dependencies already installed.
+- [Lab lifecycle specification](lab-lifecycle-e2e.md).
 - [Tailscale verification guide](tailscale.md).
 
 Reconcile the remaining service integration instructions as their coverage is

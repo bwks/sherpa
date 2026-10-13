@@ -167,8 +167,9 @@ Instrumentation:
   - Avoid destructive defaults; be explicit about irreversible operations.
 - Test in local files, should always be at the bottom of the file.
 - Follow Red/Green/Refactor TDD methodology: write a failing test first, make it pass, then refactor.
-- Testing principles and the integration/install test runbooks live in `test-specs/`. See
-  `test-specs/README.md`. The tests themselves are the specification for each crate's behaviour.
+- Detailed test specifications for each crate live in `test-specs/`. Consult the relevant spec file
+  before writing tests for a crate. See `test-specs/README.md` for the full directory index and
+  testing principles.
 
 ## Security and permissions
 
