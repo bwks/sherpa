@@ -2,6 +2,49 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.88] - 2026-10-14
+
+### Bug Fixes
+
+- Remove production expect() calls and avoidable unsafe, bump to v0.3.88 by @bwks ([e1e0181](https://github.com/bwks/sherpa/commit/e1e0181ae87830912555a82e0a0ae668307cd0c9))
+
+### Documentation
+
+- Add docs/investigations and move the Juniper vSRX notes there [skip ci] by @bwks ([c4c86e5](https://github.com/bwks/sherpa/commit/c4c86e5919e14a7db44326f06c8fc7c899a94dab))
+- Apply prompt audit fixes to AGENTS.md and project skills [skip ci] by @bwks ([d028dc5](https://github.com/bwks/sherpa/commit/d028dc5bc041a864c05b7845b1610301b55f0b2b))
+- Clean up AGENTS.md [skip ci] by @bwks ([a19d3e0](https://github.com/bwks/sherpa/commit/a19d3e02059eab1fc4777b16a1f6648befc3684f))
+- Remove UNIKERNEL-IMAGES.md, now covered by sherpa-docs [skip ci] by @bwks ([cdd7aa5](https://github.com/bwks/sherpa/commit/cdd7aa5c8c06bd2d8ade08682d2bab9a781aa1d7))
+- Remove README-IPV6.md, now covered by sherpa-docs [skip ci] by @bwks ([7daed2a](https://github.com/bwks/sherpa/commit/7daed2a0e0f60c8892503f876f0410d9d8828948))
+
+### Miscellaneous
+
+- Merge pull request #315 from bwks/fix/remove-production-expect-and-unsafe
+
+fix: remove production expect() calls and unneeded unsafe impls, bump to v0.3.88 by @bwks in [#315](https://github.com/bwks/sherpa/pull/315) ([1435b43](https://github.com/bwks/sherpa/commit/1435b43b96136a968cfb5bf6cb96c23241a482fc))
+- Merge remote-tracking branch 'origin/main' into fix/remove-production-expect-and-unsafe by @bwks ([80e98fa](https://github.com/bwks/sherpa/commit/80e98fa28ff79335cac5aa8e90b01711fe0622eb))
+- Merge pull request #314 from bwks/docs/investigations
+
+docs: add docs/investigations and move the Juniper vSRX notes there by @bwks in [#314](https://github.com/bwks/sherpa/pull/314) ([05b1bd9](https://github.com/bwks/sherpa/commit/05b1bd94025cffdb16929d9371f10af2e6856144))
+- Restore test code that used unsafe env var changes by @bwks ([814d161](https://github.com/bwks/sherpa/commit/814d161b3b52938f85f3b0ea04d0b685e55851e5))
+- Merge pull request #313 from bwks/chore/align-agents-skills
+
+chore: align .agents skills with .claude skills by @bwks in [#313](https://github.com/bwks/sherpa/pull/313) ([b5e7aa5](https://github.com/bwks/sherpa/commit/b5e7aa58be8ae2ba7c9b7ced04f96decb6c983be))
+- Align .agents skills with .claude skills [skip ci] by @bwks ([2f97e47](https://github.com/bwks/sherpa/commit/2f97e47f38194a11cc89ad9d9b373e74dfb6f6ab))
+- Merge pull request #312 from bwks/docs/prompt-audit-fixes
+
+docs: apply prompt audit fixes to AGENTS.md and project skills by @bwks in [#312](https://github.com/bwks/sherpa/pull/312) ([3a16604](https://github.com/bwks/sherpa/commit/3a1660454cdcbcec3eec65901987369be02b2b9e))
+- Merge pull request #311 from bwks/docs/agents-md-cleanup
+
+docs: clean up AGENTS.md by @bwks in [#311](https://github.com/bwks/sherpa/pull/311) ([d62ccc5](https://github.com/bwks/sherpa/commit/d62ccc5466d86dabbf4f9c55e1cb0d2a18f4c9f0))
+- Merge pull request #310 from bwks/docs/remove-unikernel-images-md
+
+docs: remove UNIKERNEL-IMAGES.md, now covered by sherpa-docs by @bwks in [#310](https://github.com/bwks/sherpa/pull/310) ([ffa19bf](https://github.com/bwks/sherpa/commit/ffa19bf103d1f8dfdaf417faa141f1d0d118281b))
+- Merge pull request #309 from bwks/docs/remove-ipv6-md
+
+docs: remove README-IPV6.md, now covered by sherpa-docs by @bwks in [#309](https://github.com/bwks/sherpa/pull/309) ([20ec3d3](https://github.com/bwks/sherpa/commit/20ec3d3baa8c002f93b6f6b307bf14022feb3f93))
+- Merge pull request #308 from bwks/changelog/v0.3.87
+
+chore(release): update changelog for v0.3.87 by @github-actions[bot] in [#308](https://github.com/bwks/sherpa/pull/308) ([ae2ad57](https://github.com/bwks/sherpa/commit/ae2ad57cff3d369c71ade84f2741c0b93651ffde))
 ## [0.3.87] - 2026-10-13
 
 ### Documentation
