@@ -26,7 +26,7 @@ impl Qemu {
         virt::error::clear_error_callback();
 
         let conn = Connect::open(Some(self.uri.as_str()))?;
-        Ok(QemuConnection { conn: Some(conn) })
+        Ok(QemuConnection { conn })
     }
 }
 
@@ -35,31 +35,34 @@ impl Qemu {
 /// The upstream `virt::Connect` does not implement `Drop`, so without
 /// explicit cleanup every opened connection leaks a file descriptor.
 pub struct QemuConnection {
-    conn: Option<Connect>,
+    conn: Connect,
 }
-
-#[allow(unsafe_code)]
-unsafe impl Send for QemuConnection {}
-#[allow(unsafe_code)]
-unsafe impl Sync for QemuConnection {}
 
 impl Deref for QemuConnection {
     type Target = Connect;
 
     fn deref(&self) -> &Connect {
-        // SAFETY: The only way conn is None is after Drop runs.
-        // Using the connection after drop is a programming error.
-        #[allow(clippy::expect_used)]
-        self.conn.as_ref().expect("QemuConnection used after drop")
+        &self.conn
     }
 }
 
 impl Drop for QemuConnection {
     fn drop(&mut self) {
-        if let Some(mut conn) = self.conn.take()
-            && let Err(e) = conn.close()
-        {
+        if let Err(e) = self.conn.close() {
             tracing::error!("Failed to close libvirt connection: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send_and_sync<T: Send + Sync>() {}
+
+    /// `virt::Connect` is `Send + Sync`, so the wrapper is too without any `unsafe impl`.
+    #[test]
+    fn test_qemu_connection_is_send_and_sync() {
+        assert_send_and_sync::<QemuConnection>();
     }
 }

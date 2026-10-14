@@ -1,10 +1,8 @@
 use std::fs;
 use std::net::Ipv4Addr;
 use std::path::Path;
-use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use ipnet::Ipv4Net;
 use tracing::instrument;
 
 use super::file_system::create_file;
@@ -83,10 +81,7 @@ pub fn default_config() -> Config {
     let container_images: Vec<ContainerImage> =
         vec![ContainerImage::dnsmasq(), ContainerImage::webdir()];
 
-    // SAFETY: This is a compile-time constant, so parsing cannot fail.
-    #[allow(clippy::expect_used)]
-    let mgmt_prefix_ipv4 =
-        Ipv4Net::from_str(SHERPA_MANAGEMENT_NETWORK_IPV4).expect("Failed to parse IPv4 network");
+    let mgmt_prefix_ipv4 = SHERPA_MANAGEMENT_NETWORK_IPV4;
 
     let ztp_server = ZtpServer {
         enable: false,

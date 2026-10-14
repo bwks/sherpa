@@ -1,5 +1,5 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
-#![deny(unsafe_code)]
+#![forbid(unsafe_code)]
 
 mod network;
 mod overlay;

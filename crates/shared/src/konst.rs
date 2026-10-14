@@ -1,3 +1,7 @@
+use std::net::Ipv4Addr;
+
+use ipnet::Ipv4Net;
+
 pub const SHERPA_BASE_DIR: &str = "/opt/sherpa";
 pub const SHERPA_CONFIG_FILE: &str = "sherpa.toml";
 pub const SHERPA_MANIFEST_FILE: &str = "manifest.toml";
@@ -62,7 +66,9 @@ pub const SHERPA_STORAGE_POOL_PATH: &str = "/opt/sherpa/libvirt/images";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE: &str = "sherpa-br0";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
-pub const SHERPA_MANAGEMENT_NETWORK_IPV4: &str = "172.31.0.0/16";
+/// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
+pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
+    Ipv4Net::new_assert(Ipv4Addr::new(172, 31, 0, 0), 16);
 pub const SHERPA_MANAGEMENT_IP_INDEX: u32 = 2;
 pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
@@ -426,3 +432,14 @@ pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
     "Invalid params: expected GetUserInfoRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_management_network_ipv4_is_172_31_0_0_16() {
+        assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.to_string(), "172.31.0.0/16");
+        assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.prefix_len(), 16);
+    }
+}

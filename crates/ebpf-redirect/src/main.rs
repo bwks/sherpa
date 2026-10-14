@@ -29,7 +29,11 @@ pub fn p2p_redirect(_ctx: TcContext) -> i32 {
 
 fn try_redirect() -> Result<i32, ()> {
     let key: u32 = 0;
+    // SAFETY: `get` is unsafe because the returned reference points into a map that userspace
+    // can update at any time. The value is a `u32` that is read exactly once, on the next line.
     let peer_ifindex = unsafe { PEER_IFINDEX.get(&key).ok_or(())? };
+    // SAFETY: `bpf_redirect` is a BPF helper that only reads its two integer arguments. The
+    // interface index comes from the map above and no pointer is passed.
     let ret = unsafe { bpf_redirect(*peer_ifindex, 0) };
     Ok(ret as i32)
 }
