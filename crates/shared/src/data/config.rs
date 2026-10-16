@@ -33,17 +33,6 @@ impl Default for ZtpServer {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Default)]
-#[serde(deny_unknown_fields)]
-pub struct ConfigurationManagement {
-    #[serde(default)]
-    pub ansible: bool,
-    #[serde(default)]
-    pub pyats: bool,
-    #[serde(default)]
-    pub nornir: bool,
-}
-
 /// Server connection configuration for WebSocket RPC
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct ServerConnection {
@@ -256,8 +245,6 @@ pub struct Config {
     #[serde(default)]
     pub ztp_server: ZtpServer,
     #[serde(default)]
-    pub configuration_management: ConfigurationManagement,
-    #[serde(default)]
     pub container_images: Vec<ContainerImage>,
     #[serde(default)]
     pub server_connection: ServerConnection,
@@ -389,14 +376,6 @@ mod tests {
         assert!(!back.enable);
         assert_eq!(back.username, Some("test".to_string()));
         assert!(back.password.is_none());
-    }
-
-    #[test]
-    fn test_configuration_management_default() {
-        let cm = ConfigurationManagement::default();
-        assert!(!cm.ansible);
-        assert!(!cm.pyats);
-        assert!(!cm.nornir);
     }
 
     #[test]

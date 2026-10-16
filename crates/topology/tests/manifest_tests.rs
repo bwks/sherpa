@@ -64,11 +64,6 @@ links = ["router1::eth3", "server1::eth3"]
 enable = true
 username = "admin"
 password = "secret123"
-
-[config_management]
-ansible = true
-pyats = true
-nornir = false
 "#;
 
 const MANIFEST_WITH_TEXT_FILES: &str = r#"
@@ -136,7 +131,6 @@ fn test_parse_minimal_manifest() {
     assert!(manifest.bridges.is_none());
     assert!(manifest.ready_timeout.is_none());
     assert!(manifest.ztp_server.is_none());
-    assert!(manifest.config_management.is_none());
 }
 
 #[test]
@@ -216,18 +210,9 @@ fn test_parse_full_manifest() {
 
     // ZTP server
     let ztp = manifest.ztp_server.as_ref().expect("has ztp_server");
-    assert_eq!(ztp.enable, true);
+    assert!(ztp.enable);
     assert_eq!(ztp.username, Some("admin".to_string()));
     assert_eq!(ztp.password, Some("secret123".to_string()));
-
-    // Config management
-    let cm = manifest
-        .config_management
-        .as_ref()
-        .expect("has config_management");
-    assert_eq!(cm.ansible, true);
-    assert_eq!(cm.pyats, true);
-    assert_eq!(cm.nornir, false);
 }
 
 #[test]
@@ -336,7 +321,6 @@ fn test_write_load_roundtrip() {
         }]),
         bridges: None,
         ztp_server: None,
-        config_management: None,
     };
 
     let tmp_path = "/tmp/sherpa_test_manifest_roundtrip.toml";
@@ -485,4 +469,10 @@ fn test_parse_text_files() {
 fn test_parse_text_files_rejects_unknown_fields() {
     let result = toml::from_str::<Manifest>(MANIFEST_WITH_TEXT_FILES_UNKNOWN_FIELD);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_config_management_section_rejected() {
+    let toml = format!("{MINIMAL_MANIFEST}\n[config_management]\nansible = true\n");
+    assert!(toml::from_str::<Manifest>(&toml).is_err());
 }

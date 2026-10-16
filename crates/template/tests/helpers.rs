@@ -2,11 +2,7 @@ use std::net::Ipv4Addr;
 
 use ipnet::{Ipv4Net, Ipv6Net};
 
-use shared::data::{
-    BiosTypes, CpuArchitecture, CpuModels, DiskBuses, Dns, InterfaceType, MachineType,
-    MgmtInterfaces, NameServer, NetworkV4, NetworkV6, NodeConfig, NodeKind, NodeModel, OsVariant,
-    SshKeyAlgorithms, SshPublicKey, User, ZtpMethod,
-};
+use shared::data::{Dns, NameServer, NetworkV4, NetworkV6, SshKeyAlgorithms, SshPublicKey, User};
 
 pub fn test_user() -> User {
     User {
@@ -53,41 +49,5 @@ pub fn test_network_v6() -> NetworkV6 {
         boot_server: "fd00::1".parse().expect("valid addr"),
         network: "fd00::".parse().expect("valid addr"),
         prefix_length: 64,
-    }
-}
-
-pub fn test_node_config(model: NodeModel) -> NodeConfig {
-    NodeConfig {
-        id: None,
-        model,
-        version: "1.0.0".to_string(),
-        repo: Some("test-repo".to_string()),
-        os_variant: OsVariant::Linux,
-        kind: NodeKind::VirtualMachine,
-        bios: BiosTypes::SeaBios,
-        cpu_count: 1,
-        cpu_architecture: CpuArchitecture::X86_64,
-        cpu_model: CpuModels::HostModel,
-        machine_type: MachineType::Q35,
-        vmx_enabled: false,
-        memory: 1024,
-        hdd_bus: DiskBuses::Virtio,
-        cdrom: None,
-        cdrom_bus: DiskBuses::Sata,
-        ztp_enable: false,
-        ztp_method: ZtpMethod::None,
-        ztp_username: None,
-        ztp_password: None,
-        ztp_password_auth: false,
-        data_interface_count: 4,
-        interface_prefix: "eth".to_string(),
-        interface_type: InterfaceType::Virtio,
-        interface_mtu: 1500,
-        first_interface_index: 0,
-        dedicated_management_interface: false,
-        management_interface: MgmtInterfaces::Eth0,
-        reserved_interface_count: 0,
-        default: false,
-        boot_mode: None,
     }
 }

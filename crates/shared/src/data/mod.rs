@@ -30,8 +30,8 @@ mod ztp;
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 
 pub use config::{
-    ClientConfig, Config, ConfigurationManagement, OtelConfig, ScannerConfig, ServerConnection,
-    Sherpa, TailscaleGatewaySettings, TlsConfig, ZtpServer,
+    ClientConfig, Config, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
+    TailscaleGatewaySettings, TlsConfig, ZtpServer,
 };
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};

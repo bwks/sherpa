@@ -7,7 +7,7 @@ use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 use super::bridge::Bridge;
 use super::link::Link2;
 use super::node::Node;
-use shared::data::{ConfigurationManagement, NodeModel, ZtpServer};
+use shared::data::{NodeModel, ZtpServer};
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
 #[derive(Debug, Deserialize, Serialize, Default)]
@@ -31,9 +31,6 @@ pub struct Manifest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ztp_server: Option<ZtpServer>,
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_management: Option<ConfigurationManagement>,
 }
 
 /// Optional per-lab tailnet enrollment. Secrets are resolved by the client.

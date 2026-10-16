@@ -9,8 +9,8 @@ use tracing::instrument;
 
 use super::file_system::create_file;
 use crate::data::{
-    ClientConfig, Config, ConfigurationManagement, ContainerImage, OtelConfig, ScannerConfig,
-    ServerConnection, TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
+    ClientConfig, Config, ContainerImage, OtelConfig, ScannerConfig, ServerConnection,
+    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
 };
 use crate::konst::{
     QEMU_BIN, SHERPA_BINS_PATH, SHERPA_CONFIG_FILE, SHERPA_CONTAINERS_PATH, SHERPA_IMAGES_PATH,
@@ -108,7 +108,6 @@ pub fn default_config() -> Config {
         container_images,
         management_prefix_ipv4: mgmt_prefix_ipv4,
         management_prefix_ipv6: None,
-        configuration_management: ConfigurationManagement::default(),
         ztp_server,
         server_connection: ServerConnection::default(),
         server_ipv4: Ipv4Addr::new(127, 0, 0, 1),

@@ -20,7 +20,6 @@ mod juniper_junos;
 mod mikrotik_routeros;
 mod nokia_srlinux;
 mod paloalto_panos;
-mod pyats;
 mod sonic_linux;
 mod ssh;
 mod vault;

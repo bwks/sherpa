@@ -187,7 +187,7 @@ Askama-based templates for generating device-specific bootstrap/ZTP configuratio
 |------|---------|
 | `vendor-configs.md` | What to test for vendor-specific template rendering: correct output for each vendor family (Cisco IOS/IOS-XE/IOS-XR/NX-OS/ASA/FTDv/ISE, Arista EOS, Juniper JunOS, Nokia SR Linux, Palo Alto PAN-OS, Aruba AOS-CX, Cumulus, Mikrotik RouterOS, SONiC, FRR). Covers required fields producing valid config syntax, optional field handling, special character escaping, and interface naming correctness per platform. |
 | `cloud-init-ignition.md` | What to test for cloud-init and ignition template rendering: cloud-init user-data, network-config, and meta-data generation; cloudbase-init for Windows; ignition config generation (users, files, systemd units, links, filesystems). Covers YAML validity for cloud-init output and JSON validity for ignition output. |
-| `infrastructure.md` | What to test for infrastructure template rendering: libvirt domain XML generation (correct CPU, memory, disk, network interface definitions), dnsmasq DHCP/DNS config, SSH client config (host entries, key paths), pyATS inventory YAML, and HashiCorp Vault config. |
+| `infrastructure.md` | What to test for infrastructure template rendering: libvirt domain XML generation (correct CPU, memory, disk, network interface definitions), dnsmasq DHCP/DNS config, SSH client config (host entries, key paths), and HashiCorp Vault config. |
 
 ### `topology/` — Lab Topology Configuration
 
