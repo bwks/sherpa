@@ -49,6 +49,9 @@ Priority markers:
 
 ## Directory Structure
 
+The disposable VMs that installer and integration tests run in are defined in
+[`test-environments/`](../test-environments/README.md).
+
 ```
 test-specs/
   README.md
@@ -93,6 +96,7 @@ test-specs/
     validation-rules.md
   install/
     sherpa-install.md
+    vm-release-harness.md
   integration/
     vm-release-test-plan.md
     lab-lifecycle-e2e.md

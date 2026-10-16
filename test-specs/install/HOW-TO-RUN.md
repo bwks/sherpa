@@ -1,7 +1,7 @@
 # Running installer tests
 
 The supported local end-to-end workflow uses a fresh Ubuntu 26.04 VM provisioned
-by Sherpa. Follow the [VM release-test guide](../../dev/release-test/README.md):
+by Sherpa. Follow the [VM release-test guide](vm-release-harness.md):
 
 ```sh
 ./scripts/test_install.sh
@@ -10,7 +10,7 @@ by Sherpa. Follow the [VM release-test guide](../../dev/release-test/README.md):
 The runner tests installer preflight failures, installation, initialization,
 authenticated server access, reboot recovery, repeat installation, data retention,
 data removal, full removal and repeated uninstall. Required checks fail rather
-than skip. Run settings are in [TOML](../../dev/release-test/config.toml).
+than skip. Run settings are in [TOML](../../test-environments/ubuntu-2604/release-test.toml).
 
 It uses `SHERPA_DB_PASSWORD` for the installer. The `--db-pass` flag belongs to
 `sherpad init`, not to `sherpa_install.sh`. Initialization and its prompts are

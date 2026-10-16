@@ -9,7 +9,7 @@ libvirt_uri = "qemu:///system"
 ssh_destination = ""
 
 [vm]
-manifest = "dev/release-test/manifest.toml"
+manifest = "test-environments/ubuntu-2604/manifest.toml"
 lab_prefix = "release-"
 node_prefix = "rt"
 

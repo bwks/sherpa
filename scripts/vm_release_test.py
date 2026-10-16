@@ -690,7 +690,7 @@ class Runner:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=ROOT / "dev/release-test/config.toml")
+    parser.add_argument("--config", type=Path, default=ROOT / "test-environments/ubuntu-2604/release-test.toml")
     parser.add_argument("--scenario", choices=("lifecycle", "upgrade", "preflight", "failure-checks", "fault-timeout",
                                                "fault-interrupt", "fault-provision"), default="lifecycle")
     parser.add_argument("--version", help="Override the explicit candidate version in TOML")
@@ -755,7 +755,7 @@ class HarnessTests(unittest.TestCase):
                 runner.wait_guest()
 
     def upgrade_config(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         config["candidate"].update(version="v0.3.80", artifact_directory="/candidate")
         config["baseline"] = {"version": "v0.3.79", "artifact_directory": ""}
         return config
@@ -832,7 +832,7 @@ class HarnessTests(unittest.TestCase):
                 runner.collect()
 
     def test_configured_jump_host_is_used_for_guest_commands(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         config["host"]["ssh_destination"] = "remote-user@example.test"
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
@@ -843,7 +843,7 @@ class HarnessTests(unittest.TestCase):
             self.assertIn("ProxyJump=remote-user@example.test", command.call_args.args[1])
 
     def test_result_reference_tracks_status_without_credentials(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             reference = Path(directory) / "reference.toml"
@@ -857,7 +857,7 @@ class HarnessTests(unittest.TestCase):
             self.assertNotIn("private-password", reference.read_text())
 
     def test_cleanup_refuses_a_replaced_domain_before_destroy(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
@@ -873,7 +873,7 @@ class HarnessTests(unittest.TestCase):
                 destroy.assert_not_called()
 
     def test_resuming_cleanup_rejects_tampered_resource_names(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
@@ -884,7 +884,7 @@ class HarnessTests(unittest.TestCase):
                 Runner.resume(runner.directory)
 
     def test_logs_are_collected_before_each_uninstall(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
@@ -910,7 +910,7 @@ import sys, time
 from pathlib import Path
 sys.path.insert(0, {str(ROOT / 'scripts')!r})
 from vm_release_test import Runner, load_config, ROOT
-config = load_config(ROOT / 'dev/release-test/config.toml')
+config = load_config(ROOT / 'test-environments/ubuntu-2604/release-test.toml')
 config['runner']['output_directory'] = {directory!r}
 runner = Runner(config)
 runner.inputs = lambda: None
@@ -948,7 +948,7 @@ sys.exit(runner.run('preflight'))
                         os.killpg(int((Path(directory) / "active").read_text()), signal.SIGKILL)
 
     def test_partial_provisioning_is_not_reported_as_clean(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
@@ -966,7 +966,7 @@ sys.exit(runner.run('preflight'))
             self.assertTrue(receipt["run"]["retained"])
 
     def test_custom_output_directory_does_not_expose_credentials_to_git(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             subprocess.run(["git", "init", "-q", directory], check=True, capture_output=True)
             config["runner"]["output_directory"] = str(Path(directory) / "results")
@@ -1027,7 +1027,7 @@ install_system_packages
         self.assertIn("artifact not found", result.stderr)
 
     def test_setup_failure_produces_failed_result_and_nonzero_exit(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)
@@ -1038,7 +1038,7 @@ install_system_packages
             self.assertEqual(tomllib.loads((runner.directory / "result.toml").read_text())["run"]["status"], "failed")
 
     def test_command_timeout_is_bounded_and_logged(self):
-        config = load_config(ROOT / "dev/release-test/config.toml")
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
         with tempfile.TemporaryDirectory() as directory:
             config["runner"]["output_directory"] = directory
             runner = Runner(config)

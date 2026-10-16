@@ -107,7 +107,7 @@ def run_case(config, directory, scenario):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", type=Path, default=ROOT / "dev/release-test/config.toml")
+    parser.add_argument("--config", type=Path, default=ROOT / "test-environments/ubuntu-2604/release-test.toml")
     parser.add_argument("--version")
     parser.add_argument("--artifact-dir", type=Path)
     parser.add_argument("--self-test", action="store_true")

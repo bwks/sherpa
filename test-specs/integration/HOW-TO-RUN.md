@@ -6,6 +6,10 @@ provides passwordless sudo and all dependencies pre-installed.
 
 ## Prerequisites
 
+> The `devbox_linux` VM below is being replaced by the plain Ubuntu environments in
+> [`test-environments/`](../../test-environments/README.md), where Sherpa's installer
+> provides the dependencies. Until that migration is done, use the devbox VM.
+
 - A running `devbox_linux` VM built from `dev/integration-test/manifest.toml`
 - SSH access to the VM
 - Code synced to `/home/sherpa/sherpa/` inside the VM

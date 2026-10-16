@@ -89,6 +89,35 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
 
 
+def ubuntu_version(version):
+    """Map a Sherpa image version such as 24.04-20260926 to its Ubuntu VERSION_ID."""
+    return version.split("-", 1)[0]
+
+
+def check_bare_ubuntu(command, vm, initialize_timeout):
+    """Check a fresh Sherpa-built Ubuntu guest against its manifest node settings."""
+    command(["cloud-init", "status", "--wait", "--long"], timeout=initialize_timeout)
+    release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
+                   if "=" in line)
+    require(release["ID"].strip('"') == "ubuntu"
+            and release["VERSION_ID"].strip('"') == ubuntu_version(vm["version"]),
+            "Guest operating system differs from the manifest")
+    print("OS: " + release["PRETTY_NAME"])
+    require(os.cpu_count() == vm["cpu_count"], "Guest vCPU count differs from the manifest")
+    _, disk = command(["lsblk", "-bdno", "SIZE", "/dev/vda"])
+    require(int(disk.strip()) == vm["boot_disk_size"] * 1024**3,
+            "Guest disk size differs from the manifest")
+    for binary in ("sherpa", "sherpad", "docker", "dockerd", "virsh", "surreal"):
+        code, _ = command(["bash", "-c", 'command -v "$1"', "bash", binary], check=False)
+        require(code != 0, f"Preinstalled runtime command: {binary}")
+    require(not Path("/opt/sherpa").exists(), "/opt/sherpa already exists")
+    with open("/dev/kvm", "rb", buffering=0) as device:
+        require(fcntl.ioctl(device.fileno(), 0xAE00, 0) == 12, "KVM API unavailable")
+        descriptor = fcntl.ioctl(device.fileno(), 0xAE01, 0)
+        os.close(descriptor)
+    require(pwd.getpwnam("sherpa").pw_uid >= 1000, "Expected Sherpa's cloud-init login account")
+
+
 def interrupted(signum, _frame):
     raise KeyboardInterrupt(f"Guest interrupted by {signal.Signals(signum).name}")
 
@@ -167,27 +196,7 @@ class Guest:
                 "--version", self.config[selection]["version"]]
 
     def baseline(self):
-        self.command(["cloud-init", "status", "--wait", "--long"],
-                     timeout=self.timeouts["initialize"])
-        release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
-                       if "=" in line)
-        require(release["ID"].strip('"') == "ubuntu"
-                and release["VERSION_ID"].strip('"') == self.config["vm"]["version"],
-                "Guest operating system differs from the manifest")
-        print("OS: " + release["PRETTY_NAME"])
-        require(os.cpu_count() == self.config["vm"]["cpu_count"], "Guest vCPU count differs from the manifest")
-        _, disk = self.command(["lsblk", "-bdno", "SIZE", "/dev/vda"])
-        require(int(disk.strip()) == self.config["vm"]["boot_disk_size"] * 1024**3,
-                "Guest disk size differs from the manifest")
-        for binary in ("sherpa", "sherpad", "docker", "dockerd", "virsh", "surreal"):
-            code, _ = self.command(["bash", "-c", 'command -v "$1"', "bash", binary], check=False)
-            require(code != 0, f"Preinstalled runtime command: {binary}")
-        require(not self.base.exists(), "/opt/sherpa already exists")
-        with open("/dev/kvm", "rb", buffering=0) as device:
-            require(fcntl.ioctl(device.fileno(), 0xAE00, 0) == 12, "KVM API unavailable")
-            descriptor = fcntl.ioctl(device.fileno(), 0xAE01, 0)
-            os.close(descriptor)
-        require(pwd.getpwnam("sherpa").pw_uid >= 1000, "Expected Sherpa's cloud-init login account")
+        check_bare_ubuntu(self.command, self.config["vm"], self.timeouts["initialize"])
         self.command(["curl", "--version"])
         self.marker.write_text(self.config["identity"]["nonce"])
         self.marker.chmod(0o600)
@@ -731,6 +740,10 @@ class GuestTests(unittest.TestCase):
         guest.command = lambda *args, **kwargs: (1, "missing")
         with self.assertRaises(RuntimeError):
             guest.diagnostics(required=True)
+
+    def test_ubuntu_version_ignores_build_suffix(self):
+        self.assertEqual(ubuntu_version("26.04"), "26.04")
+        self.assertEqual(ubuntu_version("24.04-20260926"), "24.04")
 
     def test_binary_version_requires_exact_match(self):
         validate_binary_version("sherpad", "v0.3.79", "sherpad 0.3.79\n")

@@ -73,8 +73,8 @@ Completed on 2026-10-03 using the existing configured Sherpa server:
   are absent before installation begins.
 - [x] Verify the guest can reach package repositories and required registries.
 
-Manifest: [`dev/release-test/manifest.toml`](../../dev/release-test/manifest.toml).
-The [baseline record and access instructions](../../dev/release-test/README.md)
+Manifest: [`test-environments/ubuntu-2604/manifest.toml`](../../test-environments/ubuntu-2604/manifest.toml).
+The [baseline record](../../test-environments/ubuntu-2604/README.md)
 cover lab `f804c420`, running Ubuntu 26.04.1 LTS. A temporary KVM VM was created
 successfully inside the guest. No server runtime or extra packages were installed.
 That baseline lab was subsequently destroyed on 2026-10-03 at the user's request
@@ -88,8 +88,8 @@ is used as the baseline.
 ## Phase 2 — Harness and exact candidate inputs
 
 Local runner implemented and validated on 2026-10-03. See the
-[developer guide](../../dev/release-test/README.md) and
-[runner settings](../../dev/release-test/config.toml).
+[developer guide](../install/vm-release-harness.md) and
+[runner settings](../../test-environments/ubuntu-2604/release-test.toml).
 
 - [x] Define one local entry point to prepare a VM, run a selected scenario,
   collect results and clean up resources created by that run.

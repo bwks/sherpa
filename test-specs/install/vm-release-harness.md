@@ -1,56 +1,14 @@
-# Bare Ubuntu release-test VM
+# VM release-test harness
 
-This manifest defines a disposable clean Ubuntu guest for testing Sherpa's server
-installer and uninstaller. The test runtime is installed inside the guest; the existing
-Sherpa host manages the outer VM.
+The release-test harness tests Sherpa's server installer and uninstaller in
+disposable Ubuntu VMs managed by an existing Sherpa server. The guest is built
+from the [Ubuntu 26.04 test environment](../../test-environments/ubuntu-2604/README.md);
+see [test-environments](../../test-environments/README.md) for the environment
+layout, image records and the environment check.
 
-The [manifest](manifest.toml) selects Ubuntu `26.04` explicitly and allocates
-4 vCPUs, 8192 MiB RAM and a 60 GiB boot disk. Change these settings in the manifest
-when needed. The image build and checksum are recorded in the
-[release-test plan](../../test-specs/integration/vm-release-test-plan.md).
-
-## Access
-
-From the repository root, create a fresh standalone test lab when needed:
-
-```sh
-cd dev/release-test
-sherpa up
-sherpa inspect
-sherpa ssh testbox
-```
-
-Use `sherpa up` from this directory to create or start the lab on the configured
-Sherpa server. Sherpa generates `lab-info.toml`, an SSH configuration and an SSH
-key locally; these runtime files are ignored by Git.
-Destroy this standalone test lab with `sherpa destroy --yes` from this directory
-when finished. The automated runner creates and destroys its own separate labs
-through the Sherpa CLI.
-
-## Verified baseline
-
-Verified on 2026-10-03 for lab `f804c420`, domain `testbox-f804c420`:
-
-| Check | Result |
-|---|---|
-| Operating system | Ubuntu 26.04.1 LTS, `VERSION_ID=26.04` |
-| Resources | 4 vCPUs, 7.75 GiB usable memory, 60 GiB disk |
-| Guest initialization | Cloud-init finished without errors; SSH and passwordless sudo work |
-| Nested virtualization | CPU exposes VMX; `/dev/kvm` reports API version 12; creating a temporary KVM VM succeeds |
-| Server baseline | Sherpa, Docker, libvirt and SurrealDB commands and runtime packages absent; `/opt/sherpa` absent |
-| Installer prerequisite | Curl is already present in the official image; no extra packages were installed |
-| Guest network access | Ubuntu repository metadata, GitHub release API and Docker installer reachable; Docker Hub and GHCR return their expected authentication challenges |
-
-The existing host has nested virtualization enabled, and Sherpa's normal
-host-model CPU configuration exposes the required features to the guest. No changes
-to the host's virtualization settings were needed. Existing VMs were left unchanged.
-
-The KVM check created and closed an in-memory VM handle; it did not boot an inner
-guest. Registry checks establish connectivity, not successful image pulls.
-The automated runner creates separate VMs. The original baseline lab was destroyed
-on 2026-10-03 using `sherpa destroy --yes`; its VM, both disks, router, networks and
-lab records were removed. A subsequent `sherpa inspect` confirmed the lab was not
-found. The checks above are a historical baseline record, not a retained VM.
+The runner creates and destroys its own uniquely named labs from that
+environment's manifest. It does not use a lab brought up by hand from the
+environment directory.
 
 ## Automated install/uninstall tests
 
@@ -68,8 +26,11 @@ cargo clippy --workspace -- -D warnings
 ```
 
 All connection settings, image identity, candidate inputs, timeouts, output and
-retention settings are in [config.toml](config.toml). Resources and Ubuntu version
-are in the [manifest](manifest.toml). An empty host server URL uses the existing
+retention settings are in
+[release-test.toml](../../test-environments/ubuntu-2604/release-test.toml).
+Resources and Ubuntu version are in the
+[manifest](../../test-environments/ubuntu-2604/manifest.toml). An empty host
+server URL uses the existing
 CLI connection. Each run generates a unique lab name, guest name and credentials.
 
 The default tests the current checkout's installer/uninstaller scripts with
