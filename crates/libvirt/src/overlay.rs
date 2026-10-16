@@ -73,7 +73,6 @@ mod tests {
     use shared::konst::SHERPA_STORAGE_POOL_PATH;
     use std::process::Command;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::Duration;
     use virt::domain::Domain;
     use virt::stream::Stream;
     use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
@@ -132,7 +131,6 @@ mod tests {
             name: &fixture.prefix,
             disk: &first,
             memory: 256,
-            efi: false,
         }
         .render()?;
         let domain = Domain::define_xml(&fixture.conn, &domain_xml)?;
@@ -190,75 +188,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    #[ignore = "Requires libvirt and an immutable Omarchy image; set SHERPA_OVERLAY_BENCH_BASE"]
-    fn live_omarchy_provisioning_benchmark() -> Result<()> {
-        let base = std::env::var("SHERPA_OVERLAY_BENCH_BASE")
-            .context("Set SHERPA_OVERLAY_BENCH_BASE to the immutable Omarchy QCOW2 image")?;
-        read_qcow2_metadata(Path::new(&base))?.overlay_capacity(None)?;
-        let mut fixture = LiveVolumes::new()?;
-        for method in ["copy", "overlay"] {
-            let suffix = format!("{method}.qcow2");
-            let disk = fixture.path(&suffix);
-            let creation = Instant::now();
-            if method == "copy" {
-                clone_disk(&fixture.conn, &base, &disk)?;
-            } else {
-                create_overlay(&fixture.conn, &base, &disk, None)?;
-            }
-            fixture.created.push(fixture.name(&suffix));
-            eprintln!(
-                "{method}: disk creation took {:.6}s",
-                creation.elapsed().as_secs_f64()
-            );
-            let xml = TestDomain {
-                name: &fixture.prefix,
-                disk: &disk,
-                memory: 8192,
-                efi: true,
-            }
-            .render()?;
-            fixture.domain = Some(Domain::define_xml(&fixture.conn, &xml)?);
-            let domain = fixture
-                .domain
-                .as_ref()
-                .context("Missing benchmark domain")?;
-            let startup = Instant::now();
-            domain.create()?;
-            eprintln!(
-                "{method}: domain startup took {:.6}s",
-                startup.elapsed().as_secs_f64()
-            );
-            let polling = Instant::now();
-            let mut ready = false;
-            while polling.elapsed() < Duration::from_secs(90) {
-                if domain
-                    .qemu_agent_command(r#"{"execute":"guest-ping"}"#, 1, 0)
-                    .is_ok()
-                {
-                    ready = true;
-                    break;
-                }
-                std::thread::sleep(Duration::from_secs(1));
-            }
-            eprintln!(
-                "{method}: guest-agent readiness polling took {:.6}s; ready={ready}",
-                polling.elapsed().as_secs_f64()
-            );
-            domain.destroy()?;
-            domain.undefine_flags(VIR_DOMAIN_UNDEFINE_NVRAM)?;
-            fixture.domain = None;
-        }
-        Ok(())
-    }
-
     #[derive(Template)]
     #[template(path = "test-domain.xml", ext = "xml", escape = "xml")]
     struct TestDomain<'a> {
         name: &'a str,
         disk: &'a str,
         memory: u32,
-        efi: bool,
     }
 
     struct LiveVolumes {

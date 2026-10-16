@@ -4,6 +4,7 @@
 import argparse
 from contextlib import redirect_stdout
 from contextlib import suppress
+import fcntl
 import hashlib
 import io
 import json
@@ -36,6 +37,11 @@ STEPS = ("baseline", "preflight", "install", "initialize", "authenticate",
 UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
                  "seed-upgrade", "upgrade", "authenticate", "verify-upgrade",
                  "reboot", "authenticate", "verify-upgrade-reboot")
+CODE_STEPS = ("baseline", "install", "initialize", "authenticate", "source", "toolchain",
+              "test-images", "build-tests", "unit-tests", "integration-tests")
+RERUN_STEPS = ("source", "build-tests", "unit-tests", "integration-tests")
+# Concurrent lab creation can allocate duplicate subnets (issue #318); serialize `sherpa up`.
+UP_LOCK = ROOT / ".tmp" / "sherpa-up.lock"
 
 
 def validate_upgrade_config(config):
@@ -134,6 +140,16 @@ def load_config(path):
     return validate_config(config)
 
 
+def load_recorded_config(path):
+    """Load a retained run's config, adding settings introduced after it was recorded."""
+    config = tomllib.loads(path.read_text())
+    tests = config.get("tests")
+    if tests is not None:
+        tests.setdefault("skip_tests", [])
+        tests.setdefault("environment", [])
+    return validate_config(config)
+
+
 def validate_config(config):
     required = {
         "host": ("sherpa", "server_url", "libvirt_uri", "ssh_destination"),
@@ -144,8 +160,11 @@ def validate_config(config):
         "guest": ("workspace_prefix", "listen_ip", "client_host", "ws_port", "http_port", "db_port",
                   "admin_prefix", "surrealdb_image", "router_image"),
         "timeouts": ("provision", "connect", "command", "download", "install", "initialize",
-                     "startup", "reboot", "cleanup", "poll", "terminate"),
+                     "startup", "reboot", "cleanup", "poll", "terminate", "build", "tests"),
         "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
+        "tests": ("integration_crates", "container_images", "vm_image_model", "vm_image_version",
+                  "vm_image_url", "vm_image_sha256", "test_db_user", "test_db_port", "skip_tests",
+                  "environment"),
     }
     if "baseline" in config:
         required["baseline"] = ("version", "artifact_directory")
@@ -164,8 +183,21 @@ def validate_config(config):
         raise ValueError("Invalid fault readiness port")
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:[-.][A-Za-z0-9.]+)?", config["candidate"]["version"]):
         raise ValueError("Select an explicit release version, such as v0.3.79")
-    if not re.fullmatch(r"[0-9a-f]{64}", config["image"]["sha256"]):
-        raise ValueError("Image SHA-256 must contain 64 lowercase hex digits")
+    for value in (config["image"]["sha256"], config["tests"]["vm_image_sha256"]):
+        if not re.fullmatch(r"[0-9a-f]{64}", value):
+            raise ValueError("Image SHA-256 must contain 64 lowercase hex digits")
+    if not config["tests"]["integration_crates"] or not all(
+            re.fullmatch(r"[a-z][a-z0-9_-]*", crate) for crate in config["tests"]["integration_crates"]):
+        raise ValueError("Invalid integration crate selection")
+    if not all(re.fullmatch(r"[A-Za-z0-9_:]+", name) for name in config["tests"]["skip_tests"]):
+        raise ValueError("Invalid skipped test name")
+    for assignment in config["tests"]["environment"]:
+        name = assignment.split("=", 1)[0]
+        if "=" not in assignment or not re.fullmatch(r"[A-Z][A-Z0-9_]*", name):
+            raise ValueError(f"Invalid test environment assignment: {assignment}")
+        # Credentials are supplied at run time, never stored in TOML.
+        if re.search(r"PASSWORD|SECRET|TOKEN|AUTH_KEY", name):
+            raise ValueError(f"Test environment must not hold credentials: {name}")
     for key in ("lab_prefix", "node_prefix"):
         if not re.fullmatch(r"[a-z][a-z0-9-]*", config["vm"][key]):
             raise ValueError(f"Invalid {key}")
@@ -176,8 +208,9 @@ def validate_config(config):
 
 
 class Runner:
-    def __init__(self, config, keep_vm=False, result_file=None):
+    def __init__(self, config, keep_vm=False, result_file=None, source_archive=None):
         self.config = config
+        self.source_archive = source_archive
         self.run_id = uuid.uuid4().hex
         self.directory = (ROOT / config["runner"]["output_directory"] / self.run_id).resolve()
         self.directory.mkdir(parents=True, mode=0o700)
@@ -210,7 +243,7 @@ class Runner:
         run = report["run"]
         if run["id"] != directory.name or not re.fullmatch(r"[0-9a-f]{32}", run["id"]):
             raise ValueError("Refusing cleanup: result directory identity changed")
-        config = load_config(directory / "runner-config.toml")
+        config = load_recorded_config(directory / "runner-config.toml")
         if (run["lab_name"] != config["vm"]["lab_prefix"] + run["id"][:8]
                 or run["node_name"] != config["vm"]["node_prefix"] + run["id"][:8]):
             raise ValueError("Refusing cleanup: generated resource names changed")
@@ -227,7 +260,8 @@ class Runner:
             if validate["uuid"] != runner.guest_uuid or validate["nonce"] != runner.run_id:
                 raise ValueError("Refusing cleanup: guest payload identity changed")
             runner.remote_directory = validate["workspace"]
-            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password")]
+            runner.secrets = [data["credentials"][key] for key in ("db_password", "admin_password", "test_db_password")
+                              if key in data["credentials"]]
         return runner
 
     def remove_retained(self):
@@ -339,6 +373,8 @@ class Runner:
             path.write_bytes(RUNNER_SOURCE if name == "vm_release_test.py" else (ROOT / "scripts" / name).read_bytes())
             self.report["scripts"][name.replace(".", "_")] = sha256(path)
         self.report["artifacts"] = self.prepare_artifacts(candidate, self.directory)
+        if self.report["run"]["scenario"] == "code":
+            self.report["source"] = self.prepare_source(self.source_archive)
         if self.report["run"]["scenario"] == "upgrade":
             baseline = {**candidate, **self.config["baseline"]}
             baseline_directory = self.directory / "baseline"
@@ -349,6 +385,13 @@ class Runner:
                 **self.prepare_artifacts(baseline, baseline_directory)}
             validate_upgrade_artifacts(self.report["baseline"], self.report["artifacts"])
         self.save()
+
+    def prepare_source(self, archive):
+        if not archive or not archive.is_file():
+            raise ValueError("The code scenario requires a source snapshot archive")
+        path = self.directory / "source.tar.gz"
+        path.write_bytes(archive.read_bytes())
+        return {"archive": str(archive), "archive_sha256": sha256(path)}
 
     def prepare_artifacts(self, candidate, directory):
         artifacts = {}
@@ -398,7 +441,11 @@ class Runner:
         self.save()
         print(f"[provision] Creating fresh lab {self.lab_name}", flush=True)
         try:
-            _, up_output = self.sherpa("up", ["up"], self.config["timeouts"]["provision"])
+            UP_LOCK.parent.mkdir(exist_ok=True)
+            with UP_LOCK.open("w") as lock:
+                print("[provision] Waiting for any other Sherpa lab creation to finish", flush=True)
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                _, up_output = self.sherpa("up", ["up"], self.config["timeouts"]["provision"])
             if self.report["run"].get("scenario") == "fault-provision":
                 self.report["run"]["readiness_timed_out"] = "[NodeReadiness]" in up_output
                 self.save()
@@ -489,6 +536,11 @@ class Runner:
         }
         if self.report["run"]["scenario"] == "upgrade":
             payload["baseline"] = dict(self.report["baseline"])
+        if self.report["run"]["scenario"] == "code":
+            test_db_password = "Cc3!" + secrets.token_hex(24)
+            self.secrets.append(test_db_password)
+            payload["credentials"]["test_db_password"] = test_db_password
+            payload["tests"] = {**self.config["tests"], "source_sha256": self.report["source"]["archive_sha256"]}
         payload_path = self.directory / "guest.toml"
         payload_path.write_text(encode_toml(payload))
         payload_path.chmod(0o600)
@@ -498,6 +550,8 @@ class Runner:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
         if "baseline" in payload:
             files.append(str(self.directory / "baseline"))
+        if "tests" in payload:
+            files.append(str(self.directory / "source.tar.gz"))
         self.command("upload", ["scp", "-r", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
                                "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
                                *files, f"{self.node_name}.{self.lab_id}:{remote}/"],
@@ -516,6 +570,16 @@ class Runner:
             timeout = self.config["timeouts"]["initialize"]
         elif name in ("authenticate", "seed-upgrade", "verify-upgrade", "verify-upgrade-reboot"):
             timeout = self.config["timeouts"]["startup"]
+        elif name == "toolchain":
+            timeout = self.config["timeouts"]["install"]
+        elif name == "test-images":
+            timeout = self.config["timeouts"]["download"] * 2
+        elif name == "build-tests":
+            timeout = self.config["timeouts"]["build"] * (len(self.config["tests"]["integration_crates"]) + 1)
+        elif name == "unit-tests":
+            timeout = self.config["timeouts"]["tests"]
+        elif name == "integration-tests":
+            timeout = self.config["timeouts"]["tests"] * len(self.config["tests"]["integration_crates"])
         elif name == "fault-wait" and self.report["run"]["scenario"] == "fault-timeout":
             timeout = self.config["faults"]["command_timeout"]
         command = ["sudo", "-n", "timeout", "--signal=TERM",
@@ -562,6 +626,8 @@ class Runner:
                     if tuple(self.report["run"]["completed_steps"]) == UPGRADE_STEPS:
                         validate_upgrade_evidence(evidence, self.report["baseline"], self.report["artifacts"])
                     self.report["run"]["upgrade_evidence_sha256"] = sha256(self.directory / "upgrade-state.toml")
+                if self.report["run"]["scenario"] == "code":
+                    self.collect_test_results()
                 for mode in ("keep-data", "remove-data", "remove-all"):
                     if mode in self.report["run"]["completed_steps"]:
                         self.command("inventory-" + mode, ["scp", "-F", str(self.directory / "sherpa_ssh_config"),
@@ -575,6 +641,73 @@ class Runner:
                     raise
         if self.lab_id:
             self.sherpa("inspect-final", ["inspect"], self.config["timeouts"]["command"])
+
+    def collect_test_results(self):
+        target = f"{self.node_name}.{self.lab_id}"
+        options = ["-F", str(self.directory / "sherpa_ssh_config"), "-o", "BatchMode=yes",
+                   *ssh_jump_options(self.config["host"]["ssh_destination"])]
+        code, _ = self.command("test-results", ["scp", *options, f"{target}:{self.remote_directory}/test-results.toml",
+                               str(self.directory)], self.config["timeouts"]["command"], check=False)
+        self.command("test-logs", ["scp", "-r", *options, f"{target}:{self.remote_directory}/logs",
+                     str(self.directory)], self.config["timeouts"]["download"], check=False)
+        if code == 0:
+            results = tomllib.loads((self.directory / "test-results.toml").read_text())
+            self.report["tests"] = {f"{section}_status": values["status"]
+                                    for section, values in results.items() if "status" in values}
+            leftovers = results.get("leftovers", {})
+            self.report["tests"]["leftovers"] = [f"{kind}: {name}" for kind, names in leftovers.items()
+                                                 for name in names]
+
+    def rerun(self):
+        """Retest new source on a retained code-scenario VM. A rerun never replaces a fresh run."""
+        success = False
+        previous = signal.signal(signal.SIGTERM, interrupted)
+        try:
+            if self.report["run"].get("scenario") != "code" or self.report["run"].get("resource_state") != "allocated":
+                raise ValueError("Only a retained code-scenario run can be rerun")
+            self.report["run"]["status"] = "running"
+            self.report["run"]["reruns"] = self.report["run"].get("reruns", 0) + 1
+            self.report["run"]["completed_steps"] = [step for step in self.report["run"]["completed_steps"]
+                                                     if step not in RERUN_STEPS]
+            self.report["source"] = self.prepare_source(self.source_archive)
+            payload_path = self.directory / "guest.toml"
+            payload = tomllib.loads(payload_path.read_text())
+            payload["tests"]["source_sha256"] = self.report["source"]["archive_sha256"]
+            payload_path.write_text(encode_toml(payload))
+            # Retest with the checkout's current guest steps as well as its source.
+            guest_script = self.directory / "vm_release_guest.py"
+            guest_script.write_bytes((ROOT / "scripts" / "vm_release_guest.py").read_bytes())
+            self.report["scripts"]["vm_release_guest_py"] = sha256(guest_script)
+            self.command("upload-rerun", ["scp", "-F", str(self.directory / "sherpa_ssh_config"), "-o",
+                         "BatchMode=yes", *ssh_jump_options(self.config["host"]["ssh_destination"]),
+                         str(payload_path), str(guest_script), str(self.directory / "source.tar.gz"),
+                         f"{self.node_name}.{self.lab_id}:{self.remote_directory}/"],
+                         self.config["timeouts"]["download"])
+            for step in RERUN_STEPS:
+                self.step(step)
+            success = True
+        except (Exception, KeyboardInterrupt) as error:
+            self.report["run"]["error"] = self.redact(str(error))
+            print(f"[fail] {self.redact(str(error))}", flush=True)
+        finally:
+            try:
+                self.collect()
+            except (Exception, KeyboardInterrupt) as error:
+                success = False
+                self.report["run"]["evidence_error"] = self.redact(str(error))
+            if success:
+                try:
+                    self.cleanup()
+                except (Exception, KeyboardInterrupt) as error:
+                    success = False
+                    self.report["run"]["cleanup_error"] = self.redact(str(error))
+                    print(f"[fail] Cleanup failed: {self.redact(str(error))}", flush=True)
+            self.report["run"]["status"] = "passed" if success else "failed"
+            self.save()
+            signal.signal(signal.SIGTERM, previous)
+            print(f"[result] {self.report['run']['status']} after rerun "
+                  f"{self.report['run']['reruns']}: {self.directory / 'result.toml'}", flush=True)
+        return 0 if success else 1
 
     def cleanup(self):
         if not self.lab_id or not self.guest_uuid:
@@ -633,6 +766,8 @@ class Runner:
             required = UPGRADE_STEPS
         if scenario in ("fault-timeout", "fault-interrupt"):
             required = ("baseline", "fault-wait")
+        if scenario == "code":
+            required = CODE_STEPS
         self.report["run"]["scenario"] = scenario
         previous = signal.signal(signal.SIGTERM, interrupted)
         try:
@@ -692,18 +827,26 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, default=ROOT / "test-environments/ubuntu-2604/release-test.toml")
     parser.add_argument("--scenario", choices=("lifecycle", "upgrade", "preflight", "failure-checks", "fault-timeout",
-                                               "fault-interrupt", "fault-provision"), default="lifecycle")
+                                               "fault-interrupt", "fault-provision", "code"), default="lifecycle")
     parser.add_argument("--version", help="Override the explicit candidate version in TOML")
     parser.add_argument("--artifact-dir", help="Use local release archives instead of GitHub downloads")
     parser.add_argument("--baseline-version", help="Explicit previous release for the upgrade scenario")
     parser.add_argument("--baseline-artifact-dir", help="Optional local previous-release archives")
     parser.add_argument("--keep-vm", action="store_true", help="Retain the run's VM even after success")
     parser.add_argument("--cleanup-run", type=Path, help="Verify identity and remove a retained run's lab")
+    parser.add_argument("--source-archive", type=Path, help="Source snapshot for the code scenario or a rerun")
+    parser.add_argument("--rerun-run", type=Path, help="Retest a retained code-scenario run with a new source snapshot")
     parser.add_argument("--result-file", type=Path, help="Write a nonsecret TOML reference to this run's receipt")
     parser.add_argument("--self-test", action="store_true", help="Run host-independent harness regression tests")
     args = parser.parse_args()
     if args.cleanup_run:
         return Runner.resume(args.cleanup_run).remove_retained()
+    if args.rerun_run:
+        if not args.source_archive:
+            parser.error("--rerun-run requires --source-archive")
+        runner = Runner.resume(args.rerun_run)
+        runner.source_archive = args.source_archive.resolve()
+        return runner.rerun()
     if args.self_test:
         unittest.main(argv=[sys.argv[0]])
         return 0
@@ -727,8 +870,13 @@ def main():
         parser.error("--baseline-artifact-dir requires --baseline-version")
     if args.scenario != "upgrade" and (args.baseline_version or args.baseline_artifact_dir):
         parser.error("Baseline inputs require --scenario upgrade")
+    if args.scenario == "code" and not (args.artifact_dir and args.source_archive):
+        parser.error("The code scenario requires --artifact-dir and --source-archive from the checkout")
+    if args.source_archive and args.scenario != "code":
+        parser.error("--source-archive requires --scenario code")
     validate_config(config)
-    return Runner(config, args.keep_vm, args.result_file).run(args.scenario)
+    return Runner(config, args.keep_vm, args.result_file,
+                  args.source_archive.resolve() if args.source_archive else None).run(args.scenario)
 
 
 class HarnessTests(unittest.TestCase):
@@ -1005,6 +1153,49 @@ install_system_packages
         self.assertEqual(result.returncode, 0)
         self.assertIn("qemu-system-x86", result.stdout)
         self.assertNotIn(" qemu-kvm ", result.stdout)
+
+    def test_code_scenario_requires_local_candidate_and_source(self):
+        process = subprocess.run([sys.executable, str(ROOT / "scripts/vm_release_test.py"), "--scenario", "code"],
+                                 capture_output=True, text=True)
+        self.assertEqual(process.returncode, 2)
+        self.assertIn("requires --artifact-dir and --source-archive", process.stderr)
+
+    def test_code_settings_are_required_and_validated(self):
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
+        missing = {key: value for key, value in config.items() if key != "tests"}
+        with self.assertRaises(ValueError):
+            validate_config(missing)
+        for crates in ([], ["../db"]):
+            invalid = {**config, "tests": {**config["tests"], "integration_crates": crates}}
+            with self.subTest(crates=crates), self.assertRaises(ValueError):
+                validate_config(invalid)
+
+    def test_retained_runs_recorded_before_new_test_settings_can_be_resumed(self):
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
+        older = {**config, "tests": {key: value for key, value in config["tests"].items()
+                                     if key not in ("skip_tests", "environment")}}
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "runner-config.toml"
+            path.write_text(encode_toml(older))
+            with self.assertRaises(ValueError):
+                load_config(path)
+            resumed = load_recorded_config(path)
+        self.assertEqual((resumed["tests"]["skip_tests"], resumed["tests"]["environment"]), ([], []))
+
+    def test_test_environment_rejects_credentials_and_bad_skips(self):
+        config = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
+        for key, value in (("environment", ["SHERPA_TEST_TAILSCALE_AUTH_KEY=tskey"]),
+                           ("environment", ["lowercase=1"]), ("environment", ["MISSING_VALUE"]),
+                           ("skip_tests", ["name; rm -rf /"])):
+            invalid = {**config, "tests": {**config["tests"], key: value}}
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_config(invalid)
+
+    def test_both_environment_configs_are_valid_and_distinct(self):
+        older = load_config(ROOT / "test-environments/ubuntu-2404/release-test.toml")
+        newer = load_config(ROOT / "test-environments/ubuntu-2604/release-test.toml")
+        self.assertNotEqual(older["vm"]["lab_prefix"], newer["vm"]["lab_prefix"])
+        self.assertNotEqual(older["image"]["sha256"], newer["image"]["sha256"])
 
     def test_jump_host_brackets_and_ports(self):
         self.assertEqual(jump_host_arguments("user@[192.0.2.10]"), ["-l", "user", "192.0.2.10"])

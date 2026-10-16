@@ -2,11 +2,7 @@
   <name>{{ name }}</name>
   <memory unit='MiB'>{{ memory }}</memory>
   <vcpu>4</vcpu>
-  {% if efi %}
-  <os firmware='efi'><type arch='x86_64' machine='q35'>hvm</type><firmware><feature enabled='no' name='secure-boot'/></firmware><boot dev='hd'/></os>
-  {% else %}
   <os><type arch='x86_64' machine='q35'>hvm</type><boot dev='hd'/></os>
-  {% endif %}
   <features><acpi/><apic/></features>
   <cpu mode='host-model'/>
   <devices>

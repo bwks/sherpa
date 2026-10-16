@@ -54,20 +54,66 @@ python3 scripts/test_env.py --self-test
 python3 scripts/test_env_guest.py --self-test
 ```
 
-## Known issue: concurrent `up`
+## Testing the local code
 
-Bring environments up one at a time. On 2026-10-16, running `sherpa up` for both
-environments at once gave both labs the same management subnet; the second failed
-with `Network is already in use by interface brm-<lab-id>` and cleaned itself up.
-That is a Sherpa server bug in lab subnet allocation
-([#318](https://github.com/bwks/sherpa/issues/318)), not a test-environment
-problem.
+Two test suites run in these environments:
+
+| Suite | Command | Sherpa under test |
+|---|---|---|
+| Installer | `./scripts/test_install.sh --config test-environments/<env>/release-test.toml` | The checkout's installer and uninstaller with published release binaries |
+| Code | `python3 scripts/test_env.py run` | Release binaries and integration tests built from the checkout |
+
+The code suite builds `sherpad` and `sherpa` release archives once on the host from a
+snapshot of the checkout (tracked and untracked, non-ignored files, so uncommitted work
+is included). It builds them per package with Tailwind CSS rebuilt, as the release
+workflow does. Then, for every environment in parallel, the release-test runner:
+
+1. creates a fresh lab from the environment's manifest,
+2. installs the candidate archives with the checkout's installer, initializes the
+   server and checks API and CLI access,
+3. uploads the same source snapshot and installs the Rust toolchain and build packages,
+4. pulls the container image and downloads the checksummed VM image the tests need,
+5. builds all test binaries, runs the workspace unit tests, then runs the db,
+   container, network, libvirt and sherpad integration tests one crate at a time with
+   the installed `sherpad` service stopped,
+6. fails on any failed test, any crate with no results, a required test that skipped
+   (such as the VM lifecycle test without KVM) or any Docker, libvirt or network
+   resource left behind by the tests.
+
+Settings are in each environment's `release-test.toml` `[tests]` section. The client
+crate's integration tests are not run.
+
+A passing environment is destroyed. A failing one is kept for debugging. To retest
+the current checkout on a kept VM without rebuilding it:
+
+```sh
+python3 scripts/test_env.py rerun .tmp/vm-release-tests/<run-id>
+```
+
+A rerun reinstalls nothing: it uploads a new source snapshot and repeats the build,
+unit and integration steps. If it passes, the VM is destroyed. A rerun result is for
+debugging; release confidence needs a passing fresh run. Remove a kept VM without
+rerunning with `python3 scripts/vm_release_test.py --cleanup-run .tmp/vm-release-tests/<run-id>`.
+
+Each run writes `.tmp/test-env-runs/<id>/` with the build logs, candidate hashes
+(`candidate.toml`) and one log per environment. Each environment's receipt is under
+`.tmp/vm-release-tests/<run-id>/`, with `test-results.toml` (per-crate counts,
+failed test names, skips and leftover resources) and full test logs in `logs/`.
+Both directories are ignored by Git.
+
+## Concurrent lab creation
+
+Concurrent `sherpa up` requests can be given the same lab subnet
+([#318](https://github.com/bwks/sherpa/issues/318)). The release-test runner takes a
+host lock (`.tmp/sherpa-up.lock`) around `sherpa up`, so environments start one after
+another and then run in parallel. When using `scripts/test_env.py up` by hand, bring
+environments up one at a time.
 
 ## Consumers
 
 - The [VM release-test harness](../test-specs/install/vm-release-harness.md) builds
-  its disposable guests from [ubuntu-2604](ubuntu-2604/manifest.toml), with settings
-  in [release-test.toml](ubuntu-2604/release-test.toml).
+  its disposable guests from each environment's manifest, with settings in that
+  environment's `release-test.toml`. Without `--config` it uses ubuntu-2604.
 - Integration tests still run in the `devbox_linux` VM from `dev/integration-test/`
   ([how to run](../test-specs/integration/HOW-TO-RUN.md)). That moves here once the
   integration tests run on a plain Ubuntu environment with Sherpa installed by its

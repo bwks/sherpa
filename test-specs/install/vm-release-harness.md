@@ -8,7 +8,13 @@ layout, image records and the environment check.
 
 The runner creates and destroys its own uniquely named labs from that
 environment's manifest. It does not use a lab brought up by hand from the
-environment directory.
+environment directory. Select another environment with
+`--config test-environments/<env>/release-test.toml`.
+
+The same runner's `code` scenario installs release archives built from the checkout
+and runs the checkout's unit and integration tests in the guest. Start it through
+`python3 scripts/test_env.py run`, which builds those inputs; see
+[test-environments](../../test-environments/README.md#testing-the-local-code).
 
 ## Automated install/uninstall tests
 
