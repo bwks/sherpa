@@ -4,8 +4,8 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{
-    Config, ConfigurationManagement, OtelConfig, ScannerConfig, ServerConnection,
-    TailscaleGatewaySettings, TlsConfig, VmProviders, ZtpServer,
+    Config, OtelConfig, ScannerConfig, ServerConnection, TailscaleGatewaySettings, TlsConfig,
+    VmProviders, ZtpServer,
 };
 use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
@@ -68,7 +68,6 @@ impl TestServer {
             containers_dir: "/opt/sherpa/containers".to_string(),
             bins_dir: "/opt/sherpa/bins".to_string(),
             ztp_server: ZtpServer::default(),
-            configuration_management: ConfigurationManagement::default(),
             container_images: vec![],
             server_connection: ServerConnection::default(),
             tls: TlsConfig::default(),

@@ -55,18 +55,6 @@
 
 ---
 
-## PyATS Inventory (`pyats.rs`)
-
-**What to test:**
-- `PyatsInventory::from_manifest()` builds inventory from topology `[unit]` **P0**
-- `to_yaml()` produces valid YAML `[unit]` **P0**
-- Each device has alias, connection details, credentials, OS, platform, type `[unit]` **P0**
-- Management IP and SSH port configured per device `[unit]` **P0**
-- Custom ZTP username/password applied when provided `[unit]` **P1**
-- Devices without management IP excluded or handled `[unit]` **P1**
-
----
-
 ## Vault Configuration (`vault.rs`)
 
 **What to test:**

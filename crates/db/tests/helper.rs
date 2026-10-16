@@ -70,7 +70,7 @@ pub async fn create_test_node_with_model(
     use db::{create_node, get_node_image_by_model_kind_version};
 
     // Get the model kind from the NodeModel
-    let config_template = NodeConfig::get_model(model.clone());
+    let config_template = NodeConfig::get_model(model);
     let kind = config_template.kind;
     let version = config_template.version;
 
