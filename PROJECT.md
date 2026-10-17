@@ -2,7 +2,7 @@
 
 ## Release Testing — Required Before New Features
 
-- [ ] **VM release test harness** — Build repeatable release testing in disposable Sherpa-managed VMs, starting with server install/uninstall on bare Ubuntu 26.04. Task checklist: [VM release testing plan](test-specs/integration/vm-release-test-plan.md). Complete its phases 1–5 before adding new product features.
+- [ ] **VM release test harness** — Build repeatable release testing in disposable Sherpa-managed VMs, starting with server install/uninstall on bare Ubuntu 26.04. Task checklist: [VM release testing plan](tests/specs/integration/vm-release-test-plan.md). Complete its phases 1–5 before adding new product features.
 
 ## Build Performance
 
@@ -48,5 +48,5 @@
 ## Tailnet access
 
 - [x] **Manifest-driven Tailscale gateway** — Per-lab management routing, client-environment auth keys, lifecycle integration, and nonfatal route-approval warnings. Setup: `docs/TAILNET.md`.
-- [ ] **Live tailnet acceptance** — Run mixed VM/container, dual-stack access and cross-lab isolation checks against a disposable tailnet; see `test-specs/integration/tailscale.md`.
-- [ ] **Live tailnet enrollment test in the test environments** — Deferred on 2026-10-16. `container::tailscale::tests::live_tailnet_enrollment_stop_resume_cleanup` joins a real tailnet and needs an auth key, so the code suite in `test-environments/` skips it by name (`skip_tests` in each `release-test.toml`). To enable it: supply an ephemeral test-tailnet key only through the environment at run time (never in TOML), have the harness create the disposable Docker network and gateway address itself, and remove the skip. The self-contained `live_gateway_daemon_smoke` test already runs.
+- [ ] **Live tailnet acceptance** — Run mixed VM/container, dual-stack access and cross-lab isolation checks against a disposable tailnet; see `tests/specs/integration/tailscale.md`.
+- [ ] **Live tailnet enrollment test in the test environments** — Deferred on 2026-10-16. `container::tailscale::tests::live_tailnet_enrollment_stop_resume_cleanup` joins a real tailnet and needs an auth key, so the code suite in `tests/environments/` skips it by name (`skip_tests` in each `release-test.toml`). To enable it: supply an ephemeral test-tailnet key only through the environment at run time (never in TOML), have the harness create the disposable Docker network and gateway address itself, and remove the skip. The self-contained `live_gateway_daemon_smoke` test already runs.

@@ -38,7 +38,7 @@ lab-info.toml
 *.env
 manifest*.toml*
 !dev/integration-test/manifest.toml
-!test-environments/*/manifest.toml
+!tests/environments/*/manifest.toml
 
 # Tailwind CSS
 tailwindcss
