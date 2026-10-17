@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), deny(unsafe_code))]
 
+mod cluster_credentials;
 mod cmd;
 mod private_key;
 mod token;

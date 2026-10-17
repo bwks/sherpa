@@ -77,6 +77,8 @@ mod tests {
     use virt::stream::Stream;
     use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
+    static NEXT_TEST: AtomicU64 = AtomicU64::new(0);
+
     #[test]
     fn overlay_xml_escapes_paths_and_explicitly_sets_backing_format() {
         let xml = OverlayVolume {
@@ -254,8 +256,6 @@ mod tests {
             }
         }
     }
-
-    static NEXT_TEST: AtomicU64 = AtomicU64::new(0);
 
     // Test guest writes on a user-owned temporary QCOW2 file, then upload the
     // resulting image through libvirt. This needs no sudo or writable pool files.

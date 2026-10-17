@@ -16,6 +16,8 @@
 - `allocate_loopback_subnet()` returns next free /24, skips x.x.0.0/24 `[unit]` **P0**
 - Allocation with all subnets used returns exhaustion error `[unit]` **P0**
 - `get_ip()` computes address from loopback subnet + host offset `[unit]` **P0**
+- `node_management_host_offset()` maps node 1 to `.21` and node 234 to `.254`; rejects index 0 and indexes past the node block `[unit]` **P0**
+- Management host offset blocks (infrastructure 1–10, control plane 11–20, nodes 21–254) are ordered and disjoint; infrastructure addresses are distinct; Talos VIPs sit in the control-plane block `[unit]` **P0**
 
 ---
 

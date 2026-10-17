@@ -508,6 +508,8 @@ mod tests {
     use std::io::Write;
     use std::sync::{Arc, Mutex};
 
+    const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
+
     #[derive(Clone)]
     struct CapturedWriter(Arc<Mutex<Vec<u8>>>);
 
@@ -524,8 +526,6 @@ mod tests {
             Ok(())
         }
     }
-
-    const TEST_SECRET: &[u8] = b"test_secret_32_bytes_long_enough";
 
     fn make_token(username: &str, is_admin: bool) -> String {
         jwt::create_token(TEST_SECRET, username, is_admin, 3600)

@@ -23,8 +23,11 @@ use crate::daemon::state::AppState;
 /// How a node started by resume shows that it is ready, as `up` checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ReadinessCheck {
-    Ssh,
-    Unikernel { ready_port: Option<u16> },
+    /// A virtual machine accepting TCP connections on this port.
+    Port(u16),
+    Unikernel {
+        ready_port: Option<u16>,
+    },
 }
 
 /// A node that resume cold-booted and waits for.
@@ -238,7 +241,11 @@ fn readiness_check(
         return None;
     }
     match kind {
-        NodeKind::VirtualMachine => Some(ReadinessCheck::Ssh),
+        // Without a saved manifest the model is unknown, so fall back to SSH as before.
+        NodeKind::VirtualMachine => Some(ReadinessCheck::Port(match manifest_node {
+            Some(node) => node_ops::vm_ready_port(&node.model, ready_port),
+            None => SSH_PORT,
+        })),
         NodeKind::Unikernel => Some(ReadinessCheck::Unikernel { ready_port }),
         NodeKind::Container => None,
     }
@@ -296,8 +303,8 @@ fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) 
 /// Probe one node once. Probe errors count as not ready yet.
 fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
     let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
-        (ReadinessCheck::Ssh, Some(ip)) => node_ops::check_node_ready_ssh(ip, SSH_PORT),
-        (ReadinessCheck::Ssh, None) => Ok(false),
+        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_node_port_ready(ip, *port),
+        (ReadinessCheck::Port(_), None) => Ok(false),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {
                 node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip)
@@ -545,6 +552,7 @@ async fn reattach_p2p_ebpf_for_nodes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::konst::TALOS_API_PORT;
 
     fn manifest(text: &str) -> Manifest {
         toml::from_str(text).unwrap()
@@ -568,7 +576,7 @@ mod tests {
     fn only_cold_booted_guests_are_checked() {
         assert_eq!(
             readiness_check(&NodeKind::VirtualMachine, true, None),
-            Some(ReadinessCheck::Ssh)
+            Some(ReadinessCheck::Port(SSH_PORT))
         );
         assert_eq!(
             readiness_check(&NodeKind::VirtualMachine, false, None),
@@ -608,6 +616,32 @@ nodes = [
     }
 
     #[test]
+    fn virtual_machines_are_checked_on_their_model_port_or_manifest_port() {
+        let lab = manifest(
+            r#"
+name = "lab"
+nodes = [
+  { name = "talos", model = "talos_linux" },
+  { name = "talos-custom", model = "talos_linux", ready_port = 6443 },
+  { name = "vm", model = "ubuntu_linux" },
+]
+"#,
+        );
+        for (name, port) in [
+            ("talos", TALOS_API_PORT),
+            ("talos-custom", 6443),
+            ("vm", SSH_PORT),
+        ] {
+            let node = lab.nodes.iter().find(|node| node.name == name);
+            assert_eq!(
+                readiness_check(&NodeKind::VirtualMachine, true, node),
+                Some(ReadinessCheck::Port(port)),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn targets_cover_cold_booted_nodes_with_their_addresses() {
         let lab = manifest(
             r#"
@@ -634,7 +668,7 @@ nodes = [
         assert_eq!(targets[0].name, "vm");
         assert_eq!(targets[0].device_name, "vm-abcd1234");
         assert_eq!(targets[0].mgmt_ipv4.as_deref(), Some("10.0.0.11"));
-        assert_eq!(targets[0].check, ReadinessCheck::Ssh);
+        assert_eq!(targets[0].check, ReadinessCheck::Port(SSH_PORT));
     }
 
     #[test]

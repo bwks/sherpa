@@ -1,6 +1,6 @@
 [package]
 name = "validate"
-version = "0.3.90"
+version = "0.3.91"
 edition = "2024"
 
 [dependencies]
@@ -12,3 +12,6 @@ anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

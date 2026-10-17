@@ -25,7 +25,7 @@ pub use config::{
 pub use dhcp::get_dhcp_leases;
 pub use dns::{default_dns, default_dns_dual_stack};
 pub use emoji::{Emoji, emoji_error, emoji_success, emoji_warning};
-pub use encode::{base64_decode, base64_encode, base64_encode_file};
+pub use encode::{base64_decode, base64_encode, base64_encode_bytes, base64_encode_file};
 pub use env::{get_server_url, read_env_file_value};
 pub use file_system::{
     check_file_size, copy_file, create_dir, create_file, delete_dirs, dir_exists, expand_path,
@@ -46,6 +46,7 @@ pub use ip::{
     allocate_ipv6_loopback_subnet, allocate_ipv6_management_subnet, allocate_loopback_subnet,
     allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network, get_ipv6_addr,
     get_ipv6_ip, get_ipv6_network, ipv4_overlaps_any, ipv6_overlaps_any,
+    node_management_host_offset,
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks, get_interface_networks_v6};

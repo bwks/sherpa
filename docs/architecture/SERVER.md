@@ -964,6 +964,27 @@ Lab {lab_id}
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
 
+### Lab management addressing
+
+Each lab gets a management `/24` (IPv4) and `/64` (IPv6). Host offsets are split into fixed
+blocks, defined in `crates/shared/src/konst.rs` and applied to both address families:
+
+| Offsets | Block | Users |
+|---|---|---|
+| `1`–`10` | Sherpa infrastructure (`MANAGEMENT_INFRA_HOST_OFFSETS`) | `.1` gateway and DNS, `.2` router (dnsmasq, boot server), `.3` Tailscale gateway |
+| `11`–`20` | Lab control planes (`MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS`) | `.11`–`.12` Talos cluster VIPs (`TALOS_VIP_HOST_OFFSETS`) |
+| `21`–`254` | Lab nodes (`MANAGEMENT_NODE_HOST_OFFSETS`) | node `n` (1-based manifest index) at `.20 + n`; the dnsmasq DHCP range |
+
+`util::node_management_host_offset` maps a node index to its offset and refuses indexes outside
+the node block, so a lab holds at most 234 nodes; `validate::check_device_count` rejects larger
+manifests before anything is created. Nodes keep `dhcp-host` reservations inside the DHCP range,
+so dnsmasq never leases a node's address to another client.
+
+Up assigns addresses from the node index and saves them on the node records. Redeploy reuses the
+saved addresses and only computes one for a node without them, so labs created under an earlier
+layout keep the addresses their dnsmasq config and SSH config already hold. Resume reads the
+saved addresses.
+
 ### Destroy lifecycle phases
 
 ```text
