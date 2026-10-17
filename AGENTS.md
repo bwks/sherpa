@@ -86,7 +86,9 @@ validate:
 - Avoid generating data in this crate, data should be passed to this crate for validation. 
 
 ## Scripts
-- `scripts/` holds install, update and test tooling.
+- `scripts/` holds install, update and uninstall tooling.
+- `tests/` holds test tooling, specs and environments. `tests/README.md` is the single reference
+  for running every kind of test.
 - `dev/` holds helper scripts for local development, such as `dev/testdb`.
 
 ## Project goals
@@ -179,9 +181,9 @@ Instrumentation:
   - Avoid destructive defaults; be explicit about irreversible operations.
 - Test in local files, should always be at the bottom of the file.
 - Follow Red/Green/Refactor TDD methodology: write a failing test first, make it pass, then refactor.
-- `test-specs/` holds the testing principles and the integration and install runbooks. Its per-crate
-  spec files can lag the code, so where a spec and a test disagree, the test is authoritative.
-  See `test-specs/README.md`.
+- `tests/README.md` is the single reference for running unit, integration, VM and installer tests.
+- `tests/specs/` holds the testing principles and per-crate specs. The spec files can lag the code,
+  so where a spec and a test disagree, the test is authoritative. See `tests/specs/README.md`.
 
 ## Security and permissions
 

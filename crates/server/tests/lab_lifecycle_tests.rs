@@ -571,7 +571,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     Ok(())
 }
 
-/// Run only on a disposable Sherpa host; see test-specs/integration/current-user.md.
+/// Run only on a disposable Sherpa host; see tests/specs/integration/current-user.md.
 #[tokio::test]
 #[ignore = "requires Linux VM image, host infrastructure and two explicit SSH key pairs"]
 async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {

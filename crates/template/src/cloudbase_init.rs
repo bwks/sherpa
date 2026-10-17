@@ -7,6 +7,8 @@ use shared::data::{NetworkV4, NetworkV6};
 use shared::konst::{SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME};
 use shared::util::get_ssh_public_key;
 
+use crate::guest_yaml::{to_cloud_config, to_guest_yaml};
+
 #[derive(Serialize, Debug)]
 pub struct CloudbaseInitUser {
     pub name: String,
@@ -45,10 +47,7 @@ pub struct CloudbaseInitConfig {
 
 impl CloudbaseInitConfig {
     pub fn to_string(&self) -> Result<String> {
-        let yaml = serde_yaml::to_string(&self)?;
-        let mut output = String::from("#cloud-config\n");
-        output.push_str(&yaml);
-        Ok(output)
+        to_cloud_config(self)
     }
 }
 
@@ -79,7 +78,7 @@ pub struct CloudbaseInitNetwork {
 
 impl CloudbaseInitNetwork {
     pub fn to_string(&self) -> Result<String> {
-        Ok(serde_yaml::to_string(&self)?)
+        to_guest_yaml(self)
     }
 
     pub fn ztp_interface(

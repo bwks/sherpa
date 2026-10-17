@@ -87,51 +87,9 @@ sudo ./scripts/sherpa_uninstall.sh --remove-all --force
 - `--remove-all` - Remove entire `/opt/sherpa/` directory
 - `--force` - Skip confirmation prompts
 
-### `test_install.sh`
-Tests the real installer and uninstaller in a fresh Sherpa-managed Ubuntu VM.
-Run as the user with the authenticated CLI; guest operations use sudo internally.
-
-**Usage:**
-```bash
-./scripts/test_install.sh
-```
-
-This wraps `vm_release_test.py`, which installs, exercises and uninstalls a candidate
-build inside a disposable Sherpa-managed VM. Run the harness self-tests with:
-
-```bash
-python3 scripts/vm_release_test.py --self-test
-```
-
-**See also:** [VM release-test guide](../test-specs/install/vm-release-harness.md) and
-[TOML settings](../test-environments/ubuntu-2604/release-test.toml).
-
-### `test_env.py`
-Brings up, checks and destroys the disposable test servers defined in
-`test-environments/`. Run from the repository root with an authenticated CLI.
-
-**Usage:**
-```bash
-# Build the checkout and run its tests in fresh 24.04 and 26.04 environments
-python3 scripts/test_env.py run
-
-# Retest the current checkout on a VM kept after a failed run
-python3 scripts/test_env.py rerun .tmp/vm-release-tests/<run-id>
-
-# Manage one environment by hand
-python3 scripts/test_env.py up ubuntu-2604
-python3 scripts/test_env.py check ubuntu-2604
-python3 scripts/test_env.py destroy ubuntu-2604
-```
-
-`run` builds release archives from the checkout, then runs `vm_release_test.py
---scenario code` for each environment: install those archives with the checkout's
-installer, then build and run the unit and integration tests inside the guest.
-
-`check` runs `test_env_guest.py` inside the guest with sudo. Run the self-tests with
-`python3 scripts/test_env.py --self-test` and `python3 scripts/test_env_guest.py --self-test`.
-
-**See also:** [test environments](../test-environments/README.md).
+### Test tooling
+The VM test harness (`test_env.py`, `test_install.sh` and the release-test runner) lives in
+`tests/harness/`. See [running tests](../tests/README.md).
 
 ---
 
@@ -161,7 +119,7 @@ sudo -E ./scripts/sherpa_install.sh --version v0.3.79
 After modifying installation scripts, run the automated test suite:
 
 ```bash
-./scripts/test_install.sh
+./tests/harness/test_install.sh
 ```
 
 ---

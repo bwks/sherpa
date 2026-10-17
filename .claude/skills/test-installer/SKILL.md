@@ -14,7 +14,7 @@ Run the full sherpa install script test suite in a fresh Ubuntu 24.04 KVM VM.
 2. Creates a 20 GB qcow2 disk backed by the cached Ubuntu 24.04 cloud image (downloads it if not present)
 3. Builds a cloud-init seed ISO to provision the `ubuntu` user
 4. Boots the VM (8 GB RAM, 2 vCPUs) via libvirt
-5. Copies `scripts/sherpa_install.sh` and `test-scripts/install_tests.bats` to the VM
+5. Copies `scripts/sherpa_install.sh` and `tests/bats/install_tests.bats` to the VM
 6. Installs BATS on the VM
 7. Runs the unit tests (no root)
 8. Runs the full install script non-interactively
@@ -129,13 +129,13 @@ done
 ```
 scp $SSH_OPTS \
   scripts/sherpa_install.sh \
-  test-scripts/install_tests.bats \
+  tests/bats/install_tests.bats \
   ubuntu@$VM_IP:/home/ubuntu/
 
 ssh $SSH_OPTS ubuntu@$VM_IP "
-  mkdir -p ~/scripts ~/test-scripts
+  mkdir -p ~/scripts ~/tests/bats
   cp ~/sherpa_install.sh  ~/scripts/sherpa_install.sh
-  cp ~/install_tests.bats ~/test-scripts/install_tests.bats
+  cp ~/install_tests.bats ~/tests/bats/install_tests.bats
 "
 
 ssh $SSH_OPTS ubuntu@$VM_IP \
@@ -145,7 +145,7 @@ ssh $SSH_OPTS ubuntu@$VM_IP \
 ### Run Unit Tests (pre-install)
 
 ```
-ssh $SSH_OPTS ubuntu@$VM_IP "bats ~/test-scripts/install_tests.bats"
+ssh $SSH_OPTS ubuntu@$VM_IP "bats ~/tests/bats/install_tests.bats"
 ```
 
 Expected: 31 ok, 24 skip. Report the result to the user.
@@ -168,7 +168,7 @@ This takes 3–5 minutes. Show the user a progress note while waiting.
 ssh $SSH_OPTS ubuntu@$VM_IP "
   export SHERPA_DB_PASSWORD='TestPassword123!'
   export SHERPA_SERVER_IPV4='0.0.0.0'
-  sudo -E bats ~/test-scripts/install_tests.bats
+  sudo -E bats ~/tests/bats/install_tests.bats
 "
 ```
 

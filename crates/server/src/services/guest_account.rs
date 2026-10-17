@@ -251,16 +251,20 @@ mod tests {
         }
         .to_string()
         .unwrap();
-        assert!(config.contains("name: alice"));
-        assert!(config.contains("homedir: /home/alice"));
-        assert!(config.contains("shell: /bin/bash"));
-        assert!(config.contains(KEY));
-        assert!(config.contains("NOPASSWD:ALL"));
-        assert!(config.contains("lock_passwd: true"));
+        let parsed: serde_json::Value =
+            serde_json::from_str(config.strip_prefix("#cloud-config\n").unwrap()).unwrap();
+        let users = parsed["users"].as_array().unwrap();
+        assert_eq!(users.len(), 1, "only the personal account is added");
+        let user = &users[0];
+        assert_eq!(user["name"], "alice");
+        assert_eq!(user["homedir"], "/home/alice");
+        assert_eq!(user["shell"], "/bin/bash");
+        assert_eq!(user["ssh_authorized_keys"][0], KEY);
+        assert!(user["sudo"].as_str().unwrap().contains("NOPASSWD:ALL"));
+        assert_eq!(user["lock_passwd"], true);
         assert!(!config.contains("plain_text_passwd"));
         assert!(!config.contains("server-login-hash"));
         assert!(!config.contains(SHERPA_PASSWORD_HASH));
-        assert!(!config.contains("name: sherpa"));
     }
 
     #[test]
