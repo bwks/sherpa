@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.90] - 2026-10-17
+
+### Bug Fixes
+
+- Refuse to delete users who own labs, on every transport by @bwks ([43127e8](https://github.com/bwks/sherpa/commit/43127e8062d92fe921ee5b53108b2cd47933d448))
+- Enforce lab authorization in services from a database-backed identity by @bwks ([9202373](https://github.com/bwks/sherpa/commit/9202373b8e9baf3fa33128867cc528ccd24ecf31))
+- Write guest cloud-init documents as JSON by @bwks ([84371db](https://github.com/bwks/sherpa/commit/84371db6865d8f6145fce32d82c13c7df801ad51))
+
+### Miscellaneous
+
+- Merge pull request #327 from bwks/fix/user-delete-owned-labs
+
+fix(server): refuse to delete users who own labs, on every transport by @bwks in [#327](https://github.com/bwks/sherpa/pull/327) ([94dfbd7](https://github.com/bwks/sherpa/commit/94dfbd7b7fe2ac2d0077f7ec0f1eca3765374b1c))
+- Bump crate versions to 0.3.90 by @bwks ([65833ab](https://github.com/bwks/sherpa/commit/65833abe8b554a09d562eff59ef7ca70546c7ae0))
+- Merge pull request #325 from bwks/fix/admin-lab-access
+
+fix(server): consistent lab authorization; admins can destroy and inspect any lab by @bwks in [#325](https://github.com/bwks/sherpa/pull/325) ([142b16a](https://github.com/bwks/sherpa/commit/142b16a374b5dfc67b8fe3e916a4a43d07d64169))
+- Merge pull request #323 from bwks/fix/guest-json-and-tests-layout
+
+fix: write guest cloud-init documents as JSON; move test tooling under tests/ by @bwks in [#323](https://github.com/bwks/sherpa/pull/323) ([1510a01](https://github.com/bwks/sherpa/commit/1510a01cad0fd0a5171023e6c71b936680ff1c04))
+- Move test tooling, specs and environments under tests/ by @bwks ([a968509](https://github.com/bwks/sherpa/commit/a968509d37e5c3dce8b7ad06d0ce795f6adda1cd))
+- Merge pull request #321 from bwks/changelog/v0.3.89
+
+chore(release): update changelog for v0.3.89 by @github-actions[bot] in [#321](https://github.com/bwks/sherpa/pull/321) ([84917d4](https://github.com/bwks/sherpa/commit/84917d40a77a9e2ec57cb94206b8331cf70082eb))
 ## [0.3.89] - 2026-10-17
 
 ### Bug Fixes
