@@ -37,28 +37,32 @@ generates for cluster nodes (validation forbids users setting `ztp_config` on th
 
 ## Clusters
 
-Manifest `[[clusters]]` (`topology::Cluster`) plus per-node `cluster` and `cluster_role`.
-`validate::validate_clusters` enforces the rules (names, membership, Talos only, a control
-plane per cluster, no user `ztp_config`, VIP capacity).
+Manifest `talos_clusters` (`topology::TalosCluster`): each cluster names its member nodes in
+`controllers` (the Talos control plane, in bootstrap order) and `workers`. Nodes carry no cluster
+fields; `topology::find_talos_cluster` looks up a node's cluster and role (`ClusterRole`, which
+keeps the Talos term `ControlPlane` internally). `validate::validate_talos_clusters` enforces the
+rules (names, one or three controllers, members are defined `talos_linux` nodes listed once
+without a user `ztp_config`, VIP capacity). Two controllers are refused: etcd needs a majority,
+so two members tolerate no failure and are less available than one.
 
 ```text
 up, Phase 8                              up, after node readiness
 -----------                              ------------------------
 plan_clusters (endpoint / VIP)           bring_up_clusters
 generate_cluster_secrets  --saved-->      write talosconfig + kubeconfig
-node_machine_config per node              bootstrap (first control plane, once)
+node_machine_config per node              bootstrap (first controller, once)
   -> node.ztp_config -> NoCloud ISO       wait_for_kubernetes (all members Ready)
 ```
 
 Code: `crates/server/src/services/talos/` (`plan`, `secrets`, `bootstrap`, and the lab
-integration in `mod.rs`); document rendering in `crates/template/src/talos.rs`.
+integration in `lab`); document rendering in `crates/template/src/talos.rs`.
 
 ### Plan
 
 `plan::plan_clusters` lists each cluster's control planes and workers with their management
 addresses (`.20 + node index`, as Phase 8 assigns them; see "Lab management addressing" in
 `SERVER.md`). A cluster with one control plane uses its address as the Kubernetes endpoint. A
-cluster with several gets a shared address from `TALOS_VIP_HOST_OFFSETS` (`.11`–`.12`, in the lab
+cluster with three gets a shared address from `TALOS_VIP_HOST_OFFSETS` (`.11`–`.12`, in the lab
 control-plane block, outside the dnsmasq DHCP range), in manifest order, and a `Layer2VIPConfig`
 on its control planes.
 
@@ -106,7 +110,7 @@ only the OS CA and presenting the `os:admin` certificate. The gRPC status is rea
 headers (a trailers-only refusal) or the trailers (success), through `http-body-util`.
 
 Talos accepts a second bootstrap while the first is still running, so Sherpa sends it to one
-control plane per cluster only — the first in manifest order — and retries only that node.
+controller per cluster only — the first in its `controllers` list — and retries only that node.
 Once etcd has data Talos answers `ALREADY_EXISTS`, which counts as done.
 
 `wait_for_kubernetes` then polls `/api/v1/nodes` with the admin kubeconfig credentials until
@@ -119,7 +123,7 @@ reported as a non-critical `UpError`, like node readiness.
 |---|---|
 | `down` / `resume` | Unchanged; Talos keeps its state on disk. |
 | `redeploy` worker | Config regenerated from the saved secrets and plan; the node rejoins. |
-| `redeploy` control plane | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
+| `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
 | `download` | Returns each cluster's talosconfig and kubeconfig (`DownloadLabResponse::clusters`). |
 | `destroy` | Nothing extra; the cluster directory goes with the lab directory. |
 

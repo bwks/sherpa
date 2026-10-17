@@ -5,9 +5,9 @@ use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use super::bridge::Bridge;
-use super::cluster::Cluster;
 use super::link::Link2;
 use super::node::Node;
+use super::talos_cluster::TalosCluster;
 use shared::data::{NodeModel, ZtpServer};
 use shared::util::{generate_lab_name, load_file as load_file_util};
 
@@ -28,7 +28,7 @@ pub struct Manifest {
     pub ready_timeout: Option<u64>,
     /// Kubernetes clusters built from the lab's Talos Linux nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clusters: Option<Vec<Cluster>>,
+    pub talos_clusters: Option<Vec<TalosCluster>>,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
     pub bridges: Option<Vec<Bridge>>,
@@ -384,5 +384,40 @@ nodes = [
             restored.tailscale.unwrap().auth_key_env.as_deref(),
             Some("KEY")
         );
+    }
+
+    #[test]
+    fn talos_clusters_round_trip() {
+        let toml = r#"
+name = "lab"
+talos_clusters = [{ name = "k8s", controllers = ["cp1"], workers = ["w1"] }]
+nodes = [
+  { name = "cp1", model = "talos_linux" },
+  { name = "w1", model = "talos_linux" },
+]
+"#;
+        let manifest: Manifest = toml::from_str(toml).unwrap();
+        let clusters = manifest.talos_clusters.as_deref().unwrap();
+        assert_eq!(clusters[0].controllers, vec!["cp1"]);
+        assert_eq!(clusters[0].workers, vec!["w1"]);
+        let restored: Manifest = toml::from_str(&toml::to_string(&manifest).unwrap()).unwrap();
+        assert_eq!(restored.talos_clusters, manifest.talos_clusters);
+    }
+
+    #[test]
+    fn node_level_cluster_fields_are_rejected() {
+        let toml = r#"
+name = "lab"
+nodes = [{ name = "cp1", model = "talos_linux", cluster = "k8s", cluster_role = "control_plane" }]
+"#;
+        let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
+        assert!(error.contains("unknown field `cluster`"), "{error}");
+    }
+
+    #[test]
+    fn the_old_clusters_section_is_rejected() {
+        let toml = "name = \"lab\"\nclusters = [{ name = \"k8s\" }]\nnodes = []\n";
+        let error = toml::from_str::<Manifest>(toml).unwrap_err().to_string();
+        assert!(error.contains("unknown field `clusters`"), "{error}");
     }
 }

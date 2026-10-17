@@ -41,6 +41,7 @@ use shared::konst::{
     SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
+use topology::find_talos_cluster;
 
 // ============================================================================
 // ============================================================================
@@ -185,8 +186,6 @@ pub(crate) fn process_manifest_nodes(
             user_scripts: node.user_scripts_data.clone(),
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
-            cluster: node.cluster.clone(),
-            cluster_role: node.cluster_role,
         })
         .collect()
 }
@@ -519,7 +518,8 @@ pub async fn up_lab(
         .context("Manifest validation failed: duplicate devices")?;
     validate::check_device_count(&manifest.nodes)
         .context("Manifest validation failed: node count")?;
-    validate::validate_clusters(&manifest).context("Manifest validation failed: clusters")?;
+    validate::validate_talos_clusters(&manifest)
+        .context("Manifest validation failed: talos clusters")?;
 
     // Environment variable validators
     for node in &manifest.nodes {
@@ -1629,15 +1629,22 @@ pub async fn up_lab(
         );
 
         // Plan Kubernetes clusters and generate their secrets before any node config.
+        let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
         let mut cluster_members = Vec::new();
-        for node in &vm_nodes {
-            if let (Some(cluster), Some(role)) = (node.cluster.as_deref(), node.cluster_role) {
+        let mut cluster_names = Vec::with_capacity(talos_clusters.len());
+        for cluster in talos_clusters {
+            cluster_names.push(cluster.name.as_str());
+            for (name, role) in cluster.members() {
+                let node = vm_nodes
+                    .iter()
+                    .find(|node| node.name == name)
+                    .with_context(|| format!("Talos cluster member '{name}' is not a VM node"))?;
                 let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
-                talos::secrets::ensure_supported_version(&node.name, &image.version)?;
-                let node_idx = node_ops::get_node_data(&node.name, &node_setup_data)?.index;
+                talos::secrets::ensure_supported_version(name, &image.version)?;
+                let node_idx = node_ops::get_node_data(name, &node_setup_data)?.index;
                 cluster_members.push(talos::plan::MemberInput {
-                    name: &node.name,
-                    cluster,
+                    name,
+                    cluster: &cluster.name,
                     role,
                     ipv4: util::get_ipv4_addr(
                         &mgmt_net.v4.prefix,
@@ -1646,13 +1653,6 @@ pub async fn up_lab(
                 });
             }
         }
-        let cluster_names: Vec<&str> = manifest
-            .clusters
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .map(|cluster| cluster.name.as_str())
-            .collect();
         let lab_clusters = if cluster_names.is_empty() {
             Vec::new()
         } else {
@@ -1677,8 +1677,8 @@ pub async fn up_lab(
                 node.ztp_config = Some(decoded);
             }
             // Cluster nodes get a generated machine config (validation forbids their own).
-            if let Some(cluster) = node.cluster.as_deref() {
-                let cluster = talos::find_cluster(&lab_clusters, cluster)?;
+            if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name) {
+                let cluster = talos::find_cluster(&lab_clusters, &cluster.name)?;
                 node.ztp_config = Some(talos::node_machine_config(
                     cluster,
                     &node.name,

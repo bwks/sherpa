@@ -32,9 +32,9 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     validate::check_device_count(&manifest.nodes)?;
     println!("  ✓ Node count is within the lab limit");
 
-    println!("→ Checking clusters...");
-    validate::validate_clusters(&manifest)?;
-    println!("  ✓ Clusters are valid");
+    println!("→ Checking Talos clusters...");
+    validate::validate_talos_clusters(&manifest)?;
+    println!("  ✓ Talos clusters are valid");
 
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);

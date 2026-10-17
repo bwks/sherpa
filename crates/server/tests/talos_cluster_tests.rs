@@ -19,10 +19,10 @@ fn talos_version() -> String {
 fn cluster_manifest(lab_name: &str, version: &str) -> Value {
     json!({
         "name": lab_name,
-        "clusters": [{ "name": "k8s" }],
+        "talos_clusters": [{ "name": "k8s", "controllers": ["cp1"], "workers": ["w1"] }],
         "nodes": [
-            { "name": "cp1", "model": "talos_linux", "version": version, "cluster": "k8s", "cluster_role": "control_plane" },
-            { "name": "w1", "model": "talos_linux", "version": version, "cluster": "k8s", "cluster_role": "worker" },
+            { "name": "cp1", "model": "talos_linux", "version": version },
+            { "name": "w1", "model": "talos_linux", "version": version },
         ],
     })
 }
@@ -172,8 +172,8 @@ async fn talos_cluster_comes_up_with_working_credentials() -> Result<()> {
             .rpc_call_streaming("redeploy", json!({ "token": token, "lab_id": lab_id, "node_name": "cp1", "manifest": manifest }), LAB_TIMEOUT)
             .await?;
         ensure!(
-            refused["error"]["context"].as_str().is_some_and(|c| c.contains("control plane of cluster 'k8s'")),
-            "control plane redeploy was not refused: {refused}"
+            refused["error"]["context"].as_str().is_some_and(|c| c.contains("controller of talos cluster 'k8s'")),
+            "controller redeploy was not refused: {refused}"
         );
         ensure!(ready_kubernetes_nodes(&kubeconfig).await? == 2, "refused redeploy changed the cluster");
 

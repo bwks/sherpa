@@ -1,7 +1,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
-mod cluster;
 mod connection;
 mod device;
 mod environment;
@@ -10,9 +9,9 @@ mod interface_count;
 mod ipv6;
 mod link;
 mod node_image;
+mod talos_cluster;
 mod version;
 
-pub use cluster::validate_clusters;
 pub use connection::tcp_connect;
 pub use device::{check_device_count, check_duplicate_device};
 pub use environment::validate_environment_variables;
@@ -24,6 +23,7 @@ pub use link::{
     check_mgmt_usage,
 };
 pub use node_image::validate_node_image_update;
+pub use talos_cluster::validate_talos_clusters;
 pub use version::validate_and_resolve_node_versions;
 
 mod tailscale;

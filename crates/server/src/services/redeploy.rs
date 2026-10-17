@@ -31,6 +31,7 @@ use shared::konst::{
     SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
+use topology::find_talos_cluster;
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -108,11 +109,11 @@ pub async fn redeploy_node(
             .with_context(|| format!("Failed to decode ztp_config for node '{}'", node_name))?;
         target_node.ztp_config = Some(decoded);
     }
-    talos::ensure_redeployable(
+    let talos_membership = find_talos_cluster(
+        manifest.talos_clusters.as_deref().unwrap_or_default(),
         node_name,
-        target_node.cluster.as_deref(),
-        target_node.cluster_role,
-    )?;
+    );
+    talos::ensure_redeployable(node_name, talos_membership)?;
 
     // Use the shared database connection from AppState
     let db = state.db.clone();
@@ -202,9 +203,9 @@ pub async fn redeploy_node(
         util::default_dns(&lab_info.ipv4_network)?
     };
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
-    if let Some(cluster_name) = target_node.cluster.as_deref() {
+    if let Some((talos_cluster, _)) = talos_membership {
         talos::secrets::ensure_supported_version(node_name, &node_image.version)?;
-        let cluster = talos::load_cluster(lab_id, cluster_name)?;
+        let cluster = talos::load_cluster(lab_id, &talos_cluster.name)?;
         target_node.ztp_config = Some(talos::node_machine_config(
             &cluster,
             node_name,

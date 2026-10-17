@@ -148,8 +148,10 @@ mod tests {
             member("a-w1", "a", ClusterRole::Worker, 22),
             member("b-cp1", "b", ClusterRole::ControlPlane, 23),
             member("b-cp2", "b", ClusterRole::ControlPlane, 24),
-            member("c-cp1", "c", ClusterRole::ControlPlane, 25),
-            member("c-cp2", "c", ClusterRole::ControlPlane, 26),
+            member("b-cp3", "b", ClusterRole::ControlPlane, 25),
+            member("c-cp1", "c", ClusterRole::ControlPlane, 26),
+            member("c-cp2", "c", ClusterRole::ControlPlane, 27),
+            member("c-cp3", "c", ClusterRole::ControlPlane, 28),
         ];
         let plans = plan_clusters(&["a", "b", "c"], &members, &management).unwrap();
 

@@ -13,6 +13,7 @@ use shared::konst::{READINESS_SLEEP, SHERPA_LABS_PATH};
 use template::{
     TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
 };
+use topology::TalosCluster;
 
 use super::bootstrap::{BootstrapOutcome, bootstrap, wait_for_kubernetes};
 use super::plan::{ClusterPlan, MemberInput, plan_clusters};
@@ -77,12 +78,12 @@ pub fn load_cluster(lab_id: &str, cluster_name: &str) -> Result<LabCluster> {
 /// Workers can be redeployed: they rejoin with the cluster's saved secrets.
 pub fn ensure_redeployable(
     node_name: &str,
-    cluster: Option<&str>,
-    role: Option<ClusterRole>,
+    membership: Option<(&TalosCluster, ClusterRole)>,
 ) -> Result<()> {
-    if let (Some(cluster), Some(ClusterRole::ControlPlane)) = (cluster, role) {
+    if let Some((cluster, ClusterRole::ControlPlane)) = membership {
         bail!(
-            "Node '{node_name}' is a control plane of cluster '{cluster}' and cannot be redeployed: its etcd member would have to be removed first. Redeploy workers only, or destroy and recreate the lab"
+            "Node '{node_name}' is a controller of talos cluster '{}' and cannot be redeployed: its etcd member would have to be removed first. Redeploy workers only, or destroy and recreate the lab",
+            cluster.name
         );
     }
     Ok(())
@@ -297,12 +298,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_cluster_control_planes_are_refused_for_redeploy() {
-        ensure_redeployable("vm", None, None).unwrap();
-        ensure_redeployable("w1", Some("k8s"), Some(ClusterRole::Worker)).unwrap();
-        let error = ensure_redeployable("cp1", Some("k8s"), Some(ClusterRole::ControlPlane))
+    fn only_cluster_controllers_are_refused_for_redeploy() {
+        let cluster = TalosCluster {
+            name: "k8s".to_owned(),
+            controllers: vec!["cp1".to_owned()],
+            workers: vec!["w1".to_owned()],
+        };
+        ensure_redeployable("vm", None).unwrap();
+        ensure_redeployable("w1", Some((&cluster, ClusterRole::Worker))).unwrap();
+        let error = ensure_redeployable("cp1", Some((&cluster, ClusterRole::ControlPlane)))
             .unwrap_err()
             .to_string();
-        assert!(error.contains("control plane of cluster 'k8s'"));
+        assert!(error.contains("controller of talos cluster 'k8s'"));
     }
 }

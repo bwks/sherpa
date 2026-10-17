@@ -18,7 +18,8 @@ Design: `docs/architecture/TALOS.md`.
 
 ## Clusters
 
-- Manifest cluster rules: unique DNS-label names, defined clusters, roles with clusters, Talos-only members without `ztp_config`, a control plane per cluster, VIP capacity `[unit]` **P0**
+- `talos_clusters` manifest shape: `controllers` required, `workers` optional, unknown fields and the old node-level `cluster`/`cluster_role` fields and `clusters` section rejected; role lookup and member order (controllers first, in bootstrap order) `[unit]` **P0**
+- Manifest cluster rules: unique DNS-label names, one or three controllers (0, 2 and 4 refused), members are defined `talos_linux` nodes without `ztp_config`, each node listed once across all clusters, VIP capacity `[unit]` **P0**
 - Plan: single control plane uses its address; HA clusters get VIPs `.11`–`.12` in manifest order `[unit]` **P0**
 - Secrets: PKCS#8 keys of the right types, token formats, owner-only storage and round trip `[unit]` **P0**
 - Admin client certificates carry `os:admin` / `system:masters` and chain to their CAs `[unit]` **P0**
@@ -26,8 +27,8 @@ Design: `docs/architecture/TALOS.md`.
 - Machine configs match the `talosctl gen config` document set; workers carry no CA private keys; VIP and taint rules `[unit]` **P0**
 - talosconfig and kubeconfig rendering `[unit]` **P1**
 - Bootstrap gRPC status handling (`0`, `6` ALREADY_EXISTS, errors) and Ready node counting `[unit]` **P0**
-- Control planes cannot be redeployed; workers can `[unit]` **P0**
-- End to end: 1 control plane + 1 worker come up Ready, the returned kubeconfig works, control plane redeploy is refused, a worker redeploy rejoins, `download` returns credentials `[integration]` **P0**
+- Controllers cannot be redeployed; workers can `[unit]` **P0**
+- End to end: 1 controller + 1 worker come up Ready, the returned kubeconfig works, controller redeploy is refused, a worker redeploy rejoins, `download` returns credentials `[integration]` **P0**
 
 Tests: `shared::data::node`, `services::{node_ops, up, resume, ssh_config, import, guest_account}`,
 `services::talos::*`, `tls::generator`, `validate::cluster`, `crates/template/tests/talos`,
