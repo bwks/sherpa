@@ -7,6 +7,7 @@ has since changed, so check the code before relying on them.
 | Document | Covers |
 |---|---|
 | [`README-JUNIPER-VSRXV3.0.md`](README-JUNIPER-VSRXV3.0.md) | Juniper vSRX 3.0 boot failures on KVM: PML, SMBIOS entry point, CPU features. |
+| [`talos-linux.md`](talos-linux.md) | Running Talos Linux and Kubernetes clusters in labs: image, NoCloud config delivery, multi-document configs, PKI, bootstrap (#326). |
 
 ## Adding a document
 

@@ -13,6 +13,7 @@ Do not document user-facing behaviour here; document it there.
 | [`API.md`](API.md) | API transports (REST, WebSocket RPC, CLI), generated spec and OpenAPI, auth levels, streaming, error format. |
 | [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md) | Point-to-point link implementation: eBPF redirect, veth/tap plumbing, netem coexistence. |
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
+| [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, bootstrap, lifecycle. |
 
 Proposals for architecture changes that are not yet implemented live in [`../prds/`](../prds/).
 

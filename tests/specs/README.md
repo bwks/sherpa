@@ -82,6 +82,7 @@ tests/specs/
     services.md
     tls.md
     daemon.md
+    talos.md
   shared/
     auth-utilities.md
     data-models.md
@@ -171,6 +172,7 @@ The main Axum-based web server with HTTP routes, WebSocket RPC, authentication, 
 | `websocket-rpc.md` | What to test for the JSON-RPC 2.0 WebSocket interface: method dispatch for all ~20 RPC methods, parameter validation, auth/admin requirements per method, success response shapes, error response codes, streaming message sequences (for `up`, `destroy`, `redeploy`, `image.pull`, `image.download`), unknown method handling, and malformed request handling. |
 | `services.md` | What to test for the service/orchestration layer: lab startup (`up` — network creation, VM/container provisioning, ZTP config generation, progress reporting), lab shutdown (`down`), lab destruction (`destroy` — resource cleanup ordering), node resume, node redeploy, lab inspection, image import/scan, container image pull, and lab cleanup. Covers partial failure handling, rollback behavior, progress streaming, and idempotency. |
 | `tls.md` | What to test for TLS certificate management: self-signed certificate generation, loading certs from disk, handling invalid/expired certs, certificate renewal, and the `/cert` endpoint for client cert distribution. |
+| `talos.md` | What to test for Talos Linux nodes and Kubernetes clusters: model defaults, readiness port, NoCloud delivery, cluster validation and planning, secrets and credentials, machine config documents, bootstrap, redeploy rules, and the end-to-end cluster test. |
 | `daemon.md` | What to test for daemon lifecycle management: starting the server, PID file creation and cleanup, stop/restart behavior, stale PID file detection, log output, AppState initialization, and health check (`doctor`). |
 
 ### `shared/` — Shared Data Models & Utilities
