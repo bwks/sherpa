@@ -28,9 +28,10 @@
 //! - One-to-many with `node` table (lab contains multiple nodes)
 //! - One-to-many with `link` table (lab contains multiple links between nodes)
 //!
-//! ## Cascade Deletion
-//! The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user is
-//! deleted, all their labs are automatically deleted by the database.
+//! ## Owner Deletion
+//! The `user` field uses `REFERENCE ON DELETE REJECT`, so a user who owns labs cannot be
+//! deleted. Deleting only the records would leave the labs' VMs, containers and networks
+//! running with nothing to manage them; the labs must be destroyed first.
 
 use shared::data::LabState;
 
@@ -56,10 +57,10 @@ use shared::data::LabState;
 ///   - `unique_lab_name_user`: Ensures name is unique per user
 ///   - `unique_lab_*network*`: Each allocated subnet belongs to at most one lab
 ///
-/// # Cascade Deletion
+/// # Owner Deletion
 ///
-/// The `user` field uses `REFERENCE ON DELETE CASCADE` so that when a user
-/// is deleted, all their labs are automatically removed by the database.
+/// The `user` field uses `REFERENCE ON DELETE REJECT`, so the database refuses to delete
+/// a user who still owns labs.
 ///
 pub(crate) fn generate_lab_schema() -> String {
     let lab_states = super::helpers::vec_to_str(LabState::to_vec());
@@ -70,7 +71,7 @@ DEFINE TABLE OVERWRITE lab SCHEMAFULL;
 DEFINE FIELD OVERWRITE lab_id ON TABLE lab TYPE string
     ASSERT string::len($value) >= 1;
 DEFINE FIELD OVERWRITE name ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;
+DEFINE FIELD OVERWRITE user ON TABLE lab TYPE record<user> REFERENCE ON DELETE REJECT;
 DEFINE FIELD OVERWRITE loopback_network ON TABLE lab TYPE string;
 DEFINE FIELD OVERWRITE management_network ON TABLE lab TYPE string;
 DEFINE FIELD OVERWRITE gateway_ipv4 ON TABLE lab TYPE string;

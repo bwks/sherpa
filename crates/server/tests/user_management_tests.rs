@@ -1,9 +1,12 @@
 mod helpers;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
+use reqwest::{Client, Response, StatusCode, header};
 use serde_json::json;
+use shared::error::RpcErrorCode;
+use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 
-use helpers::test_server::TestServer;
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 
 // ── User Creation ──
@@ -442,5 +445,178 @@ async fn test_db_reflects_user_operations() -> Result<()> {
         Some(false)
     );
 
+    Ok(())
+}
+
+// ── User deletion rules on every transport ──
+
+/// Element on the admin users page that receives a refused delete's message.
+const USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
+
+/// IPv4-only lab networks for tests that seed lab records directly.
+fn ipv4_lab_networks() -> db::LabNetworks {
+    db::LabNetworks {
+        loopback_network: "127.125.1.0/24".to_string(),
+        management_network: "10.202.1.0/24".to_string(),
+        gateway_ipv4: "10.202.1.1".to_string(),
+        router_ipv4: "10.202.1.2".to_string(),
+        management_network_v6: None,
+        loopback_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+    }
+}
+
+/// Delete a user through the web admin page with the admin's session cookie.
+async fn web_delete_user(server: &TestServer, token: &str, username: &str) -> Result<Response> {
+    Ok(Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?
+        .delete(format!("http://{}/admin/users/{username}", server.addr))
+        .header(header::COOKIE, format!("{AUTH_COOKIE_NAME}={token}"))
+        .send()
+        .await?)
+}
+
+/// Assert the web admin page showed a refusal instead of removing the user's row.
+async fn ensure_web_refusal(response: Response, expected: &str) -> Result<()> {
+    let retarget = response
+        .headers()
+        .get("hx-retarget")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    ensure!(
+        response.status() == StatusCode::OK && retarget == USER_DELETE_ERROR_TARGET,
+        "web delete was not shown as a refusal: {} {retarget}",
+        response.status()
+    );
+    let body = response.text().await?;
+    ensure!(
+        body.contains(expected),
+        "web refusal did not explain itself: {body}"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let token = ws.login_admin().await?;
+    let carol = db::create_user(
+        &server.db,
+        "carol".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        false,
+        vec![],
+    )
+    .await?;
+    db::create_lab(
+        &server.db,
+        "carol-lab",
+        "c0ffee01",
+        &carol,
+        &ipv4_lab_networks(),
+    )
+    .await?;
+
+    let response = ws
+        .rpc_call(
+            "user.delete",
+            json!({ "token": token, "username": "carol" }),
+        )
+        .await?;
+    let message = response["error"]["message"].as_str().unwrap_or_default();
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::ServerError)
+            && message.contains("c0ffee01"),
+        "RPC delete of a lab owner was not refused with the labs listed: {response}"
+    );
+
+    let response = Client::new()
+        .delete(format!("http://{}/api/v1/admin/users/carol", server.addr))
+        .bearer_auth(&token)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::CONFLICT,
+        "REST delete of a lab owner returned {}",
+        response.status()
+    );
+
+    ensure_web_refusal(web_delete_user(&server, &token, "carol").await?, "c0ffee01").await?;
+
+    ensure!(
+        db::find_user(&server.db, "carol").await?.is_some(),
+        "a refused delete removed the user"
+    );
+    ensure!(
+        db::find_lab(&server.db, "c0ffee01").await?.is_some(),
+        "a refused delete removed the user's lab"
+    );
+
+    // Once the lab is gone, the delete succeeds.
+    db::delete_lab(&server.db, "c0ffee01").await?;
+    let response = ws
+        .rpc_call(
+            "user.delete",
+            json!({ "token": token, "username": "carol" }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "delete of a user without labs failed: {response}"
+    );
+    ensure!(db::find_user(&server.db, "carol").await?.is_none());
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn self_delete_is_refused_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    // A second admin, so the self-delete rule is what refuses, not the last-admin rule.
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call("user.delete", json!({ "token": token, "username": "dana" }))
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "RPC self-delete was not refused: {response}"
+    );
+
+    let response = Client::new()
+        .delete(format!("http://{}/api/v1/admin/users/dana", server.addr))
+        .bearer_auth(&token)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::FORBIDDEN,
+        "REST self-delete returned {}",
+        response.status()
+    );
+
+    ensure_web_refusal(
+        web_delete_user(&server, &token, "dana").await?,
+        "your own account",
+    )
+    .await?;
+
+    ensure!(
+        db::find_user(&server.db, "dana").await?.is_some(),
+        "a refused self-delete removed the user"
+    );
     Ok(())
 }

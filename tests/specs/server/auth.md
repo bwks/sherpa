@@ -94,7 +94,7 @@ Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
 
 - Owner-or-admin operations (inspect, destroy, down, resume, download, link impairment) allow the owner and admins and refuse other users, on RPC, REST and every web route `[integration]` **P0**
 - Refused streaming requests send no progress, and a refused destroy leaves the lab `[integration]` **P0**
-- Authorization failures are typed (`AccessError`) and map to 403/404 and RPC `AccessDenied`/`NotFound`, never by matching error text `[unit]` **P0**
+- Authorization failures are typed (`ServiceError`) and map to 403/404/409 and RPC `AccessDenied`/`NotFound`, never by matching error text `[unit]` **P0**
 - `GET /api/v1/labs` requires login; regular users list only their own labs; admins may pass `?username=` `[integration]` **P0**
 - A web job page and stream are served only to the job's creator or an admin, and a refused request does not consume the job `[unit]` `[integration]` **P0**
 
@@ -106,3 +106,15 @@ disposable test database and local Docker and libvirt sockets, but no root.
 SHERPA_DEV_DB_USER=sherpa dev/testdb start
 SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads=1
 ```
+
+## User deletion
+
+- Deleting a user who owns labs is refused on RPC (`ServerError`, labs listed), REST (409) and web (notification), and the user and labs remain `[integration]` **P0**
+- Once their labs are gone, the user can be deleted `[integration]` **P0**
+- Self-delete is refused on RPC (`AccessDenied`), REST (403) and web (notification) `[integration]` **P0**
+- Only admins may delete users; the last admin cannot be deleted `[unit]` **P0**
+- The schema rejects deleting a lab owner, including on a database upgraded from the old cascading definition `[integration]` (db) **P0**
+
+Tests: `deleting_a_user_who_owns_labs_is_refused_on_all_transports` and
+`self_delete_is_refused_on_all_transports` in `user_management_tests.rs`, the
+`services::user_delete` unit tests, and the db `relationships` tests.

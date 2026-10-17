@@ -334,17 +334,15 @@ pub const RPC_MSG_AUTH_INVALID: &str = "Invalid username or password";
 pub const RPC_MSG_AUTH_ERROR: &str = "Authentication error";
 pub const RPC_MSG_TOKEN_CREATE_FAILED: &str = "Failed to create authentication token";
 
+// Web UI
+/// Element on the admin users page that shows a refused user delete (`hx-retarget` value).
+pub const ADMIN_USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
+
 // Authorization messages
-pub const RPC_MSG_ACCESS_DENIED_LAB: &str =
-    "Access denied: you do not have permission to access this lab";
 pub const RPC_MSG_ACCESS_DENIED_OWN_PASSWORD: &str =
     "Access denied: you can only change your own password";
 pub const RPC_MSG_ACCESS_DENIED_OWN_INFO: &str =
     "Access denied: you can only view your own information";
-pub const RPC_MSG_ACCESS_DENIED_SELF_DELETE: &str =
-    "Access denied: cannot delete your own user account";
-pub const RPC_MSG_ACCESS_DENIED_LAST_ADMIN: &str =
-    "Access denied: cannot delete the last administrator account";
 
 // User management - admin-only operations
 pub const RPC_MSG_USER_ADMIN_ONLY_CREATE: &str =
@@ -357,7 +355,6 @@ pub const RPC_MSG_USER_ADMIN_ONLY_DELETE: &str =
 pub const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
 pub const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
 pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
-pub const RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED: &str = "Failed to verify user deletion safety";
 pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
 pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed";
 

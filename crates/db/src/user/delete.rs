@@ -1,18 +1,18 @@
-use anyhow::{Context, Result, anyhow, bail};
-use shared::data::{DbLab, DbUser, RecordId};
+use anyhow::{Context, Result, anyhow};
+use shared::data::{DbUser, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use crate::helpers::get_user_id;
-use crate::persistence::{LabRow, UserRow, to_surreal_id};
+use crate::persistence::{UserRow, to_surreal_id};
 
 /// Delete a user by RecordId
 ///
-/// **WARNING:** This will CASCADE delete all labs owned by this user, along with
-/// all nodes and links in those labs. Use `delete_user_safe()` if you want to
-/// prevent deletion when the user owns labs.
+/// The schema rejects deleting a user who still owns labs (`REFERENCE ON DELETE REJECT`),
+/// so their labs must be destroyed first. Callers that want a clear message should check
+/// for owned labs before calling this.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -22,16 +22,17 @@ use crate::persistence::{LabRow, UserRow, to_surreal_id};
 /// `Ok(())` on successful deletion
 ///
 /// # Errors
+/// - If the user owns labs
 /// - If the record doesn't exist
 /// - If there's a database error during deletion
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
     // Execute DELETE query
-    let deleted: Option<UserRow> = db.delete(to_surreal_id(&id)).await.context(format!(
-        "Failed to delete user: {:?}\nNote: This will cascade delete all labs owned by this user",
-        id
-    ))?;
+    let deleted: Option<UserRow> = db
+        .delete(to_surreal_id(&id))
+        .await
+        .context(format!("Failed to delete user: {:?}", id))?;
 
     // Verify the record was found and deleted
     deleted.ok_or_else(|| anyhow!("User not found for deletion: {:?}", id))?;
@@ -41,9 +42,9 @@ pub async fn delete_user(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 
 /// Delete a user by username (convenience function)
 ///
-/// **WARNING:** This will CASCADE delete all labs owned by this user, along with
-/// all nodes and links in those labs. Use `delete_user_safe()` if you want to
-/// prevent deletion when the user owns labs.
+/// The schema rejects deleting a user who still owns labs (`REFERENCE ON DELETE REJECT`),
+/// so their labs must be destroyed first. Callers that want a clear message should check
+/// for owned labs before calling this.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -74,59 +75,5 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
     let id = get_user_id(&user)?;
 
     // Delete using the ID
-    delete_user(db, id).await
-}
-
-/// Safely delete a user (fails if user owns any labs)
-///
-/// This function checks if the user owns any labs before attempting deletion.
-/// If labs exist, it returns an error with information about the labs.
-/// This prevents accidental data loss from cascade deletion.
-///
-/// # Arguments
-/// * `db` - Database connection
-/// * `id` - RecordId of the user to delete
-///
-/// # Returns
-/// `Ok(())` on successful deletion (only if user has no labs)
-///
-/// # Errors
-/// - If the user owns labs (provides count and prevents deletion)
-/// - If the record doesn't exist
-/// - If there's a database error during the operation
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn delete_user_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
-    // First check if the user exists
-    let user: Option<UserRow> = db
-        .select(to_surreal_id(&id))
-        .await
-        .context(format!("Failed to query user by id: {:?}", id))?;
-
-    let _user = user.ok_or_else(|| anyhow!("User not found for deletion: {:?}", id))?;
-
-    // Check if user owns any labs
-    let mut response = db
-        .query("SELECT * FROM lab WHERE user = $user_id")
-        .bind(("user_id", to_surreal_id(&id)))
-        .await
-        .context(format!("Failed to check labs for user: {:?}", id))?;
-
-    let labs: Vec<LabRow> = response.take(0)?;
-    let labs = labs
-        .into_iter()
-        .map(DbLab::try_from)
-        .collect::<Result<Vec<_>>>()?;
-
-    if !labs.is_empty() {
-        bail!(
-            "Cannot delete user: user owns {} lab(s). Delete the labs first or use delete_user() to force cascade deletion.\nUser ID: {:?}\nLabs: {:?}",
-            labs.len(),
-            id,
-            labs.iter().map(|l| &l.name).collect::<Vec<_>>()
-        );
-    }
-
-    // No labs found, safe to delete
     delete_user(db, id).await
 }

@@ -13,4 +13,4 @@ pub use read::{count_users, find_user, get_user, get_user_by_id, get_user_for_au
 pub use update::update_user;
 
 // Public exports - DELETE operations
-pub use delete::{delete_user, delete_user_by_username, delete_user_safe};
+pub use delete::{delete_user, delete_user_by_username};

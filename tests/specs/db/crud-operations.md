@@ -83,7 +83,7 @@
 - List users, count users `[integration]` **P0**
 - Update user (password, SSH keys, admin status) `[integration]` **P0**
 - Delete user by username `[integration]` **P0**
-- `delete_user_safe()` prevents deleting last admin `[integration]` **P0**
+- `delete_user()` is rejected while the user owns labs `[integration]` **P0**
 
 **Existing coverage:** Comprehensive CRUD tests exist
 

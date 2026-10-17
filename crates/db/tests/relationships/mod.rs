@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use db::{
-    count_links_by_lab, count_nodes_by_lab, create_bridge, create_lab, create_link,
+    apply_schema, count_links_by_lab, count_nodes_by_lab, create_bridge, create_lab, create_link,
     create_node_image, create_user, delete_lab_cascade, delete_user, get_lab, list_bridges,
     list_links_by_lab, list_nodes_by_lab,
 };
@@ -107,13 +107,15 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
 }
 
 // ============================================================================
-// Cascade deletes — user to labs (transitive)
+// User deletes are rejected while the user owns labs
 // ============================================================================
 
-/// Deleting a user cascades to their labs, which transitively removes nodes.
+/// Deleting a user who owns a lab is rejected by the schema, and the lab and its nodes
+/// remain. A cascade would delete the records but leave the lab's VMs, containers and
+/// networks running with nothing left to manage them.
 #[tokio::test]
 #[ignore]
-async fn test_delete_user_cascades_to_labs_and_nodes() -> Result<()> {
+async fn test_delete_user_is_rejected_while_they_own_labs() -> Result<()> {
     let db = setup_db("test_user_cascade_transitive").await?;
 
     let user = create_user(
@@ -148,14 +150,52 @@ async fn test_delete_user_cascades_to_labs_and_nodes() -> Result<()> {
     // Verify setup
     assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 2);
 
-    // Delete the user — should cascade to lab → nodes
+    // Deleting the user must fail while the lab exists
+    assert!(delete_user(&db, user_id.clone()).await.is_err());
+    assert!(get_lab(&db, "doom0001").await.is_ok());
+    assert_eq!(count_nodes_by_lab(&db, lab_rid).await?, 2);
+
+    // Once the lab is gone, the user can be deleted
+    delete_lab_cascade(&db, "doom0001").await?;
     delete_user(&db, user_id).await?;
 
-    // Lab should be gone
-    assert!(get_lab(&db, "doom0001").await.is_err());
+    teardown_db(&db).await?;
+    Ok(())
+}
 
-    // Nodes should be gone
-    assert_eq!(count_nodes_by_lab(&db, lab_rid).await?, 0);
+/// A database created with the old `ON DELETE CASCADE` owner reference rejects user
+/// deletes once the current schema is applied at startup, including for labs that
+/// existed before the upgrade.
+#[tokio::test]
+#[ignore]
+async fn test_schema_upgrade_rejects_deleting_existing_lab_owners() -> Result<()> {
+    let db = setup_db("test_owner_reject_upgrade").await?;
+    db.query(
+        "DEFINE FIELD OVERWRITE user ON TABLE lab TYPE record<user> REFERENCE ON DELETE CASCADE;",
+    )
+    .await?
+    .check()?;
+
+    let user = create_user(&db, "legacy".to_string(), "TestPass123!", false, vec![]).await?;
+    let user_id = user.id.clone().expect("user has id");
+    create_lab(
+        &db,
+        "Legacy Lab",
+        "lgcy0001",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
+    )
+    .await?;
+
+    apply_schema(&db).await?;
+
+    assert!(delete_user(&db, user_id).await.is_err());
+    assert!(get_lab(&db, "lgcy0001").await.is_ok());
 
     teardown_db(&db).await?;
     Ok(())

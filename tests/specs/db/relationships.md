@@ -26,7 +26,7 @@
 - Deleting a lab cascades to all its nodes `[integration]` **P0**
 - Deleting a lab cascades to all its links `[integration]` **P0**
 - Deleting a lab cascades to all its bridges `[integration]` **P0**
-- Deleting a user cascades to all their labs (and transitively nodes/links/bridges) `[integration]` **P0**
+- Deleting a user who owns labs is rejected (`REFERENCE ON DELETE REJECT`), including after upgrading from the old cascading schema `[integration]` **P0**
 - Deleting a node cascades to its links `[integration]` **P0**
 - Bridge node references unset (not cascade) when node deleted `[integration]` **P1**
 
