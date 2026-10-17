@@ -2,7 +2,7 @@
 use anyhow::{Context, Result, ensure};
 use container::tailscale::{self, GatewayConfig};
 use shared::data::{DbLab, LabInfo, TailnetAuthKey, TailnetStatus};
-use shared::konst::SHERPA_MANAGEMENT_NETWORK_NAME;
+use shared::konst::{SHERPA_MANAGEMENT_NETWORK_NAME, TAILSCALE_GATEWAY_HOST_OFFSET};
 use shared::util::{get_ipv4_addr, get_ipv6_addr};
 use topology::Manifest;
 use tracing::instrument;
@@ -40,11 +40,11 @@ pub(crate) async fn provision(
     let config = GatewayConfig {
         lab_id: lab.lab_id.clone(),
         network: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{}", lab.lab_id),
-        ipv4: get_ipv4_addr(&info.ipv4_network, 3)?.to_string(),
+        ipv4: get_ipv4_addr(&info.ipv4_network, TAILSCALE_GATEWAY_HOST_OFFSET)?.to_string(),
         ipv6: info
             .ipv6_network
             .as_ref()
-            .map(|net| get_ipv6_addr(net, 3).map(|ip| ip.to_string()))
+            .map(|net| get_ipv6_addr(net, TAILSCALE_GATEWAY_HOST_OFFSET).map(|ip| ip.to_string()))
             .transpose()?,
         routes: routes(lab),
     };

@@ -32,12 +32,13 @@ use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
     LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
-    LAB_SUBNET_ALLOCATION_ATTEMPTS, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
-    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
-    ZTP_DIR,
+    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
+    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH,
+    SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
 
@@ -341,12 +342,12 @@ async fn allocate_lab_networks(db: &db::Database, config: &data::Config) -> Resu
     Ok(LabSubnets {
         loopback_subnet,
         management_subnet,
-        gateway_ipv4: util::get_ipv4_addr(&management_subnet, 1)?,
-        router_ipv4: util::get_ipv4_addr(&management_subnet, 2)?,
+        gateway_ipv4: util::get_ipv4_addr(&management_subnet, MANAGEMENT_GATEWAY_HOST_OFFSET)?,
+        router_ipv4: util::get_ipv4_addr(&management_subnet, SHERPA_MANAGEMENT_IP_INDEX)?,
         ipv6_management_subnet,
         ipv6_loopback_subnet,
-        gateway_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 1)?,
-        router_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 2)?,
+        gateway_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, MANAGEMENT_GATEWAY_HOST_OFFSET)?,
+        router_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, SHERPA_MANAGEMENT_IP_INDEX)?,
     })
 }
 
@@ -516,6 +517,8 @@ pub async fn up_lab(
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
+    validate::check_device_count(&manifest.nodes)
+        .context("Manifest validation failed: node count")?;
     validate::validate_clusters(&manifest).context("Manifest validation failed: clusters")?;
 
     // Environment variable validators
@@ -1557,7 +1560,7 @@ pub async fn up_lab(
 
             let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
-            let node_ip_idx = 10 + node_idx as u32;
+            let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
             let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
@@ -1636,7 +1639,10 @@ pub async fn up_lab(
                     name: &node.name,
                     cluster,
                     role,
-                    ipv4: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10 + node_idx as u32)?,
+                    ipv4: util::get_ipv4_addr(
+                        &mgmt_net.v4.prefix,
+                        util::node_management_host_offset(node_idx)?,
+                    )?,
                 });
             }
         }
@@ -1682,7 +1688,7 @@ pub async fn up_lab(
 
             let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
-            let node_ip_idx = 10 + node_idx as u32;
+            let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
             let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
@@ -1893,7 +1899,7 @@ pub async fn up_lab(
             for node in &mut unikernel_nodes {
                 let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
                 let node_idx = node_data.index;
-                let node_ip_idx = 10 + node_idx as u32;
+                let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
                 let node_image =
                     get_node_image(&node.model, node.version.as_deref(), &node_images)?;
@@ -2132,18 +2138,32 @@ pub async fn up_lab(
         let dnsmaq_template = template::DnsmasqTemplate {
             tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
             gateway_ipv4: mgmt_net.v4.first.to_string(),
-            dhcp_start: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10)?.to_string(),
-            dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
+            dhcp_start: util::get_ipv4_addr(
+                &mgmt_net.v4.prefix,
+                *MANAGEMENT_NODE_HOST_OFFSETS.start(),
+            )?
+            .to_string(),
+            dhcp_end: util::get_ipv4_addr(
+                &mgmt_net.v4.prefix,
+                *MANAGEMENT_NODE_HOST_OFFSETS.end(),
+            )?
+            .to_string(),
             gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
             dhcp6_start: mgmt_net
                 .v6
                 .as_ref()
-                .map(|v6| util::get_ipv6_addr(&v6.prefix, 10).map(|a| a.to_string()))
+                .map(|v6| {
+                    util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
+                        .map(|a| a.to_string())
+                })
                 .transpose()?,
             dhcp6_end: mgmt_net
                 .v6
                 .as_ref()
-                .map(|v6| util::get_ipv6_addr(&v6.prefix, 254).map(|a| a.to_string()))
+                .map(|v6| {
+                    util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
+                        .map(|a| a.to_string())
+                })
                 .transpose()?,
             dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
             ztp_records: ztp_records.clone(),

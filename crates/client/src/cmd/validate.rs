@@ -28,6 +28,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     validate::check_duplicate_device(&manifest.nodes)?;
     println!("  ✓ No duplicate devices");
 
+    println!("→ Checking node count...");
+    validate::check_device_count(&manifest.nodes)?;
+    println!("  ✓ Node count is within the lab limit");
+
     println!("→ Checking clusters...");
     validate::validate_clusters(&manifest)?;
     println!("  ✓ Clusters are valid");

@@ -19,7 +19,7 @@ Design: `docs/architecture/TALOS.md`.
 ## Clusters
 
 - Manifest cluster rules: unique DNS-label names, defined clusters, roles with clusters, Talos-only members without `ztp_config`, a control plane per cluster, VIP capacity `[unit]` **P0**
-- Plan: single control plane uses its address; HA clusters get VIPs `.3`–`.9` in manifest order `[unit]` **P0**
+- Plan: single control plane uses its address; HA clusters get VIPs `.11`–`.12` in manifest order `[unit]` **P0**
 - Secrets: PKCS#8 keys of the right types, token formats, owner-only storage and round trip `[unit]` **P0**
 - Admin client certificates carry `os:admin` / `system:masters` and chain to their CAs `[unit]` **P0**
 - Only the pinned Talos minor version is accepted for cluster nodes `[unit]` **P0**

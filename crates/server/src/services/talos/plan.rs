@@ -144,27 +144,27 @@ mod tests {
             prefix_length: 24,
         };
         let members = [
-            member("a-cp1", "a", ClusterRole::ControlPlane, 10),
-            member("a-w1", "a", ClusterRole::Worker, 11),
-            member("b-cp1", "b", ClusterRole::ControlPlane, 12),
-            member("b-cp2", "b", ClusterRole::ControlPlane, 13),
-            member("c-cp1", "c", ClusterRole::ControlPlane, 14),
-            member("c-cp2", "c", ClusterRole::ControlPlane, 15),
+            member("a-cp1", "a", ClusterRole::ControlPlane, 21),
+            member("a-w1", "a", ClusterRole::Worker, 22),
+            member("b-cp1", "b", ClusterRole::ControlPlane, 23),
+            member("b-cp2", "b", ClusterRole::ControlPlane, 24),
+            member("c-cp1", "c", ClusterRole::ControlPlane, 25),
+            member("c-cp2", "c", ClusterRole::ControlPlane, 26),
         ];
         let plans = plan_clusters(&["a", "b", "c"], &members, &management).unwrap();
 
         assert_eq!(plans[0].vip, None);
-        assert_eq!(plans[0].endpoint, Ipv4Addr::new(172, 31, 1, 10));
-        assert_eq!(plans[0].endpoint_url(), "https://172.31.1.10:6443");
+        assert_eq!(plans[0].endpoint, Ipv4Addr::new(172, 31, 1, 21));
+        assert_eq!(plans[0].endpoint_url(), "https://172.31.1.21:6443");
         assert!(!plans[0].schedulable_control_planes());
         assert_eq!(plans[0].member_count(), 2);
         assert_eq!(plans[0].role_of("a-w1"), Some(ClusterRole::Worker));
         assert_eq!(plans[0].role_of("b-cp1"), None);
 
-        assert_eq!(plans[1].vip, Some(Ipv4Addr::new(172, 31, 1, 3)));
-        assert_eq!(plans[1].endpoint, Ipv4Addr::new(172, 31, 1, 3));
+        assert_eq!(plans[1].vip, Some(Ipv4Addr::new(172, 31, 1, 11)));
+        assert_eq!(plans[1].endpoint, Ipv4Addr::new(172, 31, 1, 11));
         assert_eq!(plans[1].bootstrap_node().unwrap().name, "b-cp1");
         assert!(plans[1].schedulable_control_planes());
-        assert_eq!(plans[2].vip, Some(Ipv4Addr::new(172, 31, 1, 4)));
+        assert_eq!(plans[2].vip, Some(Ipv4Addr::new(172, 31, 1, 12)));
     }
 }

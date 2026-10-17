@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 
+use shared::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 use topology::Node;
 
 // Check duplicate device definitions
@@ -18,6 +19,19 @@ pub fn check_duplicate_device(devices: &Vec<Node>) -> Result<()> {
     }
     Ok(())
 }
+
+/// Check the manifest has no more nodes than the lab management node block has addresses.
+pub fn check_device_count(devices: &[Node]) -> Result<()> {
+    let max = MANAGEMENT_NODE_HOST_OFFSETS.clone().count();
+    if devices.len() > max {
+        bail!(
+            "Manifest - {} nodes defined, but a lab supports at most {max} nodes",
+            devices.len()
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -77,5 +91,19 @@ mod tests {
             ..Default::default()
         }];
         check_duplicate_device(&devices)
+    }
+
+    #[test]
+    fn test_check_device_count_allows_a_full_node_block() -> Result<()> {
+        let devices = vec![Node::default(); 234];
+        check_device_count(&devices)
+    }
+
+    #[test]
+    fn test_check_device_count_rejects_more_nodes_than_addresses() {
+        let devices = vec![Node::default(); 235];
+        let error = check_device_count(&devices).unwrap_err().to_string();
+        assert!(error.contains("235 nodes defined"));
+        assert!(error.contains("at most 234 nodes"));
     }
 }

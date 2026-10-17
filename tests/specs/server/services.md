@@ -14,6 +14,7 @@
 - Manifest validation failures abort before resource creation `[integration]` **P0**
 - IP network allocation (management + loopback subnets, both IPv4 and IPv6) `[integration]` **P0**
 - Collision avoidance: used subnets skipped during allocation `[integration]` **P0**
+- Node management addresses come from the node block (`.21`–`.254`), and the dnsmasq DHCP range matches it `[unit]` **P0**
 - VM nodes: ZTP generated, disks cloned, domains created `[integration]` **P0**
 - Container nodes: ZTP generated, Docker networks created, containers started `[integration]` **P0**
 - Point-to-point links: bridges and veth pairs created between nodes `[integration]` **P0**
@@ -75,6 +76,8 @@
 - Container networks recreated `[integration]` **P1**
 - Unikernel nodes explicitly unsupported (error) `[integration]` **P1**
 - Streaming progress during redeploy `[integration]` **P1**
+- Saved management addresses are reused, so nodes in labs created under an earlier address layout keep their addresses; nodes without saved addresses get them from the node block `[unit]` **P0**
+- An invalid saved management address is an error `[unit]` **P1**
 - Redeploy checks the authenticated requester against the current database owner before node state changes or teardown; admins have no bypass `[integration]` **P0**
 
 ---

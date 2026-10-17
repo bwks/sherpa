@@ -56,10 +56,11 @@ integration in `mod.rs`); document rendering in `crates/template/src/talos.rs`.
 ### Plan
 
 `plan::plan_clusters` lists each cluster's control planes and workers with their management
-addresses (`.10 + node index`, as Phase 8 assigns them). A cluster with one control plane uses
-its address as the Kubernetes endpoint. A cluster with several gets a shared address from
-`TALOS_VIP_HOST_OFFSETS` (`.3`–`.9`, between the router at `.2` and the first node, outside the
-dnsmasq DHCP range), in manifest order, and a `Layer2VIPConfig` on its control planes.
+addresses (`.20 + node index`, as Phase 8 assigns them; see "Lab management addressing" in
+`SERVER.md`). A cluster with one control plane uses its address as the Kubernetes endpoint. A
+cluster with several gets a shared address from `TALOS_VIP_HOST_OFFSETS` (`.11`–`.12`, in the lab
+control-plane block, outside the dnsmasq DHCP range), in manifest order, and a `Layer2VIPConfig`
+on its control planes.
 
 ### Secrets
 

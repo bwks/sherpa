@@ -3,12 +3,14 @@ use std::str::FromStr;
 
 #[cfg(feature = "netinfo")]
 use anyhow::anyhow;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
 use ipnet::{Ipv4Net, Ipv6Net};
 #[cfg(feature = "netinfo")]
 use ipnet::{ipv4_mask_to_prefix, ipv6_mask_to_prefix};
+
+use crate::konst::MANAGEMENT_NODE_HOST_OFFSETS;
 
 /// Get the nth IPv4 addr from a network block given an index
 pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
@@ -47,6 +49,18 @@ pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
         }
     }
     Err(anyhow!("No free subnet found in supernet: {}", prefix))
+}
+
+/// Management host offset of the node with the given 1-based index, from the lab node block.
+pub fn node_management_host_offset(node_index: u16) -> Result<u32> {
+    let offset = (MANAGEMENT_NODE_HOST_OFFSETS.start() + u32::from(node_index)).saturating_sub(1);
+    if node_index == 0 || !MANAGEMENT_NODE_HOST_OFFSETS.contains(&offset) {
+        bail!(
+            "Node index {node_index} has no management address; a lab supports at most {} nodes",
+            MANAGEMENT_NODE_HOST_OFFSETS.clone().count()
+        );
+    }
+    Ok(offset)
 }
 
 /// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
@@ -504,5 +518,19 @@ mod tests {
         let used = vec![ipv6_loop_subnet(1)];
         let result = allocate_ipv6_loopback_subnet(&prefix, &used).unwrap();
         assert_eq!(result, ipv6_loop_subnet(2));
+    }
+
+    #[test]
+    fn test_node_management_host_offset_starts_at_node_block() {
+        assert_eq!(node_management_host_offset(1).unwrap(), 21);
+        assert_eq!(node_management_host_offset(2).unwrap(), 22);
+        assert_eq!(node_management_host_offset(234).unwrap(), 254);
+    }
+
+    #[test]
+    fn test_node_management_host_offset_rejects_out_of_range_indexes() {
+        assert!(node_management_host_offset(0).is_err());
+        assert!(node_management_host_offset(235).is_err());
+        assert!(node_management_host_offset(u16::MAX).is_err());
     }
 }

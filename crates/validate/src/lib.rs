@@ -14,7 +14,7 @@ mod version;
 
 pub use cluster::validate_clusters;
 pub use connection::tcp_connect;
-pub use device::check_duplicate_device;
+pub use device::{check_device_count, check_duplicate_device};
 pub use environment::validate_environment_variables;
 pub use guest_username::validate_guest_username;
 pub use interface_count::{effective_data_interface_count, validate_data_interface_count_override};

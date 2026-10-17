@@ -46,6 +46,7 @@ pub use ip::{
     allocate_ipv6_loopback_subnet, allocate_ipv6_management_subnet, allocate_loopback_subnet,
     allocate_management_subnet, get_ip, get_ipv4_addr, get_ipv4_network, get_ipv6_addr,
     get_ipv6_ip, get_ipv6_network, ipv4_overlaps_any, ipv6_overlaps_any,
+    node_management_host_offset,
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks, get_interface_networks_v6};
