@@ -77,7 +77,7 @@ fn ipv4_lab_networks(
 
 /// Destroy a lab if it still exists, so a failed test never leaves resources behind.
 /// Existence comes from the database, so a refused request cannot look like a missing lab.
-/// `token` must belong to the lab owner: the destroy service only lets owners destroy.
+/// `token` must belong to the lab owner or an admin.
 async fn ensure_lab_destroyed(
     ws: &mut TestWsClient,
     server: &TestServer,

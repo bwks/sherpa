@@ -1,6 +1,6 @@
 use anyhow::Result;
 use db::{
-    count_labs, count_labs_by_user, create_lab, create_user, get_lab, get_lab_by_id,
+    count_labs, count_labs_by_user, create_lab, create_user, find_lab, get_lab, get_lab_by_id,
     get_lab_by_name_and_user, get_used_management_networks, list_labs, list_labs_by_user,
 };
 use shared::data::RecordId;
@@ -463,6 +463,34 @@ async fn test_get_used_management_networks() -> Result<()> {
     let net2: ipnet::Ipv4Net = "172.31.2.0/24".parse()?;
     assert!(used.contains(&net1), "Should contain 172.31.1.0/24");
     assert!(used.contains(&net2), "Should contain 172.31.2.0/24");
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
+    let db = setup_db("find_lab_returns_none").await?;
+
+    let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
+    let created = create_lab(
+        &db,
+        "Test Lab",
+        "lab-0001",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
+    )
+    .await?;
+
+    let found = find_lab(&db, "lab-0001").await?.expect("lab should exist");
+    assert_eq!(found.id, created.id);
+    assert!(find_lab(&db, "invalid").await?.is_none());
 
     teardown_db(&db).await?;
     Ok(())

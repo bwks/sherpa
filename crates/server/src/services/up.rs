@@ -15,6 +15,7 @@ use opentelemetry::KeyValue;
 use tracing::instrument;
 use virt::storage_pool::StoragePool;
 
+use crate::auth::context::AuthContext;
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
@@ -408,14 +409,15 @@ async fn reserve_lab_networks(
 }
 
 /// Start a lab with streaming progress updates
-#[instrument(skip(request, state, progress), fields(lab_id = %request.lab_id))]
+///
+/// The lab is created for the authenticated caller. `request.username` is ignored.
+#[instrument(skip(ctx, request, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id))]
 pub async fn up_lab(
+    ctx: &AuthContext,
     request: data::UpRequest,
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<data::UpResponse> {
-    // All API entry points set request.username from verified authentication.
-
     let start_time = Instant::now();
     let mut phases_completed = Vec::new();
     let mut errors = Vec::new();
@@ -448,7 +450,7 @@ pub async fn up_lab(
 
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let current_user = &request.username;
+    let current_user = &ctx.username;
     let management_network = format!("{}-{}", SHERPA_MANAGEMENT_NETWORK_NAME, lab_id);
 
     // Get connections from AppState
@@ -3013,7 +3015,7 @@ pub async fn up_lab(
                 StatusKind::Info,
             );
 
-            match clean::clean_lab(lab_id, state).await {
+            match clean::clean_lab_resources(lab_id, state).await {
                 Ok(clean_response) => {
                     if clean_response.success {
                         tracing::info!(lab_id = %lab_id, "Auto-cleanup completed successfully");

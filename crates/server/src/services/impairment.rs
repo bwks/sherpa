@@ -1,6 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use tracing::instrument;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use network::tc::LinkImpairment;
 use shared::data::{BridgeKind, UpdateImpairmentRequest, UpdateImpairmentResponse};
@@ -13,17 +15,18 @@ use shared::konst::TAP_PREFIX;
 /// 2. Validates it is a P2p link (impairment only works on P2p links)
 /// 3. Applies TC netem impairment to both tap interfaces
 /// 4. Updates the database record with the new impairment values
-#[instrument(skip(state), fields(lab_id = %request.lab_id, link_index = %request.link_index))]
+///
+/// The caller must own the lab or be an admin. `request.username` is ignored.
+#[instrument(skip(ctx, state), fields(username = %ctx.username, lab_id = %request.lab_id, link_index = %request.link_index))]
 pub async fn update_impairment(
+    ctx: &AuthContext,
     request: UpdateImpairmentRequest,
     state: &AppState,
 ) -> Result<UpdateImpairmentResponse> {
     let lab_id = &request.lab_id;
 
     // Get all links for this lab and find the one with the matching index
-    let lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found", lab_id))?;
+    let lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let lab_record_id = lab
         .id

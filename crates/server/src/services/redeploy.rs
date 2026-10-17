@@ -11,6 +11,8 @@ use opentelemetry::KeyValue;
 use tokio::sync::Mutex;
 use tracing::instrument;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
@@ -42,8 +44,13 @@ struct P2pContainerVeth {
 static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
-#[instrument(skip(state, progress), fields(lab_id = %request.lab_id, node_name = %request.node_name))]
+///
+/// Only the lab owner may redeploy, even for admins: the node is rebuilt with the owner's
+/// own SSH keys and account. Authorization is checked before any progress is sent or the
+/// lab lock is taken. `request.username` is ignored.
+#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id, node_name = %request.node_name))]
 pub async fn redeploy_node(
+    ctx: &AuthContext,
     request: RedeployRequest,
     state: &AppState,
     progress: ProgressSender,
@@ -51,6 +58,7 @@ pub async fn redeploy_node(
     let start_time = Instant::now();
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
+    let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
     locks.retain(|_, lock| lock.strong_count() > 0);
     let lab_lock = {
@@ -101,18 +109,6 @@ pub async fn redeploy_node(
 
     // Use the shared database connection from AppState
     let db = state.db.clone();
-
-    // Get lab info
-    let db_lab = db::get_lab(&db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found in database", lab_id))?;
-    let requester = db::get_user(&db, &request.username)
-        .await
-        .context("Failed to resolve authenticated redeploy requester")?;
-    ensure!(
-        db::get_user_id(&requester)? == db_lab.user,
-        "Only the lab owner can redeploy nodes"
-    );
 
     let lab_record_id = db::get_lab_id(&db_lab).context("Failed to get lab record ID")?;
 

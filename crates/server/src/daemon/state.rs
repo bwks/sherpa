@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
-use shared::data::{Config, DestroyRequest, UpRequest};
+use shared::data::{Config, UpRequest};
 use shared::konst::{
     SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
@@ -10,19 +10,30 @@ use std::sync::Arc;
 use tracing::instrument;
 
 use crate::api::websocket::connection::ConnectionRegistry;
+use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::daemon::metrics::Metrics;
 
 /// The type of operation a job represents.
 pub enum JobType {
     Create { request: UpRequest },
-    Destroy { request: DestroyRequest },
+    Destroy { lab_id: String },
 }
 
 /// A pending job waiting for an SSE stream handler to pick it up.
 pub struct Job {
     pub lab_name: String,
     pub job_type: JobType,
+    /// The user who created the job. The job runs as this user, and only they or an admin
+    /// may view or stream it.
+    pub requester: AuthContext,
+}
+
+impl Job {
+    /// Whether `ctx` may view or stream this job.
+    pub fn can_view(&self, ctx: &AuthContext) -> bool {
+        ctx.can_access(&self.requester.username)
+    }
 }
 
 /// Application state shared across the server.
@@ -148,5 +159,24 @@ impl AppState {
             metrics,
             pending_jobs: Arc::new(DashMap::new()),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jobs_are_visible_to_their_creator_and_admins_only() {
+        let job = Job {
+            lab_name: "lab".to_owned(),
+            job_type: JobType::Destroy {
+                lab_id: "lab1".to_owned(),
+            },
+            requester: AuthContext::new("alice".to_owned(), false),
+        };
+        assert!(job.can_view(&AuthContext::new("alice".to_owned(), false)));
+        assert!(job.can_view(&AuthContext::new("admin".to_owned(), true)));
+        assert!(!job.can_view(&AuthContext::new("bob".to_owned(), false)));
     }
 }

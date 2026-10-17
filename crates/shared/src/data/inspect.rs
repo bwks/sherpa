@@ -8,8 +8,6 @@ use crate::data::{LabInfo, LabState, NodeKind, NodeModel, NodeState};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct InspectRequest {
     pub lab_id: String,
-    /// Username of the requesting user, taken from the verified auth token
-    pub username: String,
 }
 
 /// Response structure for inspect operation

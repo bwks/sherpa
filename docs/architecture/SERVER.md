@@ -64,7 +64,7 @@ The server code is layered like this:
 |  Responsibilities:                                                  |
 |  - parse path/query/body/form/multipart data                        |
 |  - authenticate cookies, bearer tokens, or RPC params.token          |
-|  - enforce admin/ownership checks                                   |
+|  - pass the caller's AuthContext to services                        |
 |  - construct service request structs                                |
 |  - convert service results into HTML, JSON, SSE, or RPC responses    |
 +-------------------------------+-------------------------------------+
@@ -311,7 +311,7 @@ REST handlers live in `api/handlers.rs`. They use Axum extractors (`Path`, `Quer
 
 REST auth is implemented by `AuthenticatedUser` in `api/extractors.rs`. It tries bearer auth first and then cookie auth. Admin-only REST handlers call `require_admin_auth(&auth)` inside the handler.
 
-Important current behavior: `GET /api/v1/labs?username=...` is public in code. The handler takes no `AuthenticatedUser`. This document records the current implementation; it is not a recommendation for future authorization design.
+`GET /api/v1/labs` requires authentication and lists the caller's labs. Admins may pass `?username=` to list another user's labs; regular users get 403 for any other username.
 
 ### WebSocket JSON-RPC
 
@@ -402,29 +402,77 @@ Authentication has three input paths but one shared JWT validation model.
                                        |
                                        v
                             +----------------------+
-                            | AuthContext / claims |
+                            | auth::middleware::   |
+                            | resolve_user (DB)    |
+                            +----------+-----------+
+                                       |
+                                       v
+                            +----------------------+
+                            | AuthContext          |
                             | username + is_admin  |
                             +----------+-----------+
                                        |
                                        v
                             +----------------------+
-                            | handler/RPC authz    |
-                            | admin + ownership    |
+                            | service              |
+                            | auth/policy.rs check |
                             +----------------------+
 ```
 
-The JWT contains the subject username and admin flag. Authorization is then done in handlers/RPC dispatchers:
+### Identity comes from the database
+
+The JWT proves who the caller is; it does not decide what they may do. After the token is validated, every extractor and the RPC `authenticate_request` look the subject up in the user table with `auth::middleware::resolve_user`:
+
+- The `is_admin` flag in `AuthContext` comes from the user record, not the token. Demoting an admin takes effect on their next request, not when their seven-day token expires.
+- A valid token for a user that no longer exists is rejected: REST returns 401, HTML routes clear the cookie and redirect with `session_expired`, and RPC returns `AuthRequired`.
+- If the lookup itself fails, REST returns 500 and HTML routes return 503.
+
+The token still carries `is_admin`, and the UI may use it for display, but no authorization decision reads it.
+
+### Services enforce authorization
+
+Every lab service takes the caller's `&AuthContext` and checks it with the helpers in `auth/policy.rs` before it sends progress, takes a lock, or touches a resource:
+
+| Rule | Helper | Operations |
+|---|---|---|
+| Lab owner or admin | `require_lab_access` | inspect, destroy, down, resume, download, link impairment |
+| Lab owner only, no admin bypass | `require_lab_owner` | redeploy (it rebuilds the node with the owner's SSH keys and account) |
+| Admin only | `require_admin` | clean |
+| Self or admin | `require_self_or_admin` | listing another user's labs |
+| Any authenticated user | none | up (creates the caller's own lab), listing your own labs |
+
+`require_lab_access` and `require_lab_owner` return the lab record, so services do not look it up twice. When an admin acts on another user's lab, the helper logs a `warn` line with `event = "auth.admin_lab_access"`, naming the admin, the lab and the owner. Refusals log `event = "auth.access_denied"`.
+
+Failures are returned as a typed `auth::policy::AccessError` (`Denied` or `NotFound`) inside `anyhow::Error`. Transports find it with `AccessError::find`, which works through added context:
+
+- REST: `ApiError::from` maps `Denied` to 403 and `NotFound` to 404. No authorization decision is made by matching on error text.
+- RPC: `service_error` in `rpc.rs` maps them to `AccessDenied` and `NotFound`; other failures stay `ServerError`.
+- HTML: `lab_error_page` and `lab_error_fragment` in `handlers.rs` render the 403 and 404 templates.
+
+Request structs (`UpRequest`, `DestroyRequest`, `InspectRequest`, `RedeployRequest`, `UpdateImpairmentRequest`) do not carry a username. Identity only ever comes from the `AuthContext`. Older clients that still send `username` keep working, because unknown fields are ignored.
+
+### When a transport checks first
+
+A few transports must answer before the service runs, and call the same policy helper first:
+
+- REST destroy and REST redeploy return SSE streams, so a refusal inside the service would arrive as a 200 with an error event. They call `require_lab_access` or `require_lab_owner` first, so a refused caller gets 403.
+- Web redeploy checks ownership before loading the saved manifest, so a non-owner gets 403 rather than a load error.
+- Web destroy checks access before queuing the job.
+
+The service always checks again, so the rule is still enforced if a transport forgets.
+
+### Web jobs
+
+Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pending_jobs` and redirects to `/jobs/{id}`. The job records its `requester` (`AuthContext`). The job page and `/jobs/{id}/stream` serve the job only to its requester or an admin; another user gets 403, and the job is left for its owner. The job runs as its requester.
+
+### Other rules
 
 - Browser page access uses cookie-only extractors.
 - REST API access uses bearer-or-cookie extractors.
 - WebSocket RPC access requires `params.token`.
-- Admin-only operations reject non-admin users.
-- Lab operations check ownership unless the caller is admin.
-- User password/info operations allow admins to target anyone and regular users to target themselves.
-- Self-delete is rejected.
-- Deleting the last admin is rejected.
-
-The service layer is not a clean authorization boundary today. Some services, such as `destroy_lab`, still validate ownership internally from the username in the request. Others assume the handler/RPC dispatcher has already made the authorization decision. New work should prefer the explicit pattern: authenticate and authorize at the transport boundary, then pass a verified username/admin context into services.
+- User password/info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
+- Self-delete is rejected on RPC and REST. Deleting the last admin is rejected on RPC and REST.
+- `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`.
 
 ## Service layer architecture
 
@@ -500,7 +548,7 @@ Shared helpers
 `up.rs` is the largest orchestration module. Its job is to convert a validated manifest into persistent records, generated files, runtime networks, and running nodes.
 
 ```text
-up_lab(UpRequest, &AppState, ProgressSender)
+up_lab(&AuthContext, UpRequest, &AppState, ProgressSender)
     |
     +- Deserialize manifest JSON into topology::Manifest
     +- Load current user from DB
@@ -592,11 +640,9 @@ topology::Manifest
 `destroy.rs` is deliberately best-effort. It should attempt every cleanup category even if an earlier category fails.
 
 ```text
-destroy_lab(DestroyRequest, &AppState, ProgressSender)
+destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)
     |
-    +- Load user from DB
-    +- Load lab from DB
-    +- Verify DB lab ownership against request.username
+    +- require_lab_access: load lab, check owner or admin
     +- Load lab info file from /opt/sherpa/labs/{lab_id}
     |
     +- destroy_containers
@@ -640,7 +686,7 @@ Redeploy is a controlled single-node replacement. It exists because updating nod
 ```text
 redeploy request
    |
-   +- auth/ownership check at handler/RPC boundary
+   +- require_lab_owner in the service (owner only, admins included)
    +- load saved manifest from lab directory for web UI flow
    +- validate target lab and node
    +- stop/remove current runtime node resources
@@ -668,7 +714,7 @@ POST /labs/{id}/nodes/{node}/start       +- node_name = Some -> one node
 RPC down/resume with node_name optional  +
 ```
 
-Handlers authorize ownership first, then services inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
+Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
 
 Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
 manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,
@@ -776,7 +822,7 @@ build_router()
     |   `- POST /api/v1/auth/login
     |
     +- REST API routes
-    |   +- labs: create/inspect/delete/down/resume/redeploy
+    |   +- labs: list/create/inspect/delete/down/resume/redeploy
     |   +- links: impairment update
     |   +- images: list/show/import/upload/delete/default/pull/download
     |   +- admin tools: clean/scan
@@ -921,13 +967,10 @@ Destroy and clean paths must account for all of these locations. That is why cle
 ### Destroy lifecycle phases
 
 ```text
-DestroyRequest { lab_id, username }
+destroy_lab(&AuthContext, lab_id)
           |
           v
-  load user + lab from DB
-          |
-          v
-  verify ownership
+  require_lab_access: load lab, owner or admin
           |
           v
   load lab info file

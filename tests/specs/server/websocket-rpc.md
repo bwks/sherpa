@@ -33,7 +33,7 @@
 - `up` creates lab and streams progress messages `[integration]` **P0**
 - `up` with invalid manifest returns validation error `[integration]` **P0**
 - `destroy` tears down lab and streams progress `[integration]` **P0**
-- `destroy` validates lab ownership `[integration]` **P0**
+- `destroy` allows the lab owner or an admin `[integration]` **P0**
 - `redeploy` recreates specific node with streaming `[integration]` **P1**
 - Streaming messages arrive in correct phase order `[integration]` **P1**
 - Final response includes summary data `[integration]` **P1**
@@ -46,7 +46,7 @@
 - `labs.list` returns labs for the authenticated token user `[integration]` **P0**
 - `labs.list` rejects missing or invalid tokens `[integration]` **P0**
 - `inspect` returns lab state (devices, links, bridges) `[integration]` **P0**
-- `inspect` validates lab ownership `[integration]` **P0**
+- `inspect` allows the lab owner or an admin `[integration]` **P0**
 - `down` stops all or specific nodes `[integration]` **P0**
 - `resume` starts all or specific nodes `[integration]` **P0**
 
@@ -84,7 +84,7 @@
 ## Admin Operations
 
 **What to test:**
-- `clean` performs admin lab cleanup without ownership check `[integration]` **P1**
+- `clean` requires admin and performs lab cleanup without an ownership check `[integration]` **P1**
 - `clean` rejects non-admin callers `[integration]` **P0**
 
 ---

@@ -1,10 +1,11 @@
 use axum::extract::FromRequestParts;
-use axum::http::header;
 use axum::http::request::Parts;
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use jsonwebtoken::errors::{Error as JwtError, ErrorKind};
 use shared::auth::jwt::Claims;
 
+use crate::auth::middleware::resolve_user;
 use crate::auth::{context::AuthContext, cookies, jwt};
 use crate::daemon::state::AppState;
 
@@ -269,7 +270,6 @@ pub struct AuthenticatedUser {
 
 impl AuthenticatedUser {
     /// Convert to AuthContext for service layer
-    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
     }
@@ -282,9 +282,26 @@ impl FromRequestParts<AppState> for AuthenticatedUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let (username, is_admin) = extract_and_validate_token(&parts.headers, &state.jwt_secret)
+        let (username, _) = extract_and_validate_token(&parts.headers, &state.jwt_secret)
             .map_err(ApiError::unauthorized)?;
-        Ok(AuthenticatedUser { username, is_admin })
+        match resolve_user(&state.db, &username).await {
+            Ok(Some(ctx)) => Ok(AuthenticatedUser {
+                username: ctx.username,
+                is_admin: ctx.is_admin,
+            }),
+            Ok(None) => {
+                tracing::warn!(
+                    event = "auth.user_missing",
+                    %username,
+                    "Rejected a valid token for a user that no longer exists"
+                );
+                Err(ApiError::unauthorized("Missing or invalid authentication"))
+            }
+            Err(error) => {
+                tracing::error!(%username, error = ?error, "Failed to resolve authenticated user");
+                Err(ApiError::internal("Failed to resolve authenticated user"))
+            }
+        }
     }
 }
 
@@ -302,9 +319,13 @@ pub struct AuthenticatedUserFromCookie {
 
 impl AuthenticatedUserFromCookie {
     /// Convert to AuthContext for service layer
-    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, self.is_admin)
+    }
+
+    /// AuthContext for the service layer, keeping the user for page rendering
+    pub fn context(&self) -> AuthContext {
+        AuthContext::new(self.username.clone(), self.is_admin)
     }
 }
 
@@ -313,6 +334,8 @@ impl AuthenticatedUserFromCookie {
 pub enum AuthRedirect {
     SessionRequired,
     InvalidSession,
+    /// The session could not be checked against the user database.
+    Unavailable,
 }
 
 impl IntoResponse for AuthRedirect {
@@ -324,6 +347,11 @@ impl IntoResponse for AuthRedirect {
                 Redirect::to("/login?error=session_expired"),
             )
                 .into_response(),
+            Self::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Unable to verify your session. Try again shortly.",
+            )
+                .into_response(),
         }
     }
 }
@@ -332,6 +360,36 @@ fn redirect_for_session_error(error: &CookieSessionError) -> AuthRedirect {
     match error {
         CookieSessionError::Missing => AuthRedirect::SessionRequired,
         CookieSessionError::Invalid { .. } => AuthRedirect::InvalidSession,
+    }
+}
+
+/// Resolve a validated cookie session to the current user record.
+#[tracing::instrument(level = "debug", skip(state, session), fields(path))]
+async fn resolve_cookie_user(
+    path: &str,
+    session: &ValidatedCookieSession,
+    state: &AppState,
+) -> Result<AuthContext, AuthRedirect> {
+    match resolve_user(&state.db, &session.claims.sub).await {
+        Ok(Some(ctx)) => Ok(ctx),
+        Ok(None) => {
+            tracing::warn!(
+                event = "auth.user_missing",
+                path,
+                username = %session.claims.sub,
+                "Clearing a valid session for a user that no longer exists"
+            );
+            Err(AuthRedirect::InvalidSession)
+        }
+        Err(error) => {
+            tracing::error!(
+                path,
+                username = %session.claims.sub,
+                error = ?error,
+                "Failed to resolve session user"
+            );
+            Err(AuthRedirect::Unavailable)
+        }
     }
 }
 
@@ -355,10 +413,11 @@ impl FromRequestParts<AppState> for AuthenticatedUserFromCookie {
             redirect_for_session_error(&error)
         })?;
         trace_validated_session(path, &session);
+        let ctx = resolve_cookie_user(path, &session, state).await?;
 
         Ok(AuthenticatedUserFromCookie {
-            username: session.claims.sub,
-            is_admin: session.claims.is_admin,
+            username: ctx.username,
+            is_admin: ctx.is_admin,
         })
     }
 }
@@ -376,7 +435,6 @@ pub struct AdminUser {
 
 impl AdminUser {
     /// Convert to AuthContext for service layer
-    #[allow(dead_code)]
     pub fn into_context(self) -> AuthContext {
         AuthContext::new(self.username, true)
     }
@@ -419,22 +477,24 @@ impl FromRequestParts<AppState> for AdminUser {
             redirect_for_session_error(&error).into_response()
         })?;
         trace_validated_session(path, &session);
-        let claims = session.claims;
+        let ctx = resolve_cookie_user(path, &session, state)
+            .await
+            .map_err(IntoResponse::into_response)?;
 
         // Check if user is admin
-        if !claims.is_admin {
+        if !ctx.is_admin {
             tracing::warn!(
                 "User {} attempted to access admin route without privileges",
-                claims.sub
+                ctx.username
             );
             return Err(AdminForbidden {
-                username: claims.sub,
+                username: ctx.username,
             }
             .into_response());
         }
 
         Ok(AdminUser {
-            username: claims.sub,
+            username: ctx.username,
         })
     }
 }

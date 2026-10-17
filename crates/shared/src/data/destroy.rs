@@ -5,8 +5,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DestroyRequest {
     pub lab_id: String,
-    /// Username of the requesting user, taken from the verified auth token
-    pub username: String,
 }
 
 /// Response from destroy operation with detailed tracking of all resources
@@ -96,12 +94,18 @@ mod tests {
     fn test_destroy_request_serde_roundtrip() {
         let req = DestroyRequest {
             lab_id: "abc12345".to_string(),
-            username: "admin".to_string(),
         };
         let json = serde_json::to_string(&req).expect("serializes");
         let back: DestroyRequest = serde_json::from_str(&json).expect("deserializes");
         assert_eq!(back.lab_id, "abc12345");
-        assert_eq!(back.username, "admin");
+    }
+
+    #[test]
+    fn destroy_request_from_an_older_client_ignores_its_username() {
+        let back: DestroyRequest =
+            serde_json::from_str(r#"{"lab_id": "abc12345", "username": "someone-else"}"#)
+                .expect("deserializes");
+        assert_eq!(back.lab_id, "abc12345");
     }
 
     #[test]

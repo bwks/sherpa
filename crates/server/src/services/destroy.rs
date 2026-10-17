@@ -1,7 +1,7 @@
 use std::fs;
 use std::future::Future;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
 use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
@@ -12,9 +12,7 @@ use container::{
 };
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
-use shared::data::{
-    DestroyError, DestroyRequest, DestroyResponse, DestroySummary, LabInfo, StatusKind,
-};
+use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL,
     TAP_PREFIX, VETH_PREFIX,
@@ -24,6 +22,8 @@ use std::str::FromStr;
 
 use tracing::instrument;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::progress::ProgressSender;
 
@@ -42,53 +42,27 @@ use crate::services::progress::ProgressSender;
 /// tracking successes and failures separately. Retain ownership and saved
 /// configuration if Tailscale cleanup fails so the owner can retry destruction.
 ///
-/// Callers populate `request.username` from the verified auth token.
-#[instrument(skip(state, progress), fields(lab_id = %request.lab_id))]
+/// The caller must own the lab or be an admin. Authorization is checked before any
+/// progress is sent or any resource is touched.
+#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, %lab_id))]
 pub async fn destroy_lab(
-    request: DestroyRequest,
+    ctx: &AuthContext,
+    lab_id: &str,
     state: &AppState,
     progress: ProgressSender,
 ) -> Result<DestroyResponse> {
-    let lab_id = &request.lab_id;
-    let username = &request.username;
-
     let start_time = std::time::Instant::now();
+
+    require_lab_access(ctx, &state.db, lab_id).await?;
 
     tracing::info!(
         lab_id = %lab_id,
-        username = %username,
+        username = %ctx.username,
         "Starting lab destruction"
     );
 
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
-
-    // Get user from database to validate existence and get RecordId
-    let db_user = db::get_user(&state.db, username)
-        .await
-        .context(format!("User '{}' not found in database", username))?;
-
-    let user_id = db_user
-        .id
-        .ok_or_else(|| anyhow!("User '{}' missing record ID", username))?;
-
-    // Get lab from database
-    let db_lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found in database", lab_id))?;
-
-    // Validate ownership
-    if db_lab.user != user_id {
-        tracing::warn!(
-            lab_id = %lab_id,
-            username = %username,
-            "Permission denied - lab owned by different user"
-        );
-        return Err(anyhow!(
-            "Permission denied: Lab '{}' is owned by another user",
-            lab_id
-        ));
-    }
 
     // Load lab info from filesystem
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");

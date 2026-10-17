@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{DownloadLabResponse, LabInfo};
@@ -7,25 +7,21 @@ use shared::konst::{
     SHERPA_SSH_PRIVATE_KEY_PATH,
 };
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 
 /// Download lab files (lab-info, SSH config, SSH key) for CLI use.
-#[instrument(skip(state), fields(%lab_id, %username))]
+///
+/// The caller must own the lab or be an admin. The server SSH private key is included only
+/// when the lab's SSH config uses it.
+#[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn download_lab_files(
+    ctx: &AuthContext,
     lab_id: &str,
-    username: &str,
     state: &AppState,
 ) -> Result<DownloadLabResponse> {
-    let user = db::get_user(&state.db, username)
-        .await
-        .context("Failed to get authenticated user")?;
-    let lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context("Failed to get lab")?;
-    ensure!(
-        user.is_admin || user.id.as_ref() == Some(&lab.user),
-        "Permission denied: lab belongs to another user"
-    );
+    require_lab_access(ctx, &state.db, lab_id).await?;
 
     let lab_dir = format!("{}/{}", SHERPA_LABS_PATH, lab_id);
     let lab_info: LabInfo = tokio::fs::read_to_string(format!("{lab_dir}/{LAB_FILE_NAME}"))

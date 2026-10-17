@@ -12,14 +12,14 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
-use crate::auth::context::AuthContext;
+use crate::auth::policy::{AccessError, require_lab_access, require_lab_owner};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
 use crate::services::progress::ProgressSender;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, impairment, import, inspect, list_labs, redeploy,
-    resume, up,
+    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
+    redeploy, resume, up,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -43,14 +43,16 @@ use shared::auth::{password, ssh};
 use shared::data::{
     BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
     CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
-    DestroyRequest, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
-    InspectRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
-    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
-    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
-    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
-    ZtpMethod,
+    DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest, InspectResponse,
+    InterfaceType, LabNodeActionResponse, ListImagesRequest, ListLabsResponse, ListUsersResponse,
+    LoginRequest, LoginResponse, MachineType, NodeConfig, NodeModel, OsVariant, RedeployRequest,
+    ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest, UpRequest,
+    UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
 };
-use shared::konst::{JWT_TOKEN_EXPIRY_SECONDS, SHERPA_LABS_PATH, SHERPA_SERVER_CERT_PATH};
+use shared::konst::{
+    JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SERVER_CERT_PATH,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+};
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
 
 /// Authenticate user and issue JWT token
@@ -839,27 +841,25 @@ pub async fn get_lab(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUser,
 ) -> Result<Json<InspectResponse>, ApiError> {
+    let auth = auth.into_context();
     tracing::debug!(
         "User '{}' requesting inspect for lab '{}'",
         auth.username,
         lab_id
     );
 
-    let request = InspectRequest {
-        lab_id: lab_id.clone(),
-        username: auth.username.clone(),
-    };
-
     // Call service layer
-    let response = inspect::inspect_lab(request, &state).await.map_err(|e| {
-        tracing::error!(
-            "Failed to inspect lab '{}' for user '{}': {:?}",
-            lab_id,
-            auth.username,
-            e
-        );
-        ApiError::from(e)
-    })?;
+    let response = inspect::inspect_lab(&auth, &lab_id, &state)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                "Failed to inspect lab '{}' for user '{}': {:?}",
+                lab_id,
+                auth.username,
+                e
+            );
+            ApiError::from(e)
+        })?;
 
     tracing::info!(
         "Successfully inspected lab '{}' for user '{}'",
@@ -992,27 +992,22 @@ pub async fn get_certificate_handler(State(state): State<AppState>) -> impl Into
 /// - `500 Internal Server Error` - Database error
 ///
 pub async fn get_labs_json(
+    auth: AuthenticatedUser,
     State(state): State<AppState>,
     Query(params): Query<ListLabsQuery>,
 ) -> Result<Json<ListLabsResponse>, ApiError> {
-    let username = params.username.trim();
-
-    if username.is_empty() {
-        return Err(ApiError::bad_request("Username parameter is required"));
-    }
+    let auth = auth.into_context();
+    let username = params.username.as_deref().unwrap_or(&auth.username).trim();
 
     tracing::debug!("Listing labs for user '{}'", username);
 
-    // Call service layer
-    let response = list_labs::list_labs(username, &state).await.map_err(|e| {
-        tracing::error!("Failed to list labs for user '{}': {:?}", username, e);
-        // Check if it's a user not found error
-        if e.to_string().contains("User not found") {
-            ApiError::not_found("User", format!("User '{}' not found", username))
-        } else {
+    // Call service layer; it allows admins to list other users' labs
+    let response = list_labs::list_labs(&auth, Some(username), &state)
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to list labs for user '{}': {:?}", username, e);
             ApiError::from(e)
-        }
-    })?;
+        })?;
 
     tracing::info!(
         "Successfully listed {} labs for user '{}'",
@@ -1098,7 +1093,7 @@ pub async fn get_labs_html(
     tracing::debug!("Fetching labs HTML for user '{}'", auth.username);
 
     // Call service layer with authenticated username
-    match list_labs::list_labs(&auth.username, &state).await {
+    match list_labs::list_labs(&auth.context(), None, &state).await {
         Ok(response) => {
             if response.labs.is_empty() {
                 tracing::debug!("No labs found for user '{}'", auth.username);
@@ -1139,14 +1134,8 @@ pub async fn lab_stop_handler(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
-
-    let response = down::shutdown_lab_nodes(&lab_id, None, &state)
+    let auth = auth.into_context();
+    let response = down::shutdown_lab_nodes(&auth, &lab_id, None, &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -1162,14 +1151,8 @@ pub async fn lab_start_handler(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
-
-    let response = resume::start_lab_nodes(&lab_id, None, &state, None)
+    let auth = auth.into_context();
+    let response = resume::start_lab_nodes(&auth, &lab_id, None, &state, None)
         .await
         .map_err(ApiError::from)?;
 
@@ -1185,14 +1168,8 @@ pub async fn node_stop_handler(
     State(state): State<AppState>,
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
-
-    let response = down::shutdown_lab_nodes(&lab_id, Some(&node_name), &state)
+    let auth = auth.into_context();
+    let response = down::shutdown_lab_nodes(&auth, &lab_id, Some(&node_name), &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -1208,14 +1185,8 @@ pub async fn node_start_handler(
     State(state): State<AppState>,
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
-
-    let response = resume::start_lab_nodes(&lab_id, Some(&node_name), &state, None)
+    let auth = auth.into_context();
+    let response = resume::start_lab_nodes(&auth, &lab_id, Some(&node_name), &state, None)
         .await
         .map_err(ApiError::from)?;
 
@@ -1232,7 +1203,8 @@ pub async fn node_redeploy_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let auth = auth.into_context();
-    require_redeploy_owner(&auth, &lab_id, &state).await?;
+    // Checked before loading the saved manifest so a non-owner gets 403, not a load error.
+    require_lab_owner(&auth, &state.db, &lab_id).await?;
 
     // New labs persist TOML; older JSON manifests remain readable.
     let lab_dir = PathBuf::from(SHERPA_LABS_PATH).join(&lab_id);
@@ -1245,12 +1217,11 @@ pub async fn node_redeploy_handler(
         lab_id,
         node_name: node_name.clone(),
         manifest,
-        username: auth.username,
     };
 
     let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
 
-    let result = redeploy::redeploy_node(request, &state, progress)
+    let result = redeploy::redeploy_node(&auth, request, &state, progress)
         .await
         .map_err(|e| {
             tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
@@ -1293,14 +1264,8 @@ pub async fn lab_detail_handler(
         auth.username
     );
 
-    // Create inspect request
-    let request = InspectRequest {
-        lab_id: lab_id.clone(),
-        username: auth.username.clone(),
-    };
-
     // Call inspect service
-    match inspect::inspect_lab(request, &state).await {
+    match inspect::inspect_lab(&auth.context(), &lab_id, &state).await {
         Ok(response) => {
             tracing::info!(
                 "Successfully loaded lab '{}' details for user '{}'",
@@ -1329,51 +1294,77 @@ pub async fn lab_detail_handler(
             }
             .into_response()
         }
-        Err(e) => {
-            let error_msg = e.to_string();
+        Err(e) => lab_error_page(
+            auth.username,
+            auth.is_admin,
+            &lab_id,
+            &e,
+            "An error occurred loading the lab.",
+        ),
+    }
+}
 
-            // Check for permission denied
-            if error_msg.contains("Permission denied") {
-                tracing::warn!(
-                    "User '{}' attempted to access lab '{}' without permission",
-                    auth.username,
-                    lab_id
-                );
-                Error403Template {
-                    username: auth.username,
-                    is_admin: auth.is_admin,
-                    active_page: String::new(),
-                    message: "You don't have permission to view this lab.".to_string(),
-                }
-                .into_response()
+/// Render the web error page for a failed lab service call.
+///
+/// Authorization failures render 403 or 404 pages; other failures are logged.
+fn lab_error_page(
+    username: String,
+    is_admin: bool,
+    lab_id: &str,
+    error: &anyhow::Error,
+    failure_message: &str,
+) -> Response {
+    match AccessError::find(error) {
+        Some(AccessError::Denied(_)) => Error403Template {
+            username,
+            is_admin,
+            active_page: String::new(),
+            message: "You don't have permission to view this lab.".to_string(),
+        }
+        .into_response(),
+        Some(AccessError::NotFound(_)) => {
+            tracing::debug!("Lab '{}' not found for user '{}'", lab_id, username);
+            Error404Template {
+                username,
+                is_admin,
+                active_page: String::new(),
+                message: "Lab not found.".to_string(),
             }
-            // Check for not found
-            else if error_msg.contains("not found") {
-                tracing::debug!("Lab '{}' not found for user '{}'", lab_id, auth.username);
-                Error404Template {
-                    username: auth.username,
-                    is_admin: auth.is_admin,
-                    active_page: String::new(),
-                    message: "Lab not found.".to_string(),
-                }
-                .into_response()
+            .into_response()
+        }
+        None => {
+            tracing::error!(
+                "Failed to load lab '{}' for user '{}': {:?}",
+                lab_id,
+                username,
+                error
+            );
+            Error404Template {
+                username,
+                is_admin,
+                active_page: String::new(),
+                message: failure_message.to_string(),
             }
-            // Generic error - log and return error page
-            else {
-                tracing::error!(
-                    "Failed to load lab '{}' for user '{}': {:?}",
-                    lab_id,
-                    auth.username,
-                    e
-                );
-                Error404Template {
-                    username: auth.username,
-                    is_admin: auth.is_admin,
-                    active_page: String::new(),
-                    message: "An error occurred loading the lab.".to_string(),
-                }
-                .into_response()
-            }
+            .into_response()
+        }
+    }
+}
+
+/// Render the HTMX error fragment for a failed lab service call.
+///
+/// Authorization failures keep their 403 or 404 status; other failures render the message.
+fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response {
+    let message = format!("{failure_message}: {error}");
+    match AccessError::find(error) {
+        Some(AccessError::Denied(_)) => {
+            (StatusCode::FORBIDDEN, ErrorTemplate { message }).into_response()
+        }
+        Some(AccessError::NotFound(_)) => {
+            (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
+        }
+        None => {
+            tracing::error!("{failure_message}: {:?}", error);
+            ErrorTemplate { message }.into_response()
         }
     }
 }
@@ -1391,46 +1382,17 @@ pub async fn node_detail_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    // Validate ownership
-    let owner = match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(o) => o,
-        Err(_) => {
-            return Error404Template {
-                username: auth.username,
-                is_admin: auth.is_admin,
-                active_page: String::new(),
-                message: "Lab not found.".to_string(),
-            }
-            .into_response();
-        }
-    };
-    if !auth.is_admin && auth.username != owner {
-        return Error403Template {
-            username: auth.username,
-            is_admin: auth.is_admin,
-            active_page: String::new(),
-            message: "You don't have permission to view this lab.".to_string(),
-        }
-        .into_response();
-    }
-
     // Inspect lab to get runtime device info (VNC port, disks, state)
-    let request = InspectRequest {
-        lab_id: lab_id.clone(),
-        username: auth.username.clone(),
-    };
-
-    let inspect_response = match inspect::inspect_lab(request, &state).await {
+    let inspect_response = match inspect::inspect_lab(&auth.context(), &lab_id, &state).await {
         Ok(r) => r,
         Err(e) => {
-            tracing::error!("Failed to inspect lab '{}': {:?}", lab_id, e);
-            return Error404Template {
-                username: auth.username,
-                is_admin: auth.is_admin,
-                active_page: String::new(),
-                message: "An error occurred loading lab data.".to_string(),
-            }
-            .into_response();
+            return lab_error_page(
+                auth.username,
+                auth.is_admin,
+                &lab_id,
+                &e,
+                "An error occurred loading lab data.",
+            );
         }
     };
 
@@ -1668,7 +1630,7 @@ pub async fn admin_tools_clean_handler(
         "Admin triggering lab clean from tools page"
     );
 
-    let response = clean::clean_lab(&lab_id, &state)
+    let response = clean::clean_lab(&admin.into_context(), &lab_id, &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -2856,37 +2818,6 @@ pub struct NodeActionPayload {
     pub node_name: Option<String>,
 }
 
-/// Helper to verify lab ownership. Returns Ok(()) or an ApiError.
-async fn require_lab_access(
-    auth: &AuthenticatedUser,
-    lab_id: &str,
-    state: &AppState,
-) -> Result<(), ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden("You do not have access to this lab"));
-    }
-    Ok(())
-}
-
-/// Require current lab ownership for redeploy, without an admin bypass.
-#[tracing::instrument(level = "debug", skip(auth, state))]
-async fn require_redeploy_owner(
-    auth: &AuthContext,
-    lab_id: &str,
-    state: &AppState,
-) -> Result<(), ApiError> {
-    let owner = db::get_lab_owner_username(&state.db, lab_id)
-        .await
-        .map_err(|_| ApiError::not_found("Lab", format!("Lab not found: {lab_id}")))?;
-    if !auth.can_redeploy(&owner) {
-        return Err(ApiError::forbidden("Only the lab owner can redeploy nodes"));
-    }
-    Ok(())
-}
-
 /// Helper to require admin privileges
 fn require_admin_auth(auth: &AuthenticatedUser) -> Result<(), ApiError> {
     if !auth.is_admin {
@@ -2903,17 +2834,14 @@ pub async fn create_lab_json(
     State(state): State<AppState>,
     Json(payload): Json<UpRequest>,
 ) -> impl IntoResponse {
-    let request = UpRequest {
-        username: auth.username,
-        ..payload
-    };
+    let auth = auth.into_context();
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
-        let result = up::up_lab(request, &state, progress).await;
+        let result = up::up_lab(&auth, payload, &state, progress).await;
         let _ = result_tx.send(result);
     });
 
@@ -2928,19 +2856,16 @@ pub async fn delete_lab_json(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    require_lab_access(&auth, &lab_id, &state).await?;
-
-    let request = DestroyRequest {
-        lab_id,
-        username: auth.username,
-    };
+    let auth = auth.into_context();
+    // Checked before the stream opens so a refusal is a 403, not an error event.
+    require_lab_access(&auth, &state.db, &lab_id).await?;
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
-        let result = destroy::destroy_lab(request, &state, progress).await;
+        let result = destroy::destroy_lab(&auth, &lab_id, &state, progress).await;
         let _ = result_tx.send(result);
     });
 
@@ -2956,9 +2881,8 @@ pub async fn down_lab_json(
     Path(lab_id): Path<String>,
     Json(payload): Json<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    require_lab_access(&auth, &lab_id, &state).await?;
-
-    let response = down::shutdown_lab_nodes(&lab_id, payload.node_name.as_deref(), &state)
+    let auth = auth.into_context();
+    let response = down::shutdown_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -2974,11 +2898,11 @@ pub async fn resume_lab_json(
     Path(lab_id): Path<String>,
     Json(payload): Json<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
-    require_lab_access(&auth, &lab_id, &state).await?;
-
-    let response = resume::start_lab_nodes(&lab_id, payload.node_name.as_deref(), &state, None)
-        .await
-        .map_err(ApiError::from)?;
+    let auth = auth.into_context();
+    let response =
+        resume::start_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state, None)
+            .await
+            .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -2993,7 +2917,8 @@ pub async fn redeploy_node_json(
     Json(payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
-    require_redeploy_owner(&auth, &lab_id, &state).await?;
+    // Checked before the body is validated and the stream opens, so a non-owner gets 403.
+    require_lab_owner(&auth, &state.db, &lab_id).await?;
 
     let manifest = payload
         .get("manifest")
@@ -3004,7 +2929,6 @@ pub async fn redeploy_node_json(
         lab_id,
         node_name,
         manifest,
-        username: auth.username,
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -3012,7 +2936,7 @@ pub async fn redeploy_node_json(
     let progress = ProgressSender::new(progress_tx);
 
     tokio::spawn(async move {
-        let result = redeploy::redeploy_node(request, &state, progress).await;
+        let result = redeploy::redeploy_node(&auth, request, &state, progress).await;
         let _ = result_tx.send(result);
     });
 
@@ -3027,9 +2951,7 @@ pub async fn clean_lab_json(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    require_admin_auth(&auth)?;
-
-    let response = clean::clean_lab(&lab_id, &state)
+    let response = clean::clean_lab(&auth.into_context(), &lab_id, &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -3427,12 +3349,7 @@ pub async fn lab_nodes_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let request = InspectRequest {
-        lab_id: lab_id.clone(),
-        username: auth.username.clone(),
-    };
-
-    match inspect::inspect_lab(request, &state).await {
+    match inspect::inspect_lab(&auth.into_context(), &lab_id, &state).await {
         Ok(response) => {
             let device_count = response.devices.len();
             NodesTableFragment {
@@ -3442,10 +3359,7 @@ pub async fn lab_nodes_handler(
             }
             .into_response()
         }
-        Err(e) => ErrorTemplate {
-            message: format!("Failed to load nodes: {}", e),
-        }
-        .into_response(),
+        Err(e) => lab_error_fragment(&e, "Failed to load nodes"),
     }
 }
 
@@ -3453,50 +3367,28 @@ pub async fn lab_nodes_handler(
 ///
 /// GET /labs/{lab_id}/download
 ///
-/// Returns a zip containing lab-info.toml, sherpa_ssh_key, and sherpa_ssh_config.
-/// These files allow CLI tools (sherpa ssh, sherpa console) to work with the lab.
+/// Returns a zip containing lab-info.toml and sherpa_ssh_config, plus sherpa_ssh_key when the
+/// lab's SSH config uses the server key. These files allow CLI tools (sherpa ssh,
+/// sherpa console) to work with the lab. Uses the same download service as the RPC API.
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_download_handler(
     Path(lab_id): Path<String>,
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
-    let db_lab = db::get_lab(&state.db, &lab_id)
+    let auth = auth.into_context();
+    let db_lab = require_lab_access(&auth, &state.db, &lab_id).await?;
+    let files = download::download_lab_files(&auth, &lab_id, &state)
         .await
-        .map_err(|_| ApiError::not_found("lab", format!("Lab not found: {lab_id}")))?;
+        .map_err(ApiError::from)?;
 
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check ownership: {e}")))?;
-
-    if !auth.is_admin && auth.username != owner {
-        return Err(ApiError::forbidden(
-            "Permission denied: you do not own this lab",
-        ));
+    let mut entries = vec![
+        (LAB_FILE_NAME, files.lab_info.to_string()),
+        (SHERPA_SSH_CONFIG_FILE, files.ssh_config),
+    ];
+    if !files.ssh_private_key.is_empty() {
+        entries.push((SHERPA_SSH_PRIVATE_KEY_FILE, files.ssh_private_key));
     }
-
-    let lab_dir = format!("{}/{}", shared::konst::SHERPA_LABS_PATH, lab_id);
-    let lab_info_path = format!("{}/{}", lab_dir, shared::konst::LAB_FILE_NAME);
-    let ssh_config_path = format!("{}/{}", lab_dir, shared::konst::SHERPA_SSH_CONFIG_FILE);
-    let ssh_key_path = shared::konst::SHERPA_SSH_PRIVATE_KEY_PATH;
-
-    let lab_info_content = tokio::fs::read(&lab_info_path).await.map_err(|_| {
-        ApiError::not_found(
-            "lab files",
-            "Lab files not found. Has the lab been started?".to_string(),
-        )
-    })?;
-
-    let ssh_config_content = tokio::fs::read(&ssh_config_path).await.map_err(|_| {
-        ApiError::not_found(
-            "lab files",
-            "SSH config not found. Has the lab been started?".to_string(),
-        )
-    })?;
-
-    let ssh_key_content = tokio::fs::read(ssh_key_path)
-        .await
-        .map_err(|_| ApiError::internal("SSH key not found on server".to_string()))?;
 
     let mut buf = std::io::Cursor::new(Vec::new());
     {
@@ -3504,20 +3396,12 @@ pub async fn lab_download_handler(
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
-        zip.start_file(shared::konst::LAB_FILE_NAME, options)
-            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
-        std::io::Write::write_all(&mut zip, &lab_info_content)
-            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
-
-        zip.start_file(shared::konst::SHERPA_SSH_CONFIG_FILE, options)
-            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
-        std::io::Write::write_all(&mut zip, &ssh_config_content)
-            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
-
-        zip.start_file(shared::konst::SHERPA_SSH_PRIVATE_KEY_FILE, options)
-            .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
-        std::io::Write::write_all(&mut zip, &ssh_key_content)
-            .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+        for (name, content) in entries {
+            zip.start_file(name, options)
+                .map_err(|e| ApiError::internal(format!("Failed to create zip: {e}")))?;
+            std::io::Write::write_all(&mut zip, content.as_bytes())
+                .map_err(|e| ApiError::internal(format!("Failed to write zip: {e}")))?;
+        }
 
         zip.finish()
             .map_err(|e| ApiError::internal(format!("Failed to finalize zip: {e}")))?;
@@ -3548,25 +3432,14 @@ pub async fn lab_destroy_confirm_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    let request = InspectRequest {
-        lab_id: lab_id.clone(),
-        username: auth.username.clone(),
-    };
-
-    match inspect::inspect_lab(request, &state).await {
+    match inspect::inspect_lab(&auth.into_context(), &lab_id, &state).await {
         Ok(response) => LabDestroyConfirmFragment {
             lab_id,
             lab_name: response.lab_info.name,
             device_count: response.devices.len(),
         }
         .into_response(),
-        Err(e) => {
-            tracing::error!("Failed to inspect lab for destroy confirm: {:?}", e);
-            ErrorTemplate {
-                message: format!("Failed to load lab details: {}", e),
-            }
-            .into_response()
-        }
+        Err(e) => lab_error_fragment(&e, "Failed to load lab details"),
     }
 }
 
@@ -3588,32 +3461,17 @@ pub async fn lab_destroy_post_handler(
     auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> Result<Response, ApiError> {
-    // Validate ownership and get lab name
-    let db_lab = db::get_lab(&state.db, &lab_id)
-        .await
-        .map_err(|e| ApiError::not_found("lab", format!("Lab not found: {}", e)))?;
-
-    let owner = db::get_lab_owner_username(&state.db, &lab_id)
-        .await
-        .map_err(|e| ApiError::internal(format!("Failed to check ownership: {}", e)))?;
-
-    if owner != auth.username && !auth.is_admin {
-        return Err(ApiError::forbidden(
-            "Permission denied: you do not own this lab",
-        ));
-    }
+    // Checked before the job is queued; the destroy service checks again when it runs.
+    let auth = auth.into_context();
+    let db_lab = require_lab_access(&auth, &state.db, &lab_id).await?;
 
     let job_id = uuid::Uuid::new_v4().to_string();
-    let request = DestroyRequest {
-        lab_id,
-        username: auth.username,
-    };
-
     state.pending_jobs.insert(
         job_id.clone(),
         Job {
             lab_name: db_lab.name,
-            job_type: JobType::Destroy { request },
+            job_type: JobType::Destroy { lab_id },
+            requester: auth,
         },
     );
 
@@ -3642,6 +3500,21 @@ pub async fn job_page_handler(
 ) -> impl IntoResponse {
     // Peek at the job to get display info (don't remove it — stream handler consumes it)
     match state.pending_jobs.get(&job_id) {
+        Some(job) if !job.can_view(&auth.context()) => {
+            tracing::warn!(
+                event = "auth.access_denied",
+                username = %auth.username,
+                %job_id,
+                "User attempted to view another user's job"
+            );
+            Error403Template {
+                username: auth.username,
+                is_admin: auth.is_admin,
+                active_page: String::new(),
+                message: "You don't have permission to view this job.".to_string(),
+            }
+            .into_response()
+        }
         Some(job) => {
             let action = match &job.job_type {
                 JobType::Create { .. } => "Creating".to_string(),
@@ -3672,9 +3545,26 @@ pub async fn job_page_handler(
 /// GET /jobs/{job_id}/stream
 pub async fn job_stream_handler(
     Path(job_id): Path<String>,
-    _auth: AuthenticatedUserFromCookie,
+    auth: AuthenticatedUserFromCookie,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
+    // Refuse other users before consuming the job, so a refusal leaves it for its creator.
+    // The map guard is dropped at the end of this statement, before the job is removed.
+    let allowed = match state.pending_jobs.get(&job_id) {
+        Some(job) => job.can_view(&auth.context()),
+        // A missing job is reported by the consume step below.
+        None => true,
+    };
+    if !allowed {
+        tracing::warn!(
+            event = "auth.access_denied",
+            username = %auth.username,
+            %job_id,
+            "User attempted to stream another user's job"
+        );
+        return ApiError::forbidden("You don't have permission to view this job").into_response();
+    }
+
     // Consume the pending job
     let job = match state.pending_jobs.remove(&job_id) {
         Some((_, job)) => job,
@@ -3694,11 +3584,13 @@ pub async fn job_stream_handler(
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let progress = ProgressSender::new(progress_tx);
 
+    // The job runs as the user who created it.
+    let requester = job.requester;
     match job.job_type {
-        JobType::Destroy { request } => {
+        JobType::Destroy { lab_id } => {
             let (result_tx, result_rx) = tokio::sync::oneshot::channel();
             tokio::spawn(async move {
-                let result = destroy::destroy_lab(request, &state, progress).await;
+                let result = destroy::destroy_lab(&requester, &lab_id, &state, progress).await;
                 let _ = result_tx.send(result);
             });
             sse::Sse::new(destroy_progress_stream(progress_rx, result_rx)).into_response()
@@ -3706,7 +3598,7 @@ pub async fn job_stream_handler(
         JobType::Create { request } => {
             let (result_tx, result_rx) = tokio::sync::oneshot::channel();
             tokio::spawn(async move {
-                let result = up::up_lab(request, &state, progress).await;
+                let result = up::up_lab(&requester, request, &state, progress).await;
                 let _ = result_tx.send(result);
             });
             sse::Sse::new(up_progress_stream(progress_rx, result_rx)).into_response()
@@ -3787,7 +3679,6 @@ pub async fn lab_create_post_handler(
         lab_id,
         manifest: manifest_value,
         tailscale_auth_key: None,
-        username: auth.username,
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();
@@ -3796,6 +3687,7 @@ pub async fn lab_create_post_handler(
         Job {
             lab_name,
             job_type: JobType::Create { request },
+            requester: auth.into_context(),
         },
     );
 
@@ -3859,16 +3751,13 @@ pub async fn update_impairment_json(
     Path((lab_id, link_index)): Path<(String, u16)>,
     Json(payload): Json<UpdateImpairmentRequest>,
 ) -> Result<Json<UpdateImpairmentResponse>, ApiError> {
-    require_lab_access(&auth, &lab_id, &state).await?;
-
     let request = UpdateImpairmentRequest {
         lab_id,
         link_index,
-        username: auth.username,
         ..payload
     };
 
-    let response = impairment::update_impairment(request, &state)
+    let response = impairment::update_impairment(&auth.into_context(), request, &state)
         .await
         .map_err(ApiError::from)?;
 
@@ -3878,7 +3767,8 @@ pub async fn update_impairment_json(
 /// Query parameters for listing labs
 #[derive(Deserialize)]
 pub struct ListLabsQuery {
-    pub username: String,
+    /// Whose labs to list. Defaults to the caller; other users require admin privileges.
+    pub username: Option<String>,
 }
 
 #[derive(Deserialize)]
