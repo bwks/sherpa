@@ -13,7 +13,7 @@ use shared::konst::{
 };
 use shared::util::term_msg_surround;
 
-use crate::private_key::restrict_private_key_permissions;
+use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -127,7 +127,7 @@ fn secure_legacy_key(name: &str, lab_id: &str, lab_info: &LabInfo, key_path: &Pa
     );
     let node_name = unqualified_device_name(name, lab_id);
     if lab_info.ssh_username(node_name).is_none() {
-        restrict_private_key_permissions(key_path)
+        restrict_secret_permissions(key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
             .context("Failed to secure SSH private key before connecting")?;
     }
     Ok(())

@@ -6,36 +6,19 @@ use anyhow::{Context, Result, anyhow, bail};
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-/// What the files written by `write_private_key` are called in messages.
-const SSH_PRIVATE_KEY: &str = "SSH private key";
+/// Name of an SSH private key in error messages, e.g. "Failed to write SSH private key: <path>".
+pub(crate) const SSH_PRIVATE_KEY_ERROR_LABEL: &str = "SSH private key";
 
-/// Write an SSH private key and restrict it to the current user.
-#[tracing::instrument(level = "debug", skip(contents), fields(path = %path.display()))]
-pub(crate) fn write_private_key(path: &Path, contents: &str) -> Result<()> {
-    write_secret_file(path, contents, SSH_PRIVATE_KEY)
-}
-
-/// Write a file holding a secret, such as a kubeconfig, and restrict it to the current user.
+/// Write a file holding a secret, such as an SSH private key or a kubeconfig, and restrict it
+/// to the current user. The file is removed if its permissions cannot be secured.
 ///
 /// `what` names the file in error messages.
 #[tracing::instrument(level = "debug", skip(contents), fields(path = %path.display(), %what))]
 pub(crate) fn write_secret_file(path: &Path, contents: &str, what: &str) -> Result<()> {
-    write_secret_with_restriction(path, contents, what, restrict_secret_permissions)
-}
-
-fn write_secret_with_restriction<F>(
-    path: &Path,
-    contents: &str,
-    what: &str,
-    restrict: F,
-) -> Result<()>
-where
-    F: FnOnce(&Path, &str) -> Result<()>,
-{
     fs::write(path, contents)
         .with_context(|| format!("Failed to write {what}: {}", path.display()))?;
 
-    if let Err(permission_error) = restrict(path, what) {
+    if let Err(permission_error) = restrict_secret_permissions(path, what) {
         return match fs::remove_file(path) {
             Ok(()) => Err(permission_error.context(format!(
                 "Removed {what} after permissions could not be secured"
@@ -50,14 +33,11 @@ where
     Ok(())
 }
 
-/// Restrict an existing SSH private key to the current user.
-#[tracing::instrument(level = "debug", fields(path = %path.display()))]
-pub(crate) fn restrict_private_key_permissions(path: &Path) -> Result<()> {
-    restrict_secret_permissions(path, SSH_PRIVATE_KEY)
-}
-
 /// Restrict an existing secret file to the current user.
-fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()> {
+///
+/// `what` names the file in error messages.
+#[tracing::instrument(level = "debug", fields(path = %path.display(), %what))]
+pub(crate) fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()> {
     if !path.is_file() {
         bail!("{what} does not exist: {}", path.display());
     }
@@ -88,23 +68,19 @@ fn restrict_secret_permissions(path: &Path, what: &str) -> Result<()> {
 mod tests {
     use std::fs;
 
-    use anyhow::bail;
-
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
-    use super::{
-        SSH_PRIVATE_KEY, restrict_private_key_permissions, write_private_key, write_secret_file,
-        write_secret_with_restriction,
-    };
+    use super::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions, write_secret_file};
 
     #[cfg(unix)]
     #[test]
-    fn write_private_key_sets_owner_only_permissions() {
+    fn ssh_keys_are_written_owner_only() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let key_path = temp_dir.path().join("sherpa_ssh_key");
 
-        write_private_key(&key_path, "private key").expect("write private key");
+        write_secret_file(&key_path, "private key", SSH_PRIVATE_KEY_ERROR_LABEL)
+            .expect("write private key");
 
         let mode = fs::metadata(&key_path)
             .expect("read private key metadata")
@@ -116,14 +92,15 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn restrict_private_key_permissions_repairs_existing_file() {
+    fn restrict_secret_permissions_repairs_existing_file() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let key_path = temp_dir.path().join("sherpa_ssh_key");
         fs::write(&key_path, "private key").expect("write private key");
         fs::set_permissions(&key_path, fs::Permissions::from_mode(0o644))
             .expect("set permissive mode");
 
-        restrict_private_key_permissions(&key_path).expect("restrict private key");
+        restrict_secret_permissions(&key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
+            .expect("restrict private key");
 
         let mode = fs::metadata(&key_path)
             .expect("read private key metadata")
@@ -134,38 +111,24 @@ mod tests {
     }
 
     #[test]
-    fn restrict_private_key_permissions_rejects_missing_file() {
+    fn restrict_secret_permissions_rejects_missing_file() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let key_path = temp_dir.path().join("missing_key");
 
-        let error = restrict_private_key_permissions(&key_path)
+        let error = restrict_secret_permissions(&key_path, SSH_PRIVATE_KEY_ERROR_LABEL)
             .expect_err("missing private key should fail");
 
         assert!(error.to_string().contains("SSH private key"));
     }
 
-    #[test]
-    fn write_private_key_removes_file_when_restriction_fails() {
-        let temp_dir = tempfile::tempdir().expect("create temp directory");
-        let key_path = temp_dir.path().join("sherpa_ssh_key");
-
-        let error =
-            write_secret_with_restriction(&key_path, "private key", SSH_PRIVATE_KEY, |_, _| {
-                bail!("permission failure")
-            })
-            .expect_err("permission failure should fail the write");
-
-        assert!(error.to_string().contains("Removed SSH private key"));
-        assert!(!key_path.exists());
-    }
-
     #[cfg(windows)]
     #[test]
-    fn write_private_key_sets_current_user_only_acl() {
+    fn ssh_keys_are_restricted_to_the_current_user_acl() {
         let temp_dir = tempfile::tempdir().expect("create temp directory");
         let key_path = temp_dir.path().join("sherpa_ssh_key");
 
-        write_private_key(&key_path, "private key").expect("write private key");
+        write_secret_file(&key_path, "private key", SSH_PRIVATE_KEY_ERROR_LABEL)
+            .expect("write private key");
 
         assert!(
             crate::windows_acl::is_restricted_to_current_user(&key_path)
