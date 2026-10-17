@@ -183,6 +183,8 @@ pub(crate) fn process_manifest_nodes(
             user_scripts: node.user_scripts_data.clone(),
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
+            cluster: node.cluster.clone(),
+            cluster_role: node.cluster_role,
         })
         .collect()
 }
@@ -513,6 +515,7 @@ pub async fn up_lab(
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
+    validate::validate_clusters(&manifest).context("Manifest validation failed: clusters")?;
 
     // Environment variable validators
     for node in &manifest.nodes {

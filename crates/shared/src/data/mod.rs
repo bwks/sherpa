@@ -1,4 +1,5 @@
 mod auth;
+mod cluster;
 mod config;
 mod container;
 mod cpu;
@@ -28,6 +29,7 @@ mod ws;
 mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
+pub use cluster::ClusterRole;
 
 pub use config::{
     ClientConfig, Config, OtelConfig, ScannerConfig, ServerConnection, Sherpa,

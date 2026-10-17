@@ -5,6 +5,7 @@ use serde_derive::{Deserialize, Serialize};
 use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use super::bridge::Bridge;
+use super::cluster::Cluster;
 use super::link::Link2;
 use super::node::Node;
 use shared::data::{NodeModel, ZtpServer};
@@ -25,6 +26,9 @@ pub struct Manifest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_timeout: Option<u64>,
+    /// Kubernetes clusters built from the lab's Talos Linux nodes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clusters: Option<Vec<Cluster>>,
     pub nodes: Vec<Node>,
     pub links: Option<Vec<Link2>>,
     pub bridges: Option<Vec<Bridge>>,

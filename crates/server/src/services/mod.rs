@@ -16,6 +16,7 @@ pub mod redeploy;
 pub mod resume;
 pub mod scanner;
 pub(crate) mod ssh_config;
+pub mod talos;
 pub mod up;
 pub mod user_delete;
 

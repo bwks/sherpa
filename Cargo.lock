@@ -3945,6 +3945,7 @@ dependencies = [
  "cookie_store",
  "futures-core",
  "futures-util",
+ "h2",
  "http",
  "http-body",
  "http-body-util",
@@ -4815,6 +4816,7 @@ dependencies = [
  "db",
  "futures",
  "futures-util",
+ "http-body-util",
  "jiff",
  "jsonwebtoken",
  "libvirt",
@@ -4855,6 +4857,7 @@ dependencies = [
  "uuid",
  "validate",
  "virt",
+ "x509-parser",
  "zip",
 ]
 
@@ -6036,6 +6039,7 @@ version = "0.3.90"
 dependencies = [
  "anyhow",
  "shared",
+ "toml",
  "topology",
  "tracing",
 ]
@@ -6834,6 +6838,7 @@ dependencies = [
  "lazy_static",
  "nom",
  "oid-registry",
+ "ring",
  "rusticata-macros",
  "thiserror 1.0.69",
  "time",

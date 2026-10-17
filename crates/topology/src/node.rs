@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::{DiskImageCloneMethod, NodeModel};
+use shared::data::{ClusterRole, DiskImageCloneMethod, NodeModel};
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -42,6 +42,12 @@ pub struct Node {
     pub text_files_data: Option<Vec<TextFileData>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
+    /// Name of the manifest cluster this node belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<String>,
+    /// Role of this node in its cluster.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster_role: Option<ClusterRole>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
@@ -75,6 +81,8 @@ pub struct NodeExpanded {
     pub user_scripts: Option<Vec<StartupScript>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
+    pub cluster: Option<String>,
+    pub cluster_role: Option<ClusterRole>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

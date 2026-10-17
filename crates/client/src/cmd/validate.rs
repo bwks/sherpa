@@ -28,6 +28,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     validate::check_duplicate_device(&manifest.nodes)?;
     println!("  ✓ No duplicate devices");
 
+    println!("→ Checking clusters...");
+    validate::validate_clusters(&manifest)?;
+    println!("  ✓ Clusters are valid");
+
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;

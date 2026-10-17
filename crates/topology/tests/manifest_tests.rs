@@ -298,6 +298,7 @@ fn test_write_load_roundtrip() {
     let manifest = Manifest {
         provision_current_user: true,
         tailscale: None,
+        clusters: None,
         name: "roundtrip-lab".to_string(),
         description: Some("Practice routing between two nodes.".into()),
         ready_timeout: None,

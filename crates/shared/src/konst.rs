@@ -117,11 +117,18 @@ pub const SSH_PORT: u16 = 22;
 pub const SSH_PORT_ALT: u16 = 2222;
 /// Talos Linux API (apid) port, used for readiness and bootstrap.
 pub const TALOS_API_PORT: u16 = 50000;
+/// Talos Linux minor version Sherpa generates cluster machine configs for.
+pub const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
+/// Kubernetes version of the generated Talos cluster configs (Talos 1.14 default).
+pub const TALOS_KUBERNETES_VERSION: &str = "1.37.1";
 /// Talos Image Factory base URL for downloading Talos Linux images.
 pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
 /// Image Factory schematic for vanilla Talos Linux (no system extensions).
 pub const TALOS_VANILLA_SCHEMATIC: &str =
     "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba";
+/// Host offsets in the management subnet reserved for Talos cluster shared (VIP) addresses.
+/// They sit between the router (`.2`) and the first node (`.10`), outside the DHCP range.
+pub const TALOS_VIP_HOST_OFFSETS: std::ops::RangeInclusive<u32> = 3..=9;
 /// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
 pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
 pub const TELNET_PORT: u16 = 2323;

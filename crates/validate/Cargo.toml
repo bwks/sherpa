@@ -12,3 +12,6 @@ anyhow = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }

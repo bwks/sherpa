@@ -1,6 +1,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used)]
 #![cfg_attr(not(test), forbid(unsafe_code))]
 
+mod cluster;
 mod connection;
 mod device;
 mod environment;
@@ -11,6 +12,7 @@ mod link;
 mod node_image;
 mod version;
 
+pub use cluster::validate_clusters;
 pub use connection::tcp_connect;
 pub use device::check_duplicate_device;
 pub use environment::validate_environment_variables;
