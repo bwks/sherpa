@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -38,8 +38,8 @@ use shared::konst::{
     SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
     SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT,
-    ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT,
+    VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use virt::error::ErrorNumber;
@@ -106,6 +106,100 @@ pub fn node_reserved_network_data(
             SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX, node_index, lab_id
         ),
     }
+}
+
+/// Write the NoCloud seed files for a node into `dir`.
+///
+/// `meta-data` names the node and `network-config` gives its management interface a static
+/// address, gateway and DNS server. `user_data` is written byte for byte when present; when it
+/// is absent any earlier `user-data` is removed, so the node boots without a config (Talos
+/// Linux then waits in maintenance mode).
+#[tracing::instrument(level = "debug", skip(mgmt_net, user_data), fields(%hostname))]
+pub(crate) fn write_nocloud_files(
+    dir: &str,
+    hostname: &str,
+    node_ipv4_address: Ipv4Addr,
+    mac_address: &str,
+    mgmt_net: &data::SherpaNetwork,
+    node_ipv6_address: Option<Ipv6Addr>,
+    user_data: Option<&str>,
+) -> Result<()> {
+    util::create_dir(dir)?;
+
+    let meta_data = template::MetaDataConfig {
+        instance_id: format!("iid-{hostname}"),
+        local_hostname: hostname.to_owned(),
+        ..Default::default()
+    };
+    util::create_file(
+        &format!("{dir}/{CLOUD_INIT_META_DATA}"),
+        meta_data.to_string()?,
+    )?;
+
+    let network_config = template::CloudInitNetwork::ztp_interface(
+        node_ipv4_address,
+        mac_address.to_owned(),
+        mgmt_net.v4.clone(),
+        node_ipv6_address,
+        mgmt_net.v6.as_ref(),
+    );
+    util::create_file(
+        &format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}"),
+        network_config.to_string()?,
+    )?;
+
+    let user_data_path = format!("{dir}/{CLOUD_INIT_USER_DATA}");
+    match user_data {
+        Some(content) => util::create_file(&user_data_path, content.to_owned())?,
+        None => match fs::remove_file(&user_data_path) {
+            Ok(()) => tracing::debug!(path = %user_data_path, "Removed stale user-data"),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(path = %user_data_path, "No user-data to remove")
+            }
+            Err(error) => {
+                return Err(error).with_context(|| format!("Failed to remove {user_data_path}"));
+            }
+        },
+    }
+    Ok(())
+}
+
+/// Build the NoCloud `cidata` ISO for a node.
+#[tracing::instrument(
+    level = "debug",
+    skip(node, mgmt_net, user_data, progress),
+    fields(node_name = %node.name)
+)]
+fn generate_nocloud_ztp(
+    node: &topology::NodeExpanded,
+    lab_dir: &str,
+    mgmt_net: &data::SherpaNetwork,
+    node_ipv4_address: Ipv4Addr,
+    mac_address: &str,
+    user_data: Option<&str>,
+    progress: &ProgressSender,
+) -> Result<()> {
+    let dir = format!("{lab_dir}/{}", node.name);
+    if user_data.is_none() {
+        let _ = progress.send_status(
+            format!(
+                "No config for node {}; it will wait for one in maintenance mode",
+                node.name
+            ),
+            StatusKind::Info,
+        );
+    }
+    write_nocloud_files(
+        &dir,
+        &node.name,
+        node_ipv4_address,
+        mac_address,
+        mgmt_net,
+        node.ipv6_address,
+        user_data,
+    )?;
+    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+    Ok(())
 }
 
 /// Map a node model to its ZTP config filename for CDROM-based ZTP.
@@ -478,7 +572,7 @@ pub fn generate_container_ztp(
         ipv6_address: None,
         mac_address: String::new(),
         ztp_method: node_image.ztp_method.clone(),
-        ssh_port: SSH_PORT,
+        ssh_port: Some(SSH_PORT),
     };
 
     Ok(ContainerZtpResult {
@@ -630,6 +724,21 @@ pub(crate) fn generate_vm_ztp(
                     &custom_ztp,
                     progress,
                 )?;
+            }
+            data::ZtpMethod::NoCloud => {
+                generate_nocloud_ztp(
+                    node,
+                    lab_dir,
+                    mgmt_net,
+                    node_ipv4_address,
+                    &mac_address,
+                    custom_ztp.as_deref(),
+                    progress,
+                )?;
+                src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
+                dst_cdrom_iso = Some(format!(
+                    "{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}.iso"
+                ));
             }
             data::ZtpMethod::Cdrom => {
                 generate_cdrom_ztp(
@@ -846,7 +955,7 @@ pub(crate) fn generate_vm_ztp(
         ipv6_address: None,
         mac_address: mac_address.to_string(),
         ztp_method: node_image.ztp_method.clone(),
-        ssh_port: SSH_PORT,
+        ssh_port: node_image.model.has_ssh().then_some(SSH_PORT),
     };
 
     Ok(VmZtpResult {
@@ -2683,9 +2792,24 @@ pub async fn start_container_node(
 // Node Readiness Check
 // ============================================================================
 
-/// Check if a node is ready by attempting a TCP connection to its SSH port.
-pub fn check_node_ready_ssh(ip: &str, port: u16) -> Result<bool> {
+/// Check if a node is ready by attempting a TCP connection to its readiness port.
+pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
     validate::tcp_connect(ip, port)
+}
+
+/// Port that shows a virtual machine is ready: the manifest's `ready_port`, else the model's
+/// own port (SSH for most models, the Talos API for Talos Linux).
+pub fn vm_ready_port(model: &data::NodeModel, ready_port: Option<u16>) -> u16 {
+    ready_port.unwrap_or(model.ready_port())
+}
+
+/// Human-readable name of a readiness port, for status messages.
+pub fn ready_port_label(port: u16) -> String {
+    match port {
+        SSH_PORT => "SSH".to_owned(),
+        TALOS_API_PORT => "Talos API".to_owned(),
+        _ => format!("port {port}"),
+    }
 }
 
 // ============================================================================
@@ -3401,5 +3525,89 @@ mod tests {
                 assert_eq!(json["passwd"]["users"].as_array().unwrap().len(), 1);
             }
         }
+    }
+
+    fn nocloud_test_network() -> data::SherpaNetwork {
+        data::SherpaNetwork {
+            v4: data::NetworkV4 {
+                prefix: "192.0.2.0/24".parse().unwrap(),
+                first: "192.0.2.1".parse().unwrap(),
+                last: "192.0.2.255".parse().unwrap(),
+                boot_server: "192.0.2.2".parse().unwrap(),
+                network: "192.0.2.0".parse().unwrap(),
+                subnet_mask: "255.255.255.0".parse().unwrap(),
+                hostmask: "0.0.0.255".parse().unwrap(),
+                prefix_length: 24,
+            },
+            v6: None,
+        }
+    }
+
+    #[test]
+    fn nocloud_files_carry_the_node_config_and_a_static_management_address() {
+        let root = tempdir().unwrap();
+        let dir = root.path().join("cp1");
+        let user_data = "version: v1alpha1\nmachine:\n  type: controlplane\n";
+        write_nocloud_files(
+            dir.to_str().unwrap(),
+            "cp1",
+            "192.0.2.10".parse().unwrap(),
+            "52:54:00:aa:bb:cc",
+            &nocloud_test_network(),
+            None,
+            Some(user_data),
+        )
+        .unwrap();
+
+        // The node's own config is delivered byte for byte.
+        assert_eq!(
+            fs::read_to_string(dir.join(CLOUD_INIT_USER_DATA)).unwrap(),
+            user_data
+        );
+        let meta: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(CLOUD_INIT_META_DATA)).unwrap())
+                .unwrap();
+        assert_eq!(meta["local-hostname"], "cp1");
+        let network: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(dir.join(CLOUD_INIT_NETWORK_CONFIG)).unwrap())
+                .unwrap();
+        let interface = &network["ethernets"]["id0"];
+        assert_eq!(network["version"], 2);
+        assert_eq!(interface["match"]["macaddress"], "52:54:00:aa:bb:cc");
+        assert_eq!(interface["addresses"][0], "192.0.2.10/24");
+        assert_eq!(interface["routes"][0]["via"], "192.0.2.1");
+        assert_eq!(interface["nameservers"]["addresses"][0], "192.0.2.2");
+    }
+
+    #[test]
+    fn nocloud_files_without_a_config_leave_the_node_in_maintenance_mode() {
+        let root = tempdir().unwrap();
+        let dir = root.path().join("cp1");
+        write_nocloud_files(
+            dir.to_str().unwrap(),
+            "cp1",
+            "192.0.2.10".parse().unwrap(),
+            "52:54:00:aa:bb:cc",
+            &nocloud_test_network(),
+            None,
+            None,
+        )
+        .unwrap();
+        assert!(!dir.join(CLOUD_INIT_USER_DATA).exists());
+        assert!(dir.join(CLOUD_INIT_META_DATA).exists());
+        assert!(dir.join(CLOUD_INIT_NETWORK_CONFIG).exists());
+    }
+
+    #[test]
+    fn vm_ready_port_prefers_the_manifest_then_the_model() {
+        assert_eq!(
+            vm_ready_port(&data::NodeModel::TalosLinux, None),
+            TALOS_API_PORT
+        );
+        assert_eq!(vm_ready_port(&data::NodeModel::UbuntuLinux, None), SSH_PORT);
+        assert_eq!(
+            vm_ready_port(&data::NodeModel::UbuntuLinux, Some(8443)),
+            8443
+        );
     }
 }

@@ -72,7 +72,7 @@ fn test_dnsmasq_tftp_ztp() {
             ipv6_address: None,
             mac_address: "52:54:00:11:22:33".to_string(),
             ztp_method: ZtpMethod::Tftp,
-            ssh_port: 22,
+            ssh_port: Some(22),
         }],
     };
     let output = t.render().expect("template renders");

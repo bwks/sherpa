@@ -115,6 +115,15 @@ pub const _DEFAULT_STORAGE_POOL: &str = "default";
 pub const _DEFAULT_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/images";
 pub const SSH_PORT: u16 = 22;
 pub const SSH_PORT_ALT: u16 = 2222;
+/// Talos Linux API (apid) port, used for readiness and bootstrap.
+pub const TALOS_API_PORT: u16 = 50000;
+/// Talos Image Factory base URL for downloading Talos Linux images.
+pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
+/// Image Factory schematic for vanilla Talos Linux (no system extensions).
+pub const TALOS_VANILLA_SCHEMATIC: &str =
+    "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba";
+/// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
+pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
 pub const TELNET_PORT: u16 = 2323;
 pub const BASE_PORT: u16 = 10000;
 pub const HTTP_PORT: u16 = 8080;

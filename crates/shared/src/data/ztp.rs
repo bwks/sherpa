@@ -10,5 +10,6 @@ pub struct ZtpRecord {
     pub ipv6_address: Option<Ipv6Addr>,
     pub mac_address: String,
     pub ztp_method: ZtpMethod,
-    pub ssh_port: u16,
+    /// SSH port, or `None` for nodes without SSH (left out of the lab SSH config).
+    pub ssh_port: Option<u16>,
 }

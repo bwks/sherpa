@@ -14,7 +14,7 @@ use crate::konst::{
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO,
     CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO,
     CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT,
-    MTU_JUMBO_NET, MTU_STD,
+    MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
 };
 
 use super::RecordId;
@@ -90,6 +90,7 @@ pub enum NodeModel {
     KaliLinux,
     FlatcarLinux,
     SonicLinux,
+    TalosLinux,
 
     // Windows
     DevboxWindows,
@@ -185,6 +186,7 @@ impl fmt::Display for NodeModel {
             NodeModel::OmarchyLinux => write!(f, "omarchy_linux"),
             NodeModel::KaliLinux => write!(f, "kali_linux"),
             NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
+            NodeModel::TalosLinux => write!(f, "talos_linux"),
             NodeModel::SonicLinux => write!(f, "sonic_linux"),
 
             // Windows
@@ -284,6 +286,7 @@ impl std::str::FromStr for NodeModel {
             "omarchy_linux" => Ok(NodeModel::OmarchyLinux),
             "kali_linux" => Ok(NodeModel::KaliLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
+            "talos_linux" => Ok(NodeModel::TalosLinux),
             "sonic_linux" => Ok(NodeModel::SonicLinux),
 
             // Devboxes
@@ -341,6 +344,32 @@ impl NodeModel {
     /// Uses the existing hardcoded mapping in NodeConfig::get_model()
     pub fn kind(&self) -> NodeKind {
         NodeConfig::get_model(*self).kind
+    }
+
+    /// Whether nodes of this model accept SSH logins. Talos Linux has no SSH or shell.
+    pub fn has_ssh(&self) -> bool {
+        !matches!(self, NodeModel::TalosLinux)
+    }
+
+    /// TCP port that shows a virtual machine of this model is ready.
+    ///
+    /// Talos Linux has no SSH, so its API port is used instead.
+    pub fn ready_port(&self) -> u16 {
+        match self {
+            NodeModel::TalosLinux => TALOS_API_PORT,
+            _ => SSH_PORT,
+        }
+    }
+
+    /// Boot disk size in GB used when the manifest does not set `boot_disk_size`.
+    ///
+    /// `None` keeps the image's own size. The Talos Linux image is about 4 GB but Talos needs
+    /// at least 10 GB.
+    pub fn default_boot_disk_size(&self) -> Option<u16> {
+        match self {
+            NodeModel::TalosLinux => Some(TALOS_DEFAULT_BOOT_DISK_SIZE),
+            _ => None,
+        }
     }
 }
 
@@ -594,6 +623,9 @@ pub enum ZtpMethod {
     Http,
     Ignition,
     Ipxe,
+    /// NoCloud `cidata` CD-ROM carrying the node's own `user-data` (if any) with Sherpa's
+    /// `meta-data` and static management `network-config`.
+    NoCloud,
     Tftp,
     Usb,
     Volume,
@@ -608,6 +640,7 @@ impl fmt::Display for ZtpMethod {
             ZtpMethod::Http => write!(f, "http"),
             ZtpMethod::Ignition => write!(f, "ignition"),
             ZtpMethod::Ipxe => write!(f, "ipxe"),
+            ZtpMethod::NoCloud => write!(f, "nocloud"),
             ZtpMethod::Tftp => write!(f, "tftp"),
             ZtpMethod::Usb => write!(f, "usb"),
             ZtpMethod::Volume => write!(f, "volume"),
@@ -849,6 +882,7 @@ impl NodeConfig {
             NodeModel::KaliLinux => NodeConfig::kali_linux(),
             NodeModel::SonicLinux => NodeConfig::sonic_linux(),
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
+            NodeModel::TalosLinux => NodeConfig::talos_linux(),
 
             // BSD
             NodeModel::FreeBsd => NodeConfig::free_bsd(),
@@ -1903,6 +1937,18 @@ impl NodeConfig {
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
+        }
+    }
+    /// Talos Linux: immutable, API-managed Kubernetes OS with no SSH or shell.
+    ///
+    /// The machine config is delivered as NoCloud `user-data` on a `cidata` CD-ROM.
+    pub fn talos_linux() -> NodeConfig {
+        NodeConfig {
+            model: NodeModel::TalosLinux,
+            cpu_count: 2,
+            memory: 4096,
+            ztp_method: ZtpMethod::NoCloud,
+            ..NodeConfig::ubuntu_linux()
         }
     }
     #[tracing::instrument(level = "debug")]
@@ -2991,5 +3037,43 @@ mod tests {
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
             model
         );
+    }
+
+    #[test]
+    fn talos_linux_model_defaults() {
+        let model: super::NodeModel = "talos_linux".parse().unwrap();
+        let config = super::NodeConfig::get_model(model);
+        assert_eq!(model.to_string(), "talos_linux");
+        assert_eq!(config.kind, super::NodeKind::VirtualMachine);
+        assert!(matches!(config.os_variant, super::OsVariant::Linux));
+        assert!(matches!(config.machine_type, super::MachineType::Q35));
+        assert!(matches!(config.cpu_model, super::CpuModels::HostModel));
+        assert_eq!(config.ztp_method, super::ZtpMethod::NoCloud);
+        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
+        assert!(matches!(config.cdrom_bus, super::DiskBuses::Sata));
+        assert!(matches!(
+            config.interface_type,
+            super::InterfaceType::Virtio
+        ));
+        assert!(config.cdrom.is_none());
+        assert_eq!(config.cpu_count, 2);
+        assert_eq!(config.memory, 4096);
+        assert!(!config.ztp_password_auth);
+        assert_eq!(model.default_boot_disk_size(), Some(20));
+        assert!(!model.has_ssh());
+        assert_eq!(model.ready_port(), TALOS_API_PORT);
+        let encoded = serde_json::to_string(&model).unwrap();
+        assert_eq!(
+            serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
+            model
+        );
+    }
+
+    #[test]
+    fn other_vm_models_keep_ssh_readiness_and_image_disk_size() {
+        assert_eq!(super::NodeModel::UbuntuLinux.ready_port(), SSH_PORT);
+        assert_eq!(super::NodeModel::FlatcarLinux.ready_port(), SSH_PORT);
+        assert_eq!(super::NodeModel::UbuntuLinux.default_boot_disk_size(), None);
+        assert!(super::NodeModel::UbuntuLinux.has_ssh());
     }
 }

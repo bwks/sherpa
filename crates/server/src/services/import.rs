@@ -9,7 +9,7 @@ use shared::data::{
     ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
     ShowImageResponse, StatusKind,
 };
-use shared::konst::SHERPA_IMAGES_PATH;
+use shared::konst::{SHERPA_IMAGES_PATH, TALOS_IMAGE_FACTORY_URL, TALOS_VANILLA_SCHEMATIC};
 use shared::util::{copy_file, create_dir, file_exists, image_filename};
 
 use tracing::instrument;
@@ -635,6 +635,12 @@ fn resolve_download_url(model: &NodeModel, version: &str, url: Option<&str>) -> 
         NodeModel::UbuntuLinux => Ok(format!(
             "https://cloud-images.ubuntu.com/releases/{version}/release/ubuntu-{version}-server-cloudimg-amd64.img"
         )),
+        NodeModel::TalosLinux => {
+            let version = version.strip_prefix('v').unwrap_or(version);
+            Ok(format!(
+                "{TALOS_IMAGE_FACTORY_URL}/image/{TALOS_VANILLA_SCHEMATIC}/v{version}/nocloud-amd64.qcow2"
+            ))
+        }
         _ => anyhow::bail!("No auto-download URL for model '{}'. Provide --url.", model),
     }
 }
@@ -816,6 +822,17 @@ mod tests {
             url,
             "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
         );
+    }
+
+    #[test]
+    fn talos_images_come_from_the_image_factory_vanilla_schematic() {
+        let expected = "https://factory.talos.dev/image/376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba/v1.14.4/nocloud-amd64.qcow2";
+        for version in ["1.14.4", "v1.14.4"] {
+            assert_eq!(
+                resolve_download_url(&NodeModel::TalosLinux, version, None).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]

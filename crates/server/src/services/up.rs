@@ -160,7 +160,7 @@ pub(crate) fn process_manifest_nodes(
             version: node.version.clone(),
             memory: node.memory,
             cpu_count: node.cpu_count,
-            boot_disk_size: node.boot_disk_size,
+            boot_disk_size: node.boot_disk_size.or(node.model.default_boot_disk_size()),
             boot_disk_clone_method: node.boot_disk_clone_method,
             data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
@@ -1911,7 +1911,7 @@ pub async fn up_lab(
                     ipv6_address: node.ipv6_address,
                     mac_address: setup_result.mac_address.clone(),
                     ztp_method: data::ZtpMethod::None,
-                    ssh_port: SSH_PORT,
+                    ssh_port: Some(SSH_PORT),
                 });
 
                 clone_disks.extend(setup_result.clone_disks);
@@ -2778,9 +2778,11 @@ pub async fn up_lab(
                 }
 
                 if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
-                    match node_ops::check_node_ready_ssh(
+                    let ready_port = node_ops::vm_ready_port(&vm.model, vm.ready_port);
+                    let ready_label = node_ops::ready_port_label(ready_port);
+                    match node_ops::check_node_port_ready(
                         &vm_data.ipv4_address.to_string(),
-                        SSH_PORT,
+                        ready_port,
                     )? {
                         true => {
                             tracing::info!(
@@ -2788,10 +2790,11 @@ pub async fn up_lab(
                                 node_name = %vm.name,
                                 node_kind = "VirtualMachine",
                                 ipv4 = %vm_data.ipv4_address,
-                                "VM ready (SSH accessible)"
+                                ready_port,
+                                "VM ready"
                             );
                             let _ = progress.send_status(
-                                format!("Node {} - Ready (SSH accessible)", vm.name),
+                                format!("Node {} - Ready ({ready_label} reachable)", vm.name),
                                 StatusKind::Done,
                             );
                             connected_nodes.insert(vm.name.clone());
@@ -2810,7 +2813,7 @@ pub async fn up_lab(
                                 model: vm.model,
                                 status: NodeState::Running,
                                 ip_address: Some(vm_data.ipv4_address.to_string()),
-                                ssh_port: Some(SSH_PORT),
+                                ssh_port: vm.model.has_ssh().then_some(SSH_PORT),
                             });
                         }
                         false => {
@@ -2818,10 +2821,11 @@ pub async fn up_lab(
                                 lab_id = %lab_id,
                                 node_name = %vm.name,
                                 ipv4 = %vm_data.ipv4_address,
-                                "Waiting for VM SSH connection"
+                                ready_port,
+                                "Waiting for VM readiness port"
                             );
                             let _ = progress.send_status(
-                                format!("Node {} - Waiting for SSH", vm.name),
+                                format!("Node {} - Waiting for {ready_label}", vm.name),
                                 StatusKind::Waiting,
                             );
                         }
@@ -3066,6 +3070,31 @@ mod tests {
                 .unwrap()
                 .is_null()
         );
+    }
+
+    #[test]
+    fn talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
+        let expanded = process_manifest_nodes(&[
+            topology::Node {
+                name: "talos".into(),
+                model: data::NodeModel::TalosLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "talos-big".into(),
+                model: data::NodeModel::TalosLinux,
+                boot_disk_size: Some(50),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "ubuntu".into(),
+                model: data::NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ]);
+        assert_eq!(expanded[0].boot_disk_size, Some(20));
+        assert_eq!(expanded[1].boot_disk_size, Some(50));
+        assert_eq!(expanded[2].boot_disk_size, None);
     }
 
     #[test]

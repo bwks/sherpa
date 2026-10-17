@@ -224,6 +224,11 @@ pub async fn redeploy_node(
         .context("Failed to load nodes for SSH configuration")?;
     let mut ssh_records = Vec::new();
     for node in ssh_nodes {
+        // Nodes missing from the manifest keep SSH, as before.
+        let has_ssh = match manifest.nodes.iter().find(|entry| entry.name == node.name) {
+            Some(entry) => entry.model.has_ssh(),
+            None => true,
+        };
         if let Some(ip) = node.mgmt_ipv4 {
             ssh_records.push(data::ZtpRecord {
                 node_name: node.name,
@@ -234,7 +239,7 @@ pub async fn redeploy_node(
                 mac_address: String::new(),
                 config_file: String::new(),
                 ztp_method: data::ZtpMethod::None,
-                ssh_port: SSH_PORT,
+                ssh_port: has_ssh.then_some(SSH_PORT),
             });
         }
     }
@@ -1005,18 +1010,20 @@ pub async fn redeploy_node(
                 is_ready = true;
             }
 
+            let ready_port = node_ops::vm_ready_port(&target_node.model, target_node.ready_port);
+            let ready_label = node_ops::ready_port_label(ready_port);
             while !is_ready && ready_start.elapsed() < ready_timeout {
-                match node_ops::check_node_ready_ssh(&ip_str, SSH_PORT)? {
+                match node_ops::check_node_port_ready(&ip_str, ready_port)? {
                     true => {
                         is_ready = true;
                         let _ = progress.send_status(
-                            format!("Node {} - Ready (SSH accessible)", node_name),
+                            format!("Node {} - Ready ({ready_label} reachable)", node_name),
                             StatusKind::Done,
                         );
                     }
                     false => {
                         let _ = progress.send_status(
-                            format!("Node {} - Waiting for SSH", node_name),
+                            format!("Node {} - Waiting for {ready_label}", node_name),
                             StatusKind::Waiting,
                         );
                         tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;

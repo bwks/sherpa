@@ -218,6 +218,7 @@ mod tests {
             NodeModel::NokiaSrlinux,
             NodeModel::CiscoIosv,
             NodeModel::CumulusLinux,
+            NodeModel::TalosLinux,
         ] {
             assert!(
                 !supports_guest_account(&NodeConfig::get_model(model)),

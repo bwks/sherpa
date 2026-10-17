@@ -17,23 +17,24 @@ pub(crate) fn build_ssh_config(
 ) -> SshConfigTemplate {
     let hosts = records
         .iter()
-        .map(|record| {
+        .filter_map(|record| {
+            let port = record.ssh_port?;
             let personal_username = ssh_usernames
                 .iter()
                 .find(|entry| entry.node_name == record.node_name)
                 .map(|entry| entry.username.as_str());
-            SshHostConfig {
+            Some(SshHostConfig {
                 aliases: format!(
                     "{} {}.{lab_id} {}.{lab_id}.{SHERPA_DOMAIN_NAME}",
                     record.ipv4_address, record.node_name, record.node_name
                 ),
                 hostname: record.ipv4_address,
-                port: record.ssh_port,
+                port,
                 username: personal_username.unwrap_or(SHERPA_USERNAME).to_owned(),
                 identity_file: personal_username
                     .is_none()
                     .then(|| SHERPA_SSH_PRIVATE_KEY_FILE.to_owned()),
-            }
+            })
         })
         .collect();
     SshConfigTemplate {
@@ -59,7 +60,7 @@ mod tests {
                 config_file: String::new(),
                 mac_address: String::new(),
                 ztp_method: ZtpMethod::None,
-                ssh_port: if index == 0 { 22 } else { 830 },
+                ssh_port: Some(if index == 0 { 22 } else { 830 }),
             })
             .collect()
     }
@@ -124,5 +125,22 @@ mod tests {
             );
             assert_eq!(config.proxy_jump, "owner@192.0.2.1");
         }
+    }
+
+    #[test]
+    fn nodes_without_ssh_are_left_out() {
+        let mut lab = records();
+        lab.push(ZtpRecord {
+            node_name: "talos".to_owned(),
+            ipv4_address: "192.0.2.12".parse().unwrap(),
+            ipv6_address: None,
+            config_file: String::new(),
+            mac_address: String::new(),
+            ztp_method: ZtpMethod::NoCloud,
+            ssh_port: None,
+        });
+        let config = build_ssh_config(&lab, &[], "abcd1234", "owner", "192.0.2.1".parse().unwrap());
+        assert_eq!(config.hosts.len(), 2);
+        assert!(config.render().unwrap().find("talos").is_none());
     }
 }
