@@ -32,6 +32,10 @@ use shared::konst::{
 };
 use shared::util;
 
+// Redeploy updates shared lab files. Serialize redeploys within each lab so one
+// node's new identity cannot overwrite another node's concurrent update.
+static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
+
 /// Tracks a veth pair created for a P2p container interface during redeploy.
 struct P2pContainerVeth {
     host_veth: String,
@@ -40,10 +44,6 @@ struct P2pContainerVeth {
     node_model: data::NodeModel,
     admin_down: bool,
 }
-
-// Redeploy updates shared lab files. Serialize redeploys within each lab so one
-// node's new identity cannot overwrite another node's concurrent update.
-static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
 ///

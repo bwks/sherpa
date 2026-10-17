@@ -21,6 +21,9 @@ use shared::data::ClusterRole;
 use shared::konst::TALOS_KUBERNETES_VERSION;
 use shared::util::base64_encode;
 
+/// Management interface the shared address is assigned to.
+const TALOS_MANAGEMENT_LINK: &str = "eth0";
+
 /// Secrets shared by every node in a cluster. Certificates and keys are PEM.
 #[derive(Clone, Debug, PartialEq, Eq, serde_derive::Serialize, serde_derive::Deserialize)]
 pub struct TalosClusterSecrets {
@@ -133,9 +136,6 @@ pub fn kubeconfig(
         serde_json::to_string_pretty(&document)?
     ))
 }
-
-/// Management interface the shared address is assigned to.
-const TALOS_MANAGEMENT_LINK: &str = "eth0";
 
 /// Render a node's machine config as a `---`-separated stream of JSON documents.
 pub fn talos_machine_config(node: &TalosNodeConfig) -> Result<String> {

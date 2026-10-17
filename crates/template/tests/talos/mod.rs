@@ -6,6 +6,36 @@ use template::{
     talosconfig,
 };
 
+/// The documents of `talosctl gen config` for Talos 1.14, without the install and discovery
+/// documents.
+const CONTROL_PLANE_KINDS: [&str; 25] = [
+    "v1alpha1",
+    "ResolverConfig",
+    "VolumeConfig",
+    "FilesystemTrimConfig",
+    "SecurityProfileConfig",
+    "HostnameConfig",
+    "KubeClusterConfig",
+    "KubeNodeConfig",
+    "KubeletConfig",
+    "KubeNetworkConfig",
+    "KubeAPIServerCAConfig",
+    "KubePrismConfig",
+    "KubeAggregatorCAConfig",
+    "KubeAdmissionControlConfig",
+    "KubeAuditPolicyConfig",
+    "KubeAuthenticationConfig",
+    "KubeAuthorizerConfig",
+    "KubeAuthorizerConfig",
+    "KubeEtcdEncryptionConfig",
+    "KubeServiceAccountConfig",
+    "KubeAPIServerConfig",
+    "KubeControllerManagerConfig",
+    "KubeSchedulerConfig",
+    "KubeProxyConfig",
+    "KubeFlannelCNIConfig",
+];
+
 fn secrets() -> TalosClusterSecrets {
     TalosClusterSecrets {
         os_ca_cert: "-----BEGIN CERTIFICATE-----\nos\n-----END CERTIFICATE-----\n".to_owned(),
@@ -57,36 +87,6 @@ fn find<'a>(documents: &'a [Value], kind: &str) -> &'a Value {
         .find(|document| document["kind"] == kind)
         .unwrap()
 }
-
-/// The documents of `talosctl gen config` for Talos 1.14, without the install and discovery
-/// documents.
-const CONTROL_PLANE_KINDS: [&str; 25] = [
-    "v1alpha1",
-    "ResolverConfig",
-    "VolumeConfig",
-    "FilesystemTrimConfig",
-    "SecurityProfileConfig",
-    "HostnameConfig",
-    "KubeClusterConfig",
-    "KubeNodeConfig",
-    "KubeletConfig",
-    "KubeNetworkConfig",
-    "KubeAPIServerCAConfig",
-    "KubePrismConfig",
-    "KubeAggregatorCAConfig",
-    "KubeAdmissionControlConfig",
-    "KubeAuditPolicyConfig",
-    "KubeAuthenticationConfig",
-    "KubeAuthorizerConfig",
-    "KubeAuthorizerConfig",
-    "KubeEtcdEncryptionConfig",
-    "KubeServiceAccountConfig",
-    "KubeAPIServerConfig",
-    "KubeControllerManagerConfig",
-    "KubeSchedulerConfig",
-    "KubeProxyConfig",
-    "KubeFlannelCNIConfig",
-];
 
 #[test]
 fn control_plane_config_matches_the_talos_document_set() {

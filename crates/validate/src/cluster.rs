@@ -119,14 +119,6 @@ fn validate_cluster_name(name: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn manifest(toml: &str) -> Manifest {
-        toml::from_str(toml).unwrap()
-    }
-
-    fn error(toml: &str) -> String {
-        validate_clusters(&manifest(toml)).unwrap_err().to_string()
-    }
-
     const VALID: &str = r#"
 name = "lab"
 clusters = [{ name = "k8s" }]
@@ -136,6 +128,14 @@ nodes = [
   { name = "dev", model = "ubuntu_linux" },
 ]
 "#;
+
+    fn manifest(toml: &str) -> Manifest {
+        toml::from_str(toml).unwrap()
+    }
+
+    fn error(toml: &str) -> String {
+        validate_clusters(&manifest(toml)).unwrap_err().to_string()
+    }
 
     #[test]
     fn a_cluster_with_a_control_plane_and_workers_is_valid() {

@@ -9,6 +9,9 @@ use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 
+/// Element on the admin users page that receives a refused delete's message.
+const USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
+
 // ── User Creation ──
 
 #[tokio::test]
@@ -449,9 +452,6 @@ async fn test_db_reflects_user_operations() -> Result<()> {
 }
 
 // ── User deletion rules on every transport ──
-
-/// Element on the admin users page that receives a refused delete's message.
-const USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
 
 /// IPv4-only lab networks for tests that seed lab records directly.
 fn ipv4_lab_networks() -> db::LabNetworks {

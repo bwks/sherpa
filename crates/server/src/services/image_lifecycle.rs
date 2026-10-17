@@ -9,9 +9,9 @@ use tracing::instrument;
 use shared::data::{DiskImageCloneMethod, NodeConfig, NodeKind, NodeModel};
 use shared::util::image_filename;
 
-pub(crate) type ImageLease = Arc<OwnedRwLockReadGuard<()>>;
-
 static IMAGE_LOCKS: OnceLock<DashMap<String, Arc<RwLock<()>>>> = OnceLock::new();
+
+pub(crate) type ImageLease = Arc<OwnedRwLockReadGuard<()>>;
 
 /// Shared across AppState instances and all image-mutating workflows in this process.
 #[instrument(level = "debug")]
