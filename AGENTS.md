@@ -129,12 +129,22 @@ Use:
 Structs / Enums
 - Always declare `structs` and `enums` under `use` statements.
 
+Tests:
+- Always declare unit tests at the end of file after production code.
+
 Instrumentation:
 - Public functions that perform I/O or lifecycle operations (database, libvirt, Docker, network,
   filesystem) must have `#[instrument]` attributes from `tracing`. Pure data and validation helpers do not need them.
 - Use `skip()` for non-Debug or large types (e.g. `state`, `docker`, `progress`, `qemu_conn`).
 - Use `fields()` to capture key identifiers (e.g. `%lab_id`, `%node_name`, `%iface_name`).
 - Use default level (info) for top-level operations, `level = "debug"` for helpers/internals.
+
+Mod files:
+- Never add code in `mod.rs` files.
+- Only add module `docs`, mod `declarations` and `pub use re-exports`.
+
+General:
+- Never use wrapper functions in the name of keeping diffs small.
 
 ## HTML Templates
 - Use Askama for HTML templates. Do not manually render HTML as strings.
