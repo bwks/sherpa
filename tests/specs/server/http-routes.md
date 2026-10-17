@@ -53,7 +53,7 @@
 ## API Routes
 
 **What to test:**
-- `GET /api/v1/labs` returns JSON lab list `[integration]` **P0**
+- `GET /api/v1/labs` requires authentication and returns the caller's labs; admins may pass `?username=` `[integration]` **P0**
 - `GET /api/v1/auth/login` handles API-style login `[integration]` **P1**
 - API routes return JSON content type `[integration]` **P1**
 - API error responses include appropriate status codes and messages `[integration]` **P1**

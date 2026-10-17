@@ -22,7 +22,7 @@ pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
 // Lab CRUD operations
 pub use lab::{
     LabNetworks, count_labs, count_labs_by_user, create_lab, delete_lab, delete_lab_by_id,
-    delete_lab_cascade, delete_lab_links, delete_lab_nodes, delete_lab_safe, get_lab,
+    delete_lab_cascade, delete_lab_links, delete_lab_nodes, delete_lab_safe, find_lab, get_lab,
     get_lab_by_id, get_lab_by_name_and_user, get_lab_owner_username,
     get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
     get_used_management_networks, list_labs, list_labs_by_user, update_lab, update_lab_state,
@@ -57,8 +57,8 @@ pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
 pub use user::{
-    count_users, create_user, delete_user, delete_user_by_username, delete_user_safe, get_user,
-    get_user_by_id, get_user_for_auth, list_users, update_user, upsert_user,
+    count_users, create_user, delete_user, delete_user_by_username, delete_user_safe, find_user,
+    get_user, get_user_by_id, get_user_for_auth, list_users, update_user, upsert_user,
 };
 
 // Bridge CRUD operations

@@ -6,6 +6,8 @@ use std::time::Instant;
 
 use tracing::instrument;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 
 /// Shutdown all (or a specific) node(s) for a lab.
@@ -14,18 +16,18 @@ use crate::daemon::state::AppState;
 /// `domain.shutdown()`. Otherwise, forced power-off via `domain.destroy()`.
 /// Containers: `docker stop`.
 /// DB node state is updated to `Stopped` on success.
-#[instrument(skip(state), fields(%lab_id))]
+///
+/// The caller must own the lab or be an admin.
+#[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
 pub async fn shutdown_lab_nodes(
+    ctx: &AuthContext,
     lab_id: &str,
     node_name: Option<&str>,
     state: &AppState,
 ) -> Result<LabNodeActionResponse> {
     let start = Instant::now();
 
-    // Get lab from DB to obtain RecordId
-    let db_lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found in database", lab_id))?;
+    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let lab_record_id = db_lab
         .id

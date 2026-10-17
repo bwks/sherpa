@@ -1,6 +1,6 @@
 /// READ operation tests for user
 use anyhow::Result;
-use db::{count_users, create_user, get_user, get_user_by_id, list_users};
+use db::{count_users, create_user, find_user, get_user, get_user_by_id, list_users};
 use shared::data::RecordId;
 
 use crate::{setup_db, teardown_db};
@@ -161,6 +161,22 @@ async fn test_count_users_empty() -> Result<()> {
     let count = count_users(&db).await?;
 
     assert_eq!(count, 0, "Should have 0 users in fresh database");
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn find_user_returns_none_for_a_missing_user() -> Result<()> {
+    let db = setup_db("find_user_returns_none").await?;
+
+    create_user(&db, "alice".to_string(), "TestPass123!", true, vec![]).await?;
+
+    let found = find_user(&db, "alice").await?.expect("alice should exist");
+    assert_eq!(found.username, "alice");
+    assert!(found.is_admin);
+    assert!(find_user(&db, "nonexistent").await?.is_none());
 
     teardown_db(&db).await?;
     Ok(())

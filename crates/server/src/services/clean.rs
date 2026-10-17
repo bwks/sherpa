@@ -7,22 +7,38 @@ use shared::util::load_file;
 
 use tracing::instrument;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_admin;
 use crate::daemon::state::AppState;
 use crate::services::destroy::{
     cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
     destroy_interfaces, destroy_libvirt_networks, destroy_vms_and_disks,
 };
 
-/// Clean all resources for a lab without ownership validation
+/// Clean all resources for a lab (admin only)
 ///
 /// Unlike `destroy_lab`, this function:
 /// - Does not require the lab to exist in the database
-/// - Does not validate user ownership (admin-only, verified at RPC layer)
+/// - Requires admin privileges instead of lab ownership
 /// - Tolerates missing lab info files
 /// - Continues infrastructure teardown after partial failures
 /// - Retains lab ownership and saved configuration if Tailscale cleanup fails
+#[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
+pub async fn clean_lab(
+    ctx: &AuthContext,
+    lab_id: &str,
+    state: &AppState,
+) -> Result<DestroyResponse> {
+    require_admin(ctx)?;
+    clean_lab_resources(lab_id, state).await
+}
+
+/// Clean all resources for a lab without any authorization check.
+///
+/// Only for server-internal callers, such as rolling back a failed `up` on behalf of the
+/// user who started it. Requests from users go through `clean_lab`.
 #[instrument(skip(state), fields(%lab_id))]
-pub async fn clean_lab(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
+pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Result<DestroyResponse> {
     let start_time = std::time::Instant::now();
 
     tracing::info!(lab_id = %lab_id, "Starting admin clean operation");

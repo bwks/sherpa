@@ -25,6 +25,21 @@ use crate::persistence::{LabRow, to_surreal_id};
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
+    find_lab(db, lab_id)
+        .await?
+        .ok_or_else(|| anyhow!("Lab with lab_id not found: {}", lab_id))
+}
+
+/// Find a lab by its lab_id, returning `None` when no such lab exists
+///
+/// Use this instead of `get_lab` when a missing lab is an expected outcome that the
+/// caller must tell apart from a database failure.
+///
+/// # Errors
+/// - If there's a database error
+///
+#[instrument(skip(db), level = "debug")]
+pub async fn find_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<Option<DbLab>> {
     let mut response = db
         .query("SELECT * FROM ONLY lab WHERE lab_id = $lab_id")
         .bind(("lab_id", lab_id.to_string()))
@@ -32,10 +47,7 @@ pub async fn get_lab(db: &Arc<Surreal<Client>>, lab_id: &str) -> Result<DbLab> {
         .context(format!("Failed to query lab from database: {}", lab_id))?;
 
     let db_lab: Option<LabRow> = response.take(0)?;
-    db_lab
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab with lab_id not found: {}", lab_id))
+    db_lab.map(DbLab::try_from).transpose()
 }
 
 /// Get a lab by its RecordId (surrogate key)

@@ -81,3 +81,28 @@ account used by the DB client, and supply its test password to the test runner:
 SHERPA_DEV_DB_USER=sherpa dev/testdb start
 SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_owner_on_all_transports -- --ignored --nocapture
 ```
+
+## Database-backed identity
+
+- The admin flag comes from the user record, not the token: a demoted admin's existing token loses admin rights on RPC, REST and web `[integration]` **P0**
+- A valid token for a deleted user is rejected: RPC `AuthRequired`, REST 401, web session cleared `[integration]` **P0**
+
+Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
+`deleted_user_token_is_rejected_on_all_transports` in `auth_tests.rs`.
+
+## Lab operation authorization
+
+- Owner-or-admin operations (inspect, destroy, down, resume, download, link impairment) allow the owner and admins and refuse other users, on RPC, REST and every web route `[integration]` **P0**
+- Refused streaming requests send no progress, and a refused destroy leaves the lab `[integration]` **P0**
+- Authorization failures are typed (`AccessError`) and map to 403/404 and RPC `AccessDenied`/`NotFound`, never by matching error text `[unit]` **P0**
+- `GET /api/v1/labs` requires login; regular users list only their own labs; admins may pass `?username=` `[integration]` **P0**
+- A web job page and stream are served only to the job's creator or an admin, and a refused request does not consume the job `[unit]` `[integration]` **P0**
+
+Tests: `lab_authorization_tests.rs`, `auth::policy` unit tests, `api::errors` unit tests and
+`daemon::state` unit tests. The integration tests seed lab records only; they need the
+disposable test database and local Docker and libvirt sockets, but no root.
+
+```sh
+SHERPA_DEV_DB_USER=sherpa dev/testdb start
+SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads=1
+```

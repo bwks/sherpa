@@ -16,6 +16,8 @@ use tracing::instrument;
 
 use super::node_ops;
 use super::progress::ProgressSender;
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 
 /// How a node started by resume shows that it is ready, as `up` checks it.
@@ -44,8 +46,11 @@ struct ReadinessTarget {
 /// lab's saved manifest for `ready_timeout`, `skip_ready_check` and `ready_port`. A node that
 /// does not become ready within the timeout is reported in its result message; it is not an
 /// error, as with `up`.
-#[instrument(skip(state, progress), fields(%lab_id))]
+///
+/// The caller must own the lab or be an admin.
+#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, %lab_id))]
 pub async fn start_lab_nodes(
+    ctx: &AuthContext,
     lab_id: &str,
     node_name: Option<&str>,
     state: &AppState,
@@ -53,10 +58,7 @@ pub async fn start_lab_nodes(
 ) -> Result<LabNodeActionResponse> {
     let start = Instant::now();
 
-    // Get lab from DB to obtain RecordId
-    let db_lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found in database", lab_id))?;
+    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let tailscale = if node_name.is_none() {
         super::tailscale::resume(state, &db_lab).await?

@@ -24,6 +24,21 @@ use crate::persistence::{UserRow, to_surreal_id};
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUser> {
+    find_user(db, username)
+        .await?
+        .ok_or_else(|| anyhow!("User not found: {}", username))
+}
+
+/// Find a user by username, returning `None` when no such user exists
+///
+/// Use this instead of `get_user` when a missing user is an expected outcome that the
+/// caller must tell apart from a database failure.
+///
+/// # Errors
+/// - If there's a database error during the query
+///
+#[instrument(skip(db), level = "debug")]
+pub async fn find_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<Option<DbUser>> {
     let mut response = db
         .query("SELECT * FROM ONLY user WHERE username = $username")
         .bind(("username", username.to_string()))
@@ -31,9 +46,7 @@ pub async fn get_user(db: &Arc<Surreal<Client>>, username: &str) -> Result<DbUse
         .context(format!("Failed to query user from database: {}", username))?;
 
     let user: Option<UserRow> = response.take(0)?;
-    user.map(DbUser::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("User not found: {}", username))
+    user.map(DbUser::try_from).transpose()
 }
 
 /// Get a user by RecordId

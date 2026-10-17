@@ -2,11 +2,13 @@ mod helpers;
 #[path = "helpers/http_client.rs"]
 mod http_client;
 
-use anyhow::Result;
+use anyhow::{Result, ensure};
 use reqwest::header;
 use serde_json::json;
+use shared::error::RpcErrorCode;
+use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 
-use helpers::test_server::TestServer;
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
 use http_client::TestHttpClient;
 
@@ -477,5 +479,99 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
         .await?;
     assert_eq!(protected_response.status().as_u16(), 200);
 
+    Ok(())
+}
+
+// ── Database-backed identity ──
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "carol".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("carol", TEST_ADMIN_PASSWORD).await?;
+
+    let mut carol = db::get_user(&server.db, "carol").await?;
+    carol.is_admin = false;
+    db::update_user(&server.db, carol).await?;
+
+    let response = ws.rpc_call("user.list", json!({ "token": token })).await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "Demoted admin kept RPC admin rights: {response}"
+    );
+
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token.clone());
+    let response = client.get("/api/v1/admin/users").await?;
+    ensure!(
+        response.status() == reqwest::StatusCode::FORBIDDEN,
+        "Demoted admin kept REST admin rights: {}",
+        response.status()
+    );
+
+    let response = TestHttpClient::new(server.addr)
+        .get_with_cookie("/admin/users", &format!("{AUTH_COOKIE_NAME}={token}"))
+        .await?;
+    ensure!(
+        response.status() == reqwest::StatusCode::FORBIDDEN,
+        "Demoted admin kept web admin rights: {}",
+        response.status()
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    db::create_user(
+        &server.db,
+        "dave".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("dave", TEST_ADMIN_PASSWORD).await?;
+    db::delete_user_by_username(&server.db, "dave").await?;
+
+    let response = ws.rpc_call("user.list", json!({ "token": token })).await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AuthRequired),
+        "Deleted user was not asked to authenticate over RPC: {response}"
+    );
+
+    let mut client = TestHttpClient::new(server.addr);
+    client.set_token(token.clone());
+    let response = client.get("/api/v1/admin/users").await?;
+    ensure!(
+        response.status() == reqwest::StatusCode::UNAUTHORIZED,
+        "Deleted user was not rejected over REST: {}",
+        response.status()
+    );
+
+    let response = TestHttpClient::new(server.addr)
+        .get_with_cookie("/labs", &format!("{AUTH_COOKIE_NAME}={token}"))
+        .await?;
+    let location = response
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    ensure!(
+        response.status().is_redirection() && location.contains("session_expired"),
+        "Deleted user's session was not cleared: {} {location}",
+        response.status()
+    );
     Ok(())
 }

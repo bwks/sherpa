@@ -5,6 +5,8 @@ use axum::{
 };
 use serde::Serialize;
 
+use crate::auth::policy::AccessError;
+
 /// Structured API error with consistent JSON format
 #[derive(Debug)]
 pub enum ApiError {
@@ -126,17 +128,24 @@ impl IntoResponse for ApiError {
     }
 }
 
-/// Convert anyhow::Error to ApiError with pattern matching
+/// Convert anyhow::Error to ApiError
+///
+/// Authorization failures carry a typed `AccessError` and map to 403 or 404. Other errors
+/// still fall back to matching on the error text.
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
+        if let Some(access) = AccessError::find(&err) {
+            return match access {
+                AccessError::Denied(_) => ApiError::forbidden(access.to_string()),
+                AccessError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
+            };
+        }
+
         let err_str = format!("{:#}", err);
 
         // Pattern match on error messages
         if err_str.contains("not found in database") || err_str.contains("not found") {
             ApiError::not_found("Resource", err_str)
-        } else if err_str.contains("Permission denied") || err_str.contains("owned by another user")
-        {
-            ApiError::forbidden(err_str)
         } else if err_str.contains("Invalid") || err_str.contains("missing") {
             ApiError::bad_request(err_str)
         } else {
@@ -235,11 +244,28 @@ mod tests {
     }
 
     #[test]
-    fn test_anyhow_permission_denied_conversion() {
-        let err = anyhow::anyhow!("Permission denied");
+    fn access_denied_errors_convert_to_forbidden_through_context() {
+        let err = anyhow::Error::new(AccessError::Denied("not yours".to_owned()))
+            .context("Failed to destroy lab");
         let api_err: ApiError = err.into();
-        let response = api_err.into_response();
-        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(api_err.into_response().status(), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn access_not_found_errors_convert_to_not_found() {
+        let err = anyhow::Error::new(AccessError::NotFound("Lab not found: x".to_owned()));
+        let api_err: ApiError = err.into();
+        assert_eq!(api_err.into_response().status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn permission_text_alone_is_not_treated_as_an_access_decision() {
+        let err = anyhow::anyhow!("Permission denied (os error 13)");
+        let api_err: ApiError = err.into();
+        assert_eq!(
+            api_err.into_response().status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]

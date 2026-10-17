@@ -8,7 +8,7 @@ Draft backlog item.
 
 Sherpa server route protection is currently discovered by reading each handler signature and handler body. `api/router.rs` registers public, authenticated, and admin routes in one router, then handlers decide whether a request is allowed by using extractors such as `AuthenticatedUserFromCookie`, `AdminUser`, `AuthenticatedUser`, or manual calls like `require_admin_auth`.
 
-This makes route reviews error-prone. A route can be added to the router without an auth extractor and still compile. The current public `GET /api/v1/labs?username=...` route is an example of behavior that is only obvious after inspecting the handler, not the route table.
+This makes route reviews error-prone. A route can be added to the router without an auth extractor and still compile. `GET /api/v1/labs?username=...` was an example: it was public until #320 because its handler had no auth extractor, which was only obvious after inspecting the handler, not the route table.
 
 ## Findings
 
@@ -22,7 +22,7 @@ This makes route reviews error-prone. A route can be added to the router without
   - Admin REST handlers call `require_admin_auth(&auth)` inside the handler.
 - WebSocket RPC authorization is separate and lives in `api/websocket/rpc.rs`.
 - The generated API spec has auth metadata, but route registration does not validate against it.
-- Current code behavior: `GET /api/v1/labs?username=...` is registered as public because `get_labs_json` has no auth extractor.
+- `GET /api/v1/labs` was public until #320 because `get_labs_json` had no auth extractor. It now requires authentication.
 
 ## Goals
 
@@ -66,7 +66,7 @@ Implementation direction:
 3. Keep the existing extractors during migration, but make them redundant rather than the only protection.
 4. Add a policy matrix that lists route, method, handler, auth group, and expected unauthenticated/unauthorized behavior.
 5. Add tests that exercise the matrix with missing auth and non-admin auth.
-6. Decide explicitly whether `GET /api/v1/labs?username=...` remains public or moves to authenticated access.
+6. ~~Decide whether `GET /api/v1/labs?username=...` remains public.~~ Done in #320: it requires authentication.
 
 ## Functional requirements
 

@@ -13,8 +13,6 @@ pub struct UpRequest {
     pub tailscale_auth_key: Option<TailnetAuthKey>,
     pub lab_id: String,
     pub manifest: serde_json::Value,
-    /// Authenticated creator, set by server API entry points. Client input is ignored.
-    pub username: String,
 }
 
 /// Response type for lab startup operation

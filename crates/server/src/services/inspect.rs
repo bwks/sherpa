@@ -1,8 +1,7 @@
 use anyhow::{Context, Result, anyhow};
 use regex::Regex;
 use shared::data::{
-    BridgeInfo, DbNode, DeviceInfo, InspectRequest, InspectResponse, LabInfo, LinkInfo, NodeConfig,
-    RecordId,
+    BridgeInfo, DbNode, DeviceInfo, InspectResponse, LabInfo, LinkInfo, NodeConfig, RecordId,
 };
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL};
 use shared::util::load_file;
@@ -13,6 +12,8 @@ use tracing::instrument;
 use uuid::Uuid;
 use virt::storage_pool::StoragePool;
 
+use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 
 /// Inspect a lab and return its current state
@@ -22,42 +23,27 @@ use crate::daemon::state::AppState;
 /// - libvirt for VM domains and storage
 /// - Docker for containers (future)
 ///
-/// Authentication is handled by the caller (RPC middleware or web cookie auth)
-/// before this function is invoked.
-#[instrument(skip(state), fields(lab_id = %request.lab_id))]
-pub async fn inspect_lab(request: InspectRequest, state: &AppState) -> Result<InspectResponse> {
+/// The caller must own the lab or be an admin.
+#[instrument(skip(ctx, state), fields(username = %ctx.username, %lab_id))]
+pub async fn inspect_lab(
+    ctx: &AuthContext,
+    lab_id: &str,
+    state: &AppState,
+) -> Result<InspectResponse> {
     let req_id = Uuid::now_v7();
-    let span = tracing::debug_span!("inspect_lab", %req_id, lab_id = %request.lab_id);
+    let span = tracing::debug_span!("inspect_lab", %req_id, %lab_id);
 
-    inspect_lab_inner(request, state).instrument(span).await
+    inspect_lab_inner(ctx, lab_id, state).instrument(span).await
 }
 
-async fn inspect_lab_inner(request: InspectRequest, state: &AppState) -> Result<InspectResponse> {
-    let lab_id = &request.lab_id;
-    let username = &request.username;
+async fn inspect_lab_inner(
+    ctx: &AuthContext,
+    lab_id: &str,
+    state: &AppState,
+) -> Result<InspectResponse> {
     let t0 = Instant::now();
 
-    // Get user from database to validate existence and get RecordId
-    let db_user = db::get_user(&state.db, username)
-        .await
-        .context(format!("User '{}' not found in database", username))?;
-
-    let user_id = db_user
-        .id
-        .ok_or_else(|| anyhow!("User '{}' missing record ID", username))?;
-
-    // Get lab from database
-    let db_lab = db::get_lab(&state.db, lab_id)
-        .await
-        .context(format!("Lab '{}' not found in database", lab_id))?;
-
-    // Validate ownership
-    if db_lab.user != user_id {
-        return Err(anyhow!(
-            "Permission denied: Lab '{}' is owned by another user",
-            lab_id
-        ));
-    }
+    let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     let tailscale = super::tailscale::inspect(state, &db_lab).await;
 

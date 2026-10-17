@@ -196,9 +196,8 @@ pub fn build_router() -> Router<AppState> {
         .route("/api/v1/openapi.json", get(openapi_handler))
         .route("/api/docs", get(api_docs_handler))
         .route("/api/v1/auth/login", post(login)) // JSON login for CLI
-        .route("/api/v1/labs", get(get_labs_json))
         // Protected API endpoints (authentication required)
-        .route("/api/v1/labs", post(create_lab_json))
+        .route("/api/v1/labs", get(get_labs_json).post(create_lab_json))
         .route("/api/v1/labs/{id}", get(get_lab))
         .route("/api/v1/labs/{id}", delete(delete_lab_json))
         .route("/api/v1/labs/{id}/down", post(down_lab_json))

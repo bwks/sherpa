@@ -9,6 +9,7 @@ use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
 use crate::auth::middleware;
+use crate::auth::policy::AccessError;
 use crate::daemon::state::AppState;
 use crate::services::{
     clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
@@ -18,28 +19,28 @@ use shared::auth::password;
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_LAB, RPC_MSG_ACCESS_DENIED_LAST_ADMIN,
-    RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ACCESS_DENIED_OWN_PASSWORD,
-    RPC_MSG_ACCESS_DENIED_SELF_DELETE, RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL,
-    RPC_MSG_ADMIN_ONLY_IMAGE_DELETE, RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD,
-    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
-    RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED, RPC_MSG_IMAGE_DELETE_FAILED,
-    RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED, RPC_MSG_IMAGE_LIST_FAILED,
-    RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED, RPC_MSG_IMAGE_SHOW_FAILED,
-    RPC_MSG_IMPAIRMENT_UPDATE_FAILED, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
-    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
-    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DELETE, RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD,
-    RPC_MSG_INVALID_PARAMS_IMAGE_LIST, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT,
-    RPC_MSG_INVALID_PARAMS_IMAGE_SHOW, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
-    RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
-    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN,
-    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
-    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
+    RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
+    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
+    RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
+    RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
+    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED,
+    RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
+    RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
+    RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
+    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL,
+    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
+    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
+    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
+    RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW,
+    RPC_MSG_INVALID_PARAMS_IMPAIRMENT, RPC_MSG_INVALID_PARAMS_IMPORT,
+    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
+    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
+    RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
     RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
@@ -87,6 +88,30 @@ async fn require_admin(
     }
 
     Ok(auth_ctx)
+}
+
+/// Build the RPC error for a failed service call.
+///
+/// Authorization failures from the service's policy checks keep their own codes so clients
+/// can tell "not allowed" and "does not exist" apart from operational failures.
+fn service_error(error: &anyhow::Error, failure_message: &str) -> RpcError {
+    match AccessError::find(error) {
+        Some(access @ AccessError::Denied(_)) => RpcError {
+            code: RpcErrorCode::AccessDenied,
+            message: access.to_string(),
+            context: None,
+        },
+        Some(AccessError::NotFound(message)) => RpcError {
+            code: RpcErrorCode::NotFound,
+            message: message.clone(),
+            context: None,
+        },
+        None => RpcError {
+            code: RpcErrorCode::ServerError,
+            message: failure_message.to_string(),
+            context: Some(format!("{:?}", error)),
+        },
+    }
 }
 
 /// Authenticate request and verify admin privileges for streaming handlers.
@@ -361,7 +386,7 @@ async fn handle_labs_list(
         }
     };
 
-    match list_labs::list_labs(&auth_ctx.username, state).await {
+    match list_labs::list_labs(&auth_ctx, None, state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => ServerMessage::RpcResponse {
                 id,
@@ -381,11 +406,7 @@ async fn handle_labs_list(
         Err(e) => ServerMessage::RpcResponse {
             id,
             result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::ServerError,
-                message: "Failed to list labs".to_string(),
-                context: Some(format!("{:?}", e)),
-            }),
+            error: Some(service_error(&e, "Failed to list labs")),
         },
     }
 }
@@ -427,49 +448,8 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
         }
     };
 
-    // Check authorization: user must own the lab or be an admin
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to inspect lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            // Lab not found
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
-    // User is authenticated and authorized - use their username from the token
-    let request = data::InspectRequest {
-        lab_id,
-        username: auth_ctx.username.clone(),
-    };
-
-    // Call service
-    match inspect::inspect_lab(request, state).await {
+    // The service enforces owner-or-admin access
+    match inspect::inspect_lab(&auth_ctx, &lab_id, state).await {
         Ok(response) => {
             // Convert response to JSON
             match serde_json::to_value(&response) {
@@ -492,19 +472,11 @@ async fn handle_inspect(id: String, params: serde_json::Value, state: &AppState)
                 },
             }
         }
-        Err(e) => {
-            // Convert service error to RpcError
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_INSPECT_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_INSPECT_FAILED)),
+        },
     }
 }
 
@@ -543,40 +515,7 @@ async fn handle_download(id: String, params: serde_json::Value, state: &AppState
         }
     };
 
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to download lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
-    match download::download_lab_files(&lab_id, &auth_ctx.username, state).await {
+    match download::download_lab_files(&auth_ctx, &lab_id, state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -600,18 +539,11 @@ async fn handle_download(id: String, params: serde_json::Value, state: &AppState
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: "Failed to download lab files".to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, "Failed to download lab files")),
+        },
     }
 }
 
@@ -658,42 +590,8 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    // Check authorization: user must own the lab or be an admin
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to down lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
     // Call service
-    match down::shutdown_lab_nodes(&lab_id, node_name.as_deref(), state).await {
+    match down::shutdown_lab_nodes(&auth_ctx, &lab_id, node_name.as_deref(), state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -718,18 +616,11 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_DOWN_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_DOWN_FAILED)),
+        },
     }
 }
 
@@ -807,42 +698,16 @@ async fn handle_resume(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
-    // Check authorization: user must own the lab or be an admin
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to resume lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
     // Call service
-    match resume::start_lab_nodes(&lab_id, node_name.as_deref(), state, Some(progress)).await {
+    match resume::start_lab_nodes(
+        &auth_ctx,
+        &lab_id,
+        node_name.as_deref(),
+        state,
+        Some(progress),
+    )
+    .await
+    {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -867,18 +732,11 @@ async fn handle_resume(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_RESUME_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_RESUME_FAILED)),
+        },
     }
 }
 
@@ -938,43 +796,9 @@ async fn handle_link_update_impairment(
         }
     };
 
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to update impairment on lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::NotFound,
-                    message: format!("Lab not found: {}", lab_id),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
     let request = data::UpdateImpairmentRequest {
         lab_id,
         link_index,
-        username: auth_ctx.username.clone(),
         delay: params.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         jitter: params.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         loss_percent: params
@@ -991,7 +815,7 @@ async fn handle_link_update_impairment(
             .unwrap_or(0.0) as f32,
     };
 
-    match impairment::update_impairment(request, state).await {
+    match impairment::update_impairment(&auth_ctx, request, state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -1015,18 +839,11 @@ async fn handle_link_update_impairment(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMPAIRMENT_UPDATE_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMPAIRMENT_UPDATE_FAILED)),
+        },
     }
 }
 
@@ -1072,40 +889,6 @@ async fn handle_destroy_streaming(
         }
     };
 
-    // Check authorization: user must own the lab or be an admin
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_access(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to destroy lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    lab_id,
-                    owner_username
-                );
-                send_rpc_error(
-                    connection,
-                    id,
-                    RpcErrorCode::AccessDenied,
-                    RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                    None,
-                )
-                .await;
-                return;
-            }
-        }
-        Err(e) => {
-            send_rpc_error(
-                connection,
-                id,
-                RpcErrorCode::NotFound,
-                format!("Lab not found: {}", lab_id),
-                Some(format!("{:?}", e)),
-            )
-            .await;
-            return;
-        }
-    }
-
     // Create progress channel
     let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
 
@@ -1120,14 +903,8 @@ async fn handle_destroy_streaming(
     // Create progress sender
     let progress = progress::ProgressSender::new(progress_tx);
 
-    // User is authenticated and authorized - use their username from the token
-    let request = data::DestroyRequest {
-        lab_id,
-        username: auth_ctx.username.clone(),
-    };
-
-    // Call service with progress sender
-    let result = destroy::destroy_lab(request, state, progress).await;
+    // The service enforces owner-or-admin access before sending any progress
+    let result = destroy::destroy_lab(&auth_ctx, &lab_id, state, progress).await;
 
     // Wait for forward task to complete (channel closes when progress is dropped)
     let _ = forward_task.await;
@@ -1153,18 +930,11 @@ async fn handle_destroy_streaming(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_DESTROY_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_DESTROY_FAILED)),
+        },
     };
 
     // Send final response
@@ -1245,41 +1015,6 @@ async fn handle_redeploy_streaming(
         }
     };
 
-    // Redeploy is restricted to the current owner, including for administrators
-    match db::get_lab_owner_username(&state.db, &lab_id).await {
-        Ok(owner_username) => {
-            if !auth_ctx.can_redeploy(&owner_username) {
-                tracing::warn!(
-                    "User '{}' attempted to redeploy node '{}' in lab '{}' owned by '{}'",
-                    auth_ctx.username,
-                    node_name,
-                    lab_id,
-                    owner_username
-                );
-                send_rpc_error(
-                    connection,
-                    id,
-                    RpcErrorCode::AccessDenied,
-                    RPC_MSG_ACCESS_DENIED_LAB.to_string(),
-                    None,
-                )
-                .await;
-                return;
-            }
-        }
-        Err(e) => {
-            send_rpc_error(
-                connection,
-                id,
-                RpcErrorCode::NotFound,
-                format!("Lab not found: {}", lab_id),
-                Some(format!("{:?}", e)),
-            )
-            .await;
-            return;
-        }
-    }
-
     // Create progress channel
     let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
 
@@ -1298,11 +1033,10 @@ async fn handle_redeploy_streaming(
         lab_id,
         node_name: node_name.clone(),
         manifest,
-        username: auth_ctx.username.clone(),
     };
 
     // Call service with progress sender
-    let result = redeploy::redeploy_node(request, state, progress).await;
+    let result = redeploy::redeploy_node(&auth_ctx, request, state, progress).await;
 
     // Wait for forward task to complete (channel closes when progress is dropped)
     let _ = forward_task.await;
@@ -1332,18 +1066,11 @@ async fn handle_redeploy_streaming(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_REDEPLOY_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_REDEPLOY_FAILED)),
+        },
     };
 
     // Send final response
@@ -1378,7 +1105,7 @@ async fn handle_clean(
     };
 
     // Call clean service
-    match clean::clean_lab(&lab_id, state).await {
+    match clean::clean_lab(&auth_ctx, &lab_id, state).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(
@@ -1402,18 +1129,11 @@ async fn handle_clean(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_CLEAN_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_CLEAN_FAILED)),
+        },
     }
 }
 
@@ -1493,18 +1213,11 @@ async fn handle_image_import_streaming(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_IMPORT_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_IMPORT_FAILED)),
+        },
     };
 
     if let Ok(json) = serde_json::to_string(&response) {
@@ -1563,18 +1276,11 @@ async fn handle_image_delete(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_DELETE_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_DELETE_FAILED)),
+        },
     }
 }
 
@@ -1629,18 +1335,11 @@ async fn handle_image_set_default(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_SET_DEFAULT_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_SET_DEFAULT_FAILED)),
+        },
     }
 }
 
@@ -1710,18 +1409,11 @@ async fn handle_image_list(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_LIST_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_LIST_FAILED)),
+        },
     }
 }
 
@@ -1791,18 +1483,11 @@ async fn handle_image_show(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_SHOW_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_SHOW_FAILED)),
+        },
     }
 }
 
@@ -1857,18 +1542,11 @@ async fn handle_image_scan(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_SCAN_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_SCAN_FAILED)),
+        },
     }
 }
 
@@ -1944,18 +1622,11 @@ async fn handle_image_pull_streaming(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_CONTAINER_PULL_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_CONTAINER_PULL_FAILED)),
+        },
     };
 
     if let Ok(json) = serde_json::to_string(&response) {
@@ -2035,18 +1706,11 @@ async fn handle_image_download_streaming(
                 }),
             },
         },
-        Err(e) => {
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_IMAGE_DOWNLOAD_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_IMAGE_DOWNLOAD_FAILED)),
+        },
     };
 
     if let Ok(json) = serde_json::to_string(&response) {
@@ -2164,11 +1828,10 @@ async fn handle_up(
                 }
             },
         },
-        username: auth_ctx.username.clone(),
     };
 
     // Call the up service
-    let result = up::up_lab(request, state, progress).await;
+    let result = up::up_lab(&auth_ctx, request, state, progress).await;
 
     // Close the progress channel (forward_task will finish when channel closes)
     // The channel is automatically closed when progress_tx is dropped here
@@ -2200,19 +1863,11 @@ async fn handle_up(
                 },
             }
         }
-        Err(e) => {
-            // Convert service error to RpcError
-            let error_chain = format!("{:?}", e);
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_LAB_UP_FAILED.to_string(),
-                    context: Some(error_chain),
-                }),
-            }
-        }
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_UP_FAILED)),
+        },
     };
 
     // Send final response

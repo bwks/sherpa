@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 pub struct UpdateImpairmentRequest {
     pub lab_id: String,
     pub link_index: u16,
-    pub username: String,
     #[serde(default)]
     pub delay: u32,
     #[serde(default)]
