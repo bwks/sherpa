@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.89] - 2026-10-17
+
+### Bug Fixes
+
+- Reserve lab subnets in the database and wait for readiness on resume by @bwks ([76dc926](https://github.com/bwks/sherpa/commit/76dc9263fe92dcbe7745ed783bef6b5bedf85c9c))
+
+### Miscellaneous
+
+- Merge pull request #319 from bwks/chore/server-tests
+
+fix: reserve lab subnets in the database and wait for readiness on resume by @bwks in [#319](https://github.com/bwks/sherpa/pull/319) ([7ad9b20](https://github.com/bwks/sherpa/commit/7ad9b205615a4014bd50be1ed7c86e6c7519acdc))
+- Bump version to v0.3.89 by @bwks ([5bb12b0](https://github.com/bwks/sherpa/commit/5bb12b01e40a9b0bfff2632e9bee1c3abf29b48c))
+- Setup vm tests by @bwks ([44a56cb](https://github.com/bwks/sherpa/commit/44a56cbd0778816cbbcadf46d04b1636101c8795))
+- Merge pull request #317 from bwks/chore/remove-ansible-pyats-nornir
+
+chore: remove ansible, pyats and nornir config management support by @bwks in [#317](https://github.com/bwks/sherpa/pull/317) ([c5a988d](https://github.com/bwks/sherpa/commit/c5a988d0764dc70bcdb5f59028cbe9a5992048a8))
+- Remove ansible, pyats and nornir config management support by @bwks ([4e0f169](https://github.com/bwks/sherpa/commit/4e0f169faf0aac1b37d1d39e7c14d9b40b687720))
+- Merge pull request #316 from bwks/changelog/v0.3.88
+
+chore(release): update changelog for v0.3.88 by @github-actions[bot] in [#316](https://github.com/bwks/sherpa/pull/316) ([e973dc1](https://github.com/bwks/sherpa/commit/e973dc19451b6984708bf4611c776e5645ed2b16))
+
+### Testing
+
+- Test updates by @bwks ([9c9e1c7](https://github.com/bwks/sherpa/commit/9c9e1c713913766eb8dec495d3d6f6de1c8e6ace))
 ## [0.3.88] - 2026-10-14
 
 ### Bug Fixes
