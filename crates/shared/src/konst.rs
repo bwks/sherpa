@@ -123,9 +123,9 @@ pub const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
 pub const TALOS_KUBERNETES_VERSION: &str = "1.37.1";
 /// Talos Image Factory base URL for downloading Talos Linux images.
 pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
-/// Image Factory schematic for vanilla Talos Linux (no system extensions).
-pub const TALOS_VANILLA_SCHEMATIC: &str =
-    "376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba";
+/// Image Factory schematic for vanilla Talos Linux (no system extensions). The factory
+/// returns its ID when it is posted to `/schematics`.
+pub const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
 /// Host offsets in the management subnet reserved for Talos cluster shared (VIP) addresses.
 /// They sit between the router (`.2`) and the first node (`.10`), outside the DHCP range.
 pub const TALOS_VIP_HOST_OFFSETS: std::ops::RangeInclusive<u32> = 3..=9;

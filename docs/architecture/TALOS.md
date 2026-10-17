@@ -17,8 +17,10 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
   `resume` and `redeploy` all probe this port.
 - **No SSH.** `NodeModel::has_ssh()` is false. `ZtpRecord::ssh_port` is `None` for such nodes,
   so `build_ssh_config` leaves them out, and `NodeInfo::ssh_port` is `None`.
-- **Image.** `resolve_download_url` builds the Image Factory NoCloud URL with the vanilla
-  schematic (`TALOS_VANILLA_SCHEMATIC`).
+- **Image.** `resolve_download_url` posts the vanilla schematic (`customization: {}`) to the
+  Image Factory's `/schematics` endpoint, reads the returned ID, and downloads
+  `/image/<id>/v<version>/nocloud-amd64.qcow2`. The ID is derived from the schematic's
+  content, so Sherpa asks for it rather than storing it. `--url` skips the lookup.
 
 ## NoCloud delivery
 

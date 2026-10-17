@@ -13,7 +13,7 @@ disk, `host-model` CPU).
 
 | Question | Result |
 |---|---|
-| Image | Image Factory publishes a ready NoCloud qcow2: `factory.talos.dev/image/<schematic>/v<version>/nocloud-amd64.qcow2`. The vanilla schematic (no extensions) is `376567988ad370138ad8b2698212367b8edcb69b5fd68c80be1f2ec7d603b4ba`. 222 MiB on disk, **4.15 GiB virtual**: it must be grown to at least 10 GiB. |
+| Image | Image Factory publishes a ready NoCloud qcow2: `factory.talos.dev/image/<schematic>/v<version>/nocloud-amd64.qcow2`. The vanilla schematic (no extensions) has a fixed ID, returned by posting `customization: {}` to `factory.talos.dev/schematics`. 222 MiB on disk, **4.15 GiB virtual**: it must be grown to at least 10 GiB. |
 | CPU | Talos needs x86-64-v2. Sherpa's default `host-model` CPU reports level 3 on this host. |
 | Config delivery | A `cidata` ISO with `user-data` (the machine config), `meta-data` and `network-config` works with no network and no maintenance mode. Talos read all three at about 8 s after power-on. |
 | Config format | Talos 1.14 configs are **multi-document**: one legacy `v1alpha1` document plus about 27 typed documents (`HostnameConfig`, `KubeAPIServerCAConfig`, `KubeNodeConfig`, ...). A `---`-separated stream of **JSON** documents is accepted. |
