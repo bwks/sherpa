@@ -6,7 +6,7 @@ use db::{
 };
 use shared::data::RecordId;
 
-use crate::{setup_db, teardown_db};
+use crate::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
@@ -135,10 +135,12 @@ async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
         "test-lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -180,10 +182,12 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
         "lab-1",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     create_lab(
@@ -191,10 +195,12 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
         "lab-2",
         "lab-0002",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     create_lab(
@@ -202,10 +208,12 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
         "lab-3",
         "lab-0003",
         &user,
-        "127.127.3.0/24",
-        "172.31.3.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.3.0/24",
+            "172.31.3.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -240,10 +248,12 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
         "test-lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 

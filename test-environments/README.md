@@ -103,11 +103,13 @@ Both directories are ignored by Git.
 
 ## Concurrent lab creation
 
-Concurrent `sherpa up` requests can be given the same lab subnet
-([#318](https://github.com/bwks/sherpa/issues/318)). The release-test runner takes a
-host lock (`.tmp/sherpa-up.lock`) around `sherpa up`, so environments start one after
-another and then run in parallel. When using `scripts/test_env.py up` by hand, bring
-environments up one at a time.
+Sherpa servers before the fix for [#318](https://github.com/bwks/sherpa/issues/318)
+can give concurrent `sherpa up` requests the same lab subnet. The host server that builds
+these environments may be such a version, so the release-test runner takes a host lock
+(`.tmp/sherpa-up.lock`) around `sherpa up`: environments start one after another and then
+run in parallel. Remove the lock once the host runs a fixed server. When using
+`scripts/test_env.py up` by hand against an older server, bring environments up one at a
+time.
 
 ## Consumers
 

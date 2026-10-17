@@ -8,13 +8,17 @@
 ///
 /// Tests create and destroy their own containers and networks.
 /// Container/network names are prefixed with "sherpa-test-" to avoid collisions.
-use anyhow::Result;
+/// Each test owns a distinct network name, Linux bridge and subnet, and removes them
+/// even when it fails, so one failure cannot cascade into the others.
+use anyhow::{Result, ensure};
 use bollard::Docker;
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::time::Duration;
 
 use container::{
     create_docker_bridge_network, delete_network, docker_connection, exec_container,
     exec_container_detached, exec_container_with_retry, get_local_images, kill_container,
-    list_containers, list_networks, pause_container, remove_container, run_container,
+    list_containers, list_networks, pause_container, pull_image, remove_container, run_container,
     start_container, stop_container, unpause_container,
 };
 use shared::data::ContainerNetworkAttachment;
@@ -24,6 +28,25 @@ use shared::data::ContainerNetworkAttachment;
 // ============================================================================
 
 const TEST_IMAGE: &str = "alpine:latest";
+
+/// A test-owned Docker bridge network.
+struct TestNet {
+    name: String,
+    bridge: String,
+    subnet: String,
+}
+
+impl TestNet {
+    /// `index` must be unique per test: it selects the bridge name and the subnet.
+    fn new(suffix: &str, index: u8) -> Self {
+        Self {
+            name: format!("sherpa-test-net-{suffix}"),
+            // Linux interface names are limited to 15 characters.
+            bridge: format!("br-sherpa-t{index}"),
+            subnet: format!("192.168.{}.0/24", 200 + u16::from(index)),
+        }
+    }
+}
 
 fn test_network(name: &str) -> ContainerNetworkAttachment {
     ContainerNetworkAttachment {
@@ -35,28 +58,35 @@ fn test_network(name: &str) -> ContainerNetworkAttachment {
     }
 }
 
-/// Helper: create a test container attached to a dedicated bridge network.
-/// Container runs `sleep 3600` to stay alive for testing.
-/// Cleans up any stale leftovers from previous failed runs first.
-async fn create_test_container(docker: &Docker, name: &str, net_name: &str) -> Result<()> {
-    cleanup(docker, name, net_name).await;
-
+/// Helper: create a test network and verify it exists.
+async fn create_test_network(docker: &Docker, net: &TestNet) -> Result<()> {
     create_docker_bridge_network(
         docker,
-        net_name,
-        Some("192.168.200.0/24".to_string()),
+        &net.name,
+        Some(net.subnet.clone()),
         None,
-        &format!("br-{}", &net_name[..std::cmp::min(net_name.len(), 12)]),
+        &net.bridge,
     )
     .await?;
 
     // Verify network was actually created (create_docker_bridge_network swallows errors)
     let networks = list_networks(docker).await?;
-    assert!(
-        networks.iter().any(|n| n.name.as_deref() == Some(net_name)),
+    ensure!(
+        networks
+            .iter()
+            .any(|n| n.name.as_deref() == Some(net.name.as_str())),
         "Network {} should exist after creation",
-        net_name
+        net.name
     );
+    Ok(())
+}
+
+/// Helper: create a test container attached to a dedicated bridge network.
+/// Container runs `sleep 3600` to stay alive for testing.
+/// Cleans up any stale leftovers from previous failed runs first.
+async fn create_test_container(docker: &Docker, name: &str, net: &TestNet) -> Result<()> {
+    cleanup(docker, name, &net.name).await;
+    create_test_network(docker, net).await?;
 
     run_container(
         docker,
@@ -65,7 +95,7 @@ async fn create_test_container(docker: &Docker, name: &str, net_name: &str) -> R
         vec![],
         vec![],
         vec![],
-        test_network(net_name),
+        test_network(&net.name),
         vec![],
         vec!["sleep".to_string(), "3600".to_string()],
         false,
@@ -83,6 +113,15 @@ async fn cleanup(docker: &Docker, container_name: &str, net_name: &str) {
     let _ = kill_container(docker, container_name).await;
     let _ = remove_container(docker, container_name).await;
     let _ = delete_network(docker, net_name).await;
+}
+
+async fn container_listed(docker: &Docker, name: &str) -> Result<bool> {
+    let containers = list_containers(docker).await?;
+    Ok(containers.iter().any(|c| {
+        c.names
+            .as_ref()
+            .is_some_and(|n| n.iter().any(|n| n.contains(name)))
+    }))
 }
 
 // ============================================================================
@@ -107,34 +146,28 @@ async fn test_docker_connection() -> Result<()> {
 async fn test_run_and_remove_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-run-remove";
-    let net = "sherpa-test-net-run-remove";
+    let net = TestNet::new("run-remove", 0);
 
-    create_test_container(&docker, name, net).await?;
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        ensure!(
+            container_listed(&docker, name).await?,
+            "Container should appear in list"
+        );
 
-    // Verify container appears in list
-    let containers = list_containers(&docker).await?;
-    let found = containers.iter().any(|c| {
-        c.names
-            .as_ref()
-            .is_some_and(|n| n.iter().any(|n| n.contains(name)))
-    });
-    assert!(found, "Container should appear in list");
+        kill_container(&docker, name).await?;
+        remove_container(&docker, name).await?;
+        ensure!(
+            !container_listed(&docker, name).await?,
+            "Container should be gone after removal"
+        );
 
-    // Kill and remove
-    kill_container(&docker, name).await?;
-    remove_container(&docker, name).await?;
-
-    // Verify gone
-    let containers = list_containers(&docker).await?;
-    let found = containers.iter().any(|c| {
-        c.names
-            .as_ref()
-            .is_some_and(|n| n.iter().any(|n| n.contains(name)))
-    });
-    assert!(!found, "Container should be gone after removal");
-
-    delete_network(&docker, net).await?;
-    Ok(())
+        delete_network(&docker, &net.name).await?;
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -142,28 +175,26 @@ async fn test_run_and_remove_container() -> Result<()> {
 async fn test_stop_and_start_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-stop-start";
-    let net = "sherpa-test-net-stop-start";
+    let net = TestNet::new("stop-start", 1);
 
-    create_test_container(&docker, name, net).await?;
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        stop_container(&docker, name).await?;
+        start_container(&docker, name).await?;
 
-    // Stop
-    stop_container(&docker, name).await?;
-
-    // Start again
-    start_container(&docker, name).await?;
-
-    // Verify running
-    let info = docker
-        .inspect_container(
-            name,
-            None::<bollard::query_parameters::InspectContainerOptions>,
-        )
-        .await?;
-    let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
-    assert!(running, "Container should be running after start");
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+        let info = docker
+            .inspect_container(
+                name,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await?;
+        let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
+        ensure!(running, "Container should be running after start");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -171,34 +202,35 @@ async fn test_stop_and_start_container() -> Result<()> {
 async fn test_pause_and_unpause_container() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-pause";
-    let net = "sherpa-test-net-pause";
+    let net = TestNet::new("pause", 2);
 
-    create_test_container(&docker, name, net).await?;
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
 
-    // Pause
-    pause_container(&docker, name).await?;
-    let info = docker
-        .inspect_container(
-            name,
-            None::<bollard::query_parameters::InspectContainerOptions>,
-        )
-        .await?;
-    let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
-    assert!(paused, "Container should be paused");
+        pause_container(&docker, name).await?;
+        let info = docker
+            .inspect_container(
+                name,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await?;
+        let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
+        ensure!(paused, "Container should be paused");
 
-    // Unpause
-    unpause_container(&docker, name).await?;
-    let info = docker
-        .inspect_container(
-            name,
-            None::<bollard::query_parameters::InspectContainerOptions>,
-        )
-        .await?;
-    let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
-    assert!(!paused, "Container should not be paused after unpause");
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+        unpause_container(&docker, name).await?;
+        let info = docker
+            .inspect_container(
+                name,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await?;
+        let paused = info.state.as_ref().and_then(|s| s.paused).unwrap_or(false);
+        ensure!(!paused, "Container should not be paused after unpause");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 // ============================================================================
@@ -210,15 +242,16 @@ async fn test_pause_and_unpause_container() -> Result<()> {
 async fn test_exec_container_success() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec";
-    let net = "sherpa-test-net-exec";
+    let net = TestNet::new("exec", 3);
 
-    create_test_container(&docker, name, net).await?;
-
-    // Run a command that succeeds
-    exec_container(&docker, name, vec!["echo", "hello"]).await?;
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        exec_container(&docker, name, vec!["echo", "hello"]).await?;
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -226,16 +259,17 @@ async fn test_exec_container_success() -> Result<()> {
 async fn test_exec_container_failure_returns_error() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-fail";
-    let net = "sherpa-test-net-exec-fail";
+    let net = TestNet::new("exec-fail", 4);
 
-    create_test_container(&docker, name, net).await?;
-
-    // Run a command that fails (exit code != 0)
-    let result = exec_container(&docker, name, vec!["false"]).await;
-    assert!(result.is_err(), "Non-zero exit should produce error");
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        let exec = exec_container(&docker, name, vec!["false"]).await;
+        ensure!(exec.is_err(), "Non-zero exit should produce error");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -243,15 +277,17 @@ async fn test_exec_container_failure_returns_error() -> Result<()> {
 async fn test_exec_container_detached() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-detach";
-    let net = "sherpa-test-net-exec-detach";
+    let net = TestNet::new("exec-detach", 5);
 
-    create_test_container(&docker, name, net).await?;
-
-    // Detached exec should return immediately
-    exec_container_detached(&docker, name, vec!["sleep", "10"]).await?;
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        // Detached exec should return immediately
+        exec_container_detached(&docker, name, vec!["sleep", "10"]).await?;
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -259,21 +295,23 @@ async fn test_exec_container_detached() -> Result<()> {
 async fn test_exec_container_with_retry_succeeds() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-exec-retry";
-    let net = "sherpa-test-net-exec-retry";
+    let net = TestNet::new("exec-retry", 6);
 
-    create_test_container(&docker, name, net).await?;
-
-    exec_container_with_retry(
-        &docker,
-        name,
-        vec!["echo", "ok"],
-        3,
-        std::time::Duration::from_millis(100),
-    )
-    .await?;
-
-    cleanup(&docker, name, net).await;
-    Ok(())
+    let result: Result<()> = async {
+        create_test_container(&docker, name, &net).await?;
+        exec_container_with_retry(
+            &docker,
+            name,
+            vec!["echo", "ok"],
+            3,
+            Duration::from_millis(100),
+        )
+        .await?;
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 // ============================================================================
@@ -284,31 +322,23 @@ async fn test_exec_container_with_retry_succeeds() -> Result<()> {
 #[ignore]
 async fn test_create_and_delete_bridge_network() -> Result<()> {
     let docker = docker_connection()?;
-    let net_name = "sherpa-test-net-bridge";
+    let net = TestNet::new("bridge", 7);
 
-    create_docker_bridge_network(
-        &docker,
-        net_name,
-        Some("192.168.99.0/24".to_string()),
-        None,
-        "br-sherpa-test",
-    )
-    .await?;
+    let result: Result<()> = async {
+        let _ = delete_network(&docker, &net.name).await;
+        create_test_network(&docker, &net).await?;
 
-    // Verify network exists
-    let networks = list_networks(&docker).await?;
-    let found = networks.iter().any(|n| n.name.as_deref() == Some(net_name));
-    assert!(found, "Network should exist after creation");
-
-    // Delete
-    delete_network(&docker, net_name).await?;
-
-    // Verify gone
-    let networks = list_networks(&docker).await?;
-    let found = networks.iter().any(|n| n.name.as_deref() == Some(net_name));
-    assert!(!found, "Network should be gone after deletion");
-
-    Ok(())
+        delete_network(&docker, &net.name).await?;
+        let networks = list_networks(&docker).await?;
+        let found = networks
+            .iter()
+            .any(|n| n.name.as_deref() == Some(net.name.as_str()));
+        ensure!(!found, "Network should be gone after deletion");
+        Ok(())
+    }
+    .await;
+    let _ = delete_network(&docker, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -347,17 +377,15 @@ async fn test_get_local_images() -> Result<()> {
 #[tokio::test]
 #[ignore]
 async fn test_pull_image() -> Result<()> {
-    use container::pull_image;
-
-    let count = std::sync::atomic::AtomicU32::new(0);
+    let count = AtomicU32::new(0);
     pull_image("alpine", "latest", |_msg| {
-        count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        count.fetch_add(1, Ordering::Relaxed);
     })
     .await?;
 
     // Should have received at least one progress message
     assert!(
-        count.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        count.load(Ordering::Relaxed) > 0,
         "Should receive progress messages during pull"
     );
 
@@ -373,53 +401,47 @@ async fn test_pull_image() -> Result<()> {
 async fn test_run_container_with_env_vars() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-env";
-    let net = "sherpa-test-net-env";
+    let net = TestNet::new("env", 8);
 
-    cleanup(&docker, name, net).await;
-    create_docker_bridge_network(
-        &docker,
-        net,
-        Some("192.168.201.0/24".to_string()),
-        None,
-        &format!("br-{}", &net[..12]),
-    )
-    .await?;
+    let result: Result<()> = async {
+        cleanup(&docker, name, &net.name).await;
+        create_test_network(&docker, &net).await?;
 
-    run_container(
-        &docker,
-        name,
-        TEST_IMAGE,
-        vec!["MY_VAR=hello".to_string(), "OTHER=world".to_string()],
-        vec![],
-        vec![],
-        test_network(net),
-        vec![],
-        vec!["sleep".to_string(), "3600".to_string()],
-        false,
-        None,
-        None,
-    )
-    .await?;
-
-    // Verify env var is set inside container
-    // exec "env" and check output would be ideal, but exec_container doesn't return output.
-    // Instead verify the container was created with the env vars via inspect.
-    let info = docker
-        .inspect_container(
+        run_container(
+            &docker,
             name,
-            None::<bollard::query_parameters::InspectContainerOptions>,
+            TEST_IMAGE,
+            vec!["MY_VAR=hello".to_string(), "OTHER=world".to_string()],
+            vec![],
+            vec![],
+            test_network(&net.name),
+            vec![],
+            vec!["sleep".to_string(), "3600".to_string()],
+            false,
+            None,
+            None,
         )
         .await?;
-    let env = info
-        .config
-        .as_ref()
-        .and_then(|c| c.env.as_ref())
-        .expect("should have env");
-    assert!(env.iter().any(|e| e == "MY_VAR=hello"));
-    assert!(env.iter().any(|e| e == "OTHER=world"));
 
-    cleanup(&docker, name, net).await;
-    Ok(())
+        // exec_container doesn't return output, so verify the env vars via inspect.
+        let info = docker
+            .inspect_container(
+                name,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await?;
+        let env = info
+            .config
+            .as_ref()
+            .and_then(|c| c.env.as_ref())
+            .expect("should have env");
+        ensure!(env.iter().any(|e| e == "MY_VAR=hello"), "MY_VAR missing");
+        ensure!(env.iter().any(|e| e == "OTHER=world"), "OTHER missing");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }
 
 #[tokio::test]
@@ -427,47 +449,43 @@ async fn test_run_container_with_env_vars() -> Result<()> {
 async fn test_run_container_privileged() -> Result<()> {
     let docker = docker_connection()?;
     let name = "sherpa-test-priv";
-    let net = "sherpa-test-net-priv";
+    let net = TestNet::new("priv", 9);
 
-    cleanup(&docker, name, net).await;
-    create_docker_bridge_network(
-        &docker,
-        net,
-        Some("192.168.202.0/24".to_string()),
-        None,
-        &format!("br-{}", &net[..12]),
-    )
-    .await?;
+    let result: Result<()> = async {
+        cleanup(&docker, name, &net.name).await;
+        create_test_network(&docker, &net).await?;
 
-    run_container(
-        &docker,
-        name,
-        TEST_IMAGE,
-        vec![],
-        vec![],
-        vec![],
-        test_network(net),
-        vec![],
-        vec!["sleep".to_string(), "3600".to_string()],
-        true, // privileged
-        None,
-        None,
-    )
-    .await?;
-
-    let info = docker
-        .inspect_container(
+        run_container(
+            &docker,
             name,
-            None::<bollard::query_parameters::InspectContainerOptions>,
+            TEST_IMAGE,
+            vec![],
+            vec![],
+            vec![],
+            test_network(&net.name),
+            vec![],
+            vec!["sleep".to_string(), "3600".to_string()],
+            true, // privileged
+            None,
+            None,
         )
         .await?;
-    let privileged = info
-        .host_config
-        .as_ref()
-        .and_then(|h| h.privileged)
-        .unwrap_or(false);
-    assert!(privileged, "Container should be privileged");
 
-    cleanup(&docker, name, net).await;
-    Ok(())
+        let info = docker
+            .inspect_container(
+                name,
+                None::<bollard::query_parameters::InspectContainerOptions>,
+            )
+            .await?;
+        let privileged = info
+            .host_config
+            .as_ref()
+            .and_then(|h| h.privileged)
+            .unwrap_or(false);
+        ensure!(privileged, "Container should be privileged");
+        Ok(())
+    }
+    .await;
+    cleanup(&docker, name, &net.name).await;
+    result
 }

@@ -21,11 +21,12 @@ pub use helpers::{get_image_id, get_lab_id, get_node_id, get_user_id};
 
 // Lab CRUD operations
 pub use lab::{
-    count_labs, count_labs_by_user, create_lab, delete_lab, delete_lab_by_id, delete_lab_cascade,
-    delete_lab_links, delete_lab_nodes, delete_lab_safe, get_lab, get_lab_by_id,
-    get_lab_by_name_and_user, get_lab_owner_username, get_used_ipv6_loopback_networks,
-    get_used_ipv6_management_networks, get_used_loopback_networks, get_used_management_networks,
-    list_labs, list_labs_by_user, update_lab, update_lab_state, upsert_lab, validate_lab_id,
+    LabNetworks, count_labs, count_labs_by_user, create_lab, delete_lab, delete_lab_by_id,
+    delete_lab_cascade, delete_lab_links, delete_lab_nodes, delete_lab_safe, get_lab,
+    get_lab_by_id, get_lab_by_name_and_user, get_lab_owner_username,
+    get_used_ipv6_loopback_networks, get_used_ipv6_management_networks, get_used_loopback_networks,
+    get_used_management_networks, list_labs, list_labs_by_user, update_lab, update_lab_state,
+    upsert_lab, validate_lab_id,
 };
 
 // Node image CRUD operations

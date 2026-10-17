@@ -57,6 +57,8 @@ terminate = 10
 # Code scenario: per build invocation and per integration crate.
 build = 3600
 tests = 3600
+# Code scenario: fetching all test images (the SR Linux image is about 3.3 GB).
+images = 1800
 
 [faults]
 # Deliberate failures, used only by scripts/vm_release_faults.py.
@@ -82,4 +84,5 @@ test_db_port = 42069
 # Tests skipped by name. Live tailnet enrollment is deferred; see PROJECT.md (Tailnet access).
 skip_tests = ["tailscale::tests::live_tailnet_enrollment_stop_resume_cleanup"]
 # Non-secret opt-ins for live integration tests. Credentials are never stored here.
-environment = ["SHERPA_OVERLAY_LIVE=1"]
+# SHERPA_TEST_KEEP_FAILED_LABS keeps a failed lab test's nested lab for debugging.
+environment = ["SHERPA_OVERLAY_LIVE=1", "SHERPA_TEST_KEEP_FAILED_LABS=1"]

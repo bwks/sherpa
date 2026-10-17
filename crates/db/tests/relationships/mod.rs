@@ -7,7 +7,7 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
-use crate::{create_test_node_with_model, setup_db, teardown_db};
+use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db};
 
 // ============================================================================
 // Cascade deletes — lab
@@ -34,10 +34,12 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
         "Cascade Lab",
         "casc0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");
@@ -130,10 +132,12 @@ async fn test_delete_user_cascades_to_labs_and_nodes() -> Result<()> {
         "Doomed Lab",
         "doom0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");
@@ -175,10 +179,12 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
         "Lab A",
         "laba0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_b = create_lab(
@@ -186,10 +192,12 @@ async fn test_list_nodes_by_lab_isolation() -> Result<()> {
         "Lab B",
         "labb0001",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.2.1",
-        "172.31.2.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.2.1",
+            "172.31.2.2",
+        ),
     )
     .await?;
 
@@ -233,10 +241,12 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "Link Lab A",
         "llka0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_b = create_lab(
@@ -244,10 +254,12 @@ async fn test_list_links_by_lab_isolation() -> Result<()> {
         "Link Lab B",
         "llkb0001",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.2.1",
-        "172.31.2.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.2.1",
+            "172.31.2.2",
+        ),
     )
     .await?;
 
@@ -319,10 +331,12 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Alice Lab 1",
         "alab0001",
         &user_a,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     create_lab(
@@ -330,10 +344,12 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Alice Lab 2",
         "alab0002",
         &user_a,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.2.1",
-        "172.31.2.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.2.1",
+            "172.31.2.2",
+        ),
     )
     .await?;
     create_lab(
@@ -341,10 +357,12 @@ async fn test_list_labs_by_user_isolation() -> Result<()> {
         "Bob Lab 1",
         "blab0001",
         &user_b,
-        "127.127.3.0/24",
-        "172.31.3.0/24",
-        "172.31.3.1",
-        "172.31.3.2",
+        &ipv4_lab_networks(
+            "127.127.3.0/24",
+            "172.31.3.0/24",
+            "172.31.3.1",
+            "172.31.3.2",
+        ),
     )
     .await?;
 

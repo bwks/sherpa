@@ -2,7 +2,7 @@ use anyhow::Result;
 use db::{create_lab, create_user, get_lab, update_lab, update_lab_state};
 use shared::data::{DbLab, LabState, RecordId};
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -15,10 +15,12 @@ async fn test_update_lab_success() -> Result<()> {
         "Original Name",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -111,10 +113,12 @@ async fn test_update_preserves_id() -> Result<()> {
         "Original",
         "lab-0004",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let original_id = lab.id.clone();
@@ -139,10 +143,12 @@ async fn test_update_lab_id() -> Result<()> {
         "Test Lab",
         "lab-0005",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -173,10 +179,12 @@ async fn test_update_cannot_change_owner() -> Result<()> {
         "Frank's Lab",
         "lab-0006",
         &user1,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -209,10 +217,12 @@ async fn test_update_lab_name_constraint() -> Result<()> {
         "Lab 1",
         "lab-0007",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     create_lab(
@@ -220,10 +230,12 @@ async fn test_update_lab_name_constraint() -> Result<()> {
         "Lab 2",
         "lab-0008",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -251,10 +263,12 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
         "Test Lab",
         "lab-0009",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -292,10 +306,12 @@ async fn tailnet_inventory_survives_lab_state_updates() -> Result<()> {
             "tailnet",
             "tailnet1",
             &user,
-            "192.0.2.0/24",
-            "198.51.100.0/24",
-            "198.51.100.1",
-            "198.51.100.2",
+            &ipv4_lab_networks(
+                "192.0.2.0/24",
+                "198.51.100.0/24",
+                "198.51.100.1",
+                "198.51.100.2",
+            ),
         )
         .await?;
         assert!(lab.tailscale_container_id.is_none());

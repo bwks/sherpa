@@ -6,9 +6,9 @@ use anyhow::anyhow;
 use anyhow::{Context, Result};
 #[cfg(feature = "netinfo")]
 use getifaddrs::{Address, Interfaces, getifaddrs};
-#[cfg(feature = "netinfo")]
-use ipnet::ipv4_mask_to_prefix;
 use ipnet::{Ipv4Net, Ipv6Net};
+#[cfg(feature = "netinfo")]
+use ipnet::{ipv4_mask_to_prefix, ipv6_mask_to_prefix};
 
 /// Get the nth IPv4 addr from a network block given an index
 pub fn get_ipv4_addr(network: &Ipv4Net, nth: u32) -> Result<Ipv4Addr> {
@@ -42,16 +42,55 @@ pub fn get_free_subnet(prefix: &String) -> Result<Ipv4Net> {
     let subnets: Vec<Ipv4Net> = supernet.subnets(24)?.collect();
 
     for subnet in subnets {
-        let overlaps = interface_networks.iter().any(|interface_net| {
-            // Check if networks overlap by seeing if either contains the other's network address
-            subnet.contains(&interface_net.network()) || interface_net.contains(&subnet.network())
-        });
-
-        if !overlaps {
+        if !ipv4_overlaps_any(&subnet, &interface_networks) {
             return Ok(subnet);
         }
     }
     Err(anyhow!("No free subnet found in supernet: {}", prefix))
+}
+
+/// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
+pub fn ipv4_overlaps_any(subnet: &Ipv4Net, networks: &[Ipv4Net]) -> bool {
+    for network in networks {
+        if subnet.contains(&network.network()) || network.contains(&subnet.network()) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether `subnet` overlaps any of `networks`: either contains the other's network address.
+pub fn ipv6_overlaps_any(subnet: &Ipv6Net, networks: &[Ipv6Net]) -> bool {
+    for network in networks {
+        if subnet.contains(&network.network()) || network.contains(&subnet.network()) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Get the IPv6 networks currently assigned to interfaces.
+#[cfg(feature = "netinfo")]
+pub fn get_interface_networks_v6() -> Result<Vec<Ipv6Net>> {
+    let interfaces = getifaddrs()
+        .context("Failed to get network interfaces")?
+        .collect::<Interfaces>();
+
+    let mut interface_networks = vec![];
+    for (_index, interface) in interfaces {
+        for address in interface.address.iter().flatten() {
+            if let Address::V6(..) = address
+                && let Some(ip_address) = address.ip_addr()
+                && let Some(netmask_addr) = address.netmask()
+            {
+                let ip = Ipv6Addr::from_str(&ip_address.to_string())?;
+                let netmask = Ipv6Addr::from_str(&netmask_addr.to_string())?;
+                let prefix = ipv6_mask_to_prefix(netmask)?;
+                interface_networks.push(Ipv6Net::new(ip, prefix)?.trunc());
+            }
+        }
+    }
+    Ok(interface_networks)
 }
 
 /// Get a list of IP addresses currently assigned to intefaces
@@ -118,8 +157,14 @@ pub fn allocate_loopback_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ip
 
 /// Allocate the next free management `/24` subnet from the supernet prefix.
 ///
-/// Skips `x.x.0.0/24` and returns the first `/24` not present in `used`.
-pub fn allocate_management_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<Ipv4Net> {
+/// Skips `x.x.0.0/24` and returns the first `/24` not present in `used` (allocated to labs)
+/// and not overlapping `host` (networks already on host interfaces, such as a leftover
+/// lab bridge or another service).
+pub fn allocate_management_subnet(
+    prefix: &Ipv4Net,
+    used: &[Ipv4Net],
+    host: &[Ipv4Net],
+) -> Result<Ipv4Net> {
     let subnets: Vec<Ipv4Net> = prefix
         .subnets(24)
         .context("Failed to subnet management prefix into /24s")?
@@ -130,7 +175,7 @@ pub fn allocate_management_subnet(prefix: &Ipv4Net, used: &[Ipv4Net]) -> Result<
         if subnet.network().octets()[2] == 0 {
             continue;
         }
-        if !used.contains(&subnet) {
+        if !used.contains(&subnet) && !ipv4_overlaps_any(&subnet, host) {
             return Ok(subnet);
         }
     }
@@ -153,8 +198,13 @@ pub fn get_ipv6_network(ipv6_net: &str) -> Result<Ipv6Net> {
 
 /// Allocate the next free IPv6 management `/64` subnet from the supernet prefix.
 ///
-/// Skips `::0/64` and returns the first `/64` not present in `used`.
-pub fn allocate_ipv6_management_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Result<Ipv6Net> {
+/// Skips `::0/64` and returns the first `/64` not present in `used` and not overlapping
+/// `host` (networks already on host interfaces).
+pub fn allocate_ipv6_management_subnet(
+    prefix: &Ipv6Net,
+    used: &[Ipv6Net],
+    host: &[Ipv6Net],
+) -> Result<Ipv6Net> {
     let subnets: Vec<Ipv6Net> = prefix
         .subnets(64)
         .context("Failed to subnet IPv6 management prefix into /64s")?
@@ -165,7 +215,7 @@ pub fn allocate_ipv6_management_subnet(prefix: &Ipv6Net, used: &[Ipv6Net]) -> Re
         if subnet.network() == prefix.network() {
             continue;
         }
-        if !used.contains(&subnet) {
+        if !used.contains(&subnet) && !ipv6_overlaps_any(&subnet, host) {
             return Ok(subnet);
         }
     }
@@ -295,7 +345,7 @@ mod tests {
     #[test]
     fn test_allocate_management_subnet_empty() {
         let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
-        let result = allocate_management_subnet(&prefix, &[]).unwrap();
+        let result = allocate_management_subnet(&prefix, &[], &[]).unwrap();
         // Should skip 172.31.0.0/24 and return 172.31.1.0/24
         assert_eq!(result, mgmt_subnet(1));
     }
@@ -304,7 +354,7 @@ mod tests {
     fn test_allocate_management_subnet_skips_used() {
         let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
         let used = vec![mgmt_subnet(1)];
-        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        let result = allocate_management_subnet(&prefix, &used, &[]).unwrap();
         assert_eq!(result, mgmt_subnet(2));
     }
 
@@ -312,12 +362,52 @@ mod tests {
     fn test_allocate_management_subnet_skips_multiple_used() {
         let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
         let used = vec![mgmt_subnet(1), mgmt_subnet(2), mgmt_subnet(3)];
-        let result = allocate_management_subnet(&prefix, &used).unwrap();
+        let result = allocate_management_subnet(&prefix, &used, &[]).unwrap();
         assert_eq!(result, mgmt_subnet(4));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_skips_host_networks() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        // A leftover lab bridge holds 172.31.1.1/24; another range covers 172.31.2.0/23.
+        let host = vec![
+            Ipv4Net::from_str("172.31.1.0/24").unwrap(),
+            Ipv4Net::from_str("172.31.2.0/23").unwrap(),
+        ];
+        let result = allocate_management_subnet(&prefix, &[], &host).unwrap();
+        assert_eq!(result, mgmt_subnet(4));
+    }
+
+    #[test]
+    fn test_allocate_management_subnet_fails_when_host_covers_prefix() {
+        let prefix = Ipv4Net::from_str("172.31.0.0/16").unwrap();
+        let host = vec![Ipv4Net::from_str("172.31.0.0/16").unwrap()];
+        assert!(allocate_management_subnet(&prefix, &[], &host).is_err());
+    }
+
+    #[test]
+    fn test_ipv4_overlap_is_symmetric() {
+        let small = Ipv4Net::from_str("10.0.1.0/24").unwrap();
+        let large = Ipv4Net::from_str("10.0.0.0/16").unwrap();
+        let other = Ipv4Net::from_str("10.1.0.0/24").unwrap();
+        assert!(ipv4_overlaps_any(&small, &[large]));
+        assert!(ipv4_overlaps_any(&large, &[small]));
+        assert!(!ipv4_overlaps_any(&small, &[other]));
     }
 
     // ========================================================================
     // IPv6 tests
+
+    #[test]
+    fn test_allocate_ipv6_management_subnet_skips_host_networks() {
+        let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
+        let host = vec![
+            ipv6_mgmt_subnet(1),
+            Ipv6Net::from_str("fd00:b00b:0:2::/63").unwrap(),
+        ];
+        let result = allocate_ipv6_management_subnet(&prefix, &[], &host).unwrap();
+        assert_eq!(result, ipv6_mgmt_subnet(4));
+    }
     // ========================================================================
 
     fn ipv6_mgmt_subnet(index: u16) -> Ipv6Net {
@@ -377,7 +467,7 @@ mod tests {
     #[test]
     fn test_allocate_ipv6_management_subnet_empty() {
         let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
-        let result = allocate_ipv6_management_subnet(&prefix, &[]).unwrap();
+        let result = allocate_ipv6_management_subnet(&prefix, &[], &[]).unwrap();
         assert_eq!(result, ipv6_mgmt_subnet(1));
     }
 
@@ -385,7 +475,7 @@ mod tests {
     fn test_allocate_ipv6_management_subnet_skips_used() {
         let prefix = Ipv6Net::from_str("fd00:b00b::/48").unwrap();
         let used = vec![ipv6_mgmt_subnet(1)];
-        let result = allocate_ipv6_management_subnet(&prefix, &used).unwrap();
+        let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
         assert_eq!(result, ipv6_mgmt_subnet(2));
     }
 
@@ -397,7 +487,7 @@ mod tests {
             ipv6_mgmt_subnet(2),
             ipv6_mgmt_subnet(3),
         ];
-        let result = allocate_ipv6_management_subnet(&prefix, &used).unwrap();
+        let result = allocate_ipv6_management_subnet(&prefix, &used, &[]).unwrap();
         assert_eq!(result, ipv6_mgmt_subnet(4));
     }
 

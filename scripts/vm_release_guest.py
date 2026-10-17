@@ -282,6 +282,13 @@ class Guest:
         require(code != 0 and "artifact" in output.lower(), "Unavailable artifacts accepted")
         require(not self.base.exists(), "Preflight failures changed the installation")
 
+    def check_runtimes(self):
+        """Docker and libvirt answer requests. libvirtd is socket-activated and exits when
+        idle, so an inactive libvirtd.service is normal; the socket must accept a connection."""
+        self.command(["systemctl", "is-active", "docker"])
+        self.command(["systemctl", "is-active", "libvirtd.socket"])
+        self.command(["virsh", "-c", "qemu:///system", "version"])
+
     def install(self, selection="candidate"):
         self.command(self.installer(selection), timeout=self.timeouts["install"], env=self.environment(selection))
         self.verify_installation(selection)
@@ -312,8 +319,7 @@ class Guest:
                 require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
         _, groups = self.command(["id", "-nG", "sherpa"])
         require({"libvirt", "docker", "kvm"}.issubset(groups.split()), "Missing runtime groups")
-        for service in ("docker", "libvirtd"):
-            self.command(["systemctl", "is-active", service])
+        self.check_runtimes()
         self.command(["systemctl", "is-enabled", "sherpad"])
         unit = Path("/etc/systemd/system/sherpad.service").read_text()
         require("ExecStart=/opt/sherpa/bin/sherpad start --foreground" in unit, "Incorrect service command")
@@ -533,8 +539,7 @@ class Guest:
         require(code != 0, "Database container remains")
         code, _ = self.command(["systemctl", "is-active", "--quiet", "sherpad"], check=False)
         require(code != 0, "Server still running")
-        for service in ("docker", "libvirtd"):
-            self.command(["systemctl", "is-active", service])
+        self.check_runtimes()
         self.command(["id", "sherpa"])
         if mode == "--remove-all":
             require(not self.base.exists(), "Installation directory remains")
@@ -697,7 +702,7 @@ class Guest:
         tests = self.config["tests"]
         digests = {}
         for image in tests["container_images"]:
-            self.command(["docker", "pull", "--quiet", image], timeout=self.timeouts["download"])
+            self.command(["docker", "pull", "--quiet", image], timeout=self.timeouts["images"])
             _, output = self.command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image])
             digests[image] = json.loads(output)
         images = self.base / "images"
@@ -707,7 +712,7 @@ class Guest:
             directory.mkdir(parents=True, exist_ok=True)
             partial = directory / "virtioa.qcow2.partial"
             self.command(["curl", "-fSL", "--connect-timeout", str(self.timeouts["connect"]), "-o", str(partial),
-                          tests["vm_image_url"]], timeout=self.timeouts["download"])
+                          tests["vm_image_url"]], timeout=self.timeouts["images"])
             require(digest(partial) == tests["vm_image_sha256"], "Test VM image checksum mismatch")
             partial.replace(path)
         self.command(["chown", "-R", "--reference", str(images), str(images / tests["vm_image_model"])])

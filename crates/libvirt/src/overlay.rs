@@ -10,6 +10,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 
 use crate::qcow2::read_qcow2_metadata;
+use crate::storage::refresh_pool;
 use shared::konst::SHERPA_STORAGE_POOL;
 
 #[derive(Template)]
@@ -52,8 +53,7 @@ pub fn create_overlay(conn: &Connect, src: &str, dst: &str, size_gb: Option<u16>
     .context("Cannot render overlay volume XML")?;
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)
         .context("Cannot find overlay storage pool")?;
-    pool.refresh(0)
-        .context("Cannot refresh overlay storage pool")?;
+    refresh_pool(&pool).context("Cannot refresh overlay storage pool")?;
     // Libvirt rejects a duplicate volume name atomically. Never delete a volume
     // after create_xml fails: it may belong to a concurrent or previous attempt.
     StorageVol::create_xml(&pool, &xml, 0)

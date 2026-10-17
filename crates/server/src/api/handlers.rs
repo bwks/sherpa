@@ -1169,7 +1169,7 @@ pub async fn lab_start_handler(
         return Err(ApiError::forbidden("You do not have access to this lab"));
     }
 
-    let response = resume::start_lab_nodes(&lab_id, None, &state)
+    let response = resume::start_lab_nodes(&lab_id, None, &state, None)
         .await
         .map_err(ApiError::from)?;
 
@@ -1215,7 +1215,7 @@ pub async fn node_start_handler(
         return Err(ApiError::forbidden("You do not have access to this lab"));
     }
 
-    let response = resume::start_lab_nodes(&lab_id, Some(&node_name), &state)
+    let response = resume::start_lab_nodes(&lab_id, Some(&node_name), &state, None)
         .await
         .map_err(ApiError::from)?;
 
@@ -2976,7 +2976,7 @@ pub async fn resume_lab_json(
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     require_lab_access(&auth, &lab_id, &state).await?;
 
-    let response = resume::start_lab_nodes(&lab_id, payload.node_name.as_deref(), &state)
+    let response = resume::start_lab_nodes(&lab_id, payload.node_name.as_deref(), &state, None)
         .await
         .map_err(ApiError::from)?;
 

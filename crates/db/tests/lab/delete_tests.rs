@@ -5,7 +5,7 @@ use db::{
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{create_test_node_with_model, setup_db, teardown_db};
+use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -18,10 +18,12 @@ async fn test_delete_lab_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -47,10 +49,12 @@ async fn test_delete_lab_by_id() -> Result<()> {
         "Test Lab",
         "lab-0002",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_id = lab.id.unwrap();
@@ -90,10 +94,12 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
         "Lab 1",
         "lab-0003",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab2 = create_lab(
@@ -101,10 +107,12 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
         "Lab 2",
         "lab-0004",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -131,10 +139,12 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
         "Test Lab",
         "lab-0005",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -171,10 +181,12 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
         "Test Lab",
         "lab-0006",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -214,10 +226,12 @@ async fn test_delete_lab_safe_empty_succeeds() -> Result<()> {
         "Empty Lab",
         "lab-0007",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -243,10 +257,12 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
         "Full Lab",
         "lab-0008",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -285,10 +301,12 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
         "Auto Cascade Lab",
         "lab-0009",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 

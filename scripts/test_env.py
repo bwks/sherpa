@@ -2,6 +2,8 @@
 """Bring up, check and destroy Sherpa test environments (Python 3.11+, standard library only)."""
 
 import argparse
+import base64
+import json
 import os
 from pathlib import Path
 import shlex
@@ -11,6 +13,7 @@ import sys
 import tarfile
 import tempfile
 import threading
+import time
 import tomllib
 import unittest
 import uuid
@@ -27,6 +30,9 @@ RUNS = ROOT / ".tmp" / "test-env-runs"
 TARGET = "x86_64-unknown-linux-gnu"
 # Release binaries are built per package, as the release workflow does, so features are not unified.
 RELEASE_PACKAGES = ("sherpad", "sherpa")
+CLI_TOKEN = Path.home() / ".sherpa" / "token"
+# A full run takes over an hour, and the CLI token must stay valid until cleanup.
+MINIMUM_TOKEN_LIFETIME = 4 * 3600
 
 
 def require(condition, message):
@@ -98,6 +104,23 @@ def up(directory):
 def destroy(directory):
     lab_id(directory, tomllib.loads((directory / "manifest.toml").read_text()))
     run(["sherpa", "destroy", "--yes"], directory)
+
+
+def token_seconds_remaining(token, now):
+    """Seconds until a JWT expires, from its payload's exp claim."""
+    parts = token.strip().split(".")
+    require(len(parts) == 3, "The Sherpa CLI token is not a JWT")
+    payload = parts[1] + "=" * (-len(parts[1]) % 4)
+    claims = json.loads(base64.urlsafe_b64decode(payload))
+    require(isinstance(claims.get("exp"), int), "The Sherpa CLI token has no expiry")
+    return claims["exp"] - now
+
+
+def require_cli_login(path=CLI_TOKEN, now=None):
+    require(path.is_file(), "Not logged in: run sherpa login")
+    remaining = token_seconds_remaining(path.read_text(), now if now is not None else int(time.time()))
+    require(remaining >= MINIMUM_TOKEN_LIFETIME,
+            f"The Sherpa CLI token expires in {max(remaining, 0) // 60} minutes; run sherpa login first")
 
 
 def snapshot_files(root):
@@ -230,6 +253,7 @@ def run_environments(environments):
     for environment in environments:
         require((environment_directory(environment) / "release-test.toml").is_file(),
                 f"{environment} has no release-test.toml")
+    require_cli_login()
     directory = RUNS / uuid.uuid4().hex
     directory.mkdir(parents=True, mode=0o700)
     print(f"[run] {directory}", flush=True)
@@ -243,6 +267,7 @@ def run_environments(environments):
 
 def rerun(result_directory):
     """Retest a retained failed run with the current checkout. Passing destroys its VM."""
+    require_cli_login()
     with tempfile.TemporaryDirectory(dir=RUNS.parent) as temporary:
         directory = Path(temporary)
         source, commit, dirty = prepare_source(directory)
@@ -273,6 +298,12 @@ def main():
     actions = {"up": up, "check": check, "destroy": destroy}
     actions[args.action](environment_directory(args.environment))
     return 0
+
+
+def unsigned_token(exp):
+    """A JWT-shaped test token with only an expiry claim."""
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": exp}).encode()).decode().rstrip("=")
+    return f"header.{payload}.signature"
 
 
 class HostTests(unittest.TestCase):
@@ -308,6 +339,18 @@ class HostTests(unittest.TestCase):
             write_archive(root / "copy", root / "source.tar.gz")
             with tarfile.open(root / "source.tar.gz") as archive:
                 self.assertEqual(sorted(archive.getnames()), [".gitignore", "new.rs", "tracked.rs"])
+
+    def test_cli_login_must_outlast_a_run(self):
+        self.assertEqual(token_seconds_remaining(unsigned_token(1_000_600), 1_000_000), 600)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "token"
+            path.write_text(unsigned_token(1_000_000 + MINIMUM_TOKEN_LIFETIME))
+            require_cli_login(path, now=1_000_000)
+            path.write_text(unsigned_token(1_000_000 + 60))
+            with self.assertRaisesRegex(RuntimeError, "expires in 1 minutes"):
+                require_cli_login(path, now=1_000_000)
+            with self.assertRaisesRegex(RuntimeError, "Not logged in"):
+                require_cli_login(Path(directory) / "missing")
 
     def test_runner_command_selects_code_scenario_and_candidate_inputs(self):
         command = runner_command("ubuntu-2604", {"version": "v0.3.88"}, Path("/run/artifacts"),

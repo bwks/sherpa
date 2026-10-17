@@ -1,4 +1,8 @@
+use std::thread;
+use std::time::Duration;
+
 use anyhow::{Context, Result};
+use shared::konst::{STORAGE_POOL_REFRESH_ATTEMPTS, STORAGE_POOL_REFRESH_RETRY_MS};
 use tracing::instrument;
 use virt::connect::Connect;
 use virt::storage_pool::StoragePool;
@@ -46,6 +50,31 @@ impl SherpaStoragePool {
 
                 tracing::info!(pool_name = %name, path = %path, "Storage pool created and started");
                 Ok(())
+            }
+        }
+    }
+}
+
+/// Refresh a storage pool, retrying while another operation holds it.
+///
+/// libvirt refuses a refresh while asynchronous jobs, such as a volume upload for
+/// another node, run on the pool. It reports this only as a generic internal error, so
+/// every refresh error is retried for a bounded time and the last one is returned.
+#[instrument(level = "debug", skip(pool))]
+pub fn refresh_pool(pool: &StoragePool) -> Result<()> {
+    let mut attempt = 1;
+    loop {
+        match pool.refresh(0) {
+            Ok(_) => return Ok(()),
+            Err(error) if attempt < STORAGE_POOL_REFRESH_ATTEMPTS => {
+                tracing::debug!(attempt, error = %error, "Storage pool busy; retrying refresh");
+                thread::sleep(Duration::from_millis(STORAGE_POOL_REFRESH_RETRY_MS));
+                attempt += 1;
+            }
+            Err(error) => {
+                return Err(error).context(format!(
+                    "Storage pool refresh still failing after {STORAGE_POOL_REFRESH_ATTEMPTS} attempts"
+                ));
             }
         }
     }

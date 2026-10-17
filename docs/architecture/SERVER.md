@@ -519,11 +519,11 @@ up_lab(UpRequest, &AppState, ProgressSender)
     |   `- validate duplicate links and bridge endpoints
     |
     +- Persistent model construction
-    |   +- allocate IPv4 management subnet
-    |   +- allocate IPv4 loopback subnet
-    |   +- allocate IPv6 management subnet
-    |   +- allocate IPv6 loopback subnet
-    |   +- db::create_lab
+    |   +- reserve_lab_networks (retried while concurrent labs win a subnet)
+    |   |   +- read host interface networks (IPv4 and IPv6)
+    |   |   +- allocate IPv4/IPv6 management subnets (not in DB, not overlapping host)
+    |   |   +- allocate IPv4/IPv6 loopback subnets (not in DB)
+    |   |   `- db::create_lab: unique subnet indexes make the insert the reservation
     |   +- db::create_node for each node
     |   `- db::create_link for each link
     |
@@ -669,6 +669,15 @@ RPC down/resume with node_name optional  +
 ```
 
 Handlers authorize ownership first, then services inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
+
+Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
+manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,
+`skip_ready_check` and `ready_port`; labs without a readable saved manifest use the default
+timeout and SSH checks. VMs are probed on SSH, unikernels with `check_unikernel_ready`.
+Containers and paused nodes are not waited for. A node that is not ready within the timeout
+is reported in its result message, not as an error. The WebSocket `resume` RPC is streaming
+and sends readiness status messages before its response; the REST and web handlers return
+the same `LabNodeActionResponse` once the wait completes.
 
 ### Image service architecture
 

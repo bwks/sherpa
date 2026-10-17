@@ -75,4 +75,6 @@ mod schema;
 /// To run: cargo test --package db relationships -- --ignored --test-threads=1
 mod relationships;
 
-use helper::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
+use helper::{
+    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db,
+};

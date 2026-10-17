@@ -6,6 +6,19 @@ use serde::{Deserialize, Serialize};
 use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 
+/// Subnets and addresses reserved for a new lab.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LabSubnets {
+    pub loopback_subnet: Ipv4Net,
+    pub management_subnet: Ipv4Net,
+    pub gateway_ipv4: Ipv4Addr,
+    pub router_ipv4: Ipv4Addr,
+    pub ipv6_management_subnet: Ipv6Net,
+    pub ipv6_loopback_subnet: Ipv6Net,
+    pub gateway_ipv6: Ipv6Addr,
+    pub router_ipv6: Ipv6Addr,
+}
+
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {

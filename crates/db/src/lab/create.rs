@@ -8,6 +8,19 @@ use tracing::instrument;
 use crate::helpers::get_user_id;
 use crate::persistence::{LabRow, to_surreal_id};
 
+/// The subnets and addresses allocated to one lab.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LabNetworks {
+    pub loopback_network: String,
+    pub management_network: String,
+    pub gateway_ipv4: String,
+    pub router_ipv4: String,
+    pub management_network_v6: Option<String>,
+    pub loopback_network_v6: Option<String>,
+    pub gateway_ipv6: Option<String>,
+    pub router_ipv6: Option<String>,
+}
+
 /// Validate lab_id format
 ///
 /// Requirements:
@@ -43,38 +56,22 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a new lab in the database
+/// Create a new lab holding all of its allocated subnets in one insert.
 ///
-/// # Arguments
-/// * `db` - Database connection
-/// * `name` - Lab name (can be duplicated across different users)
-/// * `lab_id` - Unique lab identifier (must be exactly 8 characters)
-/// * `user` - Lab owner (DbUser record with id)
-/// * `loopback_network` - The allocated loopback /24 subnet for this lab (e.g. "127.127.1.0/24")
-/// * `management_network` - The allocated management /24 subnet for this lab (e.g. "172.31.1.0/24")
-/// * `gateway_ipv4` - The gateway IPv4 address for the lab management network (e.g. "172.31.1.1")
-/// * `router_ipv4` - The router IPv4 address for the lab management network (e.g. "172.31.1.2")
-///
-/// # Returns
-/// The created DbLab with assigned ID
+/// The unique subnet indexes make this the reservation: if another lab already holds
+/// any of the subnets, the insert fails and nothing is created.
 ///
 /// # Errors
 /// - If lab_id validation fails (not 8 characters)
-/// - If lab_id already exists (unique constraint violation)
-/// - If (name, user) combination already exists (unique constraint violation)
+/// - If lab_id, (name, user) or any allocated subnet is already in use
 /// - If there's a database error during creation
-///
-#[allow(clippy::too_many_arguments)]
 #[instrument(skip(db), level = "debug")]
 pub async fn create_lab(
     db: &Arc<Surreal<Client>>,
     name: &str,
     lab_id: &str,
     user: &DbUser,
-    loopback_network: &str,
-    management_network: &str,
-    gateway_ipv4: &str,
-    router_ipv4: &str,
+    networks: &LabNetworks,
 ) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(lab_id)?;
@@ -88,15 +85,15 @@ pub async fn create_lab(
         lab_id: lab_id.to_string(),
         name: name.to_string(),
         user: user_id,
-        loopback_network: loopback_network.to_string(),
-        management_network: management_network.to_string(),
-        gateway_ipv4: gateway_ipv4.to_string(),
-        router_ipv4: router_ipv4.to_string(),
+        loopback_network: networks.loopback_network.clone(),
+        management_network: networks.management_network.clone(),
+        gateway_ipv4: networks.gateway_ipv4.clone(),
+        router_ipv4: networks.router_ipv4.clone(),
         tailscale_container_id: None,
-        management_network_v6: None,
-        gateway_ipv6: None,
-        router_ipv6: None,
-        loopback_network_v6: None,
+        management_network_v6: networks.management_network_v6.clone(),
+        gateway_ipv6: networks.gateway_ipv6.clone(),
+        router_ipv6: networks.router_ipv6.clone(),
+        loopback_network_v6: networks.loopback_network_v6.clone(),
         status: LabState::default(),
     };
     let created: Option<LabRow> = db

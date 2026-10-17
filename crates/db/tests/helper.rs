@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{Database, apply_schema};
+use db::{Database, LabNetworks, apply_schema};
 use shared::data::{DbLab, DbNode, NodeConfig, NodeModel};
 use shared::konst::SHERPA_PASSWORD;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -81,4 +81,23 @@ pub async fn create_test_node_with_model(
     let lab_id = lab.id.clone().expect("Lab should have an id");
 
     create_node(db, name, index, config_id, lab_id).await
+}
+
+/// IPv4-only lab networks for tests that do not exercise IPv6 allocation.
+pub fn ipv4_lab_networks(
+    loopback_network: &str,
+    management_network: &str,
+    gateway_ipv4: &str,
+    router_ipv4: &str,
+) -> LabNetworks {
+    LabNetworks {
+        loopback_network: loopback_network.to_string(),
+        management_network: management_network.to_string(),
+        gateway_ipv4: gateway_ipv4.to_string(),
+        router_ipv4: router_ipv4.to_string(),
+        management_network_v6: None,
+        loopback_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+    }
 }

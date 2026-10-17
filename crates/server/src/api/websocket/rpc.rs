@@ -187,7 +187,7 @@ pub async fn handle_rpc_request(
         "labs.list" => handle_labs_list(id, params, state).await,
         "down" => handle_down(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
-        "resume" => handle_resume(id, params, state).await,
+        // Note: "resume" is handled separately via handle_streaming_rpc_request
         // Note: "destroy" is handled separately via handle_streaming_rpc_request
         "clean" => match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_CLEAN).await {
             Ok(auth_ctx) => handle_clean(id, params, state, auth_ctx).await,
@@ -273,6 +273,7 @@ pub async fn handle_streaming_rpc_request(
     match method.as_str() {
         "up" => handle_up(id, params, state, connection).await,
         "destroy" => handle_destroy_streaming(id, params, state, connection).await,
+        "resume" => handle_resume_streaming(id, params, state, connection).await,
         "redeploy" => handle_redeploy_streaming(id, params, state, connection).await,
         "image.import" => {
             if let Ok(auth_ctx) = require_admin_streaming(
@@ -732,10 +733,41 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
     }
 }
 
-/// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
+/// Handle "resume" streaming RPC call: report readiness progress, then send the response.
 ///
 /// Expected params: {"lab_id": "string", "token": "string", "node_name": "string" (optional)}
-async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+async fn handle_resume_streaming(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    connection: &Arc<Connection>,
+) {
+    let (progress_tx, mut progress_rx) = mpsc::unbounded_channel();
+    let conn_clone = Arc::clone(connection);
+    let forward_task = tokio::spawn(async move {
+        while let Some(msg) = progress_rx.recv().await {
+            let _ = conn_clone.send(msg).await;
+        }
+    });
+    let progress = progress::ProgressSender::new(progress_tx);
+
+    let response = handle_resume(id, params, state, &progress).await;
+
+    // Close the channel so the forward task drains and finishes before the response.
+    drop(progress);
+    let _ = forward_task.await;
+    if let Ok(json) = serde_json::to_string(&response) {
+        let _ = connection.send(Message::Text(json.into())).await;
+    }
+}
+
+/// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
+async fn handle_resume(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+    progress: &progress::ProgressSender,
+) -> ServerMessage {
     // Authenticate the request
     let auth_ctx = match middleware::authenticate_request(&params, state).await {
         Ok(ctx) => ctx,
@@ -810,7 +842,7 @@ async fn handle_resume(id: String, params: serde_json::Value, state: &AppState) 
     }
 
     // Call service
-    match resume::start_lab_nodes(&lab_id, node_name.as_deref(), state).await {
+    match resume::start_lab_nodes(&lab_id, node_name.as_deref(), state, Some(progress)).await {
         Ok(response) => match serde_json::to_value(&response) {
             Ok(result) => {
                 tracing::info!(

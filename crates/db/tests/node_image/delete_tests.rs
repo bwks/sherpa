@@ -6,7 +6,9 @@ use db::{
 };
 use shared::data::{NodeModel, RecordId};
 
-use crate::{create_test_config, create_test_node_with_model, setup_db, teardown_db};
+use crate::{
+    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db,
+};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
@@ -112,10 +114,12 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
         "test-lab-constraint",
         &lab_id,
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 

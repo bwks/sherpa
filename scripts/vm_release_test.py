@@ -39,8 +39,8 @@ UPGRADE_STEPS = ("baseline", "install-baseline", "initialize", "authenticate",
                  "reboot", "authenticate", "verify-upgrade-reboot")
 CODE_STEPS = ("baseline", "install", "initialize", "authenticate", "source", "toolchain",
               "test-images", "build-tests", "unit-tests", "integration-tests")
-RERUN_STEPS = ("source", "build-tests", "unit-tests", "integration-tests")
-# Concurrent lab creation can allocate duplicate subnets (issue #318); serialize `sherpa up`.
+RERUN_STEPS = ("source", "test-images", "build-tests", "unit-tests", "integration-tests")
+# Older host servers can give concurrent `sherpa up` requests the same subnet; serialize it.
 UP_LOCK = ROOT / ".tmp" / "sherpa-up.lock"
 
 
@@ -147,6 +147,7 @@ def load_recorded_config(path):
     if tests is not None:
         tests.setdefault("skip_tests", [])
         tests.setdefault("environment", [])
+        config["timeouts"].setdefault("images", 2 * config["timeouts"]["download"])
     return validate_config(config)
 
 
@@ -160,7 +161,7 @@ def validate_config(config):
         "guest": ("workspace_prefix", "listen_ip", "client_host", "ws_port", "http_port", "db_port",
                   "admin_prefix", "surrealdb_image", "router_image"),
         "timeouts": ("provision", "connect", "command", "download", "install", "initialize",
-                     "startup", "reboot", "cleanup", "poll", "terminate", "build", "tests"),
+                     "startup", "reboot", "cleanup", "poll", "terminate", "build", "tests", "images"),
         "faults": ("wait", "command_timeout", "ready_timeout", "ready_port", "trigger_timeout"),
         "tests": ("integration_crates", "container_images", "vm_image_model", "vm_image_version",
                   "vm_image_url", "vm_image_sha256", "test_db_user", "test_db_port", "skip_tests",
@@ -573,7 +574,7 @@ class Runner:
         elif name == "toolchain":
             timeout = self.config["timeouts"]["install"]
         elif name == "test-images":
-            timeout = self.config["timeouts"]["download"] * 2
+            timeout = self.config["timeouts"]["images"]
         elif name == "build-tests":
             timeout = self.config["timeouts"]["build"] * (len(self.config["tests"]["integration_crates"]) + 1)
         elif name == "unit-tests":

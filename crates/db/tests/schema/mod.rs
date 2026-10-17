@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::{setup_db, teardown_db};
+use crate::{ipv4_lab_networks, setup_db, teardown_db};
 use db::{apply_schema, count_users, create_user};
 
 /// Schema application is idempotent — applying twice does not fail or corrupt data.
@@ -57,10 +57,12 @@ async fn test_schema_creates_all_tables() -> Result<()> {
         "Schema Lab",
         "schm0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
