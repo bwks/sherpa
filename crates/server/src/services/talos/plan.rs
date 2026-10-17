@@ -1,6 +1,7 @@
 use std::net::Ipv4Addr;
 
 use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
 use shared::data::{ClusterRole, NetworkV4};
 use shared::konst::TALOS_VIP_HOST_OFFSETS;
 use shared::util::get_ipv4_addr;
@@ -9,7 +10,7 @@ use shared::util::get_ipv4_addr;
 pub const KUBERNETES_API_PORT: u16 = 6443;
 
 /// A cluster node and its management address.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClusterMember {
     pub name: String,
     pub ipv4: Ipv4Addr,
@@ -25,7 +26,7 @@ pub struct MemberInput<'a> {
 }
 
 /// Addresses and members of one cluster.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClusterPlan {
     pub name: String,
     /// Address the Kubernetes API is reached on: the shared address with several control

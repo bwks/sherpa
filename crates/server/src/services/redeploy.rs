@@ -19,6 +19,7 @@ use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
+use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 
 use shared::data;
@@ -106,6 +107,11 @@ pub async fn redeploy_node(
             .with_context(|| format!("Failed to decode ztp_config for node '{}'", node_name))?;
         target_node.ztp_config = Some(decoded);
     }
+    talos::ensure_redeployable(
+        node_name,
+        target_node.cluster.as_deref(),
+        target_node.cluster_role,
+    )?;
 
     // Use the shared database connection from AppState
     let db = state.db.clone();
@@ -194,6 +200,16 @@ pub async fn redeploy_node(
     } else {
         util::default_dns(&lab_info.ipv4_network)?
     };
+    // A cluster worker rejoins with a config built from the cluster's saved secrets.
+    if let Some(cluster_name) = target_node.cluster.as_deref() {
+        talos::secrets::ensure_supported_version(node_name, &node_image.version)?;
+        let cluster = talos::load_cluster(lab_id, cluster_name)?;
+        target_node.ztp_config = Some(talos::node_machine_config(
+            &cluster,
+            node_name,
+            &mgmt_net.v4,
+        )?);
+    }
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let node_idx = db_node.index;
     let node_ip_idx = 10 + node_idx as u32;

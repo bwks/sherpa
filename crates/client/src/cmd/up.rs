@@ -14,6 +14,7 @@ use shared::util::{
 };
 use topology::StartupScript;
 
+use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
 use crate::private_key::write_private_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -299,6 +300,25 @@ pub async fn up(
                 Emoji::Warning,
                 e
             );
+        }
+    }
+
+    // Write Kubernetes cluster credentials to the local directory
+    if !up_data.clusters.is_empty() {
+        match get_cwd() {
+            Ok(cwd) => match write_cluster_credentials(Path::new(&cwd), &up_data.clusters) {
+                Ok(files) => print_cluster_files(&files),
+                Err(e) => println!(
+                    "\n{} Warning: Failed to write cluster credentials: {:#}",
+                    Emoji::Warning,
+                    e
+                ),
+            },
+            Err(e) => println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                Emoji::Warning,
+                e
+            ),
         }
     }
 

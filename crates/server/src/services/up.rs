@@ -22,6 +22,7 @@ use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
@@ -1624,6 +1625,43 @@ pub async fn up_lab(
             "Generating VM ZTP configurations and domain templates"
         );
 
+        // Plan Kubernetes clusters and generate their secrets before any node config.
+        let mut cluster_members = Vec::new();
+        for node in &vm_nodes {
+            if let (Some(cluster), Some(role)) = (node.cluster.as_deref(), node.cluster_role) {
+                let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+                talos::secrets::ensure_supported_version(&node.name, &image.version)?;
+                let node_idx = node_ops::get_node_data(&node.name, &node_setup_data)?.index;
+                cluster_members.push(talos::plan::MemberInput {
+                    name: &node.name,
+                    cluster,
+                    role,
+                    ipv4: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10 + node_idx as u32)?,
+                });
+            }
+        }
+        let cluster_names: Vec<&str> = manifest
+            .clusters
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|cluster| cluster.name.as_str())
+            .collect();
+        let lab_clusters = if cluster_names.is_empty() {
+            Vec::new()
+        } else {
+            let clusters =
+                talos::prepare_clusters(lab_id, &cluster_names, &cluster_members, &mgmt_net.v4)?;
+            let _ = progress.send_status(
+                format!(
+                    "Generated secrets for {} Kubernetes clusters",
+                    clusters.len()
+                ),
+                StatusKind::Done,
+            );
+            clusters
+        };
+
         for node in &mut vm_nodes {
             // Decode base64 ztp_config if present
             if let Some(ref encoded) = node.ztp_config {
@@ -1631,6 +1669,15 @@ pub async fn up_lab(
                     format!("Failed to decode ztp_config for node '{}'", node.name)
                 })?;
                 node.ztp_config = Some(decoded);
+            }
+            // Cluster nodes get a generated machine config (validation forbids their own).
+            if let Some(cluster) = node.cluster.as_deref() {
+                let cluster = talos::find_cluster(&lab_clusters, cluster)?;
+                node.ztp_config = Some(talos::node_machine_config(
+                    cluster,
+                    &node.name,
+                    &mgmt_net.v4,
+                )?);
             }
 
             let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
@@ -2942,6 +2989,27 @@ pub async fn up_lab(
             }
         }
 
+        // Bootstrap Kubernetes clusters once their nodes answer.
+        let clusters = if lab_clusters.is_empty() {
+            Vec::new()
+        } else {
+            let (clusters, not_ready) = talos::bring_up_clusters(
+                lab_id,
+                &lab_clusters,
+                Duration::from_secs(ready_timeout_secs),
+                &progress,
+            )
+            .await?;
+            for name in not_ready {
+                errors.push(data::UpError {
+                    phase: "NodeReadiness".to_string(),
+                    message: format!("Kubernetes cluster {name} did not become ready"),
+                    is_critical: false,
+                });
+            }
+            clusters
+        };
+
         phases_completed.push("NodeReadiness".to_string());
 
         // ========================================================================
@@ -2973,6 +3041,7 @@ pub async fn up_lab(
             errors: errors.clone(),
             ssh_config: ssh_config_content,
             ssh_private_key,
+            clusters,
         };
 
         tracing::info!(

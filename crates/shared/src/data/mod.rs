@@ -77,7 +77,8 @@ pub use record_id::{RecordId, RecordIdKey};
 pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
-    NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse, UpSummary,
+    ClusterInfo, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse,
+    UpSummary,
 };
 pub use user::User;
 pub use user_management::{

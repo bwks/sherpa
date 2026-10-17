@@ -9,6 +9,7 @@ use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
 
+use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
 use crate::private_key::write_private_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -148,6 +149,11 @@ pub async fn download(
     fs::write(&lab_info_path, data.lab_info.to_string())
         .context("Failed to write lab-info.toml")?;
     println!("{} Lab info created: {}", Emoji::Success, lab_info_path);
+
+    // Write Kubernetes cluster credentials
+    let cluster_files = write_cluster_credentials(Path::new(&cwd), &data.clusters)
+        .context("Failed to write cluster credentials")?;
+    print_cluster_files(&cluster_files);
 
     println!("\n{} Lab files downloaded successfully", Emoji::Success);
 
