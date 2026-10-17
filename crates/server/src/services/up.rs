@@ -25,13 +25,13 @@ use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
 use shared::data;
-use shared::data::{NodeSshUsername, NodeState, StatusKind};
+use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
     LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
-    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
-    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    LAB_SUBNET_ALLOCATION_ATTEMPTS, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
     SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
@@ -268,6 +268,144 @@ fn get_node_image(
 // ============================================================================
 // Main Up Service Function
 // ============================================================================
+
+/// The lab record fields for a set of reserved subnets.
+fn lab_networks(subnets: &LabSubnets) -> db::LabNetworks {
+    db::LabNetworks {
+        loopback_network: subnets.loopback_subnet.to_string(),
+        management_network: subnets.management_subnet.to_string(),
+        gateway_ipv4: subnets.gateway_ipv4.to_string(),
+        router_ipv4: subnets.router_ipv4.to_string(),
+        management_network_v6: Some(subnets.ipv6_management_subnet.to_string()),
+        loopback_network_v6: Some(subnets.ipv6_loopback_subnet.to_string()),
+        gateway_ipv6: Some(subnets.gateway_ipv6.to_string()),
+        router_ipv6: Some(subnets.router_ipv6.to_string()),
+    }
+}
+
+/// Choose free subnets: not held by any lab, and for management networks not
+/// overlapping a network already on a host interface (another lab's bridge, a stale
+/// leftover or an unrelated service).
+#[instrument(skip(db, config), level = "debug")]
+async fn allocate_lab_networks(db: &db::Database, config: &data::Config) -> Result<LabSubnets> {
+    let host_networks = util::get_interface_networks()
+        .context("Failed to read host IPv4 networks for subnet allocation")?;
+    let host_networks_v6 = util::get_interface_networks_v6()
+        .context("Failed to read host IPv6 networks for subnet allocation")?;
+
+    let loopback_prefix = util::get_ipv4_network(SHERPA_LOOPBACK_PREFIX)
+        .context("Failed to parse loopback prefix")?;
+    let used_loopback = db::get_used_loopback_networks(db)
+        .await
+        .context("Failed to query existing loopback networks")?;
+    let loopback_subnet = util::allocate_loopback_subnet(&loopback_prefix, &used_loopback)
+        .context("Failed to allocate loopback subnet for lab")?;
+
+    let used_management = db::get_used_management_networks(db)
+        .await
+        .context("Failed to query existing management networks")?;
+    let management_subnet = util::allocate_management_subnet(
+        &config.management_prefix_ipv4,
+        &used_management,
+        &host_networks,
+    )
+    .context("Failed to allocate management subnet for lab")?;
+
+    let ipv6_management_prefix = match config.management_prefix_ipv6 {
+        Some(prefix) => prefix,
+        None => util::get_ipv6_network(SHERPA_MANAGEMENT_NETWORK_IPV6)
+            .context("Failed to parse default IPv6 management prefix")?,
+    };
+    let ipv6_loopback_prefix = util::get_ipv6_network(SHERPA_LOOPBACK_PREFIX_IPV6)
+        .context("Failed to parse IPv6 loopback prefix")?;
+    let used_ipv6_management = db::get_used_ipv6_management_networks(db)
+        .await
+        .context("Failed to query existing IPv6 management networks")?;
+    let ipv6_management_subnet = util::allocate_ipv6_management_subnet(
+        &ipv6_management_prefix,
+        &used_ipv6_management,
+        &host_networks_v6,
+    )
+    .context("Failed to allocate IPv6 management subnet for lab")?;
+    let used_ipv6_loopback = db::get_used_ipv6_loopback_networks(db)
+        .await
+        .context("Failed to query existing IPv6 loopback networks")?;
+    let ipv6_loopback_subnet =
+        util::allocate_ipv6_loopback_subnet(&ipv6_loopback_prefix, &used_ipv6_loopback)
+            .context("Failed to allocate IPv6 loopback subnet for lab")?;
+
+    Ok(LabSubnets {
+        loopback_subnet,
+        management_subnet,
+        gateway_ipv4: util::get_ipv4_addr(&management_subnet, 1)?,
+        router_ipv4: util::get_ipv4_addr(&management_subnet, 2)?,
+        ipv6_management_subnet,
+        ipv6_loopback_subnet,
+        gateway_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 1)?,
+        router_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 2)?,
+    })
+}
+
+/// Whether any chosen subnet is now held by a lab record.
+#[instrument(skip(db), level = "debug")]
+async fn networks_taken(db: &db::Database, networks: &LabSubnets) -> Result<bool> {
+    Ok(db::get_used_loopback_networks(db)
+        .await?
+        .contains(&networks.loopback_subnet)
+        || db::get_used_management_networks(db)
+            .await?
+            .contains(&networks.management_subnet)
+        || db::get_used_ipv6_management_networks(db)
+            .await?
+            .contains(&networks.ipv6_management_subnet)
+        || db::get_used_ipv6_loopback_networks(db)
+            .await?
+            .contains(&networks.ipv6_loopback_subnet))
+}
+
+/// Allocate subnets and create the lab record that holds them.
+///
+/// The record's unique subnet indexes are the reservation. When a concurrent `up` takes a
+/// chosen subnet first, the insert fails, and allocation is repeated with fresh state.
+/// Any other failure is returned as is.
+#[instrument(skip(db, config, user), fields(%lab_id), level = "debug")]
+async fn reserve_lab_networks(
+    db: &db::Database,
+    config: &data::Config,
+    lab_name: &str,
+    lab_id: &str,
+    user: &data::DbUser,
+) -> Result<(data::DbLab, LabSubnets)> {
+    for attempt in 1..=LAB_SUBNET_ALLOCATION_ATTEMPTS {
+        let networks = allocate_lab_networks(db, config).await?;
+        match db::create_lab(db, lab_name, lab_id, user, &lab_networks(&networks)).await {
+            Ok(lab) => {
+                tracing::info!(
+                    lab_id = %lab_id,
+                    loopback_subnet = %networks.loopback_subnet,
+                    management_subnet = %networks.management_subnet,
+                    ipv6_management_subnet = %networks.ipv6_management_subnet,
+                    ipv6_loopback_subnet = %networks.ipv6_loopback_subnet,
+                    "Reserved lab subnets"
+                );
+                return Ok((lab, networks));
+            }
+            Err(error) => {
+                if !networks_taken(db, &networks).await? {
+                    return Err(error).context("Failed to create lab record in database");
+                }
+                tracing::warn!(
+                    lab_id = %lab_id,
+                    attempt,
+                    "A concurrent lab took an allocated subnet; allocating again"
+                );
+            }
+        }
+    }
+    bail!(
+        "Could not reserve free subnets for lab {lab_id} after {LAB_SUBNET_ALLOCATION_ATTEMPTS} attempts"
+    )
+}
 
 /// Start a lab with streaming progress updates
 #[instrument(skip(request, state, progress), fields(lab_id = %request.lab_id))]
@@ -535,7 +673,7 @@ pub async fn up_lab(
         .any(|image| image.kind != data::NodeKind::Container)
     {
         let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-        pool.refresh(0)?;
+        libvirt::refresh_pool(&pool)?;
         anyhow::ensure!(
             !pool
                 .list_volumes()?
@@ -565,97 +703,18 @@ pub async fn up_lab(
 
         tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Creating database records");
 
-        // Allocate a unique loopback /24 subnet for this lab
-        let loopback_prefix = util::get_ipv4_network(SHERPA_LOOPBACK_PREFIX)
-            .context("Failed to parse loopback prefix")?;
-        let used_loopback_networks = db::get_used_loopback_networks(&db)
-            .await
-            .context("Failed to query existing loopback networks")?;
-        let loopback_subnet =
-            util::allocate_loopback_subnet(&loopback_prefix, &used_loopback_networks)
-                .context("Failed to allocate loopback subnet for lab")?;
-
-        tracing::info!(
-            lab_id = %lab_id,
-            loopback_subnet = %loopback_subnet,
-            "Allocated loopback subnet for lab"
-        );
-
-        // Allocate a unique management /24 subnet for this lab
-        let management_prefix = config.management_prefix_ipv4;
-        let used_management_networks = db::get_used_management_networks(&db)
-            .await
-            .context("Failed to query existing management networks")?;
-        let management_subnet =
-            util::allocate_management_subnet(&management_prefix, &used_management_networks)
-                .context("Failed to allocate management subnet for lab")?;
-
-        tracing::info!(
-            lab_id = %lab_id,
-            management_subnet = %management_subnet,
-            "Allocated management subnet for lab"
-        );
-
-        // Allocate IPv6 management and loopback subnets
-        let ipv6_mgmt_prefix = match config.management_prefix_ipv6 {
-            Some(prefix) => prefix,
-            None => util::get_ipv6_network(SHERPA_MANAGEMENT_NETWORK_IPV6)
-                .context("Failed to parse default IPv6 management prefix")?,
-        };
-        let ipv6_loop_prefix = util::get_ipv6_network(SHERPA_LOOPBACK_PREFIX_IPV6)
-            .context("Failed to parse IPv6 loopback prefix")?;
-
-        let used_ipv6_mgmt = db::get_used_ipv6_management_networks(&db)
-            .await
-            .context("Failed to query existing IPv6 management networks")?;
-        let ipv6_management_subnet =
-            util::allocate_ipv6_management_subnet(&ipv6_mgmt_prefix, &used_ipv6_mgmt)
-                .context("Failed to allocate IPv6 management subnet for lab")?;
-
-        let used_ipv6_loop = db::get_used_ipv6_loopback_networks(&db)
-            .await
-            .context("Failed to query existing IPv6 loopback networks")?;
-        let ipv6_loopback_subnet =
-            util::allocate_ipv6_loopback_subnet(&ipv6_loop_prefix, &used_ipv6_loop)
-                .context("Failed to allocate IPv6 loopback subnet for lab")?;
-
-        let gateway_ipv6 = util::get_ipv6_addr(&ipv6_management_subnet, 1)?;
-        let router_ipv6 = util::get_ipv6_addr(&ipv6_management_subnet, 2)?;
-
-        tracing::info!(
-            lab_id = %lab_id,
-            ipv6_management_subnet = %ipv6_management_subnet,
-            ipv6_loopback_subnet = %ipv6_loopback_subnet,
-            "Allocated IPv6 subnets for lab"
-        );
-
-        // Compute gateway and router IPs from management subnet
-        let gateway_ipv4 = util::get_ipv4_addr(&management_subnet, 1)?;
-        let router_ipv4 = util::get_ipv4_addr(&management_subnet, 2)?;
-
-        // Create lab record in database
-        let lab_record = db::create_lab(
-            &db,
-            &manifest.name,
-            lab_id,
-            &db_user,
-            &loopback_subnet.to_string(),
-            &management_subnet.to_string(),
-            &gateway_ipv4.to_string(),
-            &router_ipv4.to_string(),
-        )
-        .await
-        .context("Failed to create lab record in database")?;
-
-        // Update lab with IPv6 network data
-        let mut lab_record = lab_record;
-        lab_record.management_network_v6 = Some(ipv6_management_subnet.to_string());
-        lab_record.gateway_ipv6 = Some(gateway_ipv6.to_string());
-        lab_record.router_ipv6 = Some(router_ipv6.to_string());
-        lab_record.loopback_network_v6 = Some(ipv6_loopback_subnet.to_string());
-        let lab_record = db::update_lab(&db, lab_record)
-            .await
-            .context("Failed to update lab with IPv6 network data")?;
+        let (lab_record, networks) =
+            reserve_lab_networks(&db, &config, &manifest.name, lab_id, &db_user).await?;
+        let LabSubnets {
+            loopback_subnet,
+            management_subnet,
+            gateway_ipv4,
+            router_ipv4,
+            ipv6_management_subnet,
+            gateway_ipv6,
+            router_ipv6,
+            ..
+        } = networks;
 
         let lab_record_id = db::get_lab_id(&lab_record).context("Failed to get lab record ID")?;
 

@@ -61,6 +61,11 @@ mod tests {
             .expect("SHERPA_DEV_DB_PORT must be a valid port number")
     }
 
+    /// Matches the integration test helper: the test database password may be overridden.
+    fn test_db_password() -> String {
+        std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string())
+    }
+
     /// Generate a unique namespace per test invocation to avoid index collisions
     fn unique_ns(test_name: &str) -> String {
         let ts = SystemTime::now()
@@ -78,7 +83,7 @@ mod tests {
             test_db_port(),
             &unique_ns("seed_admin_empty"),
             "test_db",
-            SHERPA_PASSWORD,
+            &test_db_password(),
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -102,7 +107,7 @@ mod tests {
             test_db_port(),
             &unique_ns("seed_admin_others"),
             "test_db",
-            SHERPA_PASSWORD,
+            &test_db_password(),
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -133,7 +138,7 @@ mod tests {
             test_db_port(),
             &unique_ns("seed_admin_validate"),
             "test_db",
-            SHERPA_PASSWORD,
+            &test_db_password(),
         )
         .await?;
         crate::schema::apply_schema(&db).await?;
@@ -160,7 +165,7 @@ mod tests {
             test_db_port(),
             &unique_ns("seed_admin_idem"),
             "test_db",
-            SHERPA_PASSWORD,
+            &test_db_password(),
         )
         .await?;
         crate::schema::apply_schema(&db).await?;

@@ -538,8 +538,7 @@ pub(crate) fn destroy_vms_and_disks(
     let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
         format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
     )?;
-    storage_pool
-        .refresh(0)
+    libvirt::refresh_pool(&storage_pool)
         .context("Cannot refresh storage pool before disk cleanup")?;
     let pool_disks = storage_pool
         .list_volumes()

@@ -23,6 +23,17 @@ full tailnet peer inventory exceeds the Docker exec output limit. They also cove
 configuration defaults, partial overrides, rejected settings, configurable gateway commands,
 and command/stop timeout overrides.
 
+## Deferred: live enrollment in the test environments
+
+Decision, 2026-10-16: the code suite in [`test-environments/`](../../test-environments/README.md)
+runs `live_gateway_daemon_smoke` but skips
+`live_tailnet_enrollment_stop_resume_cleanup`. That test joins a real tailnet and needs
+`SHERPA_TEST_TAILSCALE_AUTH_KEY` plus a disposable Docker network
+(`SHERPA_TEST_TAILSCALE_NETWORK`, `_IPV4`, optional `_IPV6`, `_ROUTES`). Enabling it means
+passing an ephemeral test-tailnet key through the environment at run time, never in
+TOML, letting the harness create the network and addresses, and removing the
+`skip_tests` entry. Tracked in `PROJECT.md` under Tailnet access.
+
 ## Docker Smoke Test
 
 On a Linux host with Docker, TUN, and nftables support, run this from the Rust

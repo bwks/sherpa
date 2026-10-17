@@ -65,7 +65,7 @@ pub use lab::{
     PeerSide,
 };
 pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
-pub use network::{BridgeKind, NetworkV4, NetworkV6, SherpaNetwork};
+pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
     NodeState, OsVariant, UnikernelBootMode, ZtpMethod,

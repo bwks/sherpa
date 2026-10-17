@@ -191,6 +191,11 @@ pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;
+/// Storage pool refreshes retried while concurrent jobs hold the pool (30s in total).
+pub const STORAGE_POOL_REFRESH_ATTEMPTS: u32 = 60;
+pub const STORAGE_POOL_REFRESH_RETRY_MS: u64 = 500;
+/// Attempts to reserve lab subnets when concurrent labs take the chosen ones first.
+pub const LAB_SUBNET_ALLOCATION_ATTEMPTS: u32 = 8;
 pub const READINESS_SLEEP: u64 = 10;
 pub const IGNITION_VERSION: &str = "3.3.0";
 

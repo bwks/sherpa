@@ -2,12 +2,27 @@ use anyhow::{Context, Result, bail};
 use shared::util::render_tailnet_table;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, LabNodeActionResponse};
+use shared::data::{ClientConfig, LabNodeActionResponse, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
+
+/// Print a streamed status message from the server.
+fn print_status(text: &str) {
+    if let Ok(status) = serde_json::from_str::<StatusMessage>(text)
+        && status.r#type == "status"
+    {
+        let emoji = match status.kind {
+            StatusKind::Progress => Emoji::Progress,
+            StatusKind::Done => Emoji::Success,
+            StatusKind::Info => Emoji::Info,
+            StatusKind::Waiting => Emoji::Hourglass,
+        };
+        println!("{} {}", emoji, status.message);
+    }
+}
 
 /// Start/poweron lab nodes via WebSocket RPC to sherpad server
 pub async fn resume(
@@ -66,7 +81,11 @@ pub async fn resume(
         None => "Starting lab nodes...".to_string(),
     };
     println!("{}", status_msg);
-    let response = rpc_client.call(request).await.context("RPC call failed")?;
+    // Resume streams readiness progress for cold-booted nodes before its response.
+    let response = rpc_client
+        .call_streaming(request, print_status)
+        .await
+        .context("RPC call failed")?;
 
     // Close connection
     rpc_client.close().await.ok();

@@ -1,24 +1,55 @@
 use anyhow::{Context, Result, anyhow};
 use futures::future::join_all;
 use opentelemetry::KeyValue;
-use shared::data::{self, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId};
-use std::time::Instant;
+use shared::data::{
+    self, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId, StatusKind,
+};
+use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
+use shared::util::load_saved_manifest;
+use std::collections::HashSet;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use topology::Manifest;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use tracing::instrument;
 
+use super::node_ops;
+use super::progress::ProgressSender;
 use crate::daemon::state::AppState;
+
+/// How a node started by resume shows that it is ready, as `up` checks it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ReadinessCheck {
+    Ssh,
+    Unikernel { ready_port: Option<u16> },
+}
+
+/// A node that resume cold-booted and waits for.
+#[derive(Debug, Clone)]
+struct ReadinessTarget {
+    name: String,
+    device_name: String,
+    mgmt_ipv4: Option<String>,
+    check: ReadinessCheck,
+}
 
 /// Start/poweron all (or a specific) node(s) for a lab.
 ///
 /// VMs: if shutoff, calls `domain.create()` (cold boot). If paused, calls `domain.resume()`.
 /// Containers: calls `docker start`.
 /// DB node state is updated to `Running` on success.
-#[instrument(skip(state), fields(%lab_id))]
+///
+/// Cold-booted VMs and unikernels are then polled for readiness like `up` does, using the
+/// lab's saved manifest for `ready_timeout`, `skip_ready_check` and `ready_port`. A node that
+/// does not become ready within the timeout is reported in its result message; it is not an
+/// error, as with `up`.
+#[instrument(skip(state, progress), fields(%lab_id))]
 pub async fn start_lab_nodes(
     lab_id: &str,
     node_name: Option<&str>,
     state: &AppState,
+    progress: Option<&ProgressSender>,
 ) -> Result<LabNodeActionResponse> {
     let start = Instant::now();
 
@@ -108,6 +139,7 @@ pub async fn start_lab_nodes(
     // Collect results and update DB state
     let mut results = immediate_results;
     let mut cold_booted_vms: Vec<String> = vec![];
+    let mut cold_booted: Vec<(String, NodeKind)> = vec![];
     for (result, node_name, node_id, kind) in concurrent_results {
         if result.success
             && let Some(id) = node_id
@@ -119,6 +151,9 @@ pub async fn start_lab_nodes(
         if result.success && result.message == "Started" && matches!(kind, NodeKind::VirtualMachine)
         {
             cold_booted_vms.push(node_name.clone());
+        }
+        if result.success && result.message == "Started" {
+            cold_booted.push((node_name.clone(), kind));
         }
         results.push(result);
     }
@@ -137,12 +172,198 @@ pub async fn start_lab_nodes(
         );
     }
 
+    // Wait for cold-booted nodes after their links are restored, as `up` does.
+    let manifest = load_lab_manifest(lab_id);
+    let targets = readiness_targets(lab_id, &target_nodes, &cold_booted, manifest.as_ref());
+    if !targets.is_empty() {
+        let timeout = ready_timeout(manifest.as_ref());
+        let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress).await;
+        for result in results.iter_mut() {
+            if targets.iter().any(|target| target.name == result.name) {
+                result.message = readiness_message(ready.contains(&result.name), timeout);
+            }
+        }
+    }
+
     state.metrics.operation_duration.record(
         start.elapsed().as_secs_f64(),
         &[KeyValue::new("operation.type", "resume")],
     );
 
     Ok(LabNodeActionResponse { results, tailscale })
+}
+
+/// Load the manifest saved by `up`. Labs without a readable manifest use the defaults.
+#[instrument(level = "debug")]
+fn load_lab_manifest(lab_id: &str) -> Option<Manifest> {
+    let lab_dir = PathBuf::from(format!("{SHERPA_LABS_PATH}/{lab_id}"));
+    let value = match load_saved_manifest(&lab_dir) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(lab_id = %lab_id, error = ?error, "No saved manifest; using default readiness settings");
+            return None;
+        }
+    };
+    match serde_json::from_value(value) {
+        Ok(manifest) => Some(manifest),
+        Err(error) => {
+            tracing::warn!(lab_id = %lab_id, error = ?error, "Saved manifest unreadable; using default readiness settings");
+            None
+        }
+    }
+}
+
+fn ready_timeout(manifest: Option<&Manifest>) -> Duration {
+    let seconds = match manifest {
+        Some(manifest) => manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT),
+        None => READINESS_TIMEOUT,
+    };
+    Duration::from_secs(seconds)
+}
+
+/// Decide how a started node proves readiness. Paused nodes resume an already booted
+/// guest, and containers are ready once running, so only cold-booted guests are checked.
+fn readiness_check(
+    kind: &NodeKind,
+    cold_booted: bool,
+    manifest_node: Option<&topology::Node>,
+) -> Option<ReadinessCheck> {
+    let (skip, ready_port) = match manifest_node {
+        Some(node) => (node.skip_ready_check.unwrap_or(false), node.ready_port),
+        None => (false, None),
+    };
+    if !cold_booted || skip {
+        return None;
+    }
+    match kind {
+        NodeKind::VirtualMachine => Some(ReadinessCheck::Ssh),
+        NodeKind::Unikernel => Some(ReadinessCheck::Unikernel { ready_port }),
+        NodeKind::Container => None,
+    }
+}
+
+fn readiness_targets(
+    lab_id: &str,
+    nodes: &[data::DbNode],
+    cold_booted: &[(String, NodeKind)],
+    manifest: Option<&Manifest>,
+) -> Vec<ReadinessTarget> {
+    let mut targets = vec![];
+    for (name, kind) in cold_booted {
+        let manifest_node = match manifest {
+            Some(manifest) => manifest.nodes.iter().find(|node| &node.name == name),
+            None => None,
+        };
+        let Some(check) = readiness_check(kind, true, manifest_node) else {
+            tracing::debug!(lab_id = %lab_id, node_name = %name, "No readiness check for node");
+            continue;
+        };
+        let mgmt_ipv4 = match nodes.iter().find(|node| &node.name == name) {
+            Some(node) => node.mgmt_ipv4.clone(),
+            None => None,
+        };
+        targets.push(ReadinessTarget {
+            name: name.clone(),
+            device_name: format!("{name}-{lab_id}"),
+            mgmt_ipv4,
+            check,
+        });
+    }
+    targets
+}
+
+fn readiness_message(ready: bool, timeout: Duration) -> String {
+    if ready {
+        "Started and ready".to_string()
+    } else {
+        format!(
+            "Started, but not ready within {} seconds",
+            timeout.as_secs()
+        )
+    }
+}
+
+fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) {
+    if let Some(progress) = progress
+        && let Err(error) = progress.send_status(message, kind)
+    {
+        tracing::debug!(error = ?error, "Resume progress receiver closed");
+    }
+}
+
+/// Probe one node once. Probe errors count as not ready yet.
+fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
+    let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
+        (ReadinessCheck::Ssh, Some(ip)) => node_ops::check_node_ready_ssh(ip, SSH_PORT),
+        (ReadinessCheck::Ssh, None) => Ok(false),
+        (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
+            Ok(conn) => {
+                node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip)
+            }
+            Err(error) => Err(error),
+        },
+    };
+    match outcome {
+        Ok(ready) => ready,
+        Err(error) => {
+            tracing::debug!(node_name = %target.name, error = ?error, "Readiness probe failed");
+            false
+        }
+    }
+}
+
+#[instrument(skip(targets, state, progress), fields(%lab_id, nodes = targets.len()), level = "debug")]
+async fn wait_for_readiness(
+    lab_id: &str,
+    targets: &[ReadinessTarget],
+    timeout: Duration,
+    state: &AppState,
+    progress: Option<&ProgressSender>,
+) -> HashSet<String> {
+    report(
+        progress,
+        format!(
+            "Waiting for {} nodes to become ready (up to {} seconds)",
+            targets.len(),
+            timeout.as_secs()
+        ),
+        StatusKind::Waiting,
+    );
+    let start = Instant::now();
+    let mut ready = HashSet::new();
+    loop {
+        for target in targets {
+            if ready.contains(&target.name) || !probe(target, state) {
+                continue;
+            }
+            tracing::info!(lab_id = %lab_id, node_name = %target.name, "Resumed node ready");
+            report(
+                progress,
+                format!("Node {} - Ready", target.name),
+                StatusKind::Done,
+            );
+            ready.insert(target.name.clone());
+        }
+        if ready.len() == targets.len() || start.elapsed() >= timeout {
+            break;
+        }
+        tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+    }
+    for target in targets {
+        if !ready.contains(&target.name) {
+            tracing::warn!(lab_id = %lab_id, node_name = %target.name, timeout_secs = timeout.as_secs(), "Resumed node not ready within timeout");
+            report(
+                progress,
+                format!(
+                    "Node {} did not become ready within {} seconds",
+                    target.name,
+                    timeout.as_secs()
+                ),
+                StatusKind::Waiting,
+            );
+        }
+    }
+    ready
 }
 
 async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeActionResult {
@@ -317,4 +538,112 @@ async fn reattach_p2p_ebpf_for_nodes(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(text: &str) -> Manifest {
+        toml::from_str(text).unwrap()
+    }
+
+    fn db_node(name: &str, ip: &str) -> data::DbNode {
+        data::DbNode {
+            id: None,
+            name: name.to_string(),
+            image: RecordId::new("node_image", "x"),
+            index: 0,
+            lab: RecordId::new("lab", "x"),
+            mgmt_ipv4: Some(ip.to_string()),
+            mgmt_ipv6: None,
+            mgmt_mac: None,
+            state: NodeState::Running,
+        }
+    }
+
+    #[test]
+    fn only_cold_booted_guests_are_checked() {
+        assert_eq!(
+            readiness_check(&NodeKind::VirtualMachine, true, None),
+            Some(ReadinessCheck::Ssh)
+        );
+        assert_eq!(
+            readiness_check(&NodeKind::VirtualMachine, false, None),
+            None
+        );
+        assert_eq!(readiness_check(&NodeKind::Container, true, None), None);
+        assert_eq!(
+            readiness_check(&NodeKind::Unikernel, true, None),
+            Some(ReadinessCheck::Unikernel { ready_port: None })
+        );
+    }
+
+    #[test]
+    fn manifest_readiness_settings_are_honoured() {
+        let lab = manifest(
+            r#"
+name = "lab"
+ready_timeout = 120
+nodes = [
+  { name = "skip", model = "ubuntu_linux", skip_ready_check = true },
+  { name = "uk", model = "generic_unikernel", ready_port = 8080 },
+  { name = "vm", model = "ubuntu_linux" },
+]
+"#,
+        );
+        assert_eq!(ready_timeout(Some(&lab)), Duration::from_secs(120));
+        assert_eq!(ready_timeout(None), Duration::from_secs(READINESS_TIMEOUT));
+        let skip = lab.nodes.iter().find(|node| node.name == "skip");
+        assert_eq!(readiness_check(&NodeKind::VirtualMachine, true, skip), None);
+        let unikernel = lab.nodes.iter().find(|node| node.name == "uk");
+        assert_eq!(
+            readiness_check(&NodeKind::Unikernel, true, unikernel),
+            Some(ReadinessCheck::Unikernel {
+                ready_port: Some(8080)
+            })
+        );
+    }
+
+    #[test]
+    fn targets_cover_cold_booted_nodes_with_their_addresses() {
+        let lab = manifest(
+            r#"
+name = "lab"
+nodes = [
+  { name = "skip", model = "ubuntu_linux", skip_ready_check = true },
+  { name = "vm", model = "ubuntu_linux" },
+  { name = "ct", model = "nokia_srlinux" },
+]
+"#,
+        );
+        let nodes = vec![
+            db_node("skip", "10.0.0.10"),
+            db_node("vm", "10.0.0.11"),
+            db_node("ct", "10.0.0.12"),
+        ];
+        let started = vec![
+            ("skip".to_string(), NodeKind::VirtualMachine),
+            ("vm".to_string(), NodeKind::VirtualMachine),
+            ("ct".to_string(), NodeKind::Container),
+        ];
+        let targets = readiness_targets("abcd1234", &nodes, &started, Some(&lab));
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].name, "vm");
+        assert_eq!(targets[0].device_name, "vm-abcd1234");
+        assert_eq!(targets[0].mgmt_ipv4.as_deref(), Some("10.0.0.11"));
+        assert_eq!(targets[0].check, ReadinessCheck::Ssh);
+    }
+
+    #[test]
+    fn readiness_is_reported_in_the_node_result() {
+        assert_eq!(
+            readiness_message(true, Duration::from_secs(600)),
+            "Started and ready"
+        );
+        assert_eq!(
+            readiness_message(false, Duration::from_secs(600)),
+            "Started, but not ready within 600 seconds"
+        );
+    }
 }

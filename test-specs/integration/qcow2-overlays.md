@@ -47,22 +47,6 @@ cargo test -p db node_image::delete_tests -- --ignored
 These tests use isolated database namespaces, never the server's application
 namespace. Referenced image deletion must fail and leave the image record intact.
 
-Benchmark a freshly provisioned Omarchy disk in each mode:
-
-```sh
-SHERPA_OVERLAY_BENCH_BASE=/absolute/path/to/immutable/omarchy.qcow2 \
-  cargo test -p libvirt live_omarchy_provisioning_benchmark -- --ignored --nocapture
-```
-
-This creates disposable copies and overlays of the supplied base, boots each with
-UEFI/Q35, four CPUs and 8 GiB of RAM, and reports disk creation, domain startup
-API duration, and guest-agent readiness polling separately. It does not require
-networking or run Sherpa's SSH readiness check. Guest-agent readiness is a boot
-proxy; domain startup time alone does not measure a completed guest boot. A
-90-second timeout is reported explicitly and must not be interpreted as readiness.
-The comparison is sequential with ordinary host caches; it is not a cold-cache
-benchmark. It does not change the supplied base.
-
 Full Sherpa lab acceptance additionally exercises `up`, `down`, `resume`,
 `redeploy`, and `destroy` through the authenticated application API: resume must
 preserve writes, redeploy must reset them against the pinned image version, and
@@ -72,7 +56,7 @@ configuration remain available for a successful cleanup retry.
 
 ## Local measurement (2026-10-10)
 
-Omarchy 4.0.4 was measured with the disposable benchmark above:
+Omarchy 4.0.4 was measured with a disposable benchmark test, since removed:
 
 | Measurement | Copy | Overlay |
 | --- | ---: | ---: |

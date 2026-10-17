@@ -1,8 +1,8 @@
 use anyhow::Result;
-use db::{count_labs, create_lab, create_user, get_lab, upsert_lab, validate_lab_id};
+use db::{LabNetworks, count_labs, create_lab, create_user, get_lab, upsert_lab, validate_lab_id};
 use shared::data::{DbLab, LabState};
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -18,10 +18,12 @@ async fn test_create_lab_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -45,10 +47,12 @@ async fn test_create_lab_with_user() -> Result<()> {
         "Bob's Lab",
         "lab-0002",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -72,10 +76,12 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         "Lab One",
         "lab-0003",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -85,10 +91,12 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         "Lab Two",
         "lab-0003",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await;
 
@@ -118,10 +126,12 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         "My Lab",
         "lab-0004",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -131,10 +141,12 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         "My Lab",
         "lab-0005",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await;
 
@@ -168,10 +180,12 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         "Shared Name",
         "lab-0006",
         &user1,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab2 = create_lab(
@@ -179,10 +193,12 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
         "Shared Name",
         "lab-0007",
         &user2,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
@@ -207,10 +223,12 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
         "Invalid Lab",
         "lab-01",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await;
 
@@ -239,10 +257,12 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
         "Invalid Lab",
         "lab-00001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await;
 
@@ -271,10 +291,12 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
         "Invalid Lab",
         "lab_0008",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await;
 
@@ -355,10 +377,12 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
         "Original Name",
         "lab-0010",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab_id = lab.id.clone().unwrap();
@@ -407,16 +431,159 @@ async fn test_create_lab_increases_count() -> Result<()> {
         "Count Test",
         "lab-0011",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 
     let count_after = count_labs(&db).await?;
 
     assert_eq!(count_after, count_before + 1, "Count should increase by 1");
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+fn dual_stack_networks(index: u8) -> LabNetworks {
+    LabNetworks {
+        loopback_network: format!("127.127.{index}.0/24"),
+        management_network: format!("172.31.{index}.0/24"),
+        gateway_ipv4: format!("172.31.{index}.1"),
+        router_ipv4: format!("172.31.{index}.2"),
+        management_network_v6: Some(format!("fd00:b00b:0:{index}::/64")),
+        loopback_network_v6: Some(format!("fd00:b00c:0:{index}::/64")),
+        gateway_ipv6: Some(format!("fd00:b00b:0:{index}::1")),
+        router_ipv6: Some(format!("fd00:b00b:0:{index}::2")),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
+    let db = setup_db("test_create_lab_dup_mgmt").await?;
+    let user = create_user(&db, "mia".to_string(), "TestPass123!", false, vec![]).await?;
+
+    create_lab(
+        &db,
+        "Lab One",
+        "lab-0101",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
+    )
+    .await?;
+    let result = create_lab(
+        &db,
+        "Lab Two",
+        "lab-0102",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
+    )
+    .await;
+    assert!(
+        result.is_err(),
+        "A management subnet must belong to one lab"
+    );
+
+    let result = create_lab(
+        &db,
+        "Lab Three",
+        "lab-0103",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.3.0/24",
+            "172.31.3.1",
+            "172.31.3.2",
+        ),
+    )
+    .await;
+    assert!(result.is_err(), "A loopback subnet must belong to one lab");
+    assert_eq!(
+        count_labs(&db).await?,
+        1,
+        "Rejected labs must not be created"
+    );
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
+    let db = setup_db("test_create_lab_ipv6").await?;
+    let user = create_user(&db, "noah".to_string(), "TestPass123!", false, vec![]).await?;
+
+    let networks = dual_stack_networks(1);
+    let lab = create_lab(&db, "Lab One", "lab-0111", &user, &networks).await?;
+    assert_eq!(lab.management_network_v6, networks.management_network_v6);
+    assert_eq!(lab.loopback_network_v6, networks.loopback_network_v6);
+    assert_eq!(lab.gateway_ipv6, networks.gateway_ipv6);
+    assert_eq!(lab.router_ipv6, networks.router_ipv6);
+
+    // Distinct IPv4 subnets, same IPv6 management subnet.
+    let clash = LabNetworks {
+        management_network_v6: networks.management_network_v6.clone(),
+        ..dual_stack_networks(2)
+    };
+    let result = create_lab(&db, "Lab Two", "lab-0112", &user, &clash).await;
+    assert!(
+        result.is_err(),
+        "An IPv6 management subnet must belong to one lab"
+    );
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
+    let db = setup_db("test_create_lab_no_ipv6").await?;
+    let user = create_user(&db, "olga".to_string(), "TestPass123!", false, vec![]).await?;
+
+    create_lab(
+        &db,
+        "Lab One",
+        "lab-0121",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
+    )
+    .await?;
+    create_lab(
+        &db,
+        "Lab Two",
+        "lab-0122",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.2.1",
+            "172.31.2.2",
+        ),
+    )
+    .await?;
+    create_lab(&db, "Lab Three", "lab-0123", &user, &dual_stack_networks(3)).await?;
+    assert_eq!(count_labs(&db).await?, 3);
 
     teardown_db(&db).await?;
     Ok(())

@@ -5,7 +5,7 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -18,10 +18,12 @@ async fn test_update_link_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -97,10 +99,12 @@ async fn test_update_link_without_id_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -165,10 +169,12 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
         "Lab 1",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab2 = create_lab(
@@ -176,10 +182,12 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
         "Lab 2",
         "lab-0002",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -247,10 +255,12 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -327,10 +337,12 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -407,10 +419,12 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -501,10 +515,12 @@ async fn test_update_link_preserves_id() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -569,10 +585,12 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -641,10 +659,12 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

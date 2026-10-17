@@ -14,6 +14,9 @@
 //! - `lab_id` must be at least 1 character (validated as exactly 8 in application)
 //! - `lab_id` must be globally unique
 //! - `name` must be unique per user (composite unique constraint)
+//! - Each allocated subnet (`loopback_network`, `management_network`,
+//!   `management_network_v6`, `loopback_network_v6`) belongs to at most one lab.
+//!   Labs without IPv6 subnets do not conflict: absent values are not indexed.
 //!
 //! ## Computed Fields
 //! - `nodes`: Reverse reference to all nodes in this lab (`<~(node FIELD lab)`)
@@ -51,6 +54,7 @@ use shared::data::LabState;
 /// - **Indexes**:
 ///   - `unique_lab_id`: Ensures lab_id uniqueness (business key)
 ///   - `unique_lab_name_user`: Ensures name is unique per user
+///   - `unique_lab_*network*`: Each allocated subnet belongs to at most one lab
 ///
 /// # Cascade Deletion
 ///
@@ -88,6 +92,15 @@ DEFINE INDEX OVERWRITE unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
 
 DEFINE INDEX OVERWRITE unique_lab_name_user
   ON TABLE lab FIELDS name, user UNIQUE;
+
+DEFINE INDEX OVERWRITE unique_lab_loopback_network
+  ON TABLE lab FIELDS loopback_network UNIQUE;
+DEFINE INDEX OVERWRITE unique_lab_management_network
+  ON TABLE lab FIELDS management_network UNIQUE;
+DEFINE INDEX OVERWRITE unique_lab_management_network_v6
+  ON TABLE lab FIELDS management_network_v6 UNIQUE;
+DEFINE INDEX OVERWRITE unique_lab_loopback_network_v6
+  ON TABLE lab FIELDS loopback_network_v6 UNIQUE;
 "#
     )
 }

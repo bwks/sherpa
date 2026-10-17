@@ -38,9 +38,12 @@ lab-info.toml
 *.env
 manifest*.toml*
 !dev/integration-test/manifest.toml
-!dev/release-test/manifest.toml
+!test-environments/*/manifest.toml
 
 # Tailwind CSS
 tailwindcss
 
 .pi/
+
+# Local planning notes (not tracked)
+docs/plans/

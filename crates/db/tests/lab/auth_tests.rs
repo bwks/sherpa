@@ -2,7 +2,7 @@
 use anyhow::Result;
 use db::{create_lab, create_user, get_lab_owner_username};
 
-use crate::{setup_db, teardown_db};
+use crate::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore] // Requires running SurrealDB instance
@@ -18,10 +18,12 @@ async fn test_get_lab_owner_username() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
 

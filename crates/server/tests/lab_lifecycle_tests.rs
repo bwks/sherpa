@@ -1,13 +1,14 @@
 mod helpers;
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result, bail, ensure};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::fs;
+use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
 use helpers::ws_client::TestWsClient;
@@ -55,6 +56,141 @@ async fn bootstrap_images(ws: &mut TestWsClient, token: &str) -> Result<()> {
     Ok(())
 }
 
+/// IPv4-only lab networks for tests that seed lab records directly.
+fn ipv4_lab_networks(
+    loopback_network: &str,
+    management_network: &str,
+    gateway_ipv4: &str,
+    router_ipv4: &str,
+) -> db::LabNetworks {
+    db::LabNetworks {
+        loopback_network: loopback_network.to_string(),
+        management_network: management_network.to_string(),
+        gateway_ipv4: gateway_ipv4.to_string(),
+        router_ipv4: router_ipv4.to_string(),
+        management_network_v6: None,
+        loopback_network_v6: None,
+        gateway_ipv6: None,
+        router_ipv6: None,
+    }
+}
+
+/// Destroy a lab if it still exists, so a failed test never leaves resources behind.
+/// Existence comes from the database, so a refused request cannot look like a missing lab.
+/// `token` must belong to the lab owner: the destroy service only lets owners destroy.
+async fn ensure_lab_destroyed(
+    ws: &mut TestWsClient,
+    server: &TestServer,
+    token: &str,
+    lab_id: &str,
+) -> Result<()> {
+    if db::get_lab(&server.db, lab_id).await.is_err() {
+        return Ok(());
+    }
+    let (_s, response) = ws
+        .rpc_call_streaming(
+            "destroy",
+            json!({ "token": token, "lab_id": lab_id }),
+            Duration::from_secs(300),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "Lab {lab_id} cleanup failed: {response}"
+    );
+    Ok(())
+}
+
+/// Clean up after a test. With `SHERPA_TEST_KEEP_FAILED_LABS=1`, a failed test keeps its
+/// lab for debugging; the leftover lab is then reported by whoever runs the suite.
+async fn cleanup_lab(
+    ws: &mut TestWsClient,
+    server: &TestServer,
+    token: &str,
+    lab_id: &str,
+    checks: &Result<()>,
+) -> Result<()> {
+    if checks.is_err() && std::env::var("SHERPA_TEST_KEEP_FAILED_LABS").as_deref() == Ok("1") {
+        eprintln!("Keeping failed lab {lab_id} for debugging");
+        return Ok(());
+    }
+    ensure_lab_destroyed(ws, server, token, lab_id).await
+}
+
+/// Report a test failure and a cleanup failure together; neither may hide the other.
+fn with_cleanup(checks: Result<()>, cleanup: Result<()>) -> Result<()> {
+    match (checks, cleanup) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(error), Ok(())) => Err(error),
+        (Ok(()), Err(cleanup)) => Err(cleanup.context("Test passed but lab cleanup failed")),
+        (Err(error), Err(cleanup)) => {
+            Err(error.context(format!("Lab cleanup also failed: {cleanup:#}")))
+        }
+    }
+}
+
+/// Wait until a guest accepts TCP connections on its SSH port.
+async fn wait_for_ssh(address: &str, timeout: Duration) -> Result<()> {
+    let target: SocketAddr = format!("{address}:22").parse()?;
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if TcpStream::connect_timeout(&target, Duration::from_secs(5)).is_ok() {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+    bail!("{address} did not accept SSH within {}s", timeout.as_secs())
+}
+
+/// Log in with one key and check the personal account's shell, home and passwordless sudo.
+fn ssh_login(destination: &str, key: &str) -> Result<bool> {
+    let status = Command::new("ssh")
+        .args([
+            "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o",
+            "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "StrictHostKeyChecking=no",
+            "-o", "UserKnownHostsFile=/dev/null", "-i", key, destination,
+            "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true",
+        ])
+        .status()
+        .context("Failed to run SSH acceptance check")?;
+    Ok(status.success())
+}
+
+/// Retry a login that should succeed until the guest has finished provisioning it.
+async fn wait_for_login(destination: &str, key: &str, timeout: Duration) -> Result<bool> {
+    let start = Instant::now();
+    loop {
+        if ssh_login(destination, key)? {
+            return Ok(true);
+        }
+        if start.elapsed() >= timeout {
+            return Ok(false);
+        }
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+async fn lab_up(
+    ws: &mut TestWsClient,
+    token: &str,
+    lab_id: &str,
+    manifest: &serde_json::Value,
+    timeout: Duration,
+) -> Result<Vec<serde_json::Value>> {
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({ "token": token, "lab_id": lab_id, "manifest": manifest }),
+            timeout,
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_none(),
+        "lab up should succeed: {response}"
+    );
+    Ok(statuses)
+}
+
 // ── Container Lab Lifecycle ──
 
 #[tokio::test]
@@ -69,65 +205,31 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
     let lab_name = format!("tc{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
-    // Up the lab
-    let (statuses, response) = ws
-        .rpc_call_streaming(
-            "up",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-                "manifest": manifest,
-            }),
+    let checks: Result<()> = async {
+        let statuses = lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
             Duration::from_secs(180),
         )
         .await?;
-
-    assert!(
-        response.get("error").is_none(),
-        "lab up should succeed: {:?}",
-        response
-    );
-    assert!(
-        !statuses.is_empty(),
-        "should have status messages during up"
-    );
-
-    // Inspect the lab
-    let inspect_resp = ws
-        .rpc_call(
-            "inspect",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-        )
-        .await?;
-
-    assert!(
-        inspect_resp.get("result").is_some(),
-        "inspect should succeed: {:?}",
-        inspect_resp
-    );
-
-    // Cleanup: destroy the lab
-    let (_s, destroy_resp) = ws
-        .rpc_call_streaming(
-            "destroy",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-            Duration::from_secs(60),
-        )
-        .await?;
-
-    assert!(
-        destroy_resp.get("error").is_none(),
-        "destroy should succeed: {:?}",
-        destroy_resp
-    );
-
-    Ok(())
+        ensure!(
+            !statuses.is_empty(),
+            "should have status messages during up"
+        );
+        let inspect_resp = ws
+            .rpc_call("inspect", json!({ "token": token, "lab_id": lab_name }))
+            .await?;
+        ensure!(
+            inspect_resp.get("result").is_some(),
+            "inspect should succeed: {inspect_resp}"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
 }
 
 #[tokio::test]
@@ -142,66 +244,33 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
     let lab_name = format!("dr{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
-    // Up
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "up",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-                "manifest": manifest,
-            }),
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
             Duration::from_secs(180),
         )
         .await?;
-
-    // Down
-    let down_resp = ws
-        .rpc_call(
-            "down",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-        )
-        .await?;
-
-    assert!(
-        down_resp.get("error").is_none(),
-        "down should succeed: {:?}",
-        down_resp
-    );
-
-    // Resume
-    let resume_resp = ws
-        .rpc_call(
-            "resume",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-        )
-        .await?;
-
-    assert!(
-        resume_resp.get("error").is_none(),
-        "resume should succeed: {:?}",
-        resume_resp
-    );
-
-    // Cleanup
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "destroy",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-            Duration::from_secs(60),
-        )
-        .await?;
-
-    Ok(())
+        for method in ["down", "resume"] {
+            let (_s, response) = ws
+                .rpc_call_streaming(
+                    method,
+                    json!({ "token": token, "lab_id": lab_name }),
+                    Duration::from_secs(300),
+                )
+                .await?;
+            ensure!(
+                response.get("error").is_none(),
+                "{method} should succeed: {response}"
+            );
+        }
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
 }
 
 #[tokio::test]
@@ -216,66 +285,110 @@ async fn test_container_lab_destroy() -> Result<()> {
     let lab_name = format!("ds{:06}", std::process::id() % 1_000_000);
     let manifest = container_manifest(&lab_name);
 
-    // Up
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "up",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-                "manifest": manifest,
-            }),
+    let checks: Result<()> = async {
+        lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
             Duration::from_secs(180),
         )
         .await?;
+        let (_s, destroy_resp) = ws
+            .rpc_call_streaming(
+                "destroy",
+                json!({ "token": token, "lab_id": lab_name }),
+                Duration::from_secs(60),
+            )
+            .await?;
+        ensure!(
+            destroy_resp.get("error").is_none(),
+            "destroy should succeed: {destroy_resp}"
+        );
+        let inspect_resp = ws
+            .rpc_call("inspect", json!({ "token": token, "lab_id": lab_name }))
+            .await?;
+        ensure!(
+            inspect_resp.get("error").is_some(),
+            "inspect after destroy should fail"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
+}
 
-    // Destroy
-    let (_s, destroy_resp) = ws
-        .rpc_call_streaming(
-            "destroy",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-            Duration::from_secs(60),
-        )
-        .await?;
+/// Concurrent `up` requests must get distinct subnets.
+#[tokio::test]
+#[ignore]
+async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut first = TestWsClient::connect(&server).await?;
+    let mut second = TestWsClient::connect(&server).await?;
+    let token = first.login_admin().await?;
+    bootstrap_images(&mut first, &token).await?;
 
-    assert!(
-        destroy_resp.get("error").is_none(),
-        "destroy should succeed: {:?}",
-        destroy_resp
+    // lab_id must be exactly 8 characters
+    let pid = std::process::id() % 1_000_000;
+    let first_lab = format!("ca{pid:06}");
+    let second_lab = format!("cb{pid:06}");
+    let first_manifest = container_manifest(&first_lab);
+    let second_manifest = container_manifest(&second_lab);
+
+    let (first_up, second_up) = tokio::join!(
+        lab_up(
+            &mut first,
+            &token,
+            &first_lab,
+            &first_manifest,
+            Duration::from_secs(300)
+        ),
+        lab_up(
+            &mut second,
+            &token,
+            &second_lab,
+            &second_manifest,
+            Duration::from_secs(300)
+        ),
     );
-
-    // Verify lab is gone - inspect should fail
-    let inspect_resp = ws
-        .rpc_call(
-            "inspect",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-        )
-        .await?;
-
-    assert!(
-        inspect_resp.get("error").is_some(),
-        "inspect after destroy should fail"
-    );
-
-    Ok(())
+    let checks: Result<()> = async {
+        first_up.context("First concurrent lab up failed")?;
+        second_up.context("Second concurrent lab up failed")?;
+        let first_record = db::get_lab(&server.db, &first_lab).await?;
+        let second_record = db::get_lab(&server.db, &second_lab).await?;
+        ensure!(
+            first_record.management_network != second_record.management_network,
+            "Concurrent labs share management network {}",
+            first_record.management_network
+        );
+        ensure!(
+            first_record.loopback_network != second_record.loopback_network,
+            "Concurrent labs share loopback network {}",
+            first_record.loopback_network
+        );
+        ensure!(
+            first_record.management_network_v6 != second_record.management_network_v6,
+            "Concurrent labs share IPv6 management network"
+        );
+        Ok(())
+    }
+    .await;
+    let first_cleanup = cleanup_lab(&mut first, &server, &token, &first_lab, &checks).await;
+    let second_cleanup = cleanup_lab(&mut first, &server, &token, &second_lab, &checks).await;
+    with_cleanup(with_cleanup(checks, first_cleanup), second_cleanup)
 }
 
 // ── VM Lab Lifecycle ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires KVM, libvirt and the ubuntu_linux image"]
 async fn test_vm_lab_up_and_destroy() -> Result<()> {
-    // Skip if KVM is not available
-    if !std::path::Path::new("/dev/kvm").exists() {
-        eprintln!("Skipping VM test: /dev/kvm not available");
-        return Ok(());
-    }
+    // A missing requirement is a failure, not a pass: this test must actually run.
+    ensure!(
+        std::path::Path::new("/dev/kvm").exists(),
+        "/dev/kvm is required for the VM lab test"
+    );
 
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -286,39 +399,24 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
     let lab_name = format!("vm{:06}", std::process::id() % 1_000_000);
     let manifest = vm_manifest(&lab_name);
 
-    // Up the VM lab
-    let (statuses, response) = ws
-        .rpc_call_streaming(
-            "up",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-                "manifest": manifest,
-            }),
+    let checks: Result<()> = async {
+        let statuses = lab_up(
+            &mut ws,
+            &token,
+            &lab_name,
+            &manifest,
             Duration::from_secs(300),
         )
         .await?;
-
-    assert!(
-        response.get("error").is_none(),
-        "VM lab up should succeed: {:?}",
-        response
-    );
-    assert!(!statuses.is_empty());
-
-    // Cleanup
-    let (_s, _r) = ws
-        .rpc_call_streaming(
-            "destroy",
-            json!({
-                "token": token,
-                "lab_id": lab_name,
-            }),
-            Duration::from_secs(120),
-        )
-        .await?;
-
-    Ok(())
+        ensure!(
+            !statuses.is_empty(),
+            "should have status messages during up"
+        );
+        Ok(())
+    }
+    .await;
+    let cleanup = cleanup_lab(&mut ws, &server, &token, &lab_name, &checks).await;
+    with_cleanup(checks, cleanup)
 }
 
 // ── Error Cases ──
@@ -431,10 +529,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         "duplicate-test-lab",
         lab_id,
         &admin_user,
-        "10.0.0.0/24",
-        "10.0.1.0/24",
-        "10.0.1.1",
-        "10.0.1.254",
+        &ipv4_lab_networks("10.0.0.0/24", "10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
     )
     .await?;
 
@@ -534,37 +629,36 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         let ip = node.mgmt_ipv4.context("VM management address missing")?;
         let destination = format!("{username}@{ip}");
 
-        let login = |key: &str| -> Result<bool> {
-            let status = Command::new("ssh")
-                .args(["-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "StrictHostKeyChecking=no", "-o", "UserKnownHostsFile=/dev/null", "-i", key, &destination,
-                    "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true"])
-                .status().context("Failed to run SSH acceptance check")?;
-            Ok(status.success())
-        };
-        ensure!(login(&private_key)?, "Personal login/home/Bash/passwordless sudo failed");
+        // Readiness only waits for the SSH port; cloud-init may still be writing accounts.
+        ensure!(wait_for_login(&destination, &private_key, timeout).await?, "Personal login/home/Bash/passwordless sudo failed");
         let (_, admin_rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": admin_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest, "username": username }), timeout).await?;
         ensure!(admin_rejected["error"]["code"] == json!(RpcErrorCode::AccessDenied), "Non-owner admin was allowed to redeploy");
-        ensure!(login(&private_key)?, "Denied admin redeploy affected the running guest");
+        ensure!(ssh_login(&destination, &private_key)?, "Denied admin redeploy affected the running guest");
         let mut no_keys = owner.clone();
         no_keys.ssh_keys.clear();
         db::update_user(&server.db, no_keys).await?;
         let (_, rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
         ensure!(rejected.get("error").is_some(), "Missing keys were accepted during redeploy");
-        ensure!(login(&private_key)?, "Rejected redeploy tore down existing guest");
+        ensure!(ssh_login(&destination, &private_key)?, "Rejected redeploy tore down existing guest");
 
         owner.ssh_keys = vec![rotated_public_key.trim().to_owned()];
         db::update_user(&server.db, owner.clone()).await?;
-        for method in ["down", "resume"] {
-            let (_, result) = ws.rpc_call_streaming(method, json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
-            ensure!(result.get("error").is_none(), "{method} failed: {result}");
-        }
-        ensure!(login(&private_key)?, "Resume replaced existing guest keys");
-        ensure!(!login(&rotated_key)?, "Profile key was synchronized during resume");
+        let (_, stopped) = ws.rpc_call_streaming("down", json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
+        ensure!(stopped.get("error").is_none(), "down failed: {stopped}");
+        let (statuses, resumed) = ws.rpc_call_streaming("resume", json!({ "token": owner_token, "lab_id": lab_id }), timeout).await?;
+        ensure!(resumed.get("error").is_none(), "resume failed: {resumed}");
+        // Resume waits for the cold-booted VM, as `up` does, and streams its progress.
+        ensure!(resumed["result"]["results"][0]["message"] == "Started and ready", "Resume did not wait for readiness: {resumed}");
+        ensure!(!statuses.is_empty(), "Resume streamed no readiness progress");
+        // Distinguish an unbooted guest from a key change before checking logins.
+        wait_for_ssh(&ip, timeout).await.context("Resumed VM did not accept SSH")?;
+        ensure!(ssh_login(&destination, &private_key)?, "Resume replaced existing guest keys");
+        ensure!(!ssh_login(&destination, &rotated_key)?, "Profile key was synchronized during resume");
 
         let (_, redeployed) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
         ensure!(redeployed.get("error").is_none(), "Owner redeploy failed: {redeployed}");
-        ensure!(login(&rotated_key)?, "Redeploy did not provision owner's current keys");
-        ensure!(!login(&private_key)?, "Redeploy retained removed owner key");
+        ensure!(wait_for_login(&destination, &rotated_key, timeout).await?, "Redeploy did not provision owner's current keys");
+        ensure!(!ssh_login(&destination, &private_key)?, "Redeploy retained removed owner key");
         let downloaded = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
         ensure!(downloaded.get("error").is_none(), "Admin configuration refresh failed: {downloaded}");
         ensure!(downloaded["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Refreshed configuration selected administrator");
@@ -572,19 +666,8 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         ensure!(config.contains(&format!("User {username}")) && !config.contains("IdentityFile") && !config.contains("IdentitiesOnly"), "Personal SSH config restricts local keys");
         Ok(())
     }.await;
-    let (_, cleanup) = ws
-        .rpc_call_streaming(
-            "destroy",
-            json!({ "token": admin_token, "lab_id": lab_id }),
-            timeout,
-        )
-        .await?;
-    checks?;
-    ensure!(
-        cleanup.get("error").is_none(),
-        "Acceptance lab cleanup failed: {cleanup}"
-    );
-    Ok(())
+    let cleanup = cleanup_lab(&mut ws, &server, &owner_token, &lab_id, &checks).await;
+    with_cleanup(checks, cleanup)
 }
 
 /// Database and local API sockets only; no VM, container or lab files are created.
@@ -629,10 +712,12 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
             "redeploy-auth",
             &lab_id,
             owner,
-            &format!("127.127.{index}.0/24"),
-            &format!("10.200.{index}.0/24"),
-            &format!("10.200.{index}.1"),
-            &format!("10.200.{index}.2"),
+            &ipv4_lab_networks(
+                &format!("127.127.{index}.0/24"),
+                &format!("10.200.{index}.0/24"),
+                &format!("10.200.{index}.1"),
+                &format!("10.200.{index}.2"),
+            ),
         )
         .await?;
         for (username, token) in callers {

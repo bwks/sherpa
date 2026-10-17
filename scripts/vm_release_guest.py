@@ -11,11 +11,13 @@ import pty
 import pwd
 import re
 import select
+import shutil
 import signal
 import socket
 import ssl
 import subprocess
 import sys
+import tarfile
 import tempfile
 import time
 import tomllib
@@ -59,6 +61,56 @@ def validate_binary_version(binary, version, output):
             f"Unexpected {binary} version")
 
 
+TEST_SUMMARY = re.compile(r"^test result: (?:ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored", re.M)
+FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)
+# Tests that return early when their host requirement is missing; in a test environment
+# the requirement is guaranteed, so the skip means the test did not run.
+REQUIRED_RUN_MARKERS = ("Skipping VM test",)
+
+
+def summarize_tests(output):
+    totals = {"binaries": 0, "passed": 0, "failed": 0, "ignored": 0}
+    for passed, failed, ignored in TEST_SUMMARY.findall(output):
+        totals["binaries"] += 1
+        totals["passed"] += int(passed)
+        totals["failed"] += int(failed)
+        totals["ignored"] += int(ignored)
+    totals["failures"] = sorted(set(FAILED_TEST.findall(output)))
+    totals["skips"] = [line.strip() for line in output.splitlines() if line.lstrip().startswith("Skipping")]
+    return totals
+
+
+def test_problems(code, summary):
+    problems = []
+    if code:
+        problems.append(f"cargo exited {code}")
+    if not summary["binaries"]:
+        problems.append("no test results were reported")
+    if summary["failed"] or summary["failures"]:
+        problems.append(f"{max(summary['failed'], len(summary['failures']))} failed")
+    problems.extend(f"required test skipped: {line}" for line in summary["skips"]
+                    if line.startswith(REQUIRED_RUN_MARKERS))
+    return problems
+
+
+def leftover_resources(before, after):
+    leftovers = {}
+    for kind, names in after.items():
+        added = sorted(set(names) - set(before.get(kind, [])))
+        if added:
+            leftovers[kind] = added
+    return leftovers
+
+
+def toml_document(sections):
+    lines = []
+    for section, values in sections.items():
+        lines.append(f"[{section}]")
+        lines.extend(f"{key} = {json.dumps(value, ensure_ascii=False)}" for key, value in values.items())
+        lines.append("")
+    return "\n".join(lines)
+
+
 def validate_retained_resources(before, after):
     require(set(before) == set(after), "Resource inventory categories changed")
     for category, items in before.items():
@@ -87,6 +139,35 @@ def validate_upgrade_evidence(evidence, baseline, candidate):
         for binary in ("sherpa", "sherpad"):
             key = binary + "_binary_sha256"
             require(evidence[phase].get(key) == inputs[key], f"Incorrect {phase} {binary} bytes")
+
+
+def ubuntu_version(version):
+    """Map a Sherpa image version such as 24.04-20260926 to its Ubuntu VERSION_ID."""
+    return version.split("-", 1)[0]
+
+
+def check_bare_ubuntu(command, vm, initialize_timeout):
+    """Check a fresh Sherpa-built Ubuntu guest against its manifest node settings."""
+    command(["cloud-init", "status", "--wait", "--long"], timeout=initialize_timeout)
+    release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
+                   if "=" in line)
+    require(release["ID"].strip('"') == "ubuntu"
+            and release["VERSION_ID"].strip('"') == ubuntu_version(vm["version"]),
+            "Guest operating system differs from the manifest")
+    print("OS: " + release["PRETTY_NAME"])
+    require(os.cpu_count() == vm["cpu_count"], "Guest vCPU count differs from the manifest")
+    _, disk = command(["lsblk", "-bdno", "SIZE", "/dev/vda"])
+    require(int(disk.strip()) == vm["boot_disk_size"] * 1024**3,
+            "Guest disk size differs from the manifest")
+    for binary in ("sherpa", "sherpad", "docker", "dockerd", "virsh", "surreal"):
+        code, _ = command(["bash", "-c", 'command -v "$1"', "bash", binary], check=False)
+        require(code != 0, f"Preinstalled runtime command: {binary}")
+    require(not Path("/opt/sherpa").exists(), "/opt/sherpa already exists")
+    with open("/dev/kvm", "rb", buffering=0) as device:
+        require(fcntl.ioctl(device.fileno(), 0xAE00, 0) == 12, "KVM API unavailable")
+        descriptor = fcntl.ioctl(device.fileno(), 0xAE01, 0)
+        os.close(descriptor)
+    require(pwd.getpwnam("sherpa").pw_uid >= 1000, "Expected Sherpa's cloud-init login account")
 
 
 def interrupted(signum, _frame):
@@ -122,8 +203,8 @@ class Guest:
             output = output.replace(secret, "[REDACTED]")
         return output
 
-    def command(self, command, timeout=None, env=None, check=True, display=True):
-        process = subprocess.Popen(command, cwd=self.workspace, stdin=subprocess.DEVNULL,
+    def command(self, command, timeout=None, env=None, check=True, display=True, cwd=None):
+        process = subprocess.Popen(command, cwd=cwd or self.workspace, stdin=subprocess.DEVNULL,
                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                    text=True, env=env, start_new_session=True)
         try:
@@ -167,27 +248,7 @@ class Guest:
                 "--version", self.config[selection]["version"]]
 
     def baseline(self):
-        self.command(["cloud-init", "status", "--wait", "--long"],
-                     timeout=self.timeouts["initialize"])
-        release = dict(line.split("=", 1) for line in Path("/etc/os-release").read_text().splitlines()
-                       if "=" in line)
-        require(release["ID"].strip('"') == "ubuntu"
-                and release["VERSION_ID"].strip('"') == self.config["vm"]["version"],
-                "Guest operating system differs from the manifest")
-        print("OS: " + release["PRETTY_NAME"])
-        require(os.cpu_count() == self.config["vm"]["cpu_count"], "Guest vCPU count differs from the manifest")
-        _, disk = self.command(["lsblk", "-bdno", "SIZE", "/dev/vda"])
-        require(int(disk.strip()) == self.config["vm"]["boot_disk_size"] * 1024**3,
-                "Guest disk size differs from the manifest")
-        for binary in ("sherpa", "sherpad", "docker", "dockerd", "virsh", "surreal"):
-            code, _ = self.command(["bash", "-c", 'command -v "$1"', "bash", binary], check=False)
-            require(code != 0, f"Preinstalled runtime command: {binary}")
-        require(not self.base.exists(), "/opt/sherpa already exists")
-        with open("/dev/kvm", "rb", buffering=0) as device:
-            require(fcntl.ioctl(device.fileno(), 0xAE00, 0) == 12, "KVM API unavailable")
-            descriptor = fcntl.ioctl(device.fileno(), 0xAE01, 0)
-            os.close(descriptor)
-        require(pwd.getpwnam("sherpa").pw_uid >= 1000, "Expected Sherpa's cloud-init login account")
+        check_bare_ubuntu(self.command, self.config["vm"], self.timeouts["initialize"])
         self.command(["curl", "--version"])
         self.marker.write_text(self.config["identity"]["nonce"])
         self.marker.chmod(0o600)
@@ -221,6 +282,13 @@ class Guest:
         require(code != 0 and "artifact" in output.lower(), "Unavailable artifacts accepted")
         require(not self.base.exists(), "Preflight failures changed the installation")
 
+    def check_runtimes(self):
+        """Docker and libvirt answer requests. libvirtd is socket-activated and exits when
+        idle, so an inactive libvirtd.service is normal; the socket must accept a connection."""
+        self.command(["systemctl", "is-active", "docker"])
+        self.command(["systemctl", "is-active", "libvirtd.socket"])
+        self.command(["virsh", "-c", "qemu:///system", "version"])
+
     def install(self, selection="candidate"):
         self.command(self.installer(selection), timeout=self.timeouts["install"], env=self.environment(selection))
         self.verify_installation(selection)
@@ -251,8 +319,7 @@ class Guest:
                 require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
         _, groups = self.command(["id", "-nG", "sherpa"])
         require({"libvirt", "docker", "kvm"}.issubset(groups.split()), "Missing runtime groups")
-        for service in ("docker", "libvirtd"):
-            self.command(["systemctl", "is-active", service])
+        self.check_runtimes()
         self.command(["systemctl", "is-enabled", "sherpad"])
         unit = Path("/etc/systemd/system/sherpad.service").read_text()
         require("ExecStart=/opt/sherpa/bin/sherpad start --foreground" in unit, "Incorrect service command")
@@ -472,8 +539,7 @@ class Guest:
         require(code != 0, "Database container remains")
         code, _ = self.command(["systemctl", "is-active", "--quiet", "sherpad"], check=False)
         require(code != 0, "Server still running")
-        for service in ("docker", "libvirtd"):
-            self.command(["systemctl", "is-active", service])
+        self.check_runtimes()
         self.command(["id", "sherpa"])
         if mode == "--remove-all":
             require(not self.base.exists(), "Installation directory remains")
@@ -553,6 +619,195 @@ class Guest:
         if required:
             print("PASS live server and database logs captured before uninstall")
 
+    def login_user(self):
+        name = os.environ.get("SUDO_USER", "")
+        require(name and name != "root", "Run code steps through sudo from the guest login account")
+        return pwd.getpwnam(name)
+
+    def cargo_environment(self, root):
+        user = self.login_user()
+        name = "root" if root else user.pw_name
+        environment = {"PATH": f"{user.pw_dir}/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+                       "HOME": "/root" if root else user.pw_dir,
+                       # Code under test reads the current user from these, as in a login session.
+                       "USER": name, "LOGNAME": name,
+                       "CARGO_HOME": f"{user.pw_dir}/.cargo", "RUSTUP_HOME": f"{user.pw_dir}/.rustup",
+                       # Keep build output outside the source tree so a rerun can replace the source.
+                       "CARGO_TARGET_DIR": str(self.workspace / "target"),
+                       "CARGO_TERM_COLOR": "never", "LANG": "C.UTF-8"}
+        if root:
+            environment.update(SHERPA_DB_PASSWORD=self.credentials["test_db_password"],
+                               SHERPA_DEV_DB_PORT=str(self.config["tests"]["test_db_port"]),
+                               SHERPA_GUEST_TEST_KEY=str(self.workspace / "guest-test-key"),
+                               SHERPA_GUEST_TEST_ROTATED_KEY=str(self.workspace / "guest-test-key-rotated"))
+        return environment
+
+    def as_user(self, command):
+        user = self.login_user()
+        environment = [f"{key}={value}" for key, value in self.cargo_environment(root=False).items()]
+        return ["sudo", "-u", user.pw_name, "-H", "env", "-i", *environment, *command]
+
+    def logged(self, name, command, timeout, env=None):
+        logs = self.workspace / "logs"
+        logs.mkdir(exist_ok=True)
+        code, output = self.command(command, timeout=timeout, env=env, check=False, display=False,
+                                    cwd=self.workspace / "source")
+        (logs / f"{name}.log").write_text(self.redact(output))
+        print(self.redact("\n".join(output.splitlines()[-40:])), flush=True)
+        print(f"{name}: exit {code}, full log {logs / (name + '.log')}", flush=True)
+        return code, output
+
+    def record_results(self, section, values):
+        path = self.workspace / "test-results.toml"
+        results = tomllib.loads(path.read_text()) if path.exists() else {}
+        results[section] = values
+        path.write_text(toml_document(results))
+        path.chmod(0o644)
+
+    def source(self):
+        archive = self.workspace / "source.tar.gz"
+        require(digest(archive) == self.config["tests"]["source_sha256"],
+                "Source archive differs from the recorded snapshot")
+        destination = self.workspace / "source"
+        if destination.exists():
+            shutil.rmtree(destination)
+        with tarfile.open(archive, "r:gz") as stream:
+            stream.extractall(destination, filter="data")
+        user = self.login_user()
+        self.command(["chown", "-R", f"{user.pw_name}:", str(destination)])
+        require((destination / "Cargo.lock").is_file(), "Source snapshot has no Cargo.lock")
+        print(f"PASS source snapshot {self.config['tests']['source_sha256']}")
+
+    def toolchain(self):
+        environment = dict(os.environ, DEBIAN_FRONTEND="noninteractive")
+        self.command(["apt-get", "update"], timeout=self.timeouts["install"], env=environment)
+        self.command(["apt-get", "install", "-y", "--no-install-recommends", "build-essential",
+                      "pkg-config", "libvirt-dev", "ca-certificates", "curl"],
+                     timeout=self.timeouts["install"], env=environment)
+        user = self.login_user()
+        if not Path(user.pw_dir, ".cargo/bin/rustup").exists():
+            installer = self.workspace / "rustup-init.sh"
+            self.command(["curl", "-fsSL", "--proto", "=https", "--tlsv1.2", "-o", str(installer),
+                          "https://sh.rustup.rs"], timeout=self.timeouts["download"])
+            self.command(self.as_user(["sh", str(installer), "-y", "--profile", "minimal",
+                                       "--default-toolchain", "none", "--no-modify-path"]),
+                         timeout=self.timeouts["install"])
+        toolchain = tomllib.loads((self.workspace / "source/rust-toolchain.toml").read_text())["toolchain"]
+        self.command(self.as_user(["rustup", "toolchain", "install", toolchain["channel"], "--profile", "minimal"]),
+                     timeout=self.timeouts["install"])
+        _, version = self.command(self.as_user(["rustc", "--version"]), cwd=self.workspace / "source")
+        self.record_results("toolchain", {"rustc": version.strip()})
+
+    def test_images(self):
+        tests = self.config["tests"]
+        digests = {}
+        for image in tests["container_images"]:
+            self.command(["docker", "pull", "--quiet", image], timeout=self.timeouts["images"])
+            _, output = self.command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", image])
+            digests[image] = json.loads(output)
+        images = self.base / "images"
+        directory = images / tests["vm_image_model"] / tests["vm_image_version"]
+        path = directory / "virtioa.qcow2"
+        if not path.is_file() or digest(path) != tests["vm_image_sha256"]:
+            directory.mkdir(parents=True, exist_ok=True)
+            partial = directory / "virtioa.qcow2.partial"
+            self.command(["curl", "-fSL", "--connect-timeout", str(self.timeouts["connect"]), "-o", str(partial),
+                          tests["vm_image_url"]], timeout=self.timeouts["images"])
+            require(digest(partial) == tests["vm_image_sha256"], "Test VM image checksum mismatch")
+            partial.replace(path)
+        self.command(["chown", "-R", "--reference", str(images), str(images / tests["vm_image_model"])])
+        self.record_results("images", {"container_digests": [f"{image} {' '.join(found)}"
+                                                             for image, found in digests.items()],
+                                       "vm_image": str(path), "vm_image_sha256": tests["vm_image_sha256"]})
+        print("PASS test images")
+
+    def build_tests(self):
+        timeout = self.timeouts["build"]
+        builds = [("build-workspace", ["cargo", "test", "--workspace", "--locked", "--no-run"])]
+        builds.extend((f"build-{crate}", ["cargo", "test", "-p", crate, "--locked", "--no-run"])
+                      for crate in self.config["tests"]["integration_crates"])
+        for name, command in builds:
+            code, _ = self.logged(name, self.as_user(command), timeout)
+            require(code == 0, f"{name} failed")
+        print("PASS test build")
+
+    def unit_tests(self):
+        command = ["cargo", "test", "--workspace", "--locked", "--offline", "--no-fail-fast"]
+        code, output = self.logged("unit", self.as_user(command), self.timeouts["tests"])
+        summary = summarize_tests(output)
+        problems = test_problems(code, summary)
+        self.record_results("unit", {**summary, "status": "failed" if problems else "passed",
+                                     "problems": problems})
+        require(not problems, "Unit tests: " + "; ".join(problems))
+        print(f"PASS unit tests: {summary['passed']} passed, {summary['ignored']} ignored")
+
+    def inventory(self):
+        queries = {"containers": ["docker", "ps", "-a", "--format", "{{.Names}}"],
+                   "docker_networks": ["docker", "network", "ls", "--format", "{{.Name}}"],
+                   "docker_volumes": ["docker", "volume", "ls", "--format", "{{.Name}}"],
+                   "domains": ["virsh", "-c", "qemu:///system", "list", "--all", "--name"],
+                   "libvirt_networks": ["virsh", "-c", "qemu:///system", "net-list", "--all", "--name"],
+                   "storage_pools": ["virsh", "-c", "qemu:///system", "pool-list", "--all", "--name"]}
+        found = {}
+        for kind, command in queries.items():
+            _, output = self.command(command, display=False)
+            found[kind] = sorted({line.strip() for line in output.splitlines() if line.strip()})
+        _, links = self.command(["ip", "-j", "link", "show"], display=False)
+        found["links"] = sorted(link["ifname"] for link in json.loads(links))
+        return found
+
+    def wait_test_database(self):
+        deadline = time.monotonic() + self.timeouts["startup"]
+        while time.monotonic() < deadline:
+            with suppress(OSError), socket.create_connection(("127.0.0.1", self.config["tests"]["test_db_port"]),
+                                                             timeout=self.timeouts["connect"]):
+                return
+            time.sleep(self.timeouts["poll"])
+        raise TimeoutError("Test database did not start")
+
+    def integration_tests(self):
+        tests = self.config["tests"]
+        # The tests start their own server; the installed service must not compete for resources.
+        self.command(["systemctl", "stop", "sherpad"])
+        for name in ("guest-test-key", "guest-test-key-rotated"):
+            if not (self.workspace / name).exists():
+                self.command(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", name,
+                              "-f", str(self.workspace / name)])
+        environment = self.cargo_environment(root=True)
+        environment.update(assignment.split("=", 1) for assignment in tests["environment"])
+        skips = [argument for name in tests["skip_tests"] for argument in ("--skip", name)]
+        self.record_results("configuration", {"skip_tests": tests["skip_tests"],
+                                              "environment": tests["environment"]})
+        self.command(["bash", str(self.workspace / "source/dev/testdb"), "restart"],
+                     env={"PATH": environment["PATH"], "SHERPA_DEV_DB_USER": tests["test_db_user"],
+                          "SHERPA_DEV_DB_PASS": self.credentials["test_db_password"],
+                          "SHERPA_DEV_DB_PORT": str(tests["test_db_port"])},
+                     cwd=self.workspace / "source")
+        self.wait_test_database()
+        before = self.inventory()
+        failed = []
+        for crate in tests["integration_crates"]:
+            code, output = self.logged(f"integration-{crate}",
+                                       ["cargo", "test", "-p", crate, "--locked", "--offline", "--no-fail-fast",
+                                        "--", "--ignored", "--test-threads=1", "--show-output", *skips],
+                                       self.timeouts["tests"], env=environment)
+            summary = summarize_tests(output)
+            problems = test_problems(code, summary)
+            self.record_results(f"integration-{crate}", {**summary, "status": "failed" if problems else "passed",
+                                                          "problems": problems})
+            print(f"{'FAIL' if problems else 'PASS'} {crate}: {summary['passed']} passed, "
+                  f"{summary['failed']} failed{': ' + '; '.join(problems) if problems else ''}", flush=True)
+            if problems:
+                failed.append(crate)
+        leftovers = leftover_resources(before, self.inventory())
+        self.record_results("leftovers", {kind: names for kind, names in leftovers.items()})
+        for kind, names in leftovers.items():
+            print(f"FAIL leftover {kind}: {', '.join(names)}", flush=True)
+        require(not failed and not leftovers,
+                f"Integration tests failed: {', '.join(failed) or 'none'}; "
+                f"leftover resources: {', '.join(leftovers) or 'none'}")
+        print("PASS integration tests with no leftover resources")
+
     def fault_wait(self):
         code = ("from pathlib import Path; import os, time; "
                 f"Path({str(self.workspace / 'fault-child.pid')!r}).write_text(str(os.getpid())); "
@@ -598,7 +853,10 @@ class Guest:
                    "seed-upgrade": self.seed_upgrade, "upgrade": self.upgrade,
                    "verify-upgrade": lambda: self.verify_upgrade("after"),
                    "verify-upgrade-reboot": lambda: self.verify_upgrade("reboot"),
-                   "new-database": lambda: (self.install(), self.initialize())}
+                   "new-database": lambda: (self.install(), self.initialize()),
+                   "source": self.source, "toolchain": self.toolchain,
+                   "test-images": self.test_images, "build-tests": self.build_tests,
+                   "unit-tests": self.unit_tests, "integration-tests": self.integration_tests}
         require(step in actions, "Unknown guest step")
         if step == "cancel":
             self.cancel()
@@ -731,6 +989,58 @@ class GuestTests(unittest.TestCase):
         guest.command = lambda *args, **kwargs: (1, "missing")
         with self.assertRaises(RuntimeError):
             guest.diagnostics(required=True)
+
+    def test_test_summary_counts_every_binary_and_names_failures(self):
+        output = ("running 2 tests\ntest a::ok ... ok\ntest a::bad ... FAILED\n"
+                  "test result: FAILED. 1 passed; 1 failed; 3 ignored; 0 measured\n"
+                  "test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured\n")
+        summary = summarize_tests(output)
+        self.assertEqual((summary["binaries"], summary["passed"], summary["failed"], summary["ignored"]),
+                         (2, 5, 1, 3))
+        self.assertEqual(summary["failures"], ["a::bad"])
+        self.assertEqual(test_problems(101, summary), ["cargo exited 101", "1 failed"])
+
+    def test_missing_results_and_required_skips_are_failures(self):
+        self.assertEqual(test_problems(0, summarize_tests("error: could not compile\n")),
+                         ["no test results were reported"])
+        skipped = summarize_tests("Skipping VM test: /dev/kvm not available\n"
+                                  "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n")
+        self.assertEqual(test_problems(0, skipped),
+                         ["required test skipped: Skipping VM test: /dev/kvm not available"])
+        optional = summarize_tests("Skipping TAP test on kernel 6.8\n"
+                                   "test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured\n")
+        self.assertEqual(test_problems(0, optional), [])
+        self.assertEqual(optional["skips"], ["Skipping TAP test on kernel 6.8"])
+
+    def test_leftovers_report_only_new_resources(self):
+        before = {"containers": ["sherpa-db"], "links": ["lo", "eth0"]}
+        after = {"containers": ["sherpa-db", "srl1-tc000001"], "links": ["eth0", "lo"], "domains": ["vm1-x"]}
+        self.assertEqual(leftover_resources(before, after),
+                         {"containers": ["srl1-tc000001"], "domains": ["vm1-x"]})
+
+    def test_results_document_is_valid_toml(self):
+        document = toml_document({"integration-db": {"status": "passed", "passed": 3, "failures": [],
+                                                      "skips": ['quote " and \\ slash']}})
+        self.assertEqual(tomllib.loads(document)["integration-db"]["skips"], ['quote " and \\ slash'])
+
+    def test_cargo_environment_names_the_running_user(self):
+        guest = Guest.__new__(Guest)
+        guest.workspace = Path("/var/tmp/workspace")
+        guest.config = {"tests": {"test_db_port": 42069}}
+        guest.credentials = {"test_db_password": "secret"}
+        account = pwd.struct_passwd(("tester", "x", 1000, 1000, "", "/home/tester", "/bin/bash"))
+        with patch.dict(os.environ, {"SUDO_USER": "tester"}), \
+             patch.object(pwd, "getpwnam", return_value=account):
+            user = guest.cargo_environment(root=False)
+            root = guest.cargo_environment(root=True)
+        self.assertEqual((user["USER"], user["LOGNAME"], user["HOME"]), ("tester", "tester", "/home/tester"))
+        self.assertEqual((root["USER"], root["HOME"]), ("root", "/root"))
+        self.assertEqual(root["CARGO_HOME"], "/home/tester/.cargo")
+        self.assertNotIn("SHERPA_DB_PASSWORD", user)
+
+    def test_ubuntu_version_ignores_build_suffix(self):
+        self.assertEqual(ubuntu_version("26.04"), "26.04")
+        self.assertEqual(ubuntu_version("24.04-20260926"), "24.04")
 
     def test_binary_version_requires_exact_match(self):
         validate_binary_version("sherpad", "v0.3.79", "sherpad 0.3.79\n")

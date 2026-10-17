@@ -272,7 +272,7 @@ fn build_operations() -> Vec<OperationDef> {
         },
         OperationDef {
             name: "lab.resume".to_string(),
-            description: "Resume all or specific stopped nodes in a lab".to_string(),
+            description: "Resume all or specific stopped nodes in a lab and wait for booted nodes to become ready".to_string(),
             category: Category::Lab,
             auth: AuthRequirement::Authenticated,
             streaming: false,

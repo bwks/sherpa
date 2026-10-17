@@ -6,7 +6,7 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -19,10 +19,12 @@ async fn test_delete_link_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -86,10 +88,12 @@ async fn test_delete_link_by_id_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -153,10 +157,12 @@ async fn test_delete_link_nonexistent_fails() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -223,10 +229,12 @@ async fn test_delete_link_decrements_count() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -314,10 +322,12 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -426,10 +436,12 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         "Lab 1",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab2 = create_lab(
@@ -437,10 +449,12 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
         "Lab 2",
         "lab-0002",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -569,10 +583,12 @@ async fn test_delete_links_by_node_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -688,10 +704,12 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

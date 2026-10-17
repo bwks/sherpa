@@ -5,7 +5,7 @@ use db::{
 };
 use shared::data::{NodeConfig, NodeModel};
 
-use crate::helper::{setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
 #[tokio::test]
 #[ignore]
@@ -19,10 +19,12 @@ async fn test_create_node_success() -> Result<()> {
         "Test Lab",
         "lab-0001",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -58,10 +60,12 @@ async fn test_create_node_with_lab() -> Result<()> {
         "Bob's Lab",
         "lab-0002",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -94,10 +98,12 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         "Lab One",
         "lab-0003",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -149,10 +155,12 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         "Lab Two",
         "lab-0004",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -204,10 +212,12 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
         "Lab 1",
         "lab-0005",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let lab2 = create_lab(
@@ -215,10 +225,12 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
         "Lab 2",
         "lab-0006",
         &user,
-        "127.127.2.0/24",
-        "172.31.2.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -262,10 +274,12 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
         "Lab Test",
         "lab-0007",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -307,10 +321,12 @@ async fn test_create_node_increments_count() -> Result<()> {
         "Lab Count",
         "lab-0008",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -357,10 +373,12 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
         "Lab Retrieve",
         "lab-0009",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -397,10 +415,12 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
         "Lab Retrieve ID",
         "lab-0010",
         &user,
-        "127.127.1.0/24",
-        "172.31.1.0/24",
-        "172.31.1.1",
-        "172.31.1.2",
+        &ipv4_lab_networks(
+            "127.127.1.0/24",
+            "172.31.1.0/24",
+            "172.31.1.1",
+            "172.31.1.2",
+        ),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

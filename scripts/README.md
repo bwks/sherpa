@@ -103,8 +103,35 @@ build inside a disposable Sherpa-managed VM. Run the harness self-tests with:
 python3 scripts/vm_release_test.py --self-test
 ```
 
-**See also:** [VM release-test guide](../dev/release-test/README.md) and
-[TOML settings](../dev/release-test/config.toml).
+**See also:** [VM release-test guide](../test-specs/install/vm-release-harness.md) and
+[TOML settings](../test-environments/ubuntu-2604/release-test.toml).
+
+### `test_env.py`
+Brings up, checks and destroys the disposable test servers defined in
+`test-environments/`. Run from the repository root with an authenticated CLI.
+
+**Usage:**
+```bash
+# Build the checkout and run its tests in fresh 24.04 and 26.04 environments
+python3 scripts/test_env.py run
+
+# Retest the current checkout on a VM kept after a failed run
+python3 scripts/test_env.py rerun .tmp/vm-release-tests/<run-id>
+
+# Manage one environment by hand
+python3 scripts/test_env.py up ubuntu-2604
+python3 scripts/test_env.py check ubuntu-2604
+python3 scripts/test_env.py destroy ubuntu-2604
+```
+
+`run` builds release archives from the checkout, then runs `vm_release_test.py
+--scenario code` for each environment: install those archives with the checkout's
+installer, then build and run the unit and integration tests inside the guest.
+
+`check` runs `test_env_guest.py` inside the guest with sudo. Run the self-tests with
+`python3 scripts/test_env.py --self-test` and `python3 scripts/test_env_guest.py --self-test`.
+
+**See also:** [test environments](../test-environments/README.md).
 
 ---
 

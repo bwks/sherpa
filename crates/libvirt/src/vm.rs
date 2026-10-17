@@ -15,6 +15,8 @@ use virt::stream::Stream;
 
 use shared::konst::SHERPA_STORAGE_POOL;
 
+use crate::storage::refresh_pool;
+
 #[derive(Template)]
 #[template(path = "copy.xml", ext = "xml", escape = "xml")]
 struct CopyVolume<'a> {
@@ -35,8 +37,7 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
     let mut src_file = File::open(src_path).context("Cannot open disk source")?;
     let file_size = src_file.metadata()?.len();
     let pool = StoragePool::lookup_by_name(conn, SHERPA_STORAGE_POOL)?;
-    pool.refresh(0)
-        .context("Cannot refresh storage pool before copy")?;
+    refresh_pool(&pool).context("Cannot refresh storage pool before copy")?;
 
     let file_path = Path::new(dst_path);
     let file_name = file_path
@@ -145,8 +146,7 @@ pub fn resize_disk(conn: &Connect, path: &str, size_gb: u16) -> Result<()> {
         );
     }
 
-    pool.refresh(0)
-        .with_context(|| "Failed to refresh storage pool before resize")?;
+    refresh_pool(&pool).context("Failed to refresh storage pool before resize")?;
 
     vol.resize(capacity_bytes, 0)
         .with_context(|| format!("Failed to resize volume '{path}' to {size_gb}G"))?;

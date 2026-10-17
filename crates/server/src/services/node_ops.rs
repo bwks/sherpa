@@ -2961,8 +2961,7 @@ pub async fn destroy_vm_node(
     tokio::task::spawn_blocking(move || -> Result<()> {
         let pool = virt::storage_pool::StoragePool::lookup_by_name(&conn, SHERPA_STORAGE_POOL)
             .context("Cannot find storage pool during node cleanup")?;
-        pool.refresh(0)
-            .context("Cannot refresh storage pool during node cleanup")?;
+        libvirt::refresh_pool(&pool).context("Cannot refresh storage pool during node cleanup")?;
         for vol in pool
             .list_all_volumes(0)
             .context("Cannot list volumes during node cleanup")?

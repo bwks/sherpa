@@ -175,6 +175,7 @@ async fn handle_client_message(
             // Check if this is a streaming RPC method
             if method == "up"
                 || method == "destroy"
+                || method == "resume"
                 || method == "redeploy"
                 || method == "image.import"
                 || method == "image.pull"

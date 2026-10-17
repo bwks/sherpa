@@ -1,0 +1,88 @@
+# Local installer/uninstaller test settings. Run scripts/test_install.sh.
+# No credentials are stored here; each run generates disposable passwords.
+[host]
+sherpa = "sherpa"
+# Empty means use the authenticated CLI's existing server configuration.
+server_url = ""
+libvirt_uri = "qemu:///system"
+# Empty uses the resolved server hostname and the local SSH configuration.
+ssh_destination = ""
+
+[vm]
+manifest = "test-environments/ubuntu-2404/manifest.toml"
+lab_prefix = "rel2404-"
+node_prefix = "rt"
+
+[image]
+path = "/opt/sherpa/images/ubuntu_linux/24.04-20260926/virtioa.qcow2"
+build = "20260926"
+sha256 = "6a81c37564db9b1ee84e141922625e1d7c5b389b99bb3c572e0243607d5bb4d2"
+
+[candidate]
+version = "v0.3.79"
+# Optional directory containing the two normal release tarballs.
+artifact_directory = ""
+target = "x86_64-unknown-linux-gnu"
+download_url = "https://github.com/bwks/sherpa/releases/download"
+scripts_directory = "scripts"
+
+[runner]
+output_directory = ".tmp/vm-release-tests"
+retain_failed = true
+retain_successful = false
+
+[guest]
+workspace_prefix = "/var/tmp/sherpa-release-test"
+listen_ip = "127.0.0.1"
+client_host = "localhost"
+ws_port = 3030
+http_port = 3031
+db_port = 8000
+admin_prefix = "release-admin-"
+surrealdb_image = "surrealdb/surrealdb:v3.0.0"
+router_image = "ghcr.io/bwks/sherpa-router:latest"
+
+[timeouts]
+provision = 900
+connect = 10
+command = 90
+download = 300
+install = 1800
+initialize = 300
+startup = 180
+reboot = 300
+cleanup = 300
+poll = 3
+terminate = 10
+# Code scenario: per build invocation and per integration crate.
+build = 3600
+tests = 3600
+# Code scenario: fetching all test images (the SR Linux image is about 3.3 GB).
+images = 1800
+
+[faults]
+# Deliberate failures, used only by scripts/vm_release_faults.py.
+wait = 120
+command_timeout = 3
+ready_timeout = 1
+ready_port = 65534
+trigger_timeout = 120
+
+[tests]
+# Code scenario: the local checkout's integration tests, run inside the guest.
+integration_crates = ["db", "container", "network", "libvirt", "sherpad"]
+# alpine:latest is the container crate's test image (see dev/testdeps).
+container_images = ["ghcr.io/nokia/srlinux:latest", "alpine:latest"]
+# VM image for nested lab tests; same Canonical build as the 26.04 environment.
+vm_image_model = "ubuntu_linux"
+vm_image_version = "26.04"
+vm_image_url = "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img"
+vm_image_sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
+# The test database password is generated per run.
+test_db_user = "sherpa"
+test_db_port = 42069
+# Tests skipped by name. Live tailnet enrollment is deferred; see PROJECT.md (Tailnet access).
+skip_tests = ["tailscale::tests::live_tailnet_enrollment_stop_resume_cleanup"]
+# Non-secret opt-ins for live integration tests. Credentials are never stored here.
+# SHERPA_TEST_KEEP_FAILED_LABS keeps a failed lab test's nested lab for debugging.
+environment = ["SHERPA_OVERLAY_LIVE=1", "SHERPA_TEST_KEEP_FAILED_LABS=1"]

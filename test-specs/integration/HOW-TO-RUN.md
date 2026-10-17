@@ -6,6 +6,12 @@ provides passwordless sudo and all dependencies pre-installed.
 
 ## Prerequisites
 
+> The supported way to run the integration tests is now
+> `python3 scripts/test_env.py run`, which installs Sherpa with its installer in fresh
+> Ubuntu 24.04 and 26.04 VMs and runs the db, container, network, libvirt and sherpad
+> integration tests there. See [`test-environments/`](../../test-environments/README.md).
+> The `devbox_linux` workflow below remains until that replaces it.
+
 - A running `devbox_linux` VM built from `dev/integration-test/manifest.toml`
 - SSH access to the VM
 - Code synced to `/home/sherpa/sherpa/` inside the VM
