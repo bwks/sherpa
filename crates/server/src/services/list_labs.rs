@@ -2,8 +2,9 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::{AccessError, require_self_or_admin};
+use crate::auth::policy::require_self_or_admin;
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
 use shared::data::{LabSummary, ListLabsResponse};
 
 /// List the labs owned by a user
@@ -34,7 +35,7 @@ pub async fn list_labs(
     let user = db::find_user(&state.db, username)
         .await
         .context("Failed to look up user")?
-        .ok_or_else(|| AccessError::NotFound(format!("User not found: {username}")))?;
+        .ok_or_else(|| ServiceError::NotFound(format!("User not found: {username}")))?;
 
     // Get user's record ID
     let user_id = user.id.ok_or_else(|| anyhow::anyhow!("User has no ID"))?;

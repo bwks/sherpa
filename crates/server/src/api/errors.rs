@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::auth::policy::AccessError;
+use crate::services::error::ServiceError;
 
 /// Structured API error with consistent JSON format
 #[derive(Debug)]
@@ -21,6 +21,9 @@ pub enum ApiError {
 
     /// 400 Bad Request - Invalid input
     BadRequest { message: String },
+
+    /// 409 Conflict - Allowed, but the current state forbids the operation
+    Conflict { message: String },
 
     /// 500 Internal Server Error - Server-side errors
     InternalError { message: String },
@@ -58,6 +61,13 @@ impl ApiError {
     pub fn not_found(resource: impl Into<String>, msg: impl Into<String>) -> Self {
         Self::NotFound {
             resource: resource.into(),
+            message: msg.into(),
+        }
+    }
+
+    /// Create a Conflict error
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self::Conflict {
             message: msg.into(),
         }
     }
@@ -104,6 +114,12 @@ impl IntoResponse for ApiError {
                 "Invalid request".to_string(),
                 Some(message),
             ),
+            ApiError::Conflict { message } => (
+                StatusCode::CONFLICT,
+                "CONFLICT".to_string(),
+                message.clone(),
+                Some(message),
+            ),
             ApiError::InternalError { message } => {
                 // Log internal errors with context
                 tracing::error!("Internal API error: {}", message);
@@ -130,14 +146,15 @@ impl IntoResponse for ApiError {
 
 /// Convert anyhow::Error to ApiError
 ///
-/// Authorization failures carry a typed `AccessError` and map to 403 or 404. Other errors
+/// Authorization failures carry a typed `ServiceError` and map to 403 or 404. Other errors
 /// still fall back to matching on the error text.
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
-        if let Some(access) = AccessError::find(&err) {
+        if let Some(access) = ServiceError::find(&err) {
             return match access {
-                AccessError::Denied(_) => ApiError::forbidden(access.to_string()),
-                AccessError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
+                ServiceError::Denied(_) => ApiError::forbidden(access.to_string()),
+                ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
+                ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
             };
         }
 
@@ -245,15 +262,23 @@ mod tests {
 
     #[test]
     fn access_denied_errors_convert_to_forbidden_through_context() {
-        let err = anyhow::Error::new(AccessError::Denied("not yours".to_owned()))
+        let err = anyhow::Error::new(ServiceError::Denied("not yours".to_owned()))
             .context("Failed to destroy lab");
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::FORBIDDEN);
     }
 
     #[test]
+    fn conflict_errors_convert_to_conflict() {
+        let err = anyhow::Error::new(ServiceError::Conflict("owns labs".to_owned()))
+            .context("Failed to delete user");
+        let api_err: ApiError = err.into();
+        assert_eq!(api_err.into_response().status(), StatusCode::CONFLICT);
+    }
+
+    #[test]
     fn access_not_found_errors_convert_to_not_found() {
-        let err = anyhow::Error::new(AccessError::NotFound("Lab not found: x".to_owned()));
+        let err = anyhow::Error::new(ServiceError::NotFound("Lab not found: x".to_owned()));
         let api_err: ApiError = err.into();
         assert_eq!(api_err.into_response().status(), StatusCode::NOT_FOUND);
     }

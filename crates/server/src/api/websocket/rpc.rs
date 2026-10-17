@@ -9,18 +9,17 @@ use crate::api::websocket::connection::Connection;
 use crate::api::websocket::messages::{RpcError, ServerMessage};
 use crate::auth::context::AuthContext;
 use crate::auth::middleware;
-use crate::auth::policy::AccessError;
 use crate::daemon::state::AppState;
+use crate::services::error::ServiceError;
 use crate::services::{
     clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
-    progress, redeploy, resume, up,
+    progress, redeploy, resume, up, user_delete,
 };
 use shared::auth::password;
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_LAST_ADMIN, RPC_MSG_ACCESS_DENIED_OWN_INFO,
-    RPC_MSG_ACCESS_DENIED_OWN_PASSWORD, RPC_MSG_ACCESS_DENIED_SELF_DELETE,
+    JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ACCESS_DENIED_OWN_PASSWORD,
     RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
     RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
     RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
@@ -40,8 +39,7 @@ use shared::konst::{
     RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
     RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
     RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_LIST_FAILED,
     RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
@@ -95,14 +93,20 @@ async fn require_admin(
 /// Authorization failures from the service's policy checks keep their own codes so clients
 /// can tell "not allowed" and "does not exist" apart from operational failures.
 fn service_error(error: &anyhow::Error, failure_message: &str) -> RpcError {
-    match AccessError::find(error) {
-        Some(access @ AccessError::Denied(_)) => RpcError {
+    match ServiceError::find(error) {
+        Some(access @ ServiceError::Denied(_)) => RpcError {
             code: RpcErrorCode::AccessDenied,
             message: access.to_string(),
             context: None,
         },
-        Some(AccessError::NotFound(message)) => RpcError {
+        Some(ServiceError::NotFound(message)) => RpcError {
             code: RpcErrorCode::NotFound,
+            message: message.clone(),
+            context: None,
+        },
+        // JSON-RPC has no conflict code; the message tells the caller what to change.
+        Some(ServiceError::Conflict(message)) => RpcError {
+            code: RpcErrorCode::ServerError,
             message: message.clone(),
             context: None,
         },
@@ -2184,128 +2188,29 @@ async fn handle_user_delete(
         }
     };
 
-    // Prevent self-deletion
-    if request.username == auth_ctx.username {
-        tracing::warn!(
-            "User '{}' attempted to delete themselves",
-            auth_ctx.username
-        );
-        return ServerMessage::RpcResponse {
+    // The service enforces admin, self-delete, last-admin and owned-lab rules
+    match user_delete::delete_user(&auth_ctx, &request.username, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
             id,
             result: None,
-            error: Some(RpcError {
-                code: RpcErrorCode::AccessDenied,
-                message: RPC_MSG_ACCESS_DENIED_SELF_DELETE.to_string(),
-                context: None,
-            }),
-        };
-    }
-
-    // Check if this is the last admin
-    match db::list_users(&state.db).await {
-        Ok(users) => {
-            let admin_count = users.iter().filter(|u| u.is_admin).count();
-
-            // Get the user to be deleted
-            let user_to_delete = match users.iter().find(|u| u.username == request.username) {
-                Some(u) => u,
-                None => {
-                    return ServerMessage::RpcResponse {
-                        id,
-                        result: None,
-                        error: Some(RpcError {
-                            code: RpcErrorCode::NotFound,
-                            message: format!("User not found: {}", request.username),
-                            context: None,
-                        }),
-                    };
-                }
-            };
-
-            // If deleting an admin and this is the last admin, prevent deletion
-            if user_to_delete.is_admin && admin_count <= 1 {
-                tracing::warn!(
-                    admin = %auth_ctx.username,
-                    target = %request.username,
-                    "Attempted to delete last admin user"
-                );
-                return ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::AccessDenied,
-                        message: RPC_MSG_ACCESS_DENIED_LAST_ADMIN.to_string(),
-                        context: None,
-                    }),
-                };
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                admin = %auth_ctx.username,
-                error = %e,
-                "Failed to check admin count before deletion"
-            );
-            return ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_USER_DELETE_SAFETY_CHECK_FAILED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            };
-        }
-    }
-
-    // Delete user (cascade delete labs)
-    match db::delete_user_by_username(&state.db, &request.username).await {
-        Ok(_) => {
-            tracing::info!(
-                admin = %auth_ctx.username,
-                deleted_user = %request.username,
-                "User deleted successfully"
-            );
-
-            let response = data::DeleteUserResponse {
-                success: true,
-                username: request.username,
-            };
-
-            match serde_json::to_value(&response) {
-                Ok(result) => ServerMessage::RpcResponse {
-                    id,
-                    result: Some(result),
-                    error: None,
-                },
-                Err(e) => ServerMessage::RpcResponse {
-                    id,
-                    result: None,
-                    error: Some(RpcError {
-                        code: RpcErrorCode::InternalError,
-                        message: RPC_MSG_SERIALIZE_FAILED.to_string(),
-                        context: Some(format!("{:?}", e)),
-                    }),
-                },
-            }
-        }
-        Err(e) => {
-            tracing::error!(
-                admin = %auth_ctx.username,
-                username = %request.username,
-                error = %e,
-                "Failed to delete user"
-            );
-            ServerMessage::RpcResponse {
-                id,
-                result: None,
-                error: Some(RpcError {
-                    code: RpcErrorCode::ServerError,
-                    message: RPC_MSG_USER_DELETE_FAILED.to_string(),
-                    context: Some(format!("{:?}", e)),
-                }),
-            }
-        }
+            error: Some(service_error(&e, RPC_MSG_USER_DELETE_FAILED)),
+        },
     }
 }
 

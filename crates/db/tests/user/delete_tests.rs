@@ -1,9 +1,6 @@
 /// DELETE operation tests for user
 use anyhow::Result;
-use db::{
-    count_users, create_lab, create_user, delete_user, delete_user_by_username, delete_user_safe,
-    get_user,
-};
+use db::{count_users, create_lab, create_user, delete_user, delete_user_by_username, get_user};
 use shared::data::RecordId;
 
 use crate::{ipv4_lab_networks, setup_db, teardown_db};
@@ -104,27 +101,8 @@ async fn test_delete_user_decreases_count() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
-async fn test_delete_user_safe_without_labs() -> Result<()> {
-    let db = setup_db("test_delete_user_safe_no_labs").await?;
-
-    let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
-    let user_id = user.id.expect("User should have ID");
-
-    // Should succeed since user has no labs
-    delete_user_safe(&db, user_id).await?;
-
-    // Verify user is gone
-    let result = get_user(&db, "eve").await;
-    assert!(result.is_err(), "User should not exist after deletion");
-
-    teardown_db(&db).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
-    let db = setup_db("test_delete_user_safe_with_labs").await?;
+async fn test_delete_user_with_labs_is_rejected() -> Result<()> {
+    let db = setup_db("test_delete_user_with_labs_rejected").await?;
 
     // Create user and lab
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
@@ -144,21 +122,9 @@ async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
     )
     .await?;
 
-    // Should fail because user owns a lab
-    let result = delete_user_safe(&db, user_id).await;
-
+    // The schema rejects deleting a user who owns a lab
+    let result = delete_user(&db, user_id).await;
     assert!(result.is_err(), "Should fail when user owns labs");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("owns 1 lab"),
-        "Error should mention lab count: {}",
-        error_msg
-    );
-    assert!(
-        error_msg.contains("test-lab"),
-        "Error should mention lab name: {}",
-        error_msg
-    );
 
     // Verify user still exists
     let user = get_user(&db, "frank").await?;
@@ -170,8 +136,8 @@ async fn test_delete_user_safe_with_labs_fails() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
-async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
-    let db = setup_db("test_delete_user_safe_multiple_labs").await?;
+async fn test_delete_user_with_multiple_labs_is_rejected() -> Result<()> {
+    let db = setup_db("test_delete_user_multiple_labs_rejected").await?;
 
     // Create user with multiple labs
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
@@ -217,16 +183,9 @@ async fn test_delete_user_safe_with_multiple_labs_fails() -> Result<()> {
     )
     .await?;
 
-    // Should fail with count of 3 labs
-    let result = delete_user_safe(&db, user_id).await;
-
+    // The schema rejects deleting a user who owns labs
+    let result = delete_user(&db, user_id).await;
     assert!(result.is_err(), "Should fail when user owns multiple labs");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("owns 3 lab"),
-        "Error should mention 3 labs: {}",
-        error_msg
-    );
 
     teardown_db(&db).await?;
     Ok(())
@@ -257,7 +216,7 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     )
     .await?;
 
-    // Without cascade delete in schema, we must manually delete labs first
+    // The schema rejects deleting a lab owner, so the lab must be deleted first
     delete_lab(&db, &lab.lab_id).await?;
 
     // Now user can be deleted
@@ -266,27 +225,6 @@ async fn test_delete_user_with_labs_needs_manual_cleanup() -> Result<()> {
     // Verify user is gone
     let user_result = get_user(&db, "heidi").await;
     assert!(user_result.is_err(), "User should be deleted");
-
-    teardown_db(&db).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_delete_user_safe_nonexistent_fails() -> Result<()> {
-    let db = setup_db("test_delete_user_safe_nonexistent").await?;
-
-    let fake_id = RecordId::new("user", "nonexistent");
-
-    let result = delete_user_safe(&db, fake_id).await;
-
-    assert!(result.is_err(), "Should fail when user doesn't exist");
-    let error_msg = result.unwrap_err().to_string();
-    assert!(
-        error_msg.contains("not found"),
-        "Error should mention user not found: {}",
-        error_msg
-    );
 
     teardown_db(&db).await?;
     Ok(())

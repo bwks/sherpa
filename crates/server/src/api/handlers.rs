@@ -12,14 +12,15 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
-use crate::auth::policy::{AccessError, require_lab_access, require_lab_owner};
+use crate::auth::policy::{require_lab_access, require_lab_owner};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
+use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{
     clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
-    redeploy, resume, up,
+    redeploy, resume, up, user_delete,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -43,15 +44,15 @@ use shared::auth::{password, ssh};
 use shared::data::{
     BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
     CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
-    DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest, InspectResponse,
-    InterfaceType, LabNodeActionResponse, ListImagesRequest, ListLabsResponse, ListUsersResponse,
-    LoginRequest, LoginResponse, MachineType, NodeConfig, NodeModel, OsVariant, RedeployRequest,
-    ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest, UpRequest,
+    DeleteUserResponse, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
+    InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest, ListLabsResponse,
+    ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig, NodeModel, OsVariant,
+    RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest, UpRequest,
     UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
 };
 use shared::konst::{
-    JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SERVER_CERT_PATH,
-    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+    ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
+    SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
 
@@ -1314,15 +1315,15 @@ fn lab_error_page(
     error: &anyhow::Error,
     failure_message: &str,
 ) -> Response {
-    match AccessError::find(error) {
-        Some(AccessError::Denied(_)) => Error403Template {
+    match ServiceError::find(error) {
+        Some(ServiceError::Denied(_)) => Error403Template {
             username,
             is_admin,
             active_page: String::new(),
             message: "You don't have permission to view this lab.".to_string(),
         }
         .into_response(),
-        Some(AccessError::NotFound(_)) => {
+        Some(ServiceError::NotFound(_)) => {
             tracing::debug!("Lab '{}' not found for user '{}'", lab_id, username);
             Error404Template {
                 username,
@@ -1332,7 +1333,7 @@ fn lab_error_page(
             }
             .into_response()
         }
-        None => {
+        Some(ServiceError::Conflict(_)) | None => {
             tracing::error!(
                 "Failed to load lab '{}' for user '{}': {:?}",
                 lab_id,
@@ -1355,14 +1356,14 @@ fn lab_error_page(
 /// Authorization failures keep their 403 or 404 status; other failures render the message.
 fn lab_error_fragment(error: &anyhow::Error, failure_message: &str) -> Response {
     let message = format!("{failure_message}: {error}");
-    match AccessError::find(error) {
-        Some(AccessError::Denied(_)) => {
+    match ServiceError::find(error) {
+        Some(ServiceError::Denied(_)) => {
             (StatusCode::FORBIDDEN, ErrorTemplate { message }).into_response()
         }
-        Some(AccessError::NotFound(_)) => {
+        Some(ServiceError::NotFound(_)) => {
             (StatusCode::NOT_FOUND, ErrorTemplate { message }).into_response()
         }
-        None => {
+        Some(ServiceError::Conflict(_)) | None => {
             tracing::error!("{failure_message}: {:?}", error);
             ErrorTemplate { message }.into_response()
         }
@@ -1968,59 +1969,43 @@ pub async fn admin_delete_ssh_key_handler(
 }
 
 /// Admin delete user handler
+///
+/// DELETE /admin/users/{username}
+///
+/// On success the response is empty and HTMX removes the user's table row. A refused delete
+/// (self-delete, last admin, or a user who owns labs) is shown in the page's
+/// `#user-delete-error` notification instead, using `HX-Retarget`.
+#[tracing::instrument(skip(state, admin), fields(admin = %admin.username, %target_username))]
 pub async fn admin_delete_user_handler(
     State(state): State<AppState>,
     Path(target_username): Path<String>,
     admin: AdminUser,
 ) -> Result<Response, ApiError> {
-    tracing::info!(
-        "Admin '{}' attempting to delete user '{}'",
-        admin.username,
-        target_username
-    );
-
-    // Get user from database to get their ID
-    let user = db::get_user(&state.db, &target_username)
-        .await
-        .map_err(|e| {
-            tracing::error!("Failed to get user '{}': {:?}", target_username, e);
-            ApiError::not_found("User", format!("User '{}' not found", target_username))
-        })?;
-
-    let user_id = user.id.ok_or_else(|| {
-        tracing::error!("User '{}' has no ID", target_username);
-        ApiError::internal("User record is invalid")
-    })?;
-
-    // Attempt safe deletion (will fail if user owns labs)
-    match db::delete_user_safe(&state.db, user_id).await {
-        Ok(_) => {
-            tracing::info!(
-                "Admin '{}' successfully deleted user '{}'",
-                admin.username,
-                target_username
-            );
-            // Return empty response - HTMX will remove the table row
-            Ok(StatusCode::OK.into_response())
-        }
-        Err(e) => {
-            let error_msg = e.to_string();
-            tracing::warn!(
-                "Admin '{}' failed to delete user '{}': {}",
-                admin.username,
-                target_username,
-                error_msg
-            );
-
-            // Check if error is about labs
-            if error_msg.contains("owns") && error_msg.contains("lab") {
-                Err(ApiError::bad_request(
-                    "Cannot delete user: user owns one or more labs. Delete the labs first.",
-                ))
-            } else {
+    match user_delete::delete_user(&admin.into_context(), &target_username, &state).await {
+        // Return empty response - HTMX will remove the table row
+        Ok(_) => Ok(StatusCode::OK.into_response()),
+        Err(e) => match ServiceError::find(&e) {
+            Some(refusal) => Ok((
+                [
+                    (
+                        header::HeaderName::from_static("hx-retarget"),
+                        header::HeaderValue::from_static(ADMIN_USER_DELETE_ERROR_TARGET),
+                    ),
+                    (
+                        header::HeaderName::from_static("hx-reswap"),
+                        header::HeaderValue::from_static("innerHTML"),
+                    ),
+                ],
+                AdminNotificationErrorTemplate {
+                    message: refusal.to_string(),
+                },
+            )
+                .into_response()),
+            None => {
+                tracing::error!("Failed to delete user '{}': {:?}", target_username, e);
                 Err(ApiError::internal("Failed to delete user"))
             }
-        }
+        },
     }
 }
 
@@ -3252,33 +3237,17 @@ pub async fn list_users_json(
 /// Delete a user (admin only)
 ///
 /// DELETE /api/v1/admin/users/{username}
+///
+/// Refuses self-delete and the last admin (403), and users who own labs (409).
 pub async fn delete_user_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Path(username): Path<String>,
-) -> Result<Json<serde_json::Value>, ApiError> {
-    require_admin_auth(&auth)?;
-
-    if username == auth.username {
-        return Err(ApiError::bad_request("Cannot delete your own account"));
-    }
-
-    // Check last admin safety
-    let users = db::list_users(&state.db).await.map_err(ApiError::from)?;
-    let admin_count = users.iter().filter(|u| u.is_admin).count();
-    let target_is_admin = users.iter().any(|u| u.username == username && u.is_admin);
-
-    if target_is_admin && admin_count <= 1 {
-        return Err(ApiError::bad_request(
-            "Cannot delete the last admin account",
-        ));
-    }
-
-    db::delete_user_by_username(&state.db, &username)
+) -> Result<Json<DeleteUserResponse>, ApiError> {
+    let response = user_delete::delete_user(&auth.into_context(), &username, &state)
         .await
         .map_err(ApiError::from)?;
-
-    Ok(Json(json!({ "success": true, "username": username })))
+    Ok(Json(response))
 }
 
 /// Change a user's password

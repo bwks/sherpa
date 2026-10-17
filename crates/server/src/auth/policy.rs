@@ -6,10 +6,8 @@
 //! work done before the service is called) may call the same helper first, so the rule still
 //! lives in one place.
 //!
-//! Failures are returned as [`AccessError`] inside `anyhow::Error`, so transports can map them
+//! Failures are returned as [`ServiceError`] inside `anyhow::Error`, so transports can map them
 //! to their own status codes by downcasting instead of matching on error text.
-
-use std::fmt;
 
 use anyhow::{Context, Result, anyhow};
 use db::Database;
@@ -17,15 +15,7 @@ use shared::data::DbLab;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-
-/// Why an authorization check failed.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AccessError {
-    /// The resource does not exist.
-    NotFound(String),
-    /// The caller is authenticated but not allowed to perform the operation.
-    Denied(String),
-}
+use crate::services::error::ServiceError;
 
 /// Which callers may act on a lab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -36,31 +26,13 @@ pub enum LabRule {
     OwnerOnly,
 }
 
-impl fmt::Display for AccessError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::NotFound(message) => write!(f, "{message}"),
-            Self::Denied(message) => write!(f, "Access denied: {message}"),
-        }
-    }
-}
-
-impl std::error::Error for AccessError {}
-
-impl AccessError {
-    /// Find an `AccessError` anywhere in an error chain.
-    pub fn find(error: &anyhow::Error) -> Option<&AccessError> {
-        error.downcast_ref::<AccessError>()
-    }
-}
-
 /// Decide whether the caller may act on a lab owned by `owner_username`.
 pub fn check_lab_rule(
     ctx: &AuthContext,
     rule: LabRule,
     lab_id: &str,
     owner_username: &str,
-) -> Result<(), AccessError> {
+) -> Result<(), ServiceError> {
     let allowed = match rule {
         LabRule::OwnerOrAdmin => ctx.can_access(owner_username),
         LabRule::OwnerOnly => ctx.can_redeploy(owner_username),
@@ -74,11 +46,11 @@ pub fn check_lab_rule(
             format!("Only the owner of lab '{lab_id}' can perform this operation")
         }
     };
-    Err(AccessError::Denied(message))
+    Err(ServiceError::Denied(message))
 }
 
 /// Require admin privileges.
-pub fn require_admin(ctx: &AuthContext) -> Result<(), AccessError> {
+pub fn require_admin(ctx: &AuthContext) -> Result<(), ServiceError> {
     if ctx.is_admin {
         return Ok(());
     }
@@ -87,11 +59,11 @@ pub fn require_admin(ctx: &AuthContext) -> Result<(), AccessError> {
         username = %ctx.username,
         "Non-admin attempted an admin-only operation"
     );
-    Err(AccessError::Denied("admin privileges required".to_owned()))
+    Err(ServiceError::Denied("admin privileges required".to_owned()))
 }
 
 /// Require that the caller is `username`, or an admin.
-pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), AccessError> {
+pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), ServiceError> {
     if ctx.can_access(username) {
         return Ok(());
     }
@@ -101,7 +73,7 @@ pub fn require_self_or_admin(ctx: &AuthContext, username: &str) -> Result<(), Ac
         target_user = %username,
         "User attempted to act on another user's account"
     );
-    Err(AccessError::Denied(format!(
+    Err(ServiceError::Denied(format!(
         "cannot act on behalf of user '{username}'"
     )))
 }
@@ -127,7 +99,7 @@ async fn authorize_lab(
     let lab = db::find_lab(db, lab_id)
         .await
         .context("Failed to look up lab for authorization")?
-        .ok_or_else(|| AccessError::NotFound(format!("Lab not found: {lab_id}")))?;
+        .ok_or_else(|| ServiceError::NotFound(format!("Lab not found: {lab_id}")))?;
     let owner = db::get_user_by_id(db, lab.user.clone())
         .await
         .context("Failed to look up lab owner for authorization")?
@@ -172,7 +144,7 @@ mod tests {
         assert!(check_lab_rule(&ctx("admin", true), rule, "lab1", "alice").is_ok());
         assert_eq!(
             check_lab_rule(&ctx("bob", false), rule, "lab1", "alice"),
-            Err(AccessError::Denied(
+            Err(ServiceError::Denied(
                 "Lab 'lab1' is owned by another user".to_owned()
             ))
         );
@@ -185,11 +157,11 @@ mod tests {
         assert!(check_lab_rule(&ctx("admin", true), rule, "lab1", "admin").is_ok());
         assert!(matches!(
             check_lab_rule(&ctx("admin", true), rule, "lab1", "alice"),
-            Err(AccessError::Denied(_))
+            Err(ServiceError::Denied(_))
         ));
         assert!(matches!(
             check_lab_rule(&ctx("bob", false), rule, "lab1", "alice"),
-            Err(AccessError::Denied(_))
+            Err(ServiceError::Denied(_))
         ));
     }
 
@@ -198,7 +170,7 @@ mod tests {
         assert!(require_admin(&ctx("admin", true)).is_ok());
         assert!(matches!(
             require_admin(&ctx("alice", false)),
-            Err(AccessError::Denied(_))
+            Err(ServiceError::Denied(_))
         ));
     }
 
@@ -208,18 +180,7 @@ mod tests {
         assert!(require_self_or_admin(&ctx("admin", true), "alice").is_ok());
         assert!(matches!(
             require_self_or_admin(&ctx("bob", false), "alice"),
-            Err(AccessError::Denied(_))
+            Err(ServiceError::Denied(_))
         ));
-    }
-
-    #[test]
-    fn access_errors_survive_added_context() {
-        let error = anyhow::Error::new(AccessError::NotFound("Lab not found: lab1".to_owned()))
-            .context("Failed to destroy lab");
-        assert_eq!(
-            AccessError::find(&error),
-            Some(&AccessError::NotFound("Lab not found: lab1".to_owned()))
-        );
-        assert!(AccessError::find(&anyhow!("Lab not found: lab1")).is_none());
     }
 }

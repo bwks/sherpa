@@ -14,6 +14,9 @@
         </div>
     </div>
 
+    <!-- Refused user deletes are shown here (hx-retarget from DELETE /admin/users/{username}) -->
+    <div id="user-delete-error"></div>
+
     <!-- Users Table -->
     {% if !users.is_empty() %}
     <div class="bg-card rounded-lg shadow-sm border border-border overflow-hidden">

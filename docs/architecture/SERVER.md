@@ -443,10 +443,10 @@ Every lab service takes the caller's `&AuthContext` and checks it with the helpe
 
 `require_lab_access` and `require_lab_owner` return the lab record, so services do not look it up twice. When an admin acts on another user's lab, the helper logs a `warn` line with `event = "auth.admin_lab_access"`, naming the admin, the lab and the owner. Refusals log `event = "auth.access_denied"`.
 
-Failures are returned as a typed `auth::policy::AccessError` (`Denied` or `NotFound`) inside `anyhow::Error`. Transports find it with `AccessError::find`, which works through added context:
+Refusals are returned as a typed `services::error::ServiceError` inside `anyhow::Error`: `Denied` (not allowed), `NotFound`, or `Conflict` (allowed, but the current state forbids it, such as deleting a user who owns labs). Transports find it with `ServiceError::find`, which works through added context:
 
-- REST: `ApiError::from` maps `Denied` to 403 and `NotFound` to 404. No authorization decision is made by matching on error text.
-- RPC: `service_error` in `rpc.rs` maps them to `AccessDenied` and `NotFound`; other failures stay `ServerError`.
+- REST: `ApiError::from` maps `Denied` to 403, `NotFound` to 404 and `Conflict` to 409. No authorization decision is made by matching on error text.
+- RPC: `service_error` in `rpc.rs` maps them to `AccessDenied`, `NotFound`, and `ServerError` with the conflict message (JSON-RPC has no conflict code); other failures stay `ServerError` with the error chain as context.
 - HTML: `lab_error_page` and `lab_error_fragment` in `handlers.rs` render the 403 and 404 templates.
 
 Request structs (`UpRequest`, `DestroyRequest`, `InspectRequest`, `RedeployRequest`, `UpdateImpairmentRequest`) do not carry a username. Identity only ever comes from the `AuthContext`. Older clients that still send `username` keep working, because unknown fields are ignored.
@@ -471,7 +471,7 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 - REST API access uses bearer-or-cookie extractors.
 - WebSocket RPC access requires `params.token`.
 - User password/info operations allow admins to target anyone and regular users to target themselves. These checks are still in the transports, not in services.
-- Self-delete is rejected on RPC and REST. Deleting the last admin is rejected on RPC and REST.
+- User deletion goes through `services::user_delete::delete_user` on every transport. It is admin only and refuses self-delete, the last admin account, and any user who owns labs (`Conflict`, listing the labs). The web admin page shows a refusal in its `#user-delete-error` notification using `HX-Retarget`. The database backs up the owned-lab rule: `lab.user` is `REFERENCE ON DELETE REJECT`, because deleting only the records would leave the labs' VMs, containers and networks running unmanaged. With identity read from the database, the last-admin rule can only be hit by a race (two admins deleting each other at once); there is no transaction around the check and the delete.
 - `clean_lab_resources` is the unchecked clean used internally, to roll back a failed `up` on behalf of the user who started it. User requests go through `clean_lab`.
 
 ## Service layer architecture

@@ -62,7 +62,7 @@
 
 **What to test:**
 - Admin deletes user → user removed from DB `[e2e]` **P0**
-- Deleted user's labs cascade-deleted `[e2e]` **P0**
+- Deleting a user who owns labs is refused until the labs are destroyed `[e2e]` **P0**
 - Last admin cannot be deleted (safety check) `[e2e]` **P0**
 - Non-admin cannot delete users `[e2e]` **P0**
 - Deleted user's token no longer valid `[e2e]` **P1**

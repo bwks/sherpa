@@ -35,7 +35,7 @@
 ### Architecture Rough Edges
 
 - [ ] **Route-group authorization** — Replace handler-signature/manual auth discovery with explicit public, authenticated, and admin route groups. PRD: `docs/prds/server-route-group-authorization.md`.
-- [ ] **User operations authorization** — Lab services enforce authorization from a verified `AuthContext` (#320); move the user password, user info and user delete rules into services the same way, and make user deletion consistent across transports (#324). PRD: `docs/prds/server-service-authorization-context.md`.
+- [ ] **User operations authorization** — Lab services (#320) and user deletion (#324) enforce authorization from a verified `AuthContext` in services; move the user password and user info rules into services the same way. PRD: `docs/prds/server-service-authorization-context.md`.
 - [ ] **API spec streaming parity** — Resolve the `image.import` streaming mismatch between `api_spec.rs`, REST handlers, WebSocket handlers, OpenAPI, docs, and tests. PRD: `docs/prds/server-api-spec-streaming-parity.md`.
 - [ ] **Persistent job state** — Replace in-memory-only HTML progress jobs with durable job records and reconnectable progress/result behavior. PRD: `docs/prds/server-persistent-job-state.md`.
 - [ ] **Resource registry cleanup** — Add exact resource inventory/ownership tracking so destroy/clean do not depend primarily on name substring matching. PRD: `docs/prds/server-resource-registry-cleanup.md`.

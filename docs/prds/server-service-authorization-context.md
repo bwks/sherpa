@@ -6,8 +6,9 @@ Implemented for lab operations (issue #320). Services take `&AuthContext` and en
 rules in `crates/server/src/auth/policy.rs`; identity and the admin flag are resolved from the
 database on every request. See the authentication section of `docs/architecture/SERVER.md`.
 
-Still open: user password and user info checks remain in the transports, and user deletion
-rules differ by transport (#324).
+User deletion goes through one service with the same rules on every transport (#324).
+
+Still open: user password and user info checks remain in the transports.
 
 ## Problem
 
