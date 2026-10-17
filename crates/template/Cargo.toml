@@ -12,7 +12,6 @@ anyhow = { workspace = true }
 askama = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
-serde_yaml = "0.9.34"
 serde_json = { workspace = true }
 
 # IP Addressing

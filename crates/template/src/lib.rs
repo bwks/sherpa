@@ -16,6 +16,7 @@ mod cumulus_linux;
 mod dnsmasq;
 mod domain;
 mod frr;
+mod guest_yaml;
 mod ignition;
 mod juniper_junos;
 mod mikrotik_routeros;

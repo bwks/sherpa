@@ -10,6 +10,8 @@ use shared::konst::{
 };
 use shared::util::get_ssh_public_key;
 
+use crate::guest_yaml::{to_cloud_config, to_guest_yaml};
+
 #[derive(Serialize, Deserialize, Debug, Default)]
 pub struct MetaDataConfig {
     #[serde(rename = "instance-id")]
@@ -21,7 +23,7 @@ pub struct MetaDataConfig {
 }
 impl MetaDataConfig {
     pub fn to_string(&self) -> Result<String> {
-        Ok(serde_yaml::to_string(&self)?)
+        to_guest_yaml(self)
     }
 }
 
@@ -33,7 +35,7 @@ pub struct CloudInitNetwork {
 
 impl CloudInitNetwork {
     pub fn to_string(&self) -> Result<String> {
-        Ok(serde_yaml::to_string(&self)?)
+        to_guest_yaml(self)
     }
     pub fn ztp_interface(
         mgmt_ipv4_address: Ipv4Addr,
@@ -144,14 +146,7 @@ pub struct CloudInitConfig {
 }
 impl CloudInitConfig {
     pub fn to_string(&self) -> Result<String> {
-        // First serialize to regular YAML
-        let yaml = serde_yaml::to_string(&self)?;
-
-        // Prepend the #cloud-config comment
-        let mut output = String::from("#cloud-config\n");
-        output.push_str(&yaml);
-
-        Ok(output)
+        to_cloud_config(self)
     }
 }
 #[derive(Serialize, Deserialize, Debug)]
