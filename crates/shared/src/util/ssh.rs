@@ -2,7 +2,7 @@ use anyhow::{Context, Result, anyhow};
 use base64::{Engine, engine::general_purpose};
 use rand::rngs::OsRng;
 use sha2::{Digest, Sha256};
-use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey};
+use ssh_key::{Algorithm, HashAlg, LineEnding, PrivateKey, PublicKey};
 use tracing::instrument;
 
 use std::collections::HashSet;
@@ -130,6 +130,13 @@ pub fn pub_ssh_key_to_sha256_hash(pub_key_str: &str) -> Result<String> {
         .join(":");
 
     Ok(fingerprint)
+}
+
+/// The SHA256 fingerprint of an OpenSSH public key, as `ssh-keygen -l` prints it
+/// (`SHA256:...`).
+pub fn ssh_key_fingerprint(public_key: &str) -> Result<String> {
+    let key = PublicKey::from_openssh(public_key.trim()).context("Invalid SSH public key")?;
+    Ok(key.fingerprint(HashAlg::Sha256).to_string())
 }
 
 /// Generate an SSH RSA keypair.
@@ -1013,5 +1020,16 @@ loopback_network = "127.127.1.0/24"
     fn test_pub_ssh_key_to_md5_hash_invalid_input() {
         let invalid_key = "not a valid ssh key";
         assert!(pub_ssh_key_to_md5_hash(invalid_key).is_err());
+    }
+
+    #[test]
+    fn test_ssh_key_fingerprint_matches_ssh_keygen() {
+        let key =
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh test";
+        assert_eq!(
+            ssh_key_fingerprint(key).unwrap(),
+            "SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"
+        );
+        assert!(ssh_key_fingerprint("not a key").is_err());
     }
 }

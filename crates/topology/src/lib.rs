@@ -6,6 +6,7 @@ mod link;
 mod manifest;
 mod node;
 mod talos_cluster;
+pub mod validate;
 
 // re-export
 pub use bridge::{

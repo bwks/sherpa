@@ -144,6 +144,23 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Convert a typed service refusal to ApiError: 403, 404 or 409.
+impl From<&ServiceError> for ApiError {
+    fn from(err: &ServiceError) -> Self {
+        match err {
+            ServiceError::Denied(_) => ApiError::forbidden(err.to_string()),
+            ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
+            ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
+        }
+    }
+}
+
+impl From<ServiceError> for ApiError {
+    fn from(err: ServiceError) -> Self {
+        ApiError::from(&err)
+    }
+}
+
 /// Convert anyhow::Error to ApiError
 ///
 /// Authorization failures carry a typed `ServiceError` and map to 403 or 404. Other errors
@@ -151,11 +168,7 @@ impl IntoResponse for ApiError {
 impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
         if let Some(access) = ServiceError::find(&err) {
-            return match access {
-                ServiceError::Denied(_) => ApiError::forbidden(access.to_string()),
-                ServiceError::NotFound(message) => ApiError::not_found("Resource", message.clone()),
-                ServiceError::Conflict(message) => ApiError::conflict(message.clone()),
-            };
+            return ApiError::from(access);
         }
 
         let err_str = format!("{:#}", err);

@@ -14,7 +14,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
-use crate::auth::policy::{require_lab_access, require_lab_owner};
+use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
@@ -22,7 +22,7 @@ use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{
     cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, redeploy, resume, up, user_delete,
+    list_labs, redeploy, resume, up, user_delete, user_ssh_keys,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -41,23 +41,25 @@ use super::extractors::{
     trace_rejected_session, trace_validated_session, validate_cookie_session,
 };
 
+use crate::validate::validate_node_image_update;
 use shared::api_spec;
-use shared::auth::{password, ssh};
+use shared::auth::password;
 use shared::data::{
-    BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
+    AddSshKeyRequest, BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
     ContainerPullRequest, CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse,
     DeleteImageRequest, DeleteUserResponse, DiskBuses, DownloadImageRequest, GetUserInfoResponse,
     ImportRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
-    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
-    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
-    ZtpMethod,
+    NodeModel, OsVariant, RedeployRequest, RemoveSshKeyRequest, ScanImagesRequest,
+    SetDefaultImageRequest, ShowImageRequest, UpRequest, UpdateImpairmentRequest,
+    UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ZtpMethod,
 };
 use shared::konst::{
     ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
     SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
-use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
+use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest, normalize_username};
+use shared::validators::{validate_password_strength, validate_ssh_key, validate_username};
 
 /// Authenticate user and issue JWT token
 ///
@@ -321,7 +323,7 @@ pub async fn signup_page_handler() -> impl IntoResponse {
 /// All self-registered users are created as non-admin.
 ///
 /// Form fields:
-/// - username: Desired username (min 3 chars, alphanumeric + @._-)
+/// - username: Desired username (3–32 lowercase letters, digits, `_` or `-`; not reserved)
 /// - password: Desired password (must meet strength requirements)
 /// - confirm_password: Password confirmation (must match password)
 ///
@@ -463,8 +465,7 @@ fn extract_validation_message(error_str: &str, context: &str) -> String {
     // For username errors, extract the specific requirement message
     if context == "Username" {
         // Username errors typically have the format:
-        // "Username must be at least 3 characters long" or
-        // "Username can only contain alphanumeric characters and @._- symbols"
+        // "Username must be 3–32 lowercase letters, ..." or "Username 'admin' is reserved"
         if let Some(pos) = error_str.find("Username") {
             let msg_part = &error_str[pos..];
             // Take everything until we hit a newline or end
@@ -614,7 +615,7 @@ pub async fn update_password_handler(
     }
 
     // 4. Validate new password strength
-    if let Err(e) = password::validate_password_strength(&form.new_password) {
+    if let Err(e) = validate_password_strength(&form.new_password) {
         return PasswordErrorTemplate {
             message: format!("New password does not meet requirements: {}", e),
         }
@@ -674,7 +675,7 @@ pub async fn add_ssh_key_handler(
     axum::Form(form): axum::Form<AddSshKeyForm>,
 ) -> impl IntoResponse {
     // 1. Validate SSH key format
-    if let Err(e) = ssh::validate_ssh_key(&form.ssh_key) {
+    if let Err(e) = validate_ssh_key(&form.ssh_key) {
         return SshKeyErrorTemplate {
             message: format!("Invalid SSH key: {}", e),
         }
@@ -1727,7 +1728,7 @@ pub async fn admin_user_edit_handler(
         })?;
 
     // Check if admin is editing themselves
-    let is_self = admin.username == target_username;
+    let is_self = admin.username == normalize_username(&target_username);
 
     if is_self {
         tracing::debug!("Admin is editing their own account");
@@ -1778,7 +1779,7 @@ pub async fn admin_update_user_password_handler(
     );
 
     // Prevent admin from updating their own password via admin dashboard
-    if admin.username == target_username {
+    if admin.username == normalize_username(&target_username) {
         tracing::warn!(
             "Admin '{}' attempted to update their own password via admin dashboard",
             admin.username
@@ -1799,7 +1800,7 @@ pub async fn admin_update_user_password_handler(
     }
 
     // Validate password strength
-    if let Err(e) = password::validate_password_strength(&form.new_password) {
+    if let Err(e) = validate_password_strength(&form.new_password) {
         return Ok(AdminPasswordErrorTemplate {
             error_message: format!("Password validation failed: {}", e),
         }
@@ -1865,7 +1866,7 @@ pub async fn admin_add_ssh_key_handler(
     let ssh_key = form.ssh_key.trim();
 
     // Validate SSH key format
-    if let Err(e) = ssh::validate_ssh_key(ssh_key) {
+    if let Err(e) = validate_ssh_key(ssh_key) {
         tracing::debug!("Invalid SSH key format: {:?}", e);
         return Ok(AdminSshKeysListTemplate {
             target_username: target_username.clone(),
@@ -2498,7 +2499,7 @@ pub async fn admin_image_update_handler(
     let ztp_password = form.ztp_password.filter(|s| !s.trim().is_empty());
 
     // Validate form data
-    if let Err(e) = validate::validate_node_image_update(
+    if let Err(e) = validate_node_image_update(
         form.cpu_count,
         form.memory,
         form.interface_mtu,
@@ -2847,8 +2848,10 @@ pub async fn create_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Json(payload): Json<UpRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
+    // Checked before the stream opens so a refusal is a 403, not an error event.
+    require_lab_starter(&auth)?;
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
@@ -2859,7 +2862,7 @@ pub async fn create_lab_json(
         let _ = result_tx.send(result);
     });
 
-    sse::Sse::new(json_progress_stream(progress_rx, result_rx))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Destroy a lab (SSE streaming)
@@ -3242,9 +3245,12 @@ pub async fn create_user_json(
 ) -> Result<Json<CreateUserResponse>, ApiError> {
     require_admin_auth(&auth)?;
 
+    let username = normalize_username(&request.username);
+    validate_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
     let user = db::create_user(
         &state.db,
-        request.username.clone(),
+        username,
         &request.password,
         request.is_admin,
         request.ssh_keys.unwrap_or_default(),
@@ -3310,7 +3316,7 @@ pub async fn change_password_json(
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>, ApiError> {
     // Admins can change any password; users can only change their own
-    if !auth.is_admin && auth.username != username {
+    if !auth.is_admin && auth.username != normalize_username(&username) {
         return Err(ApiError::forbidden("You can only change your own password"));
     }
 
@@ -3332,6 +3338,38 @@ pub async fn change_password_json(
     }))
 }
 
+/// Add an SSH public key to a user
+///
+/// POST /api/v1/admin/users/{username}/ssh-keys
+pub async fn add_ssh_key_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<AddSshKeyRequest>,
+) -> Result<Json<UserSshKeysResponse>, ApiError> {
+    let response =
+        user_ssh_keys::add_ssh_key(&auth.into_context(), &username, &payload.ssh_key, &state)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(Json(response))
+}
+
+/// Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user
+///
+/// DELETE /api/v1/admin/users/{username}/ssh-keys
+pub async fn remove_ssh_key_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<RemoveSshKeyRequest>,
+) -> Result<Json<UserSshKeysResponse>, ApiError> {
+    let response =
+        user_ssh_keys::remove_ssh_key(&auth.into_context(), &username, &payload.ssh_key, &state)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(Json(response))
+}
+
 /// Get user info
 ///
 /// GET /api/v1/admin/users/{username}
@@ -3341,7 +3379,7 @@ pub async fn get_user_info_json(
     Path(username): Path<String>,
 ) -> Result<Json<GetUserInfoResponse>, ApiError> {
     // Admins can view any user; users can only view themselves
-    if !auth.is_admin && auth.username != username {
+    if !auth.is_admin && auth.username != normalize_username(&username) {
         return Err(ApiError::forbidden("You can only view your own profile"));
     }
 
@@ -3653,6 +3691,14 @@ pub async fn lab_create_post_handler(
     State(state): State<AppState>,
     Form(form): Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
+    let auth = auth.into_context();
+    if let Err(refusal) = require_lab_starter(&auth) {
+        return ErrorTemplate {
+            message: refusal.to_string(),
+        }
+        .into_response();
+    }
+
     let manifest_toml = match form.get("manifest") {
         Some(m) if !m.trim().is_empty() => m.trim().to_string(),
         _ => {
@@ -3706,7 +3752,7 @@ pub async fn lab_create_post_handler(
         Job {
             lab_name,
             job_type: JobType::Create { request },
-            requester: auth.into_context(),
+            requester: auth,
         },
     );
 

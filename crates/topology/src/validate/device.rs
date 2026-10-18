@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 
+use crate::Node;
 use shared::konst::MANAGEMENT_NODE_HOST_OFFSETS;
-use topology::Node;
 
 // Check duplicate device definitions
 pub fn check_duplicate_device(devices: &Vec<Node>) -> Result<()> {

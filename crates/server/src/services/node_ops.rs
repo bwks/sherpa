@@ -2,9 +2,10 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{Ipv4Addr, Ipv6Addr, TcpStream};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
@@ -2794,7 +2795,11 @@ pub async fn start_container_node(
 
 /// Check if a node is ready by attempting a TCP connection to its readiness port.
 pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
-    validate::tcp_connect(ip, port)
+    let address_port = format!("{}:{}", ip, port).parse()?;
+    match TcpStream::connect_timeout(&address_port, Duration::from_millis(100)) {
+        Ok(_) => Ok(true),
+        Err(_) => Ok(false),
+    }
 }
 
 /// Port that shows a virtual machine is ready: the manifest's `ready_port`, else the model's
@@ -3033,7 +3038,7 @@ pub fn check_unikernel_ready(
 
     // If ready_port specified, also do TCP probe
     if let (Some(port), Some(ip)) = (ready_port, mgmt_ip) {
-        validate::tcp_connect(ip, port)
+        check_node_port_ready(ip, port)
     } else {
         // Domain running = ready (default for unikernels)
         Ok(true)
@@ -3609,5 +3614,19 @@ mod tests {
             vm_ready_port(&data::NodeModel::UbuntuLinux, Some(8443)),
             8443
         );
+    }
+
+    #[test]
+    fn test_check_node_port_ready_invalid_address_returns_error() {
+        let result = check_node_port_ready("not_an_ip", 8080);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_check_node_port_ready_closed_port_returns_false() {
+        // Port 1 is almost certainly not listening
+        let result = check_node_port_ready("127.0.0.1", 1);
+        assert!(result.is_ok());
+        assert!(!result.unwrap());
     }
 }

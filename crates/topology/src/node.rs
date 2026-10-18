@@ -17,8 +17,6 @@ pub struct Node {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub boot_disk_clone_method: Option<DiskImageCloneMethod>,
     pub data_interface_count: Option<u8>,
-    pub ipv4_address: Option<Ipv4Addr>,
-    pub ipv6_address: Option<Ipv6Addr>,
     pub text_files: Option<Vec<TextFile>>,
     pub binary_files: Option<Vec<BinaryFile>>,
     pub systemd_units: Option<Vec<SystemdUnit>>,

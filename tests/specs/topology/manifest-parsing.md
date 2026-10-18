@@ -55,7 +55,7 @@
 - `environment_variables` parsed as Vec<String> `[unit]` **P1**
 - `cpu_count`, `memory`, `boot_disk_size` optional overrides `[unit]` **P1**
 - `data_interface_count` optional per-node data interface override parsed correctly `[unit]` **P0**
-- `ipv4_address`, `ipv6_address` optional loopback IPs `[unit]` **P1**
+- `ipv4_address` and `ipv6_address` are rejected as unknown fields; management addresses are always allocated by the server `[unit]` **P1**
 
 ---
 

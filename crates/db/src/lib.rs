@@ -57,8 +57,8 @@ pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations
 pub use user::{
-    count_users, create_user, delete_user, delete_user_by_username, find_user, get_user,
-    get_user_by_id, get_user_for_auth, list_users, update_user, upsert_user,
+    count_users, create_admin_user, create_user, delete_user, delete_user_by_username, find_user,
+    get_user, get_user_by_id, get_user_for_auth, list_users, update_user,
 };
 
 // Bridge CRUD operations

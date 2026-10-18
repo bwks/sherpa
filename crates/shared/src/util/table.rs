@@ -7,7 +7,7 @@ use tabled::{
     },
 };
 
-use super::ssh::SshConfigInspectionEntry;
+use super::ssh::{SshConfigInspectionEntry, ssh_key_fingerprint};
 use crate::data::{
     BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ScannedImage,
     TailnetStatus,
@@ -527,6 +527,50 @@ pub fn render_certificates_table(certs: &[CertificateTableInfo]) -> String {
         .to_string()
 }
 
+/// Represents a row in the SSH keys table
+#[derive(Tabled)]
+struct SshKeyRow {
+    #[tabled(rename = "#")]
+    index: usize,
+    #[tabled(rename = "Type")]
+    key_type: String,
+    #[tabled(rename = "Fingerprint")]
+    fingerprint: String,
+    #[tabled(rename = "Comment")]
+    comment: String,
+}
+
+/// Render a user's SSH public keys with their SHA256 fingerprints
+pub fn render_ssh_keys_table(username: &str, keys: &[String]) -> String {
+    let rows: Vec<SshKeyRow> = keys
+        .iter()
+        .enumerate()
+        .map(|(index, key)| {
+            let mut parts = key.split_whitespace();
+            let key_type = parts.next().unwrap_or("-").to_string();
+            parts.next();
+            let comment: Vec<&str> = parts.collect();
+            SshKeyRow {
+                index: index + 1,
+                key_type,
+                fingerprint: ssh_key_fingerprint(key).unwrap_or_else(|_| "invalid key".to_string()),
+                comment: if comment.is_empty() {
+                    "-".to_string()
+                } else {
+                    comment.join(" ")
+                },
+            }
+        })
+        .collect();
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header(format!("SSH Keys for {username}")))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
 /// Represents a row in the server status table
 #[derive(Tabled)]
 struct ServerStatusRow {
@@ -962,5 +1006,19 @@ mod tests {
         assert!(table.contains("none")); // repo, cdrom, ztp_username are None by default
 
         println!("\n{}", table);
+    }
+
+    #[test]
+    fn test_render_ssh_keys_table() {
+        let keys = vec![
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh brad@laptop"
+                .to_string(),
+            "ssh-rsa broken".to_string(),
+        ];
+        let table = render_ssh_keys_table("brad", &keys);
+        assert!(table.contains("SSH Keys for brad"));
+        assert!(table.contains("SHA256:/UpBoWzMiq6/+/wzQIGDT2VxOLzg/LUTfKhc0x+ktEs"));
+        assert!(table.contains("brad@laptop"));
+        assert!(table.contains("invalid key"));
     }
 }

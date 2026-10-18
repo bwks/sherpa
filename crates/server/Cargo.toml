@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.92"
+version = "0.3.93"
 edition = "2024"
 
 [dependencies]
@@ -16,7 +16,6 @@ topology = { path = "../topology" }
 template = { path = "../template" }
 libvirt = { path = "../libvirt" }
 network = { path = "../network" }
-validate = { path = "../validate" }
 db = { path = "../db" }
 
 # Errors

@@ -12,7 +12,7 @@
 - `apply_schema()` creates all 6 tables (lab, node, link, bridge, user, node_image) `[integration]` **P0**
 - Schema is idempotent — applying twice does not fail or corrupt data `[integration]` **P0**
 - Field constraints enforced after schema application:
-  - User: username min 3 chars, alphanumeric + @._- `[integration]` **P0**
+  - User: username 3–32 chars matching `[a-z_][a-z0-9_-]*`, also when written directly with a query `[integration]` **P0**
   - Node: index range 0-65535 `[integration]` **P1**
   - Link: index range 0-65535 `[integration]` **P1**
 - Unique indexes created and enforced:
@@ -34,6 +34,19 @@
 - Seeded admin has correct default credentials `[integration]` **P0**
 - Seeded admin has `is_admin = true` `[integration]` **P0**
 - Password is properly hashed (not stored in plaintext) `[integration]` **P1**
+
+---
+
+## Built-in Admin Protection
+
+**What to test:**
+- Deleting `admin` by id, by username or with a bulk `DELETE user` is refused, and a bulk delete removes nobody `[integration]` **P0**
+- Renaming `admin` or clearing its admin flag is refused through `update_user` and direct queries `[integration]` **P0**
+- An `admin` record without the admin flag cannot be created `[integration]` **P0**
+- `admin`'s password and SSH keys can still change `[integration]` **P0**
+- Other admins can still be demoted and deleted `[integration]` **P0**
+
+Tests: `crates/db/tests/user/admin_protection_tests.rs`.
 
 ---
 

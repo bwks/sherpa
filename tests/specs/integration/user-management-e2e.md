@@ -11,7 +11,11 @@
 **What to test:**
 - Admin creates new user via RPC → user exists in DB `[e2e]` **P0**
 - Created user can log in with provided credentials `[e2e]` **P0**
-- Duplicate username rejected `[e2e]` **P0**
+- Duplicate username rejected, including case variants `[e2e]` **P0**
+- Usernames are lowercased on create; login and self-service lookups ignore case `[e2e]` **P0**
+- Invalid and reserved usernames rejected on RPC; REST returns `400 Bad Request` `[e2e]` **P0**
+- Users add and remove their own SSH keys on RPC and REST; duplicates (ignoring comments) and invalid keys are rejected; another user is refused; an admin may manage any user's keys; removal works by fingerprint `[e2e]` **P0** (`users_manage_their_own_ssh_keys_on_rpc_and_rest`)
+- `up` is refused for a user with no SSH key, with a link to the SSH keys docs, and creates no lab `[e2e]` **P0** (`starting_a_lab_requires_a_registered_ssh_key`)
 - Non-admin cannot create users `[e2e]` **P0**
 - Password stored as Argon2id hash (not plaintext) `[e2e]` **P0**
 

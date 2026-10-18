@@ -9,7 +9,7 @@ use tower_http::trace::TraceLayer;
 use crate::daemon::state::AppState;
 
 use super::handlers::{
-    add_ssh_key_handler, admin_add_ssh_key_handler, admin_dashboard_handler,
+    add_ssh_key_handler, add_ssh_key_json, admin_add_ssh_key_handler, admin_dashboard_handler,
     admin_delete_ssh_key_handler, admin_delete_user_handler, admin_image_detail_handler,
     admin_image_edit_page_handler, admin_image_update_handler, admin_image_upload_handler,
     admin_image_upload_page_handler, admin_image_versions_handler, admin_images_list_handler,
@@ -25,9 +25,9 @@ use super::handlers::{
     lab_start_handler, lab_stop_handler, labs_list_page_handler, list_images_json, list_users_json,
     login, login_form_handler, login_page_handler, logout_handler, node_detail_handler,
     node_redeploy_handler, node_start_handler, node_stop_handler, openapi_handler, profile_handler,
-    pull_image_json, redeploy_node_json, resume_lab_json, scan_images_json, set_default_image_json,
-    show_image_json, signup_form_handler, signup_page_handler, update_impairment_json,
-    update_password_handler, upload_image_multipart,
+    pull_image_json, redeploy_node_json, remove_ssh_key_json, resume_lab_json, scan_images_json,
+    set_default_image_json, show_image_json, signup_form_handler, signup_page_handler,
+    update_impairment_json, update_password_handler, upload_image_multipart,
 };
 
 #[derive(Embed)]
@@ -242,6 +242,10 @@ pub fn build_router() -> Router<AppState> {
         .route(
             "/api/v1/admin/users/{username}/password",
             post(change_password_json),
+        )
+        .route(
+            "/api/v1/admin/users/{username}/ssh-keys",
+            post(add_ssh_key_json).delete(remove_ssh_key_json),
         )
         // Apply middleware layers (outermost = first to process request)
         .layer(cors)

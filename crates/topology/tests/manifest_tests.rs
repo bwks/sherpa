@@ -1,5 +1,3 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
-
 use shared::data::NodeModel;
 use topology::{Bridge, Link2, Manifest, Node};
 
@@ -27,8 +25,6 @@ cpu_count = 2
 memory = 2048
 data_interface_count = 4
 boot_disk_size = 16
-ipv4_address = "10.0.0.1"
-ipv6_address = "fd00::1"
 skip_ready_check = true
 ztp_config = "configs/router1.cfg"
 commands = ["show version", "show ip route"]
@@ -150,11 +146,6 @@ fn test_parse_full_manifest() {
     assert_eq!(r1.memory, Some(2048));
     assert_eq!(r1.boot_disk_size, Some(16));
     assert_eq!(r1.data_interface_count, Some(4));
-    assert_eq!(r1.ipv4_address, Some(Ipv4Addr::new(10, 0, 0, 1)));
-    assert_eq!(
-        r1.ipv6_address,
-        Some("fd00::1".parse::<Ipv6Addr>().unwrap())
-    );
     assert_eq!(r1.skip_ready_check, Some(true));
     assert_eq!(r1.ztp_config, Some("configs/router1.cfg".to_string()));
     assert_eq!(
@@ -267,6 +258,20 @@ nodes = [
 "#;
     let result = toml::from_str::<Manifest>(toml_str);
     assert!(result.is_err());
+}
+
+#[test]
+fn test_parse_node_rejects_management_addresses() {
+    for field in [
+        r#"ipv4_address = "10.0.0.10""#,
+        r#"ipv6_address = "fd00::10""#,
+    ] {
+        let toml_str = format!(
+            "name = \"test-lab\"\n\n[[nodes]]\nname = \"dev01\"\nmodel = \"ubuntu_linux\"\n{field}\n"
+        );
+        let error = toml::from_str::<Manifest>(&toml_str).unwrap_err();
+        assert!(error.to_string().contains("unknown field"), "{error}");
+    }
 }
 
 // ============================================================================
@@ -430,8 +435,6 @@ fn test_node_defaults() {
     assert!(node.memory.is_none());
     assert!(node.boot_disk_size.is_none());
     assert!(node.data_interface_count.is_none());
-    assert!(node.ipv4_address.is_none());
-    assert!(node.ipv6_address.is_none());
     assert!(node.volumes.is_none());
     assert!(node.commands.is_none());
     assert!(node.environment_variables.is_none());

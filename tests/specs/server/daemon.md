@@ -51,3 +51,13 @@
 - TLS configured when certs available `[integration]` **P0**
 - Plain HTTP when no certs (development mode) `[integration]` **P1**
 - Port already in use produces clear error `[integration]` **P0**
+- A missing built-in `admin` account stops startup with a pointer to `sherpad init`, unless `SHERPA_ADMIN_PASSWORD` is set, which creates it `[integration]` **P0** (`startup_requires_the_admin_account`)
+
+---
+
+## `sherpad init` Accounts
+
+**What to test:**
+- Creates `admin` with the password from `SHERPA_ADMIN_PASSWORD` (environment, then env file) or a prompt `[installer]` **P0**
+- Asks for the first user account: username, password, administrator flag, optional SSH key `[installer]` **P0**
+- Re-running keeps existing accounts unchanged and skips the first-user step when a user exists `[installer]` **P0**

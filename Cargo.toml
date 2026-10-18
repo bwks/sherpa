@@ -34,7 +34,6 @@ members = [
   "crates/shared",
   "crates/template",
   "crates/topology",
-  "crates/validate",
 ]
 exclude = ["crates/ebpf-redirect"]
 default-members = ["crates/client"]

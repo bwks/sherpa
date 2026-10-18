@@ -5,7 +5,13 @@ use super::manifest_processing::{
 };
 use shared::data::{NodeConfig, NodeModel};
 use shared::util;
+use shared::validators::effective_data_interface_count;
 use topology::Manifest;
+use topology::validate::{
+    check_bridge_device, check_device_count, check_duplicate_device,
+    check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
+    validate_tailscale, validate_talos_clusters,
+};
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Load manifest
@@ -13,7 +19,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     let manifest = Manifest::load_file(manifest_path)
         .context(format!("Failed to load manifest from '{}'", manifest_path))?;
 
-    validate::validate_tailscale(&manifest)?;
+    validate_tailscale(&manifest)?;
     println!("✓ Manifest loaded successfully");
     println!();
 
@@ -25,15 +31,15 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     // Device Validators
     println!("→ Checking for duplicate device names...");
-    validate::check_duplicate_device(&manifest.nodes)?;
+    check_duplicate_device(&manifest.nodes)?;
     println!("  ✓ No duplicate devices");
 
     println!("→ Checking node count...");
-    validate::check_device_count(&manifest.nodes)?;
+    check_device_count(&manifest.nodes)?;
     println!("  ✓ Node count is within the lab limit");
 
     println!("→ Checking Talos clusters...");
-    validate::validate_talos_clusters(&manifest)?;
+    validate_talos_clusters(&manifest)?;
     println!("  ✓ Talos clusters are valid");
 
     // Process manifest data (same as up.rs)
@@ -49,17 +55,14 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
         // Management interface check
         if !node_image.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
+            check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed)?;
         }
 
-        let data_interface_count = validate::effective_data_interface_count(
-            &node.name,
-            node.data_interface_count,
-            &node_image,
-        )?;
+        let data_interface_count =
+            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)?;
 
         // Interface bounds check
-        validate::check_interface_bounds(
+        check_interface_bounds(
             &node.name,
             &node_image.model,
             data_interface_count,
@@ -74,17 +77,17 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     // Connection validators
     if !links_detailed.is_empty() || !bridges_detailed.is_empty() {
         println!("→ Checking link configurations...");
-        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
+        check_duplicate_interface_link(&links_detailed, &bridges_detailed)?;
         println!("  ✓ No duplicate interface usage");
 
-        validate::check_link_device(&manifest.nodes, &links_detailed)?;
+        check_link_device(&manifest.nodes, &links_detailed)?;
         println!("  ✓ All linked devices exist");
     }
 
     // Bridge validators
     if !bridges_detailed.is_empty() {
         println!("→ Checking bridge configurations...");
-        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)?;
+        check_bridge_device(&manifest.nodes, &bridges_detailed)?;
         println!("  ✓ All bridge devices exist");
     }
 

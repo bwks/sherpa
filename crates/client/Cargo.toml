@@ -1,13 +1,12 @@
 [package]
 name = "sherpa"
-version = "0.3.92"
+version = "0.3.93"
 edition = "2024"
 
 [dependencies]
 shared = { path = "../shared" }
 topology = { path = "../topology" }
 template = { path = "../template" }
-validate = { path = "../validate" }
 
 # Errors
 anyhow = { workspace = true }

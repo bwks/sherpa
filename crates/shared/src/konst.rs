@@ -91,6 +91,75 @@ pub const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
 pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
 pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
+pub const ADMIN_USERNAME: &str = "admin";
+/// User documentation on generating and registering SSH keys, linked from errors.
+pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
+pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
+pub const ADMIN_LAB_START_MESSAGE: &str =
+    "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
+pub const ADMIN_PROTECTED_MESSAGE: &str =
+    "The built-in admin account cannot be deleted, renamed or lose administrator rights";
+pub const USERNAME_MIN_LENGTH: usize = 3;
+pub const USERNAME_MAX_LENGTH: usize = 32;
+/// Names users cannot take: Sherpa's own accounts, privileged and system accounts, and the
+/// default users of common guest images, which would collide on lab nodes.
+pub const RESERVED_USERNAMES: &[&str] = &[
+    // Sherpa and privileged accounts
+    "root",
+    SHERPA_USERNAME,
+    ADMIN_USERNAME,
+    "administrator",
+    "toor",
+    "operator",
+    "wheel",
+    // Linux system accounts
+    "bin",
+    "daemon",
+    "sys",
+    "sync",
+    "games",
+    "man",
+    "lp",
+    "mail",
+    "news",
+    "uucp",
+    "proxy",
+    "www-data",
+    "backup",
+    "list",
+    "irc",
+    "gnats",
+    "nobody",
+    "nogroup",
+    "messagebus",
+    "sshd",
+    "polkitd",
+    "syslog",
+    "_apt",
+    // Cloud and distribution default users
+    "ubuntu",
+    "debian",
+    "core",
+    "centos",
+    "fedora",
+    "rocky",
+    "almalinux",
+    "alpine",
+    "freebsd",
+    "ec2-user",
+    "cloud-user",
+    "opc",
+    "vagrant",
+    "guest",
+    // Network OS default and generated accounts
+    "enable_1",
+    "cisco",
+    "cumulus",
+    "netadmin",
+    "linuxadmin",
+];
+/// Prefixes of reserved system account names.
+pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
 pub const SHERPA_PASSWORD_HASH_MD5: &str = "$1$xXKaRUnh$v5.fg9lEMWQGAqu4DAgaG0";
@@ -388,6 +457,8 @@ pub const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
 pub const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
 pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
 pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
+pub const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
+pub const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
 pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed";
 
 // Lab operations
@@ -465,6 +536,9 @@ pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
     "Invalid params: expected ChangePasswordRequest";
 pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
     "Invalid params: expected GetUserInfoRequest";
+pub const RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY: &str = "Invalid params: expected AddSshKeyRequest";
+pub const RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY: &str =
+    "Invalid params: expected RemoveSshKeyRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";
 

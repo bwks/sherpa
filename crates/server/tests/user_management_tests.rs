@@ -4,9 +4,11 @@ use anyhow::{Result, ensure};
 use reqwest::{Client, Response, StatusCode, header};
 use serde_json::json;
 use shared::error::RpcErrorCode;
+use shared::util::ssh_key_fingerprint;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
+use sherpad::daemon::state::ensure_admin_account;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, empty_database};
 use helpers::ws_client::TestWsClient;
 
 /// Element on the admin users page that receives a refused delete's message.
@@ -136,6 +138,113 @@ async fn test_non_admin_cannot_create_user() -> Result<()> {
             .and_then(|c| c.as_i64()),
         Some(-32003) // AccessDenied
     );
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_usernames_are_lowercased_and_case_insensitive() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": admin_token,
+                "username": "MixedCase",
+                "password": "MixedCase123!",
+                "is_admin": false,
+            }),
+        )
+        .await?;
+    let created = response
+        .get("result")
+        .and_then(|r| r.get("username"))
+        .and_then(|u| u.as_str());
+    assert_eq!(created, Some("mixedcase"), "{response}");
+
+    // Login and self-service lookups ignore case.
+    let user_token = ws.login("MIXEDCASE", "MixedCase123!").await?;
+    let response = ws
+        .rpc_call(
+            "user.info",
+            json!({ "token": user_token, "username": "MixedCase" }),
+        )
+        .await?;
+    let username = response
+        .get("result")
+        .and_then(|r| r.get("user"))
+        .and_then(|u| u.get("username"))
+        .and_then(|u| u.as_str());
+    assert_eq!(username, Some("mixedcase"), "{response}");
+
+    // A case variant of an existing user is a duplicate.
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": admin_token,
+                "username": "mixedCASE",
+                "password": "MixedCase123!",
+                "is_admin": false,
+            }),
+        )
+        .await?;
+    assert!(response.get("error").is_some(), "{response}");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_invalid_and_reserved_usernames_rejected() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+
+    for username in [
+        "brad.searle",
+        "brad@example.com",
+        "1brad",
+        "Admin",
+        "sherpa",
+        "ubuntu",
+    ] {
+        let response = ws
+            .rpc_call(
+                "user.create",
+                json!({
+                    "token": admin_token,
+                    "username": username,
+                    "password": "Rejected123!",
+                    "is_admin": false,
+                }),
+            )
+            .await?;
+        assert!(
+            response.get("error").is_some(),
+            "'{username}' should be rejected: {response}"
+        );
+    }
+
+    // The REST endpoint reports the rule as a bad request.
+    let response = Client::new()
+        .post(format!("http://{}/api/v1/admin/users", server.addr))
+        .bearer_auth(&admin_token)
+        .json(&json!({
+            "username": "brad.searle",
+            "password": "Rejected123!",
+            "is_admin": false,
+            "token": admin_token,
+        }))
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response.text().await?;
+    assert!(body.contains("lowercase letters"), "{body}");
 
     Ok(())
 }
@@ -617,6 +726,193 @@ async fn self_delete_is_refused_on_all_transports() -> Result<()> {
     ensure!(
         db::find_user(&server.db, "dana").await?.is_some(),
         "a refused self-delete removed the user"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    // A second admin, so neither the self-delete nor the last-admin rule is what refuses.
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call(
+            "user.delete",
+            json!({ "token": token, "username": "admin" }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "RPC delete of admin was not refused: {response}"
+    );
+
+    let response = Client::new()
+        .delete(format!("http://{}/api/v1/admin/users/admin", server.addr))
+        .bearer_auth(&token)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::FORBIDDEN,
+        "REST delete of admin returned {}",
+        response.status()
+    );
+
+    ensure_web_refusal(
+        web_delete_user(&server, &token, "admin").await?,
+        "built-in admin account",
+    )
+    .await?;
+
+    ensure!(
+        db::find_user(&server.db, "admin").await?.is_some(),
+        "a refused delete removed the admin account"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn startup_requires_the_admin_account() -> Result<()> {
+    let db = empty_database().await?;
+
+    let error = ensure_admin_account(&db, None).await.unwrap_err();
+    ensure!(
+        error.to_string().contains("sherpad init"),
+        "missing admin should point to sherpad init: {error}"
+    );
+
+    ensure_admin_account(&db, Some(TEST_ADMIN_PASSWORD)).await?;
+    let admin = db::find_user(&db, "admin").await?;
+    ensure!(
+        admin.is_some_and(|admin| admin.is_admin),
+        "SHERPA_ADMIN_PASSWORD should seed the admin account"
+    );
+
+    // Once the account exists, startup succeeds without the password.
+    ensure_admin_account(&db, None).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn users_manage_their_own_ssh_keys_on_rpc_and_rest() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    for username in ["alice", "bob"] {
+        db::create_user(
+            &server.db,
+            username.to_owned(),
+            TEST_ADMIN_PASSWORD,
+            false,
+            vec![],
+        )
+        .await?;
+    }
+    let alice = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let bob = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
+    let admin = ws.login_admin().await?;
+    let key = format!("{TEST_SSH_PUBLIC_KEY} alice@laptop");
+
+    // Add over RPC; usernames are case-insensitive.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "Alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["result"]["ssh_keys"] == json!([key]),
+        "add failed: {response}"
+    );
+
+    // The same key data again, whatever its comment, is a duplicate.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "alice", "ssh_key": TEST_SSH_PUBLIC_KEY }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_some(),
+        "duplicate accepted: {response}"
+    );
+
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "alice", "ssh_key": "ssh-ed25519 broken" }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_some(),
+        "invalid key accepted: {response}"
+    );
+
+    // Another user may not change alice's keys; an admin may.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.remove",
+            json!({ "token": bob, "username": "alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "bob changed alice's keys: {response}"
+    );
+    let response = Client::new()
+        .post(format!(
+            "http://{}/api/v1/admin/users/alice/ssh-keys",
+            server.addr
+        ))
+        .bearer_auth(&bob)
+        .json(&json!({ "username": "alice", "ssh_key": key, "token": bob }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::FORBIDDEN,
+        "REST add for another user returned {}",
+        response.status()
+    );
+
+    // Remove by fingerprint over REST, as an admin.
+    let fingerprint = ssh_key_fingerprint(&key)?;
+    let response = Client::new()
+        .delete(format!(
+            "http://{}/api/v1/admin/users/alice/ssh-keys",
+            server.addr
+        ))
+        .bearer_auth(&admin)
+        .json(&json!({ "username": "alice", "ssh_key": fingerprint, "token": admin }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "REST remove returned {}",
+        response.status()
+    );
+    let body: serde_json::Value = response.json().await?;
+    ensure!(body["ssh_keys"] == json!([]), "key not removed: {body}");
+
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.remove",
+            json!({ "token": alice, "username": "alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::NotFound),
+        "removing a missing key: {response}"
     );
     Ok(())
 }

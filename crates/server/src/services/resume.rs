@@ -18,7 +18,7 @@ use super::lab_operations::{self, LabOperation};
 use super::node_ops;
 use super::progress::ProgressSender;
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_access;
+use crate::auth::policy::{require_lab_access, require_lab_starter};
 use crate::daemon::state::AppState;
 
 /// How a node started by resume shows that it is ready, as `up` checks it.
@@ -51,7 +51,7 @@ struct ReadinessTarget {
 /// does not become ready within the timeout is reported in its result message; it is not an
 /// error, as with `up`.
 ///
-/// The caller must own the lab or be an admin.
+/// The caller must own the lab or be an admin, and may not be the built-in `admin` account.
 #[instrument(skip(ctx, state, progress), fields(username = %ctx.username, %lab_id))]
 pub async fn start_lab_nodes(
     ctx: &AuthContext,
@@ -62,6 +62,7 @@ pub async fn start_lab_nodes(
 ) -> Result<LabNodeActionResponse> {
     let start = Instant::now();
 
+    require_lab_starter(ctx)?;
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;

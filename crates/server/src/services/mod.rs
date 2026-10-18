@@ -20,6 +20,7 @@ pub(crate) mod ssh_config;
 pub mod talos;
 pub mod up;
 pub mod user_delete;
+pub mod user_ssh_keys;
 
 pub(crate) mod tailscale;
 

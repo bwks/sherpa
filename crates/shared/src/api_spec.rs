@@ -5,15 +5,16 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::data::{
-    CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
-    ContainerPullResponse, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
-    DeleteImageResponse, DeleteUserRequest, DeleteUserResponse, DestroyRequest, DestroyResponse,
-    DownloadImageRequest, GetUserInfoRequest, GetUserInfoResponse, ImportRequest, ImportResponse,
-    InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest, ListImagesResponse,
-    ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, RedeployRequest,
-    RedeployResponse, ScanImagesRequest, ScanImagesResponse, SetDefaultImageRequest,
-    SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
-    UpdateImpairmentRequest, UpdateImpairmentResponse, ValidateRequest, ValidateResponse,
+    AddSshKeyRequest, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
+    ContainerPullRequest, ContainerPullResponse, CreateUserRequest, CreateUserResponse,
+    DeleteImageRequest, DeleteImageResponse, DeleteUserRequest, DeleteUserResponse, DestroyRequest,
+    DestroyResponse, DownloadImageRequest, GetUserInfoRequest, GetUserInfoResponse, ImportRequest,
+    ImportResponse, InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest,
+    ListImagesResponse, ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse,
+    RedeployRequest, RedeployResponse, RemoveSshKeyRequest, ScanImagesRequest, ScanImagesResponse,
+    SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest, ShowImageResponse,
+    UpRequest, UpResponse, UpdateImpairmentRequest, UpdateImpairmentResponse, UserSshKeysResponse,
+    ValidateRequest, ValidateResponse,
 };
 
 /// Top-level unified API specification
@@ -687,6 +688,55 @@ fn build_operations() -> Vec<OperationDef> {
                 },
             },
         },
+        OperationDef {
+            name: "user.ssh_key.add".to_string(),
+            description: "Add an SSH public key to a user: your own, or any user's for an admin"
+                .to_string(),
+            category: Category::Admin,
+            auth: AuthRequirement::Authenticated,
+            streaming: false,
+            request_schema: Some("AddSshKeyRequest".to_string()),
+            response_schema: Some("UserSshKeysResponse".to_string()),
+            transports: Transports {
+                rest: RestBinding {
+                    method: HttpMethod::Post,
+                    path: "/api/v1/admin/users/{username}/ssh-keys".to_string(),
+                    path_params: vec!["username".to_string()],
+                    stream_type: None,
+                },
+                rpc: RpcBinding {
+                    method: "user.ssh_key.add".to_string(),
+                },
+                cli: CliBinding {
+                    command: "sherpa server user ssh-key add".to_string(),
+                },
+            },
+        },
+        OperationDef {
+            name: "user.ssh_key.remove".to_string(),
+            description:
+                "Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user"
+                    .to_string(),
+            category: Category::Admin,
+            auth: AuthRequirement::Authenticated,
+            streaming: false,
+            request_schema: Some("RemoveSshKeyRequest".to_string()),
+            response_schema: Some("UserSshKeysResponse".to_string()),
+            transports: Transports {
+                rest: RestBinding {
+                    method: HttpMethod::Delete,
+                    path: "/api/v1/admin/users/{username}/ssh-keys".to_string(),
+                    path_params: vec!["username".to_string()],
+                    stream_type: None,
+                },
+                rpc: RpcBinding {
+                    method: "user.ssh_key.remove".to_string(),
+                },
+                cli: CliBinding {
+                    command: "sherpa server user ssh-key remove".to_string(),
+                },
+            },
+        },
         // Link operations
         OperationDef {
             name: "link.update_impairment".to_string(),
@@ -776,6 +826,9 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<ChangePasswordResponse>(&mut schemas);
     add_schema::<GetUserInfoRequest>(&mut schemas);
     add_schema::<GetUserInfoResponse>(&mut schemas);
+    add_schema::<AddSshKeyRequest>(&mut schemas);
+    add_schema::<RemoveSshKeyRequest>(&mut schemas);
+    add_schema::<UserSshKeysResponse>(&mut schemas);
 
     schemas
 }
@@ -1008,9 +1061,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_25_operations() {
+    fn test_build_spec_has_27_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 25);
+        assert_eq!(spec.operations.len(), 27);
     }
 
     #[test]
@@ -1083,6 +1136,8 @@ mod tests {
             "user.delete",
             "user.passwd",
             "user.info",
+            "user.ssh_key.add",
+            "user.ssh_key.remove",
         ];
 
         for method in &expected {

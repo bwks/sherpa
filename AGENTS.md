@@ -81,9 +81,14 @@ template:
 topology:
 - Lab management configuration data models transformers.
 
-validate: 
-- Validation primitives to ensure user supplied data is accurate, usable and secure.
-- Avoid generating data in this crate, data should be passed to this crate for validation. 
+## Validation
+Validators ensure user supplied data is accurate, usable and secure. They live with the crate
+that owns the rule:
+- Validators used by more than one crate live in `shared::validators`.
+- Checks on manifest types, shared by the client and the server, live in `topology::validate`
+  (they cannot go in `shared` because `topology` depends on `shared`).
+- Validators used by a single crate live in that crate's `validate` module, e.g. `server::validate`.
+- Avoid generating data in validators; data should be passed to them for validation.
 
 ## Scripts
 - `scripts/` holds install, update and uninstall tooling.

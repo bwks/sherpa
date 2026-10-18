@@ -114,3 +114,34 @@ pub struct GetUserInfoResponse {
     /// User information
     pub user: UserInfo,
 }
+
+/// Request to add an SSH public key to a user
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct AddSshKeyRequest {
+    /// User to add the key to: the caller, or any user for an admin
+    pub username: String,
+    /// SSH public key in OpenSSH format, such as `ssh-ed25519 AAAA... user@host`
+    pub ssh_key: String,
+    /// Caller's authentication token
+    pub token: String,
+}
+
+/// Request to remove an SSH public key from a user
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct RemoveSshKeyRequest {
+    /// User to remove the key from: the caller, or any user for an admin
+    pub username: String,
+    /// The SSH public key, or its SHA256 fingerprint (`SHA256:...`)
+    pub ssh_key: String,
+    /// Caller's authentication token
+    pub token: String,
+}
+
+/// A user's SSH public keys after a change
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct UserSshKeysResponse {
+    /// User whose keys changed
+    pub username: String,
+    /// The user's SSH public keys
+    pub ssh_keys: Vec<String>,
+}

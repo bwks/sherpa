@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.3.92"
+version = "0.3.93"
 edition = "2024"
 
 [dependencies]
@@ -8,6 +8,9 @@ shared = { path = "../shared" }
 
 # Errors
 anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
 
 # Se/Deserialzation
 serde = { workspace = true }

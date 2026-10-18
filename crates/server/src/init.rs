@@ -1,24 +1,30 @@
+use std::env;
+use std::fs;
 use std::io::{self, Write};
 use std::net::Ipv4Addr;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use tracing::instrument;
 
-use db::{apply_schema, connect, upsert_user};
+use db::{Database, apply_schema, connect, create_admin_user, create_user, find_user, list_users};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use shared::data::{NodeConfig, NodeModel};
 use shared::konst::{
-    SHERPA_BASE_DIR, SHERPA_BINS_PATH, SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE,
-    SHERPA_BRIDGE_NETWORK_NAME, SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH,
-    SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER,
-    SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4,
-    SHERPA_SERVER_WS_PORT, SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE,
-    SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL, SHERPA_STORAGE_POOL_PATH,
+    ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
+    SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME,
+    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
+    SHERPA_IMAGES_PATH, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
+    SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_STORAGE_POOL_PATH,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    read_env_file_value, term_msg_highlight, term_msg_surround, term_msg_underline,
+    normalize_username, read_env_file_value, term_msg_highlight, term_msg_surround,
+    term_msg_underline,
 };
+use shared::validators::{validate_ssh_key, validate_username};
 use ssh_key::Algorithm;
 
 pub async fn init(
@@ -171,18 +177,77 @@ pub async fn init(
     apply_schema(&db).await?;
     println!("Database schema applied");
 
-    // Create initial admin user
-    term_msg_underline("Creating Admin User");
-    let username = prompt("Admin username")?;
-    let password = prompt_password(&username)?;
-
-    upsert_user(&db, username.clone(), &password, true, vec![])
-        .await
-        .context(format!("Failed to create admin user '{username}'"))?;
-
-    println!("Admin user '{}' created", username);
+    create_admin_account(&db, env_file).await?;
+    create_first_user(&db).await?;
 
     term_msg_surround("Sherpa Server Initialized");
+    Ok(())
+}
+
+/// Create the built-in `admin` account unless it already exists.
+///
+/// The password comes from `SHERPA_ADMIN_PASSWORD` in the environment or the env file, or is
+/// prompted for. An existing `admin` is left untouched, so `init` is safe to re-run.
+#[instrument(skip(db, env_file))]
+async fn create_admin_account(db: &Database, env_file: &Path) -> Result<()> {
+    term_msg_underline("Creating Admin Account");
+    if find_user(db, ADMIN_USERNAME)
+        .await
+        .context("Failed to look up the admin account")?
+        .is_some()
+    {
+        println!("Admin account '{ADMIN_USERNAME}' already exists");
+        return Ok(());
+    }
+
+    let password = match env::var(SHERPA_ADMIN_PASSWORD_ENV)
+        .ok()
+        .or_else(|| read_env_file_value(env_file, SHERPA_ADMIN_PASSWORD_ENV))
+    {
+        Some(password) => {
+            println!("Using the admin password from {SHERPA_ADMIN_PASSWORD_ENV}");
+            password
+        }
+        None => prompt_password(ADMIN_USERNAME)?,
+    };
+    create_admin_user(db, &password)
+        .await
+        .context("Failed to create the admin account")?;
+    println!("Admin account '{ADMIN_USERNAME}' created");
+    Ok(())
+}
+
+/// Create the first personal user account, unless one already exists.
+///
+/// Lab work is done from personal accounts; `admin` cannot start labs.
+#[instrument(skip(db))]
+async fn create_first_user(db: &Database) -> Result<()> {
+    term_msg_underline("Creating First User Account");
+    let users = list_users(db)
+        .await
+        .context("Failed to list user accounts")?;
+    if users.iter().any(|user| user.username != ADMIN_USERNAME) {
+        println!("User accounts already exist, skipping");
+        return Ok(());
+    }
+
+    println!("Labs are started from personal user accounts, not from '{ADMIN_USERNAME}'.");
+    let username = normalize_username(&prompt("Username")?);
+    validate_username(&username)?;
+    let password = prompt_password(&username)?;
+    let is_admin = prompt_yes_no("Make this user an administrator?", true)?;
+    let ssh_keys = prompt_ssh_key(&username)?;
+
+    if ssh_keys.is_empty() {
+        println!(
+            "No SSH key added. '{username}' needs one to start labs. Add it on the web UI Profile \
+             page or with 'sherpa server user ssh-key add'."
+        );
+    }
+    create_user(db, username.clone(), &password, is_admin, ssh_keys)
+        .await
+        .context(format!("Failed to create user '{username}'"))?;
+    println!("User '{username}' created");
     Ok(())
 }
 
@@ -200,6 +265,48 @@ fn prompt(label: &str) -> Result<String> {
         anyhow::bail!("{label} cannot be empty");
     }
     Ok(trimmed)
+}
+
+fn prompt_optional(label: &str) -> Result<String> {
+    print!("{}: ", label);
+    io::stdout().flush().context("Failed to flush stdout")?;
+
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .context("Failed to read input")?;
+    Ok(input.trim().to_string())
+}
+
+fn prompt_yes_no(question: &str, default: bool) -> Result<bool> {
+    let hint = if default { "[Y/n]" } else { "[y/N]" };
+    let answer = prompt_optional(&format!("{question} {hint}"))?;
+    match answer.to_lowercase().as_str() {
+        "" => Ok(default),
+        "y" | "yes" => Ok(true),
+        "n" | "no" => Ok(false),
+        other => anyhow::bail!("Expected yes or no, got '{other}'"),
+    }
+}
+
+/// Ask for an SSH public key as a file path or the key itself. Enter skips it.
+fn prompt_ssh_key(username: &str) -> Result<Vec<String>> {
+    let answer = prompt_optional(&format!(
+        "SSH public key for {username} (file path or key, Enter to skip)"
+    ))?;
+    if answer.is_empty() {
+        return Ok(vec![]);
+    }
+    let key = if Path::new(&answer).is_file() {
+        fs::read_to_string(&answer)
+            .context(format!("Failed to read SSH public key file '{answer}'"))?
+            .trim()
+            .to_string()
+    } else {
+        answer
+    };
+    validate_ssh_key(&key).context("Invalid SSH public key")?;
+    Ok(vec![key])
 }
 
 fn prompt_password(username: &str) -> Result<String> {

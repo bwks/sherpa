@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_owner;
+use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
@@ -32,6 +32,7 @@ use shared::konst::{
     SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
+use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
@@ -62,7 +63,12 @@ pub async fn redeploy_node(
     let start_time = Instant::now();
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
+    require_lab_starter(ctx)?;
     let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
+    let owner = db::get_user(&state.db, &ctx.username)
+        .await
+        .context("Failed to look up the lab owner")?;
+    guest_account::require_ssh_key(&owner)?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
@@ -147,15 +153,12 @@ pub async fn redeploy_node(
         "Redeploy cannot change node model; expected {}",
         node_image.model
     );
-    let data_interface_count = validate::effective_data_interface_count(
-        node_name,
-        target_node.data_interface_count,
-        &node_image,
-    )
-    .context(format!(
-        "Data interface count validation failed for node: {}",
-        node_name
-    ))?;
+    let data_interface_count =
+        effective_data_interface_count(node_name, target_node.data_interface_count, &node_image)
+            .context(format!(
+                "Data interface count validation failed for node: {}",
+                node_name
+            ))?;
 
     let image_guard = lease_image(node_image.model, &node_image.version).await;
     target_node.version = Some(node_image.version.clone());
@@ -220,13 +223,24 @@ pub async fn redeploy_node(
     let (node_ipv4_address, node_ipv6_address) = node_management_addresses(&db_node, &mgmt_net)?;
     target_node.ipv6_address = node_ipv6_address;
 
-    let personal_account =
-        if manifest.provision_current_user && guest_account::supports_guest_account(&node_image) {
-            guest_account::validate_node(&target_node, &node_image)?;
-            Some(guest_account::resolve_owner(&db, db_lab.user.clone()).await?)
-        } else {
-            None
-        };
+    let personal_account = if manifest.provision_current_user
+        && guest_account::supports_guest_account(&node_image)
+    {
+        guest_account::validate_node(&target_node, &node_image)?;
+        let account = guest_account::resolve_owner(&db, db_lab.user.clone()).await?;
+        if account.is_none() {
+            let _ = progress.send_status(
+                    format!(
+                        "Username '{}' cannot be a login on lab nodes; '{node_name}' uses the sherpa account",
+                        ctx.username
+                    ),
+                    StatusKind::Info,
+                );
+        }
+        account
+    } else {
+        None
+    };
     // Calculate the next SSH config before teardown, preserving every other node's identity.
     lab_info.set_ssh_username(
         node_name,

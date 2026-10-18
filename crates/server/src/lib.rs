@@ -10,3 +10,4 @@ pub mod init;
 pub mod services;
 pub mod templates;
 pub mod tls;
+pub mod validate;

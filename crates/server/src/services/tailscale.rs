@@ -8,6 +8,8 @@ use topology::Manifest;
 use tracing::instrument;
 
 use crate::daemon::state::AppState;
+use shared::validators::validate_tailscale_key;
+use topology::validate::validate_tailscale;
 
 #[instrument(skip(manifest, key), level = "debug")]
 pub(crate) fn validate_enrollment(
@@ -15,12 +17,12 @@ pub(crate) fn validate_enrollment(
     key: Option<&TailnetAuthKey>,
     tls_enabled: bool,
 ) -> Result<bool> {
-    validate::validate_tailscale(manifest)?;
+    validate_tailscale(manifest)?;
     let enabled = manifest.tailscale.as_ref().is_some_and(|c| c.enabled);
     if enabled {
         ensure!(tls_enabled, "Tailscale enrollment requires server TLS");
         let key = key.context("Tailscale is enabled but no auth key was supplied; use the CLI with tailscale.auth_key_env")?;
-        validate::validate_tailscale_key(key.expose())?;
+        validate_tailscale_key(key.expose())?;
     } else {
         ensure!(
             key.is_none(),
