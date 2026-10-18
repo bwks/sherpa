@@ -5,6 +5,9 @@ use shared::data::{ClientConfig, RedeployResponse, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
+use crate::cmd::interrupt::{
+    OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
+};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -73,8 +76,17 @@ pub async fn redeploy(
         }),
     );
 
-    let redeploy_response = rpc_client
-        .call_streaming(redeploy_request, |msg_text| {
+    let target = OperationTarget {
+        operation: StoppableOperation::Redeploy,
+        lab_id,
+        token: &token,
+        server_url,
+        server_connection: &config.server_connection,
+    };
+    let redeploy_response = match call_streaming_or_interrupt(
+        &mut rpc_client,
+        redeploy_request,
+        |msg_text| {
             if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text)
                 && status_msg.r#type == "status"
             {
@@ -86,9 +98,15 @@ pub async fn redeploy(
                 };
                 println!("{} {}", emoji, status_msg.message);
             }
-        })
-        .await
-        .context("Redeploy RPC call failed")?;
+        },
+        &target,
+    )
+    .await
+    .context("Redeploy RPC call failed")?
+    {
+        Waited::Response(response) => response,
+        Waited::Interrupted => bail!("Redeploy interrupted"),
+    };
 
     rpc_client.close().await.ok();
 

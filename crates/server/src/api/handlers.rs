@@ -1,3 +1,4 @@
+use anyhow::Context;
 use askama::Template;
 use axum::extract::{Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -7,6 +8,7 @@ use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::str::FromStr;
 use strum::IntoEnumIterator;
@@ -19,8 +21,8 @@ use crate::daemon::state::{Job, JobType};
 use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
-    redeploy, resume, up, user_delete,
+    cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
+    list_labs, redeploy, resume, up, user_delete,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -42,13 +44,14 @@ use super::extractors::{
 use shared::api_spec;
 use shared::auth::{password, ssh};
 use shared::data::{
-    BiosTypes, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
-    CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
-    DeleteUserResponse, DiskBuses, DownloadImageRequest, GetUserInfoResponse, ImportRequest,
-    InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest, ListLabsResponse,
-    ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig, NodeModel, OsVariant,
-    RedeployRequest, ScanImagesRequest, SetDefaultImageRequest, ShowImageRequest, UpRequest,
-    UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo, ZtpMethod,
+    BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
+    ContainerPullRequest, CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse,
+    DeleteImageRequest, DeleteUserResponse, DiskBuses, DownloadImageRequest, GetUserInfoResponse,
+    ImportRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
+    ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
+    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
+    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
+    ZtpMethod,
 };
 use shared::konst::{
     ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
@@ -1126,6 +1129,20 @@ pub async fn get_labs_html(
     }
 }
 
+/// Run a lab operation as its own task and wait for its result.
+///
+/// axum drops a handler's future when its client disconnects. Running the operation in a
+/// separate task means a disconnect only stops the wait: the operation carries on to the end
+/// instead of stopping at an arbitrary point mid-step.
+async fn run_detached<T, F>(operation: F) -> anyhow::Result<T>
+where
+    T: Send + 'static,
+    F: Future<Output = anyhow::Result<T>> + Send + 'static,
+{
+    tokio::spawn(operation)
+        .await
+        .context("Lab operation task failed")?
+}
 /// Stop all nodes in a lab (web UI handler, cookie auth)
 ///
 /// POST /labs/{lab_id}/stop
@@ -1136,9 +1153,10 @@ pub async fn lab_stop_handler(
     Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response = down::shutdown_lab_nodes(&auth, &lab_id, None, &state)
-        .await
-        .map_err(ApiError::from)?;
+    let response =
+        run_detached(async move { down::shutdown_lab_nodes(&auth, &lab_id, None, &state).await })
+            .await
+            .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -1153,7 +1171,10 @@ pub async fn lab_start_handler(
     Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response = resume::start_lab_nodes(&auth, &lab_id, None, &state, None)
+    let response =
+        run_detached(
+            async move { resume::start_lab_nodes(&auth, &lab_id, None, &state, None).await },
+        )
         .await
         .map_err(ApiError::from)?;
 
@@ -1170,9 +1191,11 @@ pub async fn node_stop_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response = down::shutdown_lab_nodes(&auth, &lab_id, Some(&node_name), &state)
-        .await
-        .map_err(ApiError::from)?;
+    let response = run_detached(async move {
+        down::shutdown_lab_nodes(&auth, &lab_id, Some(&node_name), &state).await
+    })
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -1187,9 +1210,11 @@ pub async fn node_start_handler(
     Path((lab_id, node_name)): Path<(String, String)>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response = resume::start_lab_nodes(&auth, &lab_id, Some(&node_name), &state, None)
-        .await
-        .map_err(ApiError::from)?;
+    let response = run_detached(async move {
+        resume::start_lab_nodes(&auth, &lab_id, Some(&node_name), &state, None).await
+    })
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -1222,7 +1247,10 @@ pub async fn node_redeploy_handler(
 
     let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
 
-    let result = redeploy::redeploy_node(&auth, request, &state, progress)
+    let result =
+        run_detached(
+            async move { redeploy::redeploy_node(&auth, request, &state, progress).await },
+        )
         .await
         .map_err(|e| {
             tracing::error!("Redeploy failed for node '{}': {:?}", node_name, e);
@@ -1631,7 +1659,8 @@ pub async fn admin_tools_clean_handler(
         "Admin triggering lab clean from tools page"
     );
 
-    let response = clean::clean_lab(&admin.into_context(), &lab_id, &state)
+    let admin = admin.into_context();
+    let response = run_detached(async move { clean::clean_lab(&admin, &lab_id, &state).await })
         .await
         .map_err(ApiError::from)?;
 
@@ -2867,9 +2896,28 @@ pub async fn down_lab_json(
     Json(payload): Json<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response = down::shutdown_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state)
-        .await
-        .map_err(ApiError::from)?;
+    let response = run_detached(async move {
+        down::shutdown_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state).await
+    })
+    .await
+    .map_err(ApiError::from)?;
+
+    Ok(Json(response))
+}
+
+/// Stop the operations running on a lab and wait for them to end
+///
+/// POST /api/v1/labs/{lab_id}/cancel
+pub async fn cancel_lab_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(lab_id): Path<String>,
+) -> Result<Json<CancelLabResponse>, ApiError> {
+    let auth = auth.into_context();
+    let response =
+        run_detached(async move { cancel::cancel_lab_operations(&auth, &lab_id, &state).await })
+            .await
+            .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -2884,10 +2932,11 @@ pub async fn resume_lab_json(
     Json(payload): Json<NodeActionPayload>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response =
-        resume::start_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state, None)
-            .await
-            .map_err(ApiError::from)?;
+    let response = run_detached(async move {
+        resume::start_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state, None).await
+    })
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -2936,7 +2985,8 @@ pub async fn clean_lab_json(
     State(state): State<AppState>,
     Path(lab_id): Path<String>,
 ) -> Result<impl IntoResponse, ApiError> {
-    let response = clean::clean_lab(&auth.into_context(), &lab_id, &state)
+    let auth = auth.into_context();
+    let response = run_detached(async move { clean::clean_lab(&auth, &lab_id, &state).await })
         .await
         .map_err(ApiError::from)?;
 
@@ -3872,5 +3922,36 @@ mod tests {
         ));
         let fields = result.expect("should succeed");
         assert!(fields.default);
+    }
+
+    #[tokio::test]
+    async fn a_dropped_handler_does_not_stop_its_operation() {
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+        let (finished_tx, finished_rx) = tokio::sync::oneshot::channel();
+        let waiting = tokio::spawn(run_detached(async move {
+            let _ = started_tx.send(());
+            let _ = release_rx.await;
+            let _ = finished_tx.send(());
+            Ok(())
+        }));
+        started_rx.await.unwrap();
+        // The client disconnects: axum drops the handler that is waiting.
+        waiting.abort();
+        assert!(waiting.await.unwrap_err().is_cancelled());
+        release_tx.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), finished_rx)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn run_detached_returns_the_operation_result() {
+        assert_eq!(run_detached(async { Ok(7) }).await.unwrap(), 7);
+        let error = run_detached(async { Err::<(), _>(anyhow::anyhow!("boom")) })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("boom"));
     }
 }

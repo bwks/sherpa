@@ -12,8 +12,8 @@ use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
-    clean, container_pull, delete, destroy, down, download, impairment, import, inspect, list_labs,
-    progress, redeploy, resume, up, user_delete,
+    cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
+    list_labs, progress, redeploy, resume, up, user_delete,
 };
 use shared::auth::password;
 use shared::data;
@@ -34,13 +34,13 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW,
     RPC_MSG_INVALID_PARAMS_IMPAIRMENT, RPC_MSG_INVALID_PARAMS_IMPORT,
     RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CLEAN_FAILED,
-    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
-    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED,
-    RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
-    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_LIST_FAILED,
-    RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
+    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED,
+    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
+    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
+    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
+    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 
 /// Authenticate request and verify admin privileges.
@@ -215,6 +215,7 @@ pub async fn handle_rpc_request(
         "download" => handle_download(id, params, state).await,
         "labs.list" => handle_labs_list(id, params, state).await,
         "down" => handle_down(id, params, state).await,
+        "cancel" => handle_cancel(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         // Note: "resume" is handled separately via handle_streaming_rpc_request
         // Note: "destroy" is handled separately via handle_streaming_rpc_request
@@ -624,6 +625,66 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
             id,
             result: None,
             error: Some(service_error(&e, RPC_MSG_LAB_DOWN_FAILED)),
+        },
+    }
+}
+
+/// Handle "cancel" RPC call — stop the operations running on a lab and wait for them to end
+///
+/// Expected params: {"lab_id": "string", "token": "string"}
+async fn handle_cancel(id: String, params: serde_json::Value, state: &AppState) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for cancel: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let lab_id = match params.get("lab_id").and_then(|v| v.as_str()) {
+        Some(id) => id.to_string(),
+        None => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_LAB_ID.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    match cancel::cancel_lab_operations(&auth_ctx, &lab_id, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_LAB_CANCEL_FAILED)),
         },
     }
 }

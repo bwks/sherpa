@@ -1,3 +1,4 @@
+pub mod cancel;
 pub mod clean;
 pub mod container_pull;
 pub mod delete;

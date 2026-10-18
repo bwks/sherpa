@@ -86,7 +86,7 @@ pub use user_management::{
     DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
     ListUsersRequest, ListUsersResponse, UserInfo,
 };
-pub use vm_action::{LabNodeActionResponse, NodeActionResult};
+pub use vm_action::{CancelLabResponse, LabNodeActionResponse, NodeActionResult};
 pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
 

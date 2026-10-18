@@ -6,6 +6,9 @@ use shared::data::{ClientConfig, LabNodeActionResponse, StatusKind, StatusMessag
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
+use crate::cmd::interrupt::{
+    OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
+};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -82,10 +85,21 @@ pub async fn resume(
     };
     println!("{}", status_msg);
     // Resume streams readiness progress for cold-booted nodes before its response.
-    let response = rpc_client
-        .call_streaming(request, print_status)
-        .await
-        .context("RPC call failed")?;
+    let target = OperationTarget {
+        operation: StoppableOperation::Resume,
+        lab_id,
+        token: &token,
+        server_url,
+        server_connection: &config.server_connection,
+    };
+    let response =
+        match call_streaming_or_interrupt(&mut rpc_client, request, print_status, &target)
+            .await
+            .context("RPC call failed")?
+        {
+            Waited::Response(response) => response,
+            Waited::Interrupted => bail!("Resume interrupted"),
+        };
 
     // Close connection
     rpc_client.close().await.ok();

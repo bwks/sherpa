@@ -15,6 +15,9 @@ use shared::util::{
 use topology::StartupScript;
 
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
+use crate::cmd::interrupt::{
+    OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
+};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
@@ -133,8 +136,17 @@ pub async fn up(
     println!("Starting lab creation...\n");
 
     // Call streaming RPC with progress callback
-    let up_response = rpc_client
-        .call_streaming(up_request, |msg_text| {
+    let target = OperationTarget {
+        operation: StoppableOperation::Up,
+        lab_id,
+        token: &token,
+        server_url,
+        server_connection: &config.server_connection,
+    };
+    let up_response = match call_streaming_or_interrupt(
+        &mut rpc_client,
+        up_request,
+        |msg_text| {
             // Parse and display progress messages
             if let Ok(status_msg) = serde_json::from_str::<StatusMessage>(msg_text) {
                 if status_msg.r#type == "status" {
@@ -158,9 +170,15 @@ pub async fn up(
                 // Display log messages (for debugging)
                 println!("[LOG] {}", log_msg.message);
             }
-        })
-        .await
-        .context("Up RPC call failed")?;
+        },
+        &target,
+    )
+    .await
+    .context("Up RPC call failed")?
+    {
+        Waited::Response(response) => response,
+        Waited::Interrupted => bail!("Lab creation interrupted"),
+    };
 
     // Close connection
     rpc_client.close().await.ok();

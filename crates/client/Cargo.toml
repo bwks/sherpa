@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.3.91"
+version = "0.3.92"
 edition = "2024"
 
 [dependencies]
@@ -33,7 +33,7 @@ askama = { workspace = true }
 
 
 # Async
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
 

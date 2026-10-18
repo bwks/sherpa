@@ -396,6 +396,7 @@ pub const RPC_MSG_LAB_DESTROY_FAILED: &str = "Destroy operation failed";
 pub const RPC_MSG_LAB_CLEAN_FAILED: &str = "Clean operation failed";
 pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
 pub const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
+pub const RPC_MSG_LAB_CANCEL_FAILED: &str = "Stopping the lab's operations failed";
 pub const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
 
 // Admin-only operations
