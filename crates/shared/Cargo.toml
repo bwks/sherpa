@@ -58,7 +58,7 @@ url = { workspace = true }
 askama = { workspace = true }
 
 # Table formatting
-tabled = "0.20.0"
+tabled = "0.22.0"
 
 # CLI
 clap = { workspace = true }
