@@ -1,6 +1,6 @@
 [package]
 name = "topology"
-version = "0.3.93"
+version = "0.3.94"
 edition = "2024"
 
 [dependencies]
@@ -16,4 +16,3 @@ tracing = { workspace = true }
 serde = { workspace = true }
 serde_derive = { workspace = true }
 toml = { workspace = true }
-toml_edit = { workspace = true }

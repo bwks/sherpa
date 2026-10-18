@@ -350,6 +350,40 @@ fn test_write_load_roundtrip() {
     std::fs::remove_file(tmp_path).ok();
 }
 
+#[test]
+fn test_write_file_keeps_every_field() {
+    let input = format!(
+        "{FULL_MANIFEST}\n[[talos_clusters]]\nname = \"k8s\"\ncontrollers = [\"router1\"]\n\n[tailscale]\nenabled = true\nauth_key_env = \"TS_KEY\"\n"
+    );
+    let manifest: Manifest = toml::from_str(&input).expect("parses full manifest");
+
+    let tmp_path = std::env::temp_dir().join("sherpa_test_manifest_every_field.toml");
+    let tmp_path = tmp_path.to_str().expect("utf-8 temp path");
+    manifest.write_file(tmp_path).expect("writes file");
+    let loaded = Manifest::load_file(tmp_path).expect("loads file");
+    std::fs::remove_file(tmp_path).ok();
+
+    assert_eq!(
+        toml::Value::try_from(&loaded).unwrap(),
+        toml::Value::try_from(&manifest).unwrap()
+    );
+}
+
+#[test]
+fn test_write_file_emits_tables_without_resolved_data() {
+    let manifest = Manifest::example().expect("builds example");
+
+    let tmp_path = std::env::temp_dir().join("sherpa_test_manifest_example.toml");
+    let tmp_path = tmp_path.to_str().expect("utf-8 temp path");
+    manifest.write_file(tmp_path).expect("writes file");
+    let contents = std::fs::read_to_string(tmp_path).expect("reads file");
+    std::fs::remove_file(tmp_path).ok();
+
+    assert!(contents.contains("[[nodes]]"));
+    assert!(contents.contains("[[links]]"));
+    assert!(!contents.contains("_data"));
+}
+
 // ============================================================================
 // Tests — Link2::expand()
 // ============================================================================

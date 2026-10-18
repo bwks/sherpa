@@ -915,7 +915,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1131,7 +1131,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2576,7 +2576,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "askama",
@@ -2845,7 +2845,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "aya",
@@ -4691,7 +4691,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "argon2",
@@ -4743,7 +4743,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "askama",
@@ -4767,7 +4767,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
- "toml_edit 0.22.27",
  "topology",
  "tracing",
  "tracing-subscriber",
@@ -4778,7 +4777,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "askama",
@@ -4824,7 +4823,6 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
- "toml_edit 0.22.27",
  "topology",
  "tower",
  "tower-http",
@@ -5362,7 +5360,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "askama",
@@ -5722,14 +5720,13 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.93"
+version = "0.3.94"
 dependencies = [
  "anyhow",
  "serde",
  "serde_derive",
  "shared",
  "toml",
- "toml_edit 0.22.27",
  "tracing",
 ]
 

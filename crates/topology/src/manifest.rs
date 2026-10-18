@@ -1,8 +1,7 @@
 use std::fs;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_derive::{Deserialize, Serialize};
-use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
 use super::bridge::Bridge;
 use super::link::Link2;
@@ -14,15 +13,15 @@ use shared::util::{generate_lab_name, load_file as load_file_util};
 #[derive(Debug, Deserialize, Serialize, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
+    pub name: String,
+    /// Optional blurb describing the lab's purpose.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Provision the authenticated lab owner's Linux account on supported VMs.
     #[serde(default)]
     pub provision_current_user: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tailscale: Option<TailscaleConfig>,
-    pub name: String,
-    /// Optional blurb describing the lab's purpose.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_timeout: Option<u64>,
@@ -82,64 +81,10 @@ impl Manifest {
 
 impl Manifest {
     pub fn write_file(&self, file_path: &str) -> Result<()> {
-        let mut doc = DocumentMut::new();
-
-        doc["name"] = Item::Value(Value::from(self.name.to_string()));
-        if let Some(description) = &self.description {
-            doc["description"] = Item::Value(Value::from(description.as_str()));
-        }
-        doc["provision_current_user"] = Item::Value(Value::from(self.provision_current_user));
-        if let Some(table) = doc
-            .as_table_mut()
-            .get_mut("name")
-            .and_then(|v| v.as_value_mut())
-        {
-            table.decor_mut().set_suffix("\n");
-        }
-
-        // Add devices array
-        let mut devices_array = Array::new();
-        devices_array.set_trailing_comma(true);
-        devices_array.set_trailing("\n");
-        devices_array.decor_mut().set_suffix("\n");
-
-        for device in &self.nodes {
-            let mut device_table = InlineTable::new();
-            device_table.decor_mut().set_prefix("\n  ");
-            device_table.insert("name", Value::from(device.name.as_str()));
-            device_table.insert("model", Value::from(device.model.to_string()));
-            if let Some(method) = device.boot_disk_clone_method {
-                device_table.insert("boot_disk_clone_method", Value::from(method.to_string()));
-            }
-            devices_array.push_formatted(Value::from(device_table));
-        }
-
-        doc["nodes"] = Item::Value(Value::Array(devices_array));
-
-        // Add links array if present
-        if let Some(links) = &self.links {
-            let mut link_array = Array::new();
-            link_array.set_trailing_comma(true);
-            link_array.set_trailing("\n");
-            link_array.decor_mut().set_suffix("\n");
-
-            for link in links {
-                let mut link_table = InlineTable::new();
-                link_table.decor_mut().set_prefix("\n  ");
-                link_table.insert("src", Value::from(link.src.as_str()));
-                link_table.insert("dst", Value::from(link.dst.as_str()));
-                link_array.push_formatted(Value::from(link_table));
-            }
-            doc["links"] = Item::Value(Value::Array(link_array));
-        }
-
-        if let Some(tailscale) = &self.tailscale {
-            doc["tailscale"]["enabled"] = Item::Value(Value::from(tailscale.enabled));
-            if let Some(name) = &tailscale.auth_key_env {
-                doc["tailscale"]["auth_key_env"] = Item::Value(Value::from(name.as_str()));
-            }
-        }
-        fs::write(file_path, doc.to_string())?;
+        let contents =
+            toml::to_string_pretty(self).context("Failed to serialize manifest to TOML")?;
+        fs::write(file_path, contents)
+            .context(format!("Failed to write manifest file: {file_path}"))?;
         Ok(())
     }
 
