@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.92] - 2026-10-18
+
+### Bug Fixes
+
+- Keep lab operations safe across client disconnects; stop them on request by @bwks ([83184bc](https://github.com/bwks/sherpa/commit/83184bc44b86373db6d01b34fbc89a68abe43a10))
+
+### Miscellaneous
+
+- Merge pull request #335 from bwks/fix/331-operation-lifecycle
+
+fix: keep lab operations safe across client disconnects; stop them on request by @bwks in [#335](https://github.com/bwks/sherpa/pull/335) ([afc5fa7](https://github.com/bwks/sherpa/commit/afc5fa7c6c8e56f9743160e5fa419049f01bc17d))
+- Bump crate versions to 0.3.92 by @bwks ([7c2c906](https://github.com/bwks/sherpa/commit/7c2c90694c3668ee2ec5b68b99705fb80ee39480))
+- Merge pull request #333 from bwks/changelog/v0.3.91
+
+chore(release): update changelog for v0.3.91 by @github-actions[bot] in [#333](https://github.com/bwks/sherpa/pull/333) ([8545361](https://github.com/bwks/sherpa/commit/85453616de3ae7bc22c1b3cfaaefe4ce0e90f18e))
 ## [0.3.91] - 2026-10-18
 
 ### Bug Fixes
