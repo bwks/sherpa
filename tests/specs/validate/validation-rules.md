@@ -32,6 +32,14 @@
 
 **Existing coverage:** All 4 cases covered
 
+**Function:** `check_device_count(devices) -> Result<()>`
+
+**What to test:**
+- A manifest that fills the management node block (234 nodes) passes `[unit]` **P0**
+- One node more fails with the count and the limit in the error `[unit]` **P0**
+
+**Existing coverage:** Both cases covered
+
 ---
 
 ## Environment Variable Validation — `environment.rs`

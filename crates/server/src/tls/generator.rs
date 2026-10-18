@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
 use rcgen::{
-    BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType, IsCa, KeyPair,
-    KeyUsagePurpose, SanType,
+    BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType,
+    ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519,
+    SanType,
 };
 use std::fs::{self, File};
 use std::io::Write;
@@ -254,6 +255,128 @@ pub fn generate_node_certificate(
     Ok(())
 }
 
+/// Key algorithm for generated keys and certificates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeyAlgorithm {
+    EcdsaP256,
+    Ed25519,
+}
+
+/// A certificate authority Sherpa can rebuild from its stored key.
+///
+/// A certificate it issues only needs the CA's subject and key, so the CA certificate itself
+/// does not have to be parsed back.
+#[derive(Clone, Copy, Debug)]
+pub struct CaSpec<'a> {
+    /// Organization (O) of the CA subject; `None` leaves the subject empty.
+    pub organization: Option<&'a str>,
+    pub key_algorithm: KeyAlgorithm,
+}
+
+/// Subject of a client certificate.
+#[derive(Clone, Copy, Debug)]
+pub struct ClientSubject<'a> {
+    /// Organization (O); Talos and Kubernetes read the client's role or group from it.
+    pub organization: &'a str,
+    pub common_name: Option<&'a str>,
+}
+
+/// A PEM certificate and its PKCS#8 PEM private key.
+#[derive(Clone, Debug)]
+pub struct PemPair {
+    pub cert: String,
+    pub key: String,
+}
+
+/// Generate a key pair with the given algorithm.
+pub fn generate_key_pair(algorithm: KeyAlgorithm) -> Result<KeyPair> {
+    let signature = match algorithm {
+        KeyAlgorithm::EcdsaP256 => &PKCS_ECDSA_P256_SHA256,
+        KeyAlgorithm::Ed25519 => &PKCS_ED25519,
+    };
+    KeyPair::generate_for(signature).context("Failed to generate key pair")
+}
+
+/// Set a certificate's validity to start now and last `validity_days`.
+fn set_validity(params: &mut CertificateParams, validity_days: u32) -> Result<()> {
+    let now = jiff::Timestamp::now();
+    let future = now
+        .checked_add(jiff::Span::new().hours(i64::from(validity_days) * 24))
+        .context("Failed to calculate certificate expiration date")?;
+    params.not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
+        .context("Failed to convert start time to OffsetDateTime")?;
+    params.not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
+        .context("Failed to convert end time to OffsetDateTime")?;
+    Ok(())
+}
+
+fn ca_params(spec: &CaSpec, validity_days: u32) -> Result<CertificateParams> {
+    let mut params =
+        CertificateParams::new(vec![]).context("Failed to create CA certificate parameters")?;
+    let mut dn = DistinguishedName::new();
+    if let Some(organization) = spec.organization {
+        dn.push(DnType::OrganizationName, organization);
+    }
+    params.distinguished_name = dn;
+    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    params.key_usages = vec![
+        KeyUsagePurpose::DigitalSignature,
+        KeyUsagePurpose::KeyCertSign,
+    ];
+    params.extended_key_usages = vec![
+        ExtendedKeyUsagePurpose::ServerAuth,
+        ExtendedKeyUsagePurpose::ClientAuth,
+    ];
+    set_validity(&mut params, validity_days)?;
+    Ok(params)
+}
+
+/// Generate a self-signed CA in memory.
+pub fn generate_ca(spec: &CaSpec, validity_days: u32) -> Result<PemPair> {
+    let key_pair = generate_key_pair(spec.key_algorithm)?;
+    let cert = ca_params(spec, validity_days)?
+        .self_signed(&key_pair)
+        .context("Failed to generate CA certificate")?;
+    Ok(PemPair {
+        cert: cert.pem(),
+        key: key_pair.serialize_pem(),
+    })
+}
+
+/// Issue a client-authentication certificate from a CA rebuilt from its PEM key.
+pub fn issue_client_certificate(
+    ca: &CaSpec,
+    ca_key_pem: &str,
+    subject: ClientSubject,
+    key_algorithm: KeyAlgorithm,
+    validity_days: u32,
+) -> Result<PemPair> {
+    let ca_key = KeyPair::from_pem(ca_key_pem).context("Failed to load CA private key")?;
+    let ca_cert = ca_params(ca, validity_days)?
+        .self_signed(&ca_key)
+        .context("Failed to rebuild CA certificate")?;
+
+    let key_pair = generate_key_pair(key_algorithm)?;
+    let mut params =
+        CertificateParams::new(vec![]).context("Failed to create client certificate parameters")?;
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::OrganizationName, subject.organization);
+    if let Some(common_name) = subject.common_name {
+        dn.push(DnType::CommonName, common_name);
+    }
+    params.distinguished_name = dn;
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ClientAuth];
+    set_validity(&mut params, validity_days)?;
+    let cert = params
+        .signed_by(&key_pair, &ca_cert, &ca_key)
+        .context("Failed to sign client certificate")?;
+    Ok(PemPair {
+        cert: cert.pem(),
+        key: key_pair.serialize_pem(),
+    })
+}
+
 /// Write a file with specific permissions
 pub fn write_file_with_permissions(path: &Path, content: &[u8], mode: u32) -> Result<()> {
     // Ensure parent directory exists
@@ -377,5 +500,67 @@ mod tests {
             let permissions = metadata.permissions();
             assert_eq!(permissions.mode() & 0o777, 0o600);
         }
+    }
+
+    fn parse(pem: &str) -> x509_parser::pem::Pem {
+        let (_, pem) = x509_parser::pem::parse_x509_pem(pem.as_bytes()).unwrap();
+        pem
+    }
+
+    #[test]
+    fn generated_cas_use_the_requested_key_and_pkcs8() {
+        for (algorithm, oid) in [
+            (KeyAlgorithm::Ed25519, "1.3.101.112"),
+            (KeyAlgorithm::EcdsaP256, "1.2.840.10045.2.1"),
+        ] {
+            let spec = CaSpec {
+                organization: Some("talos"),
+                key_algorithm: algorithm,
+            };
+            let ca = generate_ca(&spec, 3650).unwrap();
+            assert!(ca.key.starts_with("-----BEGIN PRIVATE KEY-----"));
+            let pem = parse(&ca.cert);
+            let cert = pem.parse_x509().unwrap();
+            assert!(cert.is_ca());
+            assert_eq!(cert.subject().to_string(), "O=talos");
+            assert_eq!(
+                cert.public_key().algorithm.algorithm.to_id_string(),
+                oid,
+                "{algorithm:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn client_certificates_chain_to_the_rebuilt_ca() {
+        let spec = CaSpec {
+            organization: Some("kubernetes"),
+            key_algorithm: KeyAlgorithm::EcdsaP256,
+        };
+        let ca = generate_ca(&spec, 3650).unwrap();
+        let client = issue_client_certificate(
+            &spec,
+            &ca.key,
+            ClientSubject {
+                organization: "system:masters",
+                common_name: Some("sherpa-admin"),
+            },
+            KeyAlgorithm::EcdsaP256,
+            365,
+        )
+        .unwrap();
+        let ca_pem = parse(&ca.cert);
+        let ca_cert = ca_pem.parse_x509().unwrap();
+        let client_pem = parse(&client.cert);
+        let client_cert = client_pem.parse_x509().unwrap();
+        assert_eq!(client_cert.issuer(), ca_cert.subject());
+        assert_eq!(
+            client_cert.subject().to_string(),
+            "O=system:masters, CN=sherpa-admin"
+        );
+        assert!(!client_cert.is_ca());
+        client_cert
+            .verify_signature(Some(ca_cert.public_key()))
+            .unwrap();
     }
 }

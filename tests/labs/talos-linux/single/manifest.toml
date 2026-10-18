@@ -1,0 +1,15 @@
+# One controller and three workers, plus a util node with kubectl and talosctl.
+name = "talos-single"
+ready_timeout = 900
+
+talos_clusters = [
+  { name = "k8s", controllers = ["cp1"], workers = ["w1", "w2", "w3"] },
+]
+
+nodes = [
+  { name = "cp1", model = "talos_linux", version = "1.14.4" },
+  { name = "w1", model = "talos_linux", version = "1.14.4" },
+  { name = "w2", model = "talos_linux", version = "1.14.4" },
+  { name = "w3", model = "talos_linux", version = "1.14.4" },
+  { name = "util", model = "ubuntu_linux", version = "26.04", startup_scripts = ["../install-tools.sh"] },
+]

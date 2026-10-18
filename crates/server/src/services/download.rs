@@ -10,6 +10,7 @@ use shared::konst::{
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::talos;
 
 /// Download lab files (lab-info, SSH config, SSH key) for CLI use.
 ///
@@ -45,9 +46,12 @@ pub async fn download_lab_files(
         String::new()
     };
 
+    let clusters = talos::read_cluster_credentials(lab_id)?;
+
     Ok(DownloadLabResponse {
         lab_info,
         ssh_config,
         ssh_private_key,
+        clusters,
     })
 }

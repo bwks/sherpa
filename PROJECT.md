@@ -15,6 +15,13 @@
 - [x] **Quality checks** — Ran `cargo fmt`, `cargo clippy --workspace -- -D warnings`, and `cargo test --workspace`.
 - [x] **Dependency count clarification** — Verified the resolved Cargo package count is 670 with one `reqwest` package. `Building x/1120` was Cargo compilation units, not dependencies; `panic = "abort"` in the workspace release profile caused abort/unwind duplicate units for `cargo build --workspace --all-targets --release`. Removing that setting brings the release all-target unit graph back to 691 units.
 
+## Talos Linux and Kubernetes
+
+- [x] **Talos end-to-end test through the CLI** — `tests/labs/talos-linux/talos_lab_test.py` (single and ha labs) passed against a server running this branch on 2026-10-17.
+- [ ] **Offline clusters** — Serve a Talos image cache as a registry mirror so clusters come up without internet access.
+- [ ] **Controller redeploy** — Remove the old etcd member before rebuilding a controller.
+- [ ] **Talos and Kubernetes upgrades, CNI choice** — Today: one pinned Talos minor (1.14), Flannel only. See `docs/architecture/TALOS.md`.
+
 ## Web UI
 ### Console
 - [ ] **Console access** — Nodes table "Console" button is disabled and marked "Coming Soon". No web terminal or VNC integration.

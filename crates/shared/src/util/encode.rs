@@ -9,6 +9,11 @@ pub fn base64_encode(input: &str) -> String {
     general_purpose::STANDARD.encode(input)
 }
 
+/// Base64-encode raw bytes, such as a random key.
+pub fn base64_encode_bytes(input: &[u8]) -> String {
+    general_purpose::STANDARD.encode(input)
+}
+
 pub fn base64_decode(input: &str) -> Result<String> {
     let bytes = general_purpose::STANDARD
         .decode(input)

@@ -3,10 +3,10 @@ use ipnet::{Ipv4Net, Ipv6Net};
 
 use super::ip::{get_ipv4_addr, get_ipv6_addr};
 use crate::data::{Dns, NameServer};
-use crate::konst::{BOOT_SERVER_NAME, SHERPA_DOMAIN_NAME};
+use crate::konst::{BOOT_SERVER_NAME, MANAGEMENT_GATEWAY_HOST_OFFSET, SHERPA_DOMAIN_NAME};
 
 pub fn default_dns(mgmt_net: &Ipv4Net) -> Result<Dns> {
-    let ipv4_address = get_ipv4_addr(mgmt_net, 1)?;
+    let ipv4_address = get_ipv4_addr(mgmt_net, MANAGEMENT_GATEWAY_HOST_OFFSET)?;
 
     Ok(Dns {
         domain: SHERPA_DOMAIN_NAME.to_owned(),
@@ -19,8 +19,8 @@ pub fn default_dns(mgmt_net: &Ipv4Net) -> Result<Dns> {
 }
 
 pub fn default_dns_dual_stack(mgmt_net_v4: &Ipv4Net, mgmt_net_v6: &Ipv6Net) -> Result<Dns> {
-    let ipv4_address = get_ipv4_addr(mgmt_net_v4, 1)?;
-    let ipv6_address = get_ipv6_addr(mgmt_net_v6, 1)?;
+    let ipv4_address = get_ipv4_addr(mgmt_net_v4, MANAGEMENT_GATEWAY_HOST_OFFSET)?;
+    let ipv6_address = get_ipv6_addr(mgmt_net_v6, MANAGEMENT_GATEWAY_HOST_OFFSET)?;
 
     Ok(Dns {
         domain: SHERPA_DOMAIN_NAME.to_owned(),

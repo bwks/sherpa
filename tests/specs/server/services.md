@@ -14,6 +14,7 @@
 - Manifest validation failures abort before resource creation `[integration]` **P0**
 - IP network allocation (management + loopback subnets, both IPv4 and IPv6) `[integration]` **P0**
 - Collision avoidance: used subnets skipped during allocation `[integration]` **P0**
+- Node management addresses come from the node block (`.21`–`.254`), and the dnsmasq DHCP range matches it `[unit]` **P0**
 - VM nodes: ZTP generated, disks cloned, domains created `[integration]` **P0**
 - Container nodes: ZTP generated, Docker networks created, containers started `[integration]` **P0**
 - Point-to-point links: bridges and veth pairs created between nodes `[integration]` **P0**
@@ -39,14 +40,20 @@
 - Lab ownership validated before destruction `[integration]` **P0**
 - Partial failures reported but destruction continues `[integration]` **P0**
 - Streaming progress during destruction `[integration]` **P1**
+- Destroy stops `up`, `redeploy` and `resume` running on the same lab and waits for them; a stopped operation fails with "being destroyed", its sleeps end early, other labs are unaffected, and operations started after the destroy get a fresh token (`services::lab_operations`) `[unit]` **P0**
+- A stopped `up` skips its auto-cleanup, and no cluster credentials are written after a destroy `[e2e]` **P1**
+- Destroy works when the lab info file was never written (name from the lab record) `[integration]` **P1**
 
 ---
 
 ## Node Shutdown (`down`)
 
 **What to test:**
-- VM nodes: graceful ACPI shutdown when guest agent available `[integration]` **P0**
-- VM nodes: force power-off when no guest agent `[integration]` **P0**
+- VM nodes: clean shutdown request (guest agent or ACPI), then a forced power-off only if still running after `VM_SHUTDOWN_TIMEOUT` or if the request fails; result messages say which `[unit]` `[integration]` **P0**
+- Unikernel nodes: powered off without a shutdown request `[unit]` **P1**
+- Routing: Ubuntu-style VMs via libvirt shutdown, Talos cluster nodes via the Talos API (controllers in the last wave), Talos nodes outside a cluster and unikernels powered off with the reason reported, containers paused `[unit]` **P0**
+- Talos `Shutdown` call accepted only with gRPC `OK` `[unit]` **P0**
+- Talos cluster nodes and Ubuntu VMs shut down cleanly (no forced power-off) `[e2e]` **P0**
 - Container nodes: paused via Docker `[integration]` **P0**
 - All nodes or specific node targeted `[integration]` **P0**
 - Node state updated to Stopped in DB `[integration]` **P0**
@@ -75,6 +82,8 @@
 - Container networks recreated `[integration]` **P1**
 - Unikernel nodes explicitly unsupported (error) `[integration]` **P1**
 - Streaming progress during redeploy `[integration]` **P1**
+- Saved management addresses are reused, so nodes in labs created under an earlier address layout keep their addresses; nodes without saved addresses get them from the node block `[unit]` **P0**
+- An invalid saved management address is an error `[unit]` **P1**
 - Redeploy checks the authenticated requester against the current database owner before node state changes or teardown; admins have no bypass `[integration]` **P0**
 
 ---

@@ -24,6 +24,7 @@ mod nokia_srlinux;
 mod paloalto_panos;
 mod sonic_linux;
 mod ssh;
+mod talos;
 mod vault;
 
 pub use arista_eos::{AristaCeosZtpTemplate, AristaVeosZtpTemplate};
@@ -56,4 +57,8 @@ pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::{SshConfigTemplate, SshHostConfig};
+pub use talos::{
+    TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config,
+    talosconfig,
+};
 pub use vault::VaultConfigTemplate;

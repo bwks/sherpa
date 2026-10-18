@@ -5,16 +5,16 @@ use aya::programs::tc::qdisc_detach_program;
 use aya::programs::{SchedClassifier, TcAttachType};
 use tracing::instrument;
 
+/// Pre-built eBPF redirect program ELF, embedded with 8-byte alignment.
+static EBPF_REDIRECT_ELF: &AlignedElf<
+    { include_bytes!("../../ebpf-redirect/ebpf-redirect.elf").len() },
+> = &AlignedElf(*include_bytes!("../../ebpf-redirect/ebpf-redirect.elf"));
+
 /// Wrapper to ensure include_bytes!() data is 8-byte aligned.
 /// The ELF parser requires naturally-aligned data, but include_bytes!()
 /// only guarantees 1-byte alignment.
 #[repr(C, align(8))]
 struct AlignedElf<const N: usize>([u8; N]);
-
-/// Pre-built eBPF redirect program ELF, embedded with 8-byte alignment.
-static EBPF_REDIRECT_ELF: &AlignedElf<
-    { include_bytes!("../../ebpf-redirect/ebpf-redirect.elf").len() },
-> = &AlignedElf(*include_bytes!("../../ebpf-redirect/ebpf-redirect.elf"));
 
 /// Attach a P2p redirect program to an interface.
 ///

@@ -1,5 +1,6 @@
 // Server-side implementation of the redeploy operation for a single node
 
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -16,19 +17,26 @@ use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::lab_operations;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
+use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
 
 use shared::data;
-use shared::data::{NodeState, RedeployRequest, RedeployResponse, StatusKind};
+use shared::data::{DbNode, NodeState, RedeployRequest, RedeployResponse, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
     READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
     SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
+use topology::find_talos_cluster;
+
+// Redeploy updates shared lab files. Serialize redeploys within each lab so one
+// node's new identity cannot overwrite another node's concurrent update.
+static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
 /// Tracks a veth pair created for a P2p container interface during redeploy.
 struct P2pContainerVeth {
@@ -38,10 +46,6 @@ struct P2pContainerVeth {
     node_model: data::NodeModel,
     admin_down: bool,
 }
-
-// Redeploy updates shared lab files. Serialize redeploys within each lab so one
-// node's new identity cannot overwrite another node's concurrent update.
-static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
 ///
@@ -59,6 +63,8 @@ pub async fn redeploy_node(
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
     let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
     locks.retain(|_, lock| lock.strong_count() > 0);
     let lab_lock = {
@@ -106,6 +112,11 @@ pub async fn redeploy_node(
             .with_context(|| format!("Failed to decode ztp_config for node '{}'", node_name))?;
         target_node.ztp_config = Some(decoded);
     }
+    let talos_membership = find_talos_cluster(
+        manifest.talos_clusters.as_deref().unwrap_or_default(),
+        node_name,
+    );
+    talos::ensure_redeployable(node_name, talos_membership)?;
 
     // Use the shared database connection from AppState
     let db = state.db.clone();
@@ -194,16 +205,20 @@ pub async fn redeploy_node(
     } else {
         util::default_dns(&lab_info.ipv4_network)?
     };
+    // A cluster worker rejoins with a config built from the cluster's saved secrets.
+    if let Some((talos_cluster, _)) = talos_membership {
+        talos::secrets::ensure_supported_version(node_name, &node_image.version)?;
+        let cluster = talos::load_cluster(lab_id, &talos_cluster.name)?;
+        target_node.ztp_config = Some(talos::node_machine_config(
+            &cluster,
+            node_name,
+            &mgmt_net.v4,
+        )?);
+    }
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
     let node_idx = db_node.index;
-    let node_ip_idx = 10 + node_idx as u32;
-    let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
-
-    // Assign IPv6 management address
-    if let Some(ref v6) = mgmt_net.v6 {
-        let addr = util::get_ipv6_addr(&v6.prefix, node_ip_idx)?;
-        target_node.ipv6_address = Some(addr);
-    }
+    let (node_ipv4_address, node_ipv6_address) = node_management_addresses(&db_node, &mgmt_net)?;
+    target_node.ipv6_address = node_ipv6_address;
 
     let personal_account =
         if manifest.provision_current_user && guest_account::supports_guest_account(&node_image) {
@@ -224,6 +239,11 @@ pub async fn redeploy_node(
         .context("Failed to load nodes for SSH configuration")?;
     let mut ssh_records = Vec::new();
     for node in ssh_nodes {
+        // Nodes missing from the manifest keep SSH, as before.
+        let has_ssh = match manifest.nodes.iter().find(|entry| entry.name == node.name) {
+            Some(entry) => entry.model.has_ssh(),
+            None => true,
+        };
         if let Some(ip) = node.mgmt_ipv4 {
             ssh_records.push(data::ZtpRecord {
                 node_name: node.name,
@@ -234,7 +254,7 @@ pub async fn redeploy_node(
                 mac_address: String::new(),
                 config_file: String::new(),
                 ztp_method: data::ZtpMethod::None,
-                ssh_port: SSH_PORT,
+                ssh_port: has_ssh.then_some(SSH_PORT),
             });
         }
     }
@@ -1005,21 +1025,25 @@ pub async fn redeploy_node(
                 is_ready = true;
             }
 
+            let ready_port = node_ops::vm_ready_port(&target_node.model, target_node.ready_port);
+            let ready_label = node_ops::ready_port_label(ready_port);
             while !is_ready && ready_start.elapsed() < ready_timeout {
-                match node_ops::check_node_ready_ssh(&ip_str, SSH_PORT)? {
+                match node_ops::check_node_port_ready(&ip_str, ready_port)? {
                     true => {
                         is_ready = true;
                         let _ = progress.send_status(
-                            format!("Node {} - Ready (SSH accessible)", node_name),
+                            format!("Node {} - Ready ({ready_label} reachable)", node_name),
                             StatusKind::Done,
                         );
                     }
                     false => {
                         let _ = progress.send_status(
-                            format!("Node {} - Waiting for SSH", node_name),
+                            format!("Node {} - Waiting for {ready_label}", node_name),
                             StatusKind::Waiting,
                         );
-                        tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                        operation
+                            .sleep(Duration::from_secs(READINESS_SLEEP))
+                            .await?;
                     }
                 }
             }
@@ -1038,6 +1062,7 @@ pub async fn redeploy_node(
         }
     }
 
+    operation.ensure_active()?;
     util::create_file(&format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"), ssh_config)
         .context("Node redeployed, but failed to save SSH configuration")?;
     util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())
@@ -1065,4 +1090,115 @@ pub async fn redeploy_node(
     );
 
     Ok(response)
+}
+
+/// The node's management addresses. Saved addresses win, so a node keeps the address the
+/// lab's dnsmasq and SSH config already hold, even if the address layout has changed since
+/// the lab was deployed. Nodes without saved addresses get them from their index.
+fn node_management_addresses(
+    db_node: &DbNode,
+    mgmt_net: &data::SherpaNetwork,
+) -> Result<(Ipv4Addr, Option<Ipv6Addr>)> {
+    let ipv4 = match db_node.mgmt_ipv4.as_deref() {
+        Some(saved) => saved
+            .parse()
+            .with_context(|| format!("Invalid saved management address: {saved}"))?,
+        None => util::get_ipv4_addr(
+            &mgmt_net.v4.prefix,
+            util::node_management_host_offset(db_node.index)?,
+        )?,
+    };
+    let ipv6 = match (db_node.mgmt_ipv6.as_deref(), mgmt_net.v6.as_ref()) {
+        (_, None) => None,
+        (Some(saved), Some(_)) => Some(
+            saved
+                .parse()
+                .with_context(|| format!("Invalid saved IPv6 management address: {saved}"))?,
+        ),
+        (None, Some(v6)) => Some(util::get_ipv6_addr(
+            &v6.prefix,
+            util::node_management_host_offset(db_node.index)?,
+        )?),
+    };
+    Ok((ipv4, ipv6))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::RecordId;
+
+    fn mgmt_net(with_v6: bool) -> data::SherpaNetwork {
+        let prefix = util::get_ipv4_network("172.31.1.0/24").unwrap();
+        let v6_prefix = util::get_ipv6_network("fd00:b00b:0:1::/64").unwrap();
+        let v6 = if with_v6 {
+            Some(data::NetworkV6 {
+                prefix: v6_prefix,
+                first: "fd00:b00b:0:1::1".parse().unwrap(),
+                last: "fd00:b00b:0:1:ffff:ffff:ffff:ffff".parse().unwrap(),
+                boot_server: "fd00:b00b:0:1::2".parse().unwrap(),
+                network: v6_prefix.network(),
+                prefix_length: v6_prefix.prefix_len(),
+            })
+        } else {
+            None
+        };
+        data::SherpaNetwork {
+            v4: data::NetworkV4 {
+                prefix,
+                first: "172.31.1.1".parse().unwrap(),
+                last: prefix.broadcast(),
+                boot_server: "172.31.1.2".parse().unwrap(),
+                network: prefix.network(),
+                subnet_mask: prefix.netmask(),
+                hostmask: prefix.hostmask(),
+                prefix_length: prefix.prefix_len(),
+            },
+            v6,
+        }
+    }
+
+    fn db_node(index: u16, mgmt_ipv4: Option<&str>, mgmt_ipv6: Option<&str>) -> DbNode {
+        DbNode {
+            id: None,
+            name: "node1".to_string(),
+            image: RecordId::new("node_image", "img"),
+            index,
+            lab: RecordId::new("lab", "lab"),
+            mgmt_ipv4: mgmt_ipv4.map(str::to_string),
+            mgmt_ipv6: mgmt_ipv6.map(str::to_string),
+            mgmt_mac: None,
+            state: NodeState::Running,
+        }
+    }
+
+    #[test]
+    fn test_saved_addresses_survive_a_layout_change() {
+        // A node deployed under the old layout (node 1 at .11) keeps its address.
+        let node = db_node(1, Some("172.31.1.11"), Some("fd00:b00b:0:1::b"));
+        let (ipv4, ipv6) = node_management_addresses(&node, &mgmt_net(true)).unwrap();
+        assert_eq!(ipv4.to_string(), "172.31.1.11");
+        assert_eq!(ipv6.unwrap().to_string(), "fd00:b00b:0:1::b");
+    }
+
+    #[test]
+    fn test_unsaved_addresses_come_from_the_node_block() {
+        let node = db_node(1, None, None);
+        let (ipv4, ipv6) = node_management_addresses(&node, &mgmt_net(true)).unwrap();
+        assert_eq!(ipv4.to_string(), "172.31.1.21");
+        assert_eq!(ipv6.unwrap().to_string(), "fd00:b00b:0:1::15");
+    }
+
+    #[test]
+    fn test_no_ipv6_address_without_an_ipv6_network() {
+        let node = db_node(1, Some("172.31.1.21"), Some("fd00:b00b:0:1::15"));
+        let (_, ipv6) = node_management_addresses(&node, &mgmt_net(false)).unwrap();
+        assert!(ipv6.is_none());
+    }
+
+    #[test]
+    fn test_invalid_saved_address_is_an_error() {
+        let node = db_node(1, Some("not-an-ip"), None);
+        assert!(node_management_addresses(&node, &mgmt_net(false)).is_err());
+    }
 }

@@ -9,7 +9,7 @@ use shared::data::{
     ScannedImage, SetDefaultImageRequest, SetDefaultImageResponse, ShowImageRequest,
     ShowImageResponse, StatusKind,
 };
-use shared::konst::SHERPA_IMAGES_PATH;
+use shared::konst::{SHERPA_IMAGES_PATH, TALOS_IMAGE_FACTORY_URL, TALOS_VANILLA_SCHEMATIC_YAML};
 use shared::util::{copy_file, create_dir, file_exists, image_filename};
 
 use tracing::instrument;
@@ -626,7 +626,11 @@ pub async fn set_default_image(
 }
 
 /// Resolve the download URL for a VM image
-fn resolve_download_url(model: &NodeModel, version: &str, url: Option<&str>) -> Result<String> {
+async fn resolve_download_url(
+    model: &NodeModel,
+    version: &str,
+    url: Option<&str>,
+) -> Result<String> {
     if let Some(url) = url {
         return Ok(url.to_string());
     }
@@ -635,8 +639,60 @@ fn resolve_download_url(model: &NodeModel, version: &str, url: Option<&str>) -> 
         NodeModel::UbuntuLinux => Ok(format!(
             "https://cloud-images.ubuntu.com/releases/{version}/release/ubuntu-{version}-server-cloudimg-amd64.img"
         )),
+        NodeModel::TalosLinux => {
+            let schematic_id = talos_vanilla_schematic_id().await?;
+            Ok(talos_image_url(&schematic_id, version))
+        }
         _ => anyhow::bail!("No auto-download URL for model '{}'. Provide --url.", model),
     }
+}
+
+/// Ask the Talos Image Factory for the ID of the vanilla schematic (no system extensions).
+///
+/// The factory derives a schematic's ID from its content, so the same schematic always has
+/// the same ID; Sherpa asks rather than storing it.
+#[instrument(level = "debug")]
+async fn talos_vanilla_schematic_id() -> Result<String> {
+    let url = format!("{TALOS_IMAGE_FACTORY_URL}/schematics");
+    let response = reqwest::Client::new()
+        .post(&url)
+        .body(TALOS_VANILLA_SCHEMATIC_YAML)
+        .send()
+        .await
+        .with_context(|| {
+            format!("Failed to reach the Talos Image Factory at {url}. Provide --url instead")
+        })?;
+    if !response.status().is_success() {
+        anyhow::bail!(
+            "Talos Image Factory returned HTTP {} for the vanilla schematic. Provide --url instead",
+            response.status()
+        );
+    }
+    let body = response
+        .bytes()
+        .await
+        .context("Failed to read the Talos Image Factory response")?;
+    parse_schematic_id(&body)
+}
+
+/// Read the schematic ID from an Image Factory `/schematics` response.
+fn parse_schematic_id(body: &[u8]) -> Result<String> {
+    let response: serde_json::Value =
+        serde_json::from_slice(body).context("Talos Image Factory response is not JSON")?;
+    let id = response["id"]
+        .as_str()
+        .context("Talos Image Factory response has no schematic id")?;
+    anyhow::ensure!(
+        id.len() == 64 && id.chars().all(|c| c.is_ascii_hexdigit()),
+        "Talos Image Factory returned an unexpected schematic id: {id}"
+    );
+    Ok(id.to_owned())
+}
+
+/// NoCloud image URL for a schematic and Talos version (with or without a leading `v`).
+fn talos_image_url(schematic_id: &str, version: &str) -> String {
+    let version = version.strip_prefix('v').unwrap_or(version);
+    format!("{TALOS_IMAGE_FACTORY_URL}/image/{schematic_id}/v{version}/nocloud-amd64.qcow2")
 }
 
 /// Download a VM image from a URL and track it in the database
@@ -660,7 +716,7 @@ pub async fn download_image(
     let _ = progress.send_status("Resolving download URL...".to_string(), StatusKind::Info);
 
     let download_url =
-        resolve_download_url(&request.model, &request.version, request.url.as_deref())?;
+        resolve_download_url(&request.model, &request.version, request.url.as_deref()).await?;
 
     let images_dir = SHERPA_IMAGES_PATH.to_owned();
     let model_dir = format!("{images_dir}/{}", request.model);
@@ -809,9 +865,11 @@ mod tests {
     use super::*;
     use shared::util::file_exists;
 
-    #[test]
-    fn test_resolve_download_url_ubuntu() {
-        let url = resolve_download_url(&NodeModel::UbuntuLinux, "24.04", None).unwrap();
+    #[tokio::test]
+    async fn test_resolve_download_url_ubuntu() {
+        let url = resolve_download_url(&NodeModel::UbuntuLinux, "24.04", None)
+            .await
+            .unwrap();
         assert_eq!(
             url,
             "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-amd64.img"
@@ -819,15 +877,48 @@ mod tests {
     }
 
     #[test]
-    fn test_resolve_download_url_user_override() {
-        let custom = "https://example.com/my-image.qcow2";
-        let url = resolve_download_url(&NodeModel::FedoraLinux, "42", Some(custom)).unwrap();
-        assert_eq!(url, custom);
+    fn talos_image_urls_use_the_schematic_and_a_v_prefixed_version() {
+        let id = "a".repeat(64);
+        for version in ["1.14.4", "v1.14.4"] {
+            assert_eq!(
+                talos_image_url(&id, version),
+                format!("https://factory.talos.dev/image/{id}/v1.14.4/nocloud-amd64.qcow2")
+            );
+        }
     }
 
     #[test]
-    fn test_resolve_download_url_unsupported_model_no_url() {
-        let result = resolve_download_url(&NodeModel::FedoraLinux, "42", None);
+    fn schematic_ids_are_read_from_the_factory_response() {
+        let id = "0123456789abcdef".repeat(4);
+        let body = format!(r#"{{"id":"{id}","schematic":"customization: {{}}\n"}}"#);
+        assert_eq!(parse_schematic_id(body.as_bytes()).unwrap(), id);
+        for bad in [r#"{"id":"short"}"#, r#"{"schematic":"x"}"#, "not json"] {
+            assert!(parse_schematic_id(bad.as_bytes()).is_err(), "{bad}");
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires internet access to factory.talos.dev"]
+    async fn the_image_factory_returns_the_vanilla_schematic() {
+        let url = resolve_download_url(&NodeModel::TalosLinux, "1.14.4", None)
+            .await
+            .unwrap();
+        assert!(url.starts_with("https://factory.talos.dev/image/"));
+        assert!(url.ends_with("/v1.14.4/nocloud-amd64.qcow2"));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_download_url_user_override() {
+        let custom = "https://example.com/my-image.qcow2";
+        let url = resolve_download_url(&NodeModel::FedoraLinux, "42", Some(custom))
+            .await
+            .unwrap();
+        assert_eq!(url, custom);
+    }
+
+    #[tokio::test]
+    async fn test_resolve_download_url_unsupported_model_no_url() {
+        let result = resolve_download_url(&NodeModel::FedoraLinux, "42", None).await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("No auto-download URL"));

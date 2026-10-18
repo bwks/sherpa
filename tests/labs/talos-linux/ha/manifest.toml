@@ -1,0 +1,15 @@
+# Three controllers sharing a VIP and one worker, plus a util node with kubectl and talosctl.
+name = "talos-ha"
+ready_timeout = 900
+
+talos_clusters = [
+  { name = "k8s", controllers = ["cp1", "cp2", "cp3"], workers = ["w1"] },
+]
+
+nodes = [
+  { name = "cp1", model = "talos_linux", version = "1.14.4" },
+  { name = "cp2", model = "talos_linux", version = "1.14.4" },
+  { name = "cp3", model = "talos_linux", version = "1.14.4" },
+  { name = "w1", model = "talos_linux", version = "1.14.4" },
+  { name = "util", model = "ubuntu_linux", version = "26.04", startup_scripts = ["../install-tools.sh"] },
+]

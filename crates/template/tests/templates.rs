@@ -22,4 +22,5 @@ mod nokia_srlinux;
 mod paloalto_panos;
 mod sonic_linux;
 mod ssh;
+mod talos;
 mod vault;

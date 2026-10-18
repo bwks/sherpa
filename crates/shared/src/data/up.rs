@@ -29,6 +29,21 @@ pub struct UpResponse {
     pub errors: Vec<UpError>,
     pub ssh_config: String,
     pub ssh_private_key: String,
+    /// Kubernetes clusters built in the lab, with their credentials.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub clusters: Vec<ClusterInfo>,
+}
+
+/// A Kubernetes cluster built in the lab, and the credentials to manage it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct ClusterInfo {
+    pub name: String,
+    /// Kubernetes API endpoint.
+    pub endpoint: String,
+    /// `talosctl` configuration with an `os:admin` certificate.
+    pub talosconfig: String,
+    /// `kubectl` configuration with a cluster-admin certificate.
+    pub kubeconfig: String,
 }
 
 /// Summary of created resources

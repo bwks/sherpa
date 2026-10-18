@@ -20,8 +20,10 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::lab_operations;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
+use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
@@ -31,14 +33,16 @@ use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
     LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
-    LAB_SUBNET_ALLOCATION_ATTEMPTS, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT,
-    SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
-    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
-    ZTP_DIR,
+    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
+    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH,
+    SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
+use topology::find_talos_cluster;
 
 // ============================================================================
 // ============================================================================
@@ -160,7 +164,7 @@ pub(crate) fn process_manifest_nodes(
             version: node.version.clone(),
             memory: node.memory,
             cpu_count: node.cpu_count,
-            boot_disk_size: node.boot_disk_size,
+            boot_disk_size: node.boot_disk_size.or(node.model.default_boot_disk_size()),
             boot_disk_clone_method: node.boot_disk_clone_method,
             data_interface_count: node.data_interface_count,
             ipv4_address: node.ipv4_address,
@@ -338,12 +342,12 @@ async fn allocate_lab_networks(db: &db::Database, config: &data::Config) -> Resu
     Ok(LabSubnets {
         loopback_subnet,
         management_subnet,
-        gateway_ipv4: util::get_ipv4_addr(&management_subnet, 1)?,
-        router_ipv4: util::get_ipv4_addr(&management_subnet, 2)?,
+        gateway_ipv4: util::get_ipv4_addr(&management_subnet, MANAGEMENT_GATEWAY_HOST_OFFSET)?,
+        router_ipv4: util::get_ipv4_addr(&management_subnet, SHERPA_MANAGEMENT_IP_INDEX)?,
         ipv6_management_subnet,
         ipv6_loopback_subnet,
-        gateway_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 1)?,
-        router_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, 2)?,
+        gateway_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, MANAGEMENT_GATEWAY_HOST_OFFSET)?,
+        router_ipv6: util::get_ipv6_addr(&ipv6_management_subnet, SHERPA_MANAGEMENT_IP_INDEX)?,
     })
 }
 
@@ -434,6 +438,8 @@ pub async fn up_lab(
         state.config.tls.enabled,
     )?;
     db::validate_lab_id(lab_id)?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
 
     tracing::info!(
         "Starting lab creation: lab_id={}, name={}",
@@ -513,6 +519,10 @@ pub async fn up_lab(
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
     validate::check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
+    validate::check_device_count(&manifest.nodes)
+        .context("Manifest validation failed: node count")?;
+    validate::validate_talos_clusters(&manifest)
+        .context("Manifest validation failed: talos clusters")?;
 
     // Environment variable validators
     for node in &manifest.nodes {
@@ -698,6 +708,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 3: Database Records & Data Structure Building
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::DatabaseRecords,
             "Creating database records".to_string(),
@@ -921,6 +932,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 4: Lab Network Setup
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::LabNetworkSetup,
             "Allocating lab network and creating management network".to_string(),
@@ -1055,6 +1067,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 5: Point-to-Point Link Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::LinkCreation,
             format!("Creating {} point-to-point links", links_detailed.len()),
@@ -1322,6 +1335,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 6: Docker Container Link Networks
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::ContainerNetworks,
             "Creating Docker networks for container links".to_string(),
@@ -1435,6 +1449,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 7: Shared Bridge Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::SharedBridges,
             format!("Creating {} shared bridges", bridges_detailed.len()),
@@ -1504,6 +1519,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 8: ZTP Configuration Generation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::ZtpGeneration,
             "Generating ZTP configurations".to_string(),
@@ -1553,7 +1569,7 @@ pub async fn up_lab(
 
             let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
-            let node_ip_idx = 10 + node_idx as u32;
+            let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
             let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
@@ -1621,6 +1637,46 @@ pub async fn up_lab(
             "Generating VM ZTP configurations and domain templates"
         );
 
+        // Plan Kubernetes clusters and generate their secrets before any node config.
+        let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
+        let mut cluster_members = Vec::new();
+        let mut cluster_names = Vec::with_capacity(talos_clusters.len());
+        for cluster in talos_clusters {
+            cluster_names.push(cluster.name.as_str());
+            for (name, role) in cluster.members() {
+                let node = vm_nodes
+                    .iter()
+                    .find(|node| node.name == name)
+                    .with_context(|| format!("Talos cluster member '{name}' is not a VM node"))?;
+                let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
+                talos::secrets::ensure_supported_version(name, &image.version)?;
+                let node_idx = node_ops::get_node_data(name, &node_setup_data)?.index;
+                cluster_members.push(talos::plan::MemberInput {
+                    name,
+                    cluster: &cluster.name,
+                    role,
+                    ipv4: util::get_ipv4_addr(
+                        &mgmt_net.v4.prefix,
+                        util::node_management_host_offset(node_idx)?,
+                    )?,
+                });
+            }
+        }
+        let lab_clusters = if cluster_names.is_empty() {
+            Vec::new()
+        } else {
+            let clusters =
+                talos::prepare_clusters(lab_id, &cluster_names, &cluster_members, &mgmt_net.v4)?;
+            let _ = progress.send_status(
+                format!(
+                    "Generated secrets for {} Kubernetes clusters",
+                    clusters.len()
+                ),
+                StatusKind::Done,
+            );
+            clusters
+        };
+
         for node in &mut vm_nodes {
             // Decode base64 ztp_config if present
             if let Some(ref encoded) = node.ztp_config {
@@ -1629,10 +1685,19 @@ pub async fn up_lab(
                 })?;
                 node.ztp_config = Some(decoded);
             }
+            // Cluster nodes get a generated machine config (validation forbids their own).
+            if let Some((cluster, _)) = find_talos_cluster(talos_clusters, &node.name) {
+                let cluster = talos::find_cluster(&lab_clusters, &cluster.name)?;
+                node.ztp_config = Some(talos::node_machine_config(
+                    cluster,
+                    &node.name,
+                    &mgmt_net.v4,
+                )?);
+            }
 
             let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
             let node_idx = node_data.index;
-            let node_ip_idx = 10 + node_idx as u32;
+            let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
             let node_image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
             let node_ipv4_address = util::get_ipv4_addr(&mgmt_net.v4.prefix, node_ip_idx)?;
@@ -1843,7 +1908,7 @@ pub async fn up_lab(
             for node in &mut unikernel_nodes {
                 let node_data = node_ops::get_node_data(&node.name, &node_setup_data)?;
                 let node_idx = node_data.index;
-                let node_ip_idx = 10 + node_idx as u32;
+                let node_ip_idx = util::node_management_host_offset(node_idx)?;
 
                 let node_image =
                     get_node_image(&node.model, node.version.as_deref(), &node_images)?;
@@ -1911,7 +1976,7 @@ pub async fn up_lab(
                     ipv6_address: node.ipv6_address,
                     mac_address: setup_result.mac_address.clone(),
                     ztp_method: data::ZtpMethod::None,
-                    ssh_port: SSH_PORT,
+                    ssh_port: Some(SSH_PORT),
                 });
 
                 clone_disks.extend(setup_result.clone_disks);
@@ -2057,6 +2122,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 9: Sherpa Router & ZTP File Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::BootContainers,
             "Creating boot containers and ZTP files".to_string(),
@@ -2082,18 +2148,32 @@ pub async fn up_lab(
         let dnsmaq_template = template::DnsmasqTemplate {
             tftp_server_ipv4: mgmt_net.v4.boot_server.to_string(),
             gateway_ipv4: mgmt_net.v4.first.to_string(),
-            dhcp_start: util::get_ipv4_addr(&mgmt_net.v4.prefix, 10)?.to_string(),
-            dhcp_end: util::get_ipv4_addr(&mgmt_net.v4.prefix, 254)?.to_string(),
+            dhcp_start: util::get_ipv4_addr(
+                &mgmt_net.v4.prefix,
+                *MANAGEMENT_NODE_HOST_OFFSETS.start(),
+            )?
+            .to_string(),
+            dhcp_end: util::get_ipv4_addr(
+                &mgmt_net.v4.prefix,
+                *MANAGEMENT_NODE_HOST_OFFSETS.end(),
+            )?
+            .to_string(),
             gateway_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.first.to_string()),
             dhcp6_start: mgmt_net
                 .v6
                 .as_ref()
-                .map(|v6| util::get_ipv6_addr(&v6.prefix, 10).map(|a| a.to_string()))
+                .map(|v6| {
+                    util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.start())
+                        .map(|a| a.to_string())
+                })
                 .transpose()?,
             dhcp6_end: mgmt_net
                 .v6
                 .as_ref()
-                .map(|v6| util::get_ipv6_addr(&v6.prefix, 254).map(|a| a.to_string()))
+                .map(|v6| {
+                    util::get_ipv6_addr(&v6.prefix, *MANAGEMENT_NODE_HOST_OFFSETS.end())
+                        .map(|a| a.to_string())
+                })
                 .transpose()?,
             dns_ipv6: mgmt_net.v6.as_ref().map(|v6| v6.boot_server.to_string()),
             ztp_records: ztp_records.clone(),
@@ -2172,6 +2252,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 10: Disk Cloning (For VMs and Unikernels)
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string());
 
         node_ops::clone_node_disks(
@@ -2188,6 +2269,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 11: VM Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(data::UpPhase::VmCreation, "Creating VMs".to_string());
 
         if !domains.is_empty() {
@@ -2341,6 +2423,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 12: SSH Config & Network Map Building
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::SshConfig,
             "Generating SSH config".to_string(),
@@ -2535,6 +2618,7 @@ pub async fn up_lab(
         // PHASE 13: Node Readiness Polling
         // ========================================================================
         let ready_timeout_secs = manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT);
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::NodeReadiness,
             format!(
@@ -2575,18 +2659,27 @@ pub async fn up_lab(
             StatusKind::Waiting,
         );
 
-        // Handle nodes with skip_ready_check enabled
+        // Handle nodes with skip_ready_check enabled, and Talos cluster workers, which are
+        // checked as Kubernetes nodes once their cluster is bootstrapped.
+        let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
         for node in &all_lab_nodes {
-            if node.skip_ready_check.unwrap_or(false) {
+            let cluster_worker = talos::readiness_waits_for_kubernetes(talos_clusters, &node.name);
+            if node.skip_ready_check.unwrap_or(false) || cluster_worker {
                 tracing::info!(
                     lab_id = %lab_id,
                     node_name = %node.name,
+                    cluster_worker,
                     "Skipping ready check for node"
                 );
-                let _ = progress.send_status(
-                    format!("Node {} - Ready check skipped", node.name),
-                    StatusKind::Done,
-                );
+                let message = if cluster_worker {
+                    format!(
+                        "Node {} - Ready check deferred to its Kubernetes cluster",
+                        node.name
+                    )
+                } else {
+                    format!("Node {} - Ready check skipped", node.name)
+                };
+                let _ = progress.send_status(message, StatusKind::Done);
                 connected_nodes.insert(node.name.clone());
                 let kind = lab_node_data
                     .iter()
@@ -2778,9 +2871,11 @@ pub async fn up_lab(
                 }
 
                 if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
-                    match node_ops::check_node_ready_ssh(
+                    let ready_port = node_ops::vm_ready_port(&vm.model, vm.ready_port);
+                    let ready_label = node_ops::ready_port_label(ready_port);
+                    match node_ops::check_node_port_ready(
                         &vm_data.ipv4_address.to_string(),
-                        SSH_PORT,
+                        ready_port,
                     )? {
                         true => {
                             tracing::info!(
@@ -2788,10 +2883,11 @@ pub async fn up_lab(
                                 node_name = %vm.name,
                                 node_kind = "VirtualMachine",
                                 ipv4 = %vm_data.ipv4_address,
-                                "VM ready (SSH accessible)"
+                                ready_port,
+                                "VM ready"
                             );
                             let _ = progress.send_status(
-                                format!("Node {} - Ready (SSH accessible)", vm.name),
+                                format!("Node {} - Ready ({ready_label} reachable)", vm.name),
                                 StatusKind::Done,
                             );
                             connected_nodes.insert(vm.name.clone());
@@ -2810,7 +2906,7 @@ pub async fn up_lab(
                                 model: vm.model,
                                 status: NodeState::Running,
                                 ip_address: Some(vm_data.ipv4_address.to_string()),
-                                ssh_port: Some(SSH_PORT),
+                                ssh_port: vm.model.has_ssh().then_some(SSH_PORT),
                             });
                         }
                         false => {
@@ -2818,10 +2914,11 @@ pub async fn up_lab(
                                 lab_id = %lab_id,
                                 node_name = %vm.name,
                                 ipv4 = %vm_data.ipv4_address,
-                                "Waiting for VM SSH connection"
+                                ready_port,
+                                "Waiting for VM readiness port"
                             );
                             let _ = progress.send_status(
-                                format!("Node {} - Waiting for SSH", vm.name),
+                                format!("Node {} - Waiting for {ready_label}", vm.name),
                                 StatusKind::Waiting,
                             );
                         }
@@ -2887,7 +2984,9 @@ pub async fn up_lab(
             }
 
             if connected_nodes.len() < total_lab_nodes {
-                tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                operation
+                    .sleep(Duration::from_secs(READINESS_SLEEP))
+                    .await?;
             }
         }
 
@@ -2935,6 +3034,28 @@ pub async fn up_lab(
             }
         }
 
+        // Bootstrap Kubernetes clusters once their nodes answer.
+        let clusters = if lab_clusters.is_empty() {
+            Vec::new()
+        } else {
+            let (clusters, not_ready) = talos::bring_up_clusters(
+                lab_id,
+                &lab_clusters,
+                Duration::from_secs(ready_timeout_secs),
+                &progress,
+                &operation,
+            )
+            .await?;
+            for name in not_ready {
+                errors.push(data::UpError {
+                    phase: "NodeReadiness".to_string(),
+                    message: format!("Kubernetes cluster {name} did not become ready"),
+                    is_critical: false,
+                });
+            }
+            clusters
+        };
+
         phases_completed.push("NodeReadiness".to_string());
 
         // ========================================================================
@@ -2966,6 +3087,7 @@ pub async fn up_lab(
             errors: errors.clone(),
             ssh_config: ssh_config_content,
             ssh_private_key,
+            clusters,
         };
 
         tracing::info!(
@@ -3004,6 +3126,12 @@ pub async fn up_lab(
                 .metrics
                 .operation_duration
                 .record(start_time.elapsed().as_secs_f64(), op_attrs);
+
+            if operation.is_cancelled() {
+                // The lab is being destroyed, which removes everything this run created.
+                tracing::info!(lab_id = %lab_id, "Lab creation stopped because the lab is being destroyed");
+                return Err(e);
+            }
 
             tracing::error!(
                 lab_id = %lab_id,
@@ -3066,6 +3194,31 @@ mod tests {
                 .unwrap()
                 .is_null()
         );
+    }
+
+    #[test]
+    fn talos_nodes_default_to_a_boot_disk_large_enough_for_talos() {
+        let expanded = process_manifest_nodes(&[
+            topology::Node {
+                name: "talos".into(),
+                model: data::NodeModel::TalosLinux,
+                ..Default::default()
+            },
+            topology::Node {
+                name: "talos-big".into(),
+                model: data::NodeModel::TalosLinux,
+                boot_disk_size: Some(50),
+                ..Default::default()
+            },
+            topology::Node {
+                name: "ubuntu".into(),
+                model: data::NodeModel::UbuntuLinux,
+                ..Default::default()
+            },
+        ]);
+        assert_eq!(expanded[0].boot_disk_size, Some(20));
+        assert_eq!(expanded[1].boot_disk_size, Some(50));
+        assert_eq!(expanded[2].boot_disk_size, None);
     }
 
     #[test]

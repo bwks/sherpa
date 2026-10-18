@@ -1,4 +1,5 @@
 use std::net::Ipv4Addr;
+use std::ops::RangeInclusive;
 
 use ipnet::Ipv4Net;
 
@@ -69,7 +70,19 @@ pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";
 /// Default management network. Built with `new_assert`, so an invalid prefix fails the build.
 pub const SHERPA_MANAGEMENT_NETWORK_IPV4: Ipv4Net =
     Ipv4Net::new_assert(Ipv4Addr::new(172, 31, 0, 0), 16);
+/// Lab management `/24` host offsets reserved for Sherpa infrastructure.
+pub const MANAGEMENT_INFRA_HOST_OFFSETS: RangeInclusive<u32> = 1..=10;
+/// Lab management gateway (libvirt NAT network) host offset.
+pub const MANAGEMENT_GATEWAY_HOST_OFFSET: u32 = 1;
+/// Lab router (dnsmasq, boot server) host offset.
 pub const SHERPA_MANAGEMENT_IP_INDEX: u32 = 2;
+/// Lab Tailscale gateway container host offset.
+pub const TAILSCALE_GATEWAY_HOST_OFFSET: u32 = 3;
+/// Lab management host offsets reserved for lab control-plane addresses.
+pub const MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS: RangeInclusive<u32> = 11..=20;
+/// Lab management host offsets for nodes and the DHCP range. Node `n` (1-based index) gets
+/// the offset `start + n - 1`.
+pub const MANAGEMENT_NODE_HOST_OFFSETS: RangeInclusive<u32> = 21..=254;
 pub const SHERPA_ISOLATED_NETWORK_NAME: &str = "sherpa-isolated";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE: &str = "sherpa-br666";
 pub const SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX: &str = "bri";
@@ -115,6 +128,21 @@ pub const _DEFAULT_STORAGE_POOL: &str = "default";
 pub const _DEFAULT_STORAGE_POOL_PATH: &str = "/var/lib/libvirt/images";
 pub const SSH_PORT: u16 = 22;
 pub const SSH_PORT_ALT: u16 = 2222;
+/// Talos Linux API (apid) port, used for readiness and bootstrap.
+pub const TALOS_API_PORT: u16 = 50000;
+/// Talos Linux minor version Sherpa generates cluster machine configs for.
+pub const TALOS_SUPPORTED_MINOR_VERSION: &str = "1.14";
+/// Kubernetes version of the generated Talos cluster configs (Talos 1.14 default).
+pub const TALOS_KUBERNETES_VERSION: &str = "1.37.1";
+/// Talos Image Factory base URL for downloading Talos Linux images.
+pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
+/// Image Factory schematic for vanilla Talos Linux (no system extensions). The factory
+/// returns its ID when it is posted to `/schematics`.
+pub const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
+/// Host offsets for Talos cluster shared (VIP) addresses, within the lab control-plane block.
+pub const TALOS_VIP_HOST_OFFSETS: RangeInclusive<u32> = 11..=12;
+/// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
+pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
 pub const TELNET_PORT: u16 = 2323;
 pub const BASE_PORT: u16 = 10000;
 pub const HTTP_PORT: u16 = 8080;
@@ -191,6 +219,10 @@ pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;
+/// Seconds `down` waits for a VM to shut down cleanly before powering it off.
+pub const VM_SHUTDOWN_TIMEOUT: u64 = 60;
+/// Seconds between VM power state checks while waiting for a clean shutdown.
+pub const VM_SHUTDOWN_POLL: u64 = 1;
 /// Storage pool refreshes retried while concurrent jobs hold the pool (30s in total).
 pub const STORAGE_POOL_REFRESH_ATTEMPTS: u32 = 60;
 pub const STORAGE_POOL_REFRESH_RETRY_MS: u64 = 500;
@@ -443,5 +475,39 @@ mod tests {
     fn test_management_network_ipv4_is_172_31_0_0_16() {
         assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.to_string(), "172.31.0.0/16");
         assert_eq!(SHERPA_MANAGEMENT_NETWORK_IPV4.prefix_len(), 16);
+    }
+
+    #[test]
+    fn test_management_host_offset_blocks_are_ordered_and_disjoint() {
+        assert_eq!(*MANAGEMENT_INFRA_HOST_OFFSETS.start(), 1);
+        assert_eq!(
+            *MANAGEMENT_INFRA_HOST_OFFSETS.end() + 1,
+            *MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.start()
+        );
+        assert_eq!(
+            *MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.end() + 1,
+            *MANAGEMENT_NODE_HOST_OFFSETS.start()
+        );
+        // .255 is the /24 broadcast address.
+        assert_eq!(*MANAGEMENT_NODE_HOST_OFFSETS.end(), 254);
+    }
+
+    #[test]
+    fn test_infrastructure_addresses_are_distinct_and_in_the_infra_block() {
+        let offsets = [
+            MANAGEMENT_GATEWAY_HOST_OFFSET,
+            SHERPA_MANAGEMENT_IP_INDEX,
+            TAILSCALE_GATEWAY_HOST_OFFSET,
+        ];
+        for (i, offset) in offsets.iter().enumerate() {
+            assert!(MANAGEMENT_INFRA_HOST_OFFSETS.contains(offset));
+            assert!(!offsets[i + 1..].contains(offset));
+        }
+    }
+
+    #[test]
+    fn test_talos_vips_are_in_the_control_plane_block() {
+        assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.start()));
+        assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.end()));
     }
 }
