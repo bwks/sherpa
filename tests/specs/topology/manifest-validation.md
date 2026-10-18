@@ -31,23 +31,6 @@ are shared by the client and the server.
 
 ---
 
-## IPv6 Address Validation — `validate/ipv6.rs`
-
-**Function:** `validate_manifest_ipv6_addresses(nodes) -> Result<()>`
-
-**What to test:**
-- Valid unicast IPv6 addresses pass `[unit]` **P0**
-- Nodes without an IPv6 address are skipped `[unit]` **P0**
-- Unspecified address (`::`) is rejected `[unit]` **P0**
-- Loopback address (`::1`) is rejected `[unit]` **P0**
-- Multicast addresses (`ff00::/8`) are rejected `[unit]` **P0**
-- Multiple nodes validated — first invalid address triggers the error `[unit]` **P1**
-- Error messages include the node name and address `[unit]` **P1**
-
-**Existing coverage:** 8 tests cover all cases including multi-node and error message assertions.
-
----
-
 ## Link & Bridge Validation — `validate/link.rs`
 
 ### Management Interface Protection

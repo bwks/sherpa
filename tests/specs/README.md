@@ -206,7 +206,7 @@ TOML manifest parsing and representation for lab definitions.
 | File | Purpose |
 |------|---------|
 | `manifest-parsing.md` | What to test for manifest handling: parsing valid TOML manifests, round-trip fidelity (parse then serialize), minimal manifest (just a name and one node), full manifest with all optional fields populated, missing required fields, invalid TOML syntax, node/link/bridge struct defaults, volume mount and startup script parsing, example manifest generation, and TOML editing operations (add/remove nodes and links). |
-| `manifest-validation.md` | What to test for manifest checks in `crates/topology/src/validate/`, shared by the client and the server: duplicate device names and device count, management interface protection, duplicate interface usage across links and bridges, interface index bounds per device model, link and bridge device existence, and IPv6 address validation. |
+| `manifest-validation.md` | What to test for manifest checks in `crates/topology/src/validate/`, shared by the client and the server: duplicate device names and device count, management interface protection, duplicate interface usage across links and bridges, interface index bounds per device model, and link and bridge device existence. |
 
 ### `install/` — Install Script
 
