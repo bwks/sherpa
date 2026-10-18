@@ -490,6 +490,7 @@ pub async fn up_lab(
     let db_user = db::get_user(&db, current_user)
         .await
         .context("Failed to get database user")?;
+    guest_account::require_ssh_key(&db_user)?;
 
     // Check if lab already exists (CRITICAL ERROR - fail fast)
     if let Ok(lab) = db::get_lab(&db, lab_id).await {
@@ -613,7 +614,17 @@ pub async fn up_lab(
     let personal_account = if personal_nodes.is_empty() {
         None
     } else {
-        Some(guest_account::from_user(&db_user)?)
+        let account = guest_account::from_user(&db_user)?;
+        if account.is_none() {
+            let _ = progress.send_status(
+                format!(
+                    "Username '{}' cannot be a login on lab nodes; nodes use the sherpa account",
+                    db_user.username
+                ),
+                StatusKind::Info,
+            );
+        }
+        account
     };
     let mut ssh_usernames = Vec::new();
     if let Some(account) = &personal_account {

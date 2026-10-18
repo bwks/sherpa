@@ -5,6 +5,7 @@ use reqwest::{Client, Response, StatusCode, header};
 use serde_json::{Value, json};
 use shared::data::DbUser;
 use shared::error::RpcErrorCode;
+use shared::konst::SSH_KEYS_DOCS_URL;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::time::Duration;
 
@@ -523,4 +524,34 @@ async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
     )
     .await?;
     remove_lab(&server, &lab_id).await
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database and libvirt"]
+async fn starting_a_lab_requires_a_registered_ssh_key() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    // login_callers creates users without SSH keys.
+    let (callers, _) = login_callers(&server, &mut ws).await?;
+    let alice = token_of(&callers, "alice")?;
+    let lab_id = format!("{:08x}", rand::random::<u32>());
+    let manifest = json!({ "name": "no-key-lab", "nodes": [] });
+
+    let (statuses, response) = ws
+        .rpc_call_streaming(
+            "up",
+            json!({ "token": alice, "lab_id": lab_id, "manifest": manifest }),
+            RPC_TIMEOUT,
+        )
+        .await?;
+    let context = response["error"]["context"].as_str().unwrap_or_default();
+    ensure!(
+        context.contains("no SSH public key") && context.contains(SSH_KEYS_DOCS_URL),
+        "up without an SSH key was not refused with guidance: {response} {statuses:?}"
+    );
+    ensure!(
+        db::find_lab(&server.db, &lab_id).await?.is_none(),
+        "a refused up created a lab record"
+    );
+    Ok(())
 }

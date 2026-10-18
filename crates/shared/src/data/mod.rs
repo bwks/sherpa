@@ -82,9 +82,10 @@ pub use up::{
 };
 pub use user::User;
 pub use user_management::{
-    ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest, CreateUserResponse,
-    DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest, GetUserInfoResponse,
-    ListUsersRequest, ListUsersResponse, UserInfo,
+    AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
+    CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest,
+    GetUserInfoResponse, ListUsersRequest, ListUsersResponse, RemoveSshKeyRequest, UserInfo,
+    UserSshKeysResponse,
 };
 pub use vm_action::{CancelLabResponse, LabNodeActionResponse, NodeActionResult};
 pub use ws::ConnectedMsg;

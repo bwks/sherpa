@@ -22,7 +22,7 @@ use crate::services::error::ServiceError;
 use crate::services::progress::ProgressSender;
 use crate::services::{
     cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, redeploy, resume, up, user_delete,
+    list_labs, redeploy, resume, up, user_delete, user_ssh_keys,
 };
 use crate::templates::{
     AdminImageUploadTemplate, AdminNotificationErrorTemplate, AdminPasswordErrorTemplate,
@@ -45,14 +45,14 @@ use crate::validate::validate_node_image_update;
 use shared::api_spec;
 use shared::auth::password;
 use shared::data::{
-    BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
+    AddSshKeyRequest, BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
     ContainerPullRequest, CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse,
     DeleteImageRequest, DeleteUserResponse, DiskBuses, DownloadImageRequest, GetUserInfoResponse,
     ImportRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
-    NodeModel, OsVariant, RedeployRequest, ScanImagesRequest, SetDefaultImageRequest,
-    ShowImageRequest, UpRequest, UpdateImpairmentRequest, UpdateImpairmentResponse, UserInfo,
-    ZtpMethod,
+    NodeModel, OsVariant, RedeployRequest, RemoveSshKeyRequest, ScanImagesRequest,
+    SetDefaultImageRequest, ShowImageRequest, UpRequest, UpdateImpairmentRequest,
+    UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ZtpMethod,
 };
 use shared::konst::{
     ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
@@ -3336,6 +3336,38 @@ pub async fn change_password_json(
         success: true,
         username,
     }))
+}
+
+/// Add an SSH public key to a user
+///
+/// POST /api/v1/admin/users/{username}/ssh-keys
+pub async fn add_ssh_key_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<AddSshKeyRequest>,
+) -> Result<Json<UserSshKeysResponse>, ApiError> {
+    let response =
+        user_ssh_keys::add_ssh_key(&auth.into_context(), &username, &payload.ssh_key, &state)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(Json(response))
+}
+
+/// Remove an SSH public key, given as the key or its SHA256 fingerprint, from a user
+///
+/// DELETE /api/v1/admin/users/{username}/ssh-keys
+pub async fn remove_ssh_key_json(
+    auth: AuthenticatedUser,
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    Json(payload): Json<RemoveSshKeyRequest>,
+) -> Result<Json<UserSshKeysResponse>, ApiError> {
+    let response =
+        user_ssh_keys::remove_ssh_key(&auth.into_context(), &username, &payload.ssh_key, &state)
+            .await
+            .map_err(ApiError::from)?;
+    Ok(Json(response))
 }
 
 /// Get user info

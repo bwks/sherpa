@@ -6,7 +6,7 @@ use ssh_key::PublicKey;
 use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
-use shared::konst::RESERVED_USERNAMES;
+use shared::konst::{RESERVED_USERNAMES, SSH_KEYS_DOCS_URL};
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
 use shared::validators::validate_ssh_key;
@@ -61,9 +61,26 @@ pub(crate) fn validate_node(node: &topology::NodeExpanded, image: &NodeConfig) -
     Ok(())
 }
 
+/// Require the lab owner to have at least one registered SSH public key.
+///
+/// Labs are started only by users with a key, so their account on lab nodes can be provisioned.
+#[instrument(level = "debug", skip(user), fields(username = %user.username))]
+pub(crate) fn require_ssh_key(user: &DbUser) -> Result<()> {
+    ensure!(
+        !user.ssh_keys.is_empty(),
+        "User '{}' has no SSH public key registered, and labs need one. Add a key on the web UI \
+         Profile page or with 'sherpa server user ssh-key add'. See {SSH_KEYS_DOCS_URL}",
+        user.username
+    );
+    Ok(())
+}
+
 /// Startup uses the authenticated creator; redeploy supplies the DB lab owner ID.
 #[instrument(level = "debug", skip(db))]
-pub(crate) async fn resolve_owner(db: &db::Database, owner_id: RecordId) -> Result<GuestAccount> {
+pub(crate) async fn resolve_owner(
+    db: &db::Database,
+    owner_id: RecordId,
+) -> Result<Option<GuestAccount>> {
     let owner = db::get_user_by_id(db, owner_id)
         .await
         .context("Failed to look up the lab owner")?
@@ -71,14 +88,22 @@ pub(crate) async fn resolve_owner(db: &db::Database, owner_id: RecordId) -> Resu
     from_user(&owner)
 }
 
-#[instrument(level = "debug", skip(user))]
-pub(crate) fn from_user(user: &DbUser) -> Result<GuestAccount> {
-    validate_guest_username(&user.username, RESERVED_USERNAMES)
-        .context("Lab owner cannot be provisioned as a Linux account")?;
-    ensure!(
-        !user.ssh_keys.is_empty(),
-        "Lab owner must register at least one SSH public key"
-    );
+/// The owner's guest account, or `None` when their username cannot be a login on lab nodes,
+/// in which case the nodes keep only the `sherpa` account.
+///
+/// Usernames created since server usernames follow the guest rules always qualify; older names
+/// may not. Missing or invalid keys are an error.
+#[instrument(level = "debug", skip(user), fields(username = %user.username))]
+pub(crate) fn from_user(user: &DbUser) -> Result<Option<GuestAccount>> {
+    if let Err(error) = validate_guest_username(&user.username, RESERVED_USERNAMES) {
+        tracing::warn!(
+            username = %user.username,
+            %error,
+            "Lab owner's username cannot be a guest login; nodes keep the sherpa account"
+        );
+        return Ok(None);
+    }
+    require_ssh_key(user)?;
     let mut seen = HashSet::new();
     let mut ssh_keys = Vec::new();
     for key in &user.ssh_keys {
@@ -102,10 +127,10 @@ pub(crate) fn from_user(user: &DbUser) -> Result<GuestAccount> {
             );
         }
     }
-    Ok(GuestAccount {
+    Ok(Some(GuestAccount {
         username: user.username.clone(),
         ssh_keys,
-    })
+    }))
 }
 
 #[instrument(level = "debug", skip(account))]
@@ -174,7 +199,7 @@ mod tests {
             "alice",
             vec![format!("{KEY} laptop"), format!("  {KEY} desktop  ")],
         );
-        let account = from_user(&user).unwrap();
+        let account = from_user(&user).unwrap().unwrap();
         assert_eq!(account.username, "alice");
         assert_eq!(account.ssh_keys, vec![KEY]);
     }
@@ -193,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn validates_owner_username() {
+    fn owners_whose_name_cannot_be_a_guest_login_get_no_account() {
         for name in [
             "root",
             SHERPA_USERNAME,
@@ -201,8 +226,22 @@ mod tests {
             "Alice",
             "alice@example.com",
         ] {
-            assert!(from_user(&owner(name, vec![KEY.to_owned()])).is_err());
+            assert!(
+                from_user(&owner(name, vec![KEY.to_owned()]))
+                    .unwrap()
+                    .is_none()
+            );
         }
+    }
+
+    #[test]
+    fn starting_labs_requires_a_registered_ssh_key() {
+        let error = require_ssh_key(&owner("alice", vec![]))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("no SSH public key"), "{error}");
+        assert!(error.contains(SSH_KEYS_DOCS_URL), "{error}");
+        assert!(require_ssh_key(&owner("alice", vec![KEY.to_owned()])).is_ok());
     }
 
     #[test]
@@ -252,7 +291,9 @@ mod tests {
 
     #[test]
     fn personal_cloud_init_user_has_keys_home_shell_and_sudo_without_password() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
         let config = CloudInitConfig {
             users: vec![cloud_init_user(&account)],
             ..Default::default()
@@ -277,7 +318,9 @@ mod tests {
 
     #[test]
     fn personal_ignition_user_has_native_fields_and_dedicated_sudoers() {
-        let account = from_user(&owner("alice", vec![KEY.to_owned()])).unwrap();
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
         let config = IgnitionConfig::new(
             vec![ignition_user(&account)],
             vec![sudoers_file(&account)],

@@ -13,7 +13,7 @@ use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
     cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, progress, redeploy, resume, up, user_delete,
+    list_labs, progress, redeploy, resume, up, user_delete, user_ssh_keys,
 };
 use shared::auth::password;
 use shared::data;
@@ -27,20 +27,22 @@ use shared::konst::{
     RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
     RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
     RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
-    RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD, RPC_MSG_INVALID_PARAMS_CONTAINER_PULL,
-    RPC_MSG_INVALID_PARAMS_CREATE_USER, RPC_MSG_INVALID_PARAMS_DELETE_USER,
-    RPC_MSG_INVALID_PARAMS_GET_USER_INFO, RPC_MSG_INVALID_PARAMS_IMAGE_DELETE,
-    RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD, RPC_MSG_INVALID_PARAMS_IMAGE_LIST,
-    RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT, RPC_MSG_INVALID_PARAMS_IMAGE_SHOW,
-    RPC_MSG_INVALID_PARAMS_IMPAIRMENT, RPC_MSG_INVALID_PARAMS_IMPORT,
-    RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN, RPC_MSG_INVALID_PARAMS_MANIFEST,
-    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED,
+    RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY, RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD,
+    RPC_MSG_INVALID_PARAMS_CONTAINER_PULL, RPC_MSG_INVALID_PARAMS_CREATE_USER,
+    RPC_MSG_INVALID_PARAMS_DELETE_USER, RPC_MSG_INVALID_PARAMS_GET_USER_INFO,
+    RPC_MSG_INVALID_PARAMS_IMAGE_DELETE, RPC_MSG_INVALID_PARAMS_IMAGE_DOWNLOAD,
+    RPC_MSG_INVALID_PARAMS_IMAGE_LIST, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT,
+    RPC_MSG_INVALID_PARAMS_IMAGE_SHOW, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
+    RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
+    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_REDEPLOY,
+    RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED,
     RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
     RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
     RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
-    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
-    RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
+    RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
+    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
+    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_LIST_FAILED,
+    RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 use shared::util::normalize_username;
 
@@ -266,6 +268,8 @@ pub async fn handle_rpc_request(
         }
         "user.passwd" => handle_user_passwd(id, params, state).await,
         "user.info" => handle_user_info(id, params, state).await,
+        "user.ssh_key.add" => handle_user_ssh_key_add(id, params, state).await,
+        "user.ssh_key.remove" => handle_user_ssh_key_remove(id, params, state).await,
         // Note: "up" is handled separately via handle_streaming_rpc_request
         _ => {
             // Unknown method
@@ -2425,6 +2429,137 @@ async fn handle_user_passwd(
                 }),
             }
         }
+    }
+}
+
+/// Handle "user.ssh_key.add" RPC call
+///
+/// Expected params: AddSshKeyRequest {"username": "string", "ssh_key": "string", "token": "string"}
+async fn handle_user_ssh_key_add(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.ssh_key.add: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let request: data::AddSshKeyRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // The service enforces the self-or-admin rule and validates the key
+    match user_ssh_keys::add_ssh_key(&auth_ctx, &request.username, &request.ssh_key, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_SSH_KEY_ADD_FAILED)),
+        },
+    }
+}
+
+/// Handle "user.ssh_key.remove" RPC call
+///
+/// Expected params: RemoveSshKeyRequest {"username": "string", "ssh_key": "string", "token": "string"}
+async fn handle_user_ssh_key_remove(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for user.ssh_key.remove: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let request: data::RemoveSshKeyRequest = match serde_json::from_value(params) {
+        Ok(req) => req,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // The service enforces the self-or-admin rule
+    match user_ssh_keys::remove_ssh_key(&auth_ctx, &request.username, &request.ssh_key, state).await
+    {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => ServerMessage::RpcResponse {
+                id,
+                result: Some(result),
+                error: None,
+            },
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_SSH_KEY_REMOVE_FAILED)),
+        },
     }
 }
 

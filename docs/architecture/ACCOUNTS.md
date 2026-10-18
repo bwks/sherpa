@@ -79,3 +79,32 @@ services call it (`up::up_lab`, `resume::start_lab_nodes`, `redeploy::redeploy_n
 REST create handler and web UI create form check it first so a refusal is a `403` or a form
 error rather than a failed job. `admin` keeps every other lab operation, such as inspect, down,
 destroy and clean.
+
+## SSH keys
+
+Every lab needs its owner's SSH public key, so the owner's personal account on lab nodes can be
+provisioned. `services::guest_account::require_ssh_key` refuses `up` and `redeploy` for a user
+without a key, with an error that links to the user documentation
+(`konst::SSH_KEYS_DOCS_URL`).
+
+`guest_account::from_user` returns no account, rather than an error, when the owner's username
+cannot be a guest login (a legacy name, or one reserved on guests); `up` and `redeploy` report
+that the nodes use the `sherpa` account instead. Missing or malformed keys stay an error.
+
+### Managing keys
+
+`services::user_ssh_keys` adds and removes keys for every transport:
+
+| Transport | Add | Remove |
+|---|---|---|
+| REST | `POST /api/v1/admin/users/{username}/ssh-keys` | `DELETE /api/v1/admin/users/{username}/ssh-keys` |
+| WebSocket RPC | `user.ssh_key.add` | `user.ssh_key.remove` |
+| CLI | `sherpa server user ssh-key add` | `sherpa server user ssh-key remove` |
+
+Listing uses `user.info`. The rules: the caller acts on their own account, or any account as an
+admin (`auth::policy::require_self_or_admin`); a key must pass
+`shared::validators::validate_ssh_key` and parse as an OpenSSH key; the same key data is not
+registered twice, whatever the comment; removal matches the key data or its `SHA256:`
+fingerprint (`shared::util::ssh_key_fingerprint`). The web UI profile and admin pages keep their
+own index-based handlers.
+

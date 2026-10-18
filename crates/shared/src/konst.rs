@@ -92,6 +92,8 @@ pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
 pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "admin";
+/// User documentation on generating and registering SSH keys, linked from errors.
+pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
 pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
 pub const ADMIN_LAB_START_MESSAGE: &str =
     "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
@@ -455,6 +457,8 @@ pub const RPC_MSG_USER_CREATE_FAILED: &str = "Failed to create user";
 pub const RPC_MSG_USER_LIST_FAILED: &str = "Failed to list users";
 pub const RPC_MSG_USER_DELETE_FAILED: &str = "Failed to delete user";
 pub const RPC_MSG_USER_PASSWORD_UPDATE_FAILED: &str = "Failed to update password";
+pub const RPC_MSG_SSH_KEY_ADD_FAILED: &str = "Failed to add SSH key";
+pub const RPC_MSG_SSH_KEY_REMOVE_FAILED: &str = "Failed to remove SSH key";
 pub const RPC_MSG_PASSWORD_VALIDATION_FAILED: &str = "Password validation failed";
 
 // Lab operations
@@ -532,6 +536,9 @@ pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =
     "Invalid params: expected ChangePasswordRequest";
 pub const RPC_MSG_INVALID_PARAMS_GET_USER_INFO: &str =
     "Invalid params: expected GetUserInfoRequest";
+pub const RPC_MSG_INVALID_PARAMS_ADD_SSH_KEY: &str = "Invalid params: expected AddSshKeyRequest";
+pub const RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY: &str =
+    "Invalid params: expected RemoveSshKeyRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMPORT: &str = "Invalid params: expected ImportRequest";
 pub const RPC_MSG_INVALID_PARAMS_IMAGE_LIST: &str = "Invalid params: expected ListImagesRequest";
 

@@ -62,12 +62,13 @@ pub use ssh::{
     SshConfigInspectionReport, add_lab_ssh_include, clean_stale_lab_ssh_includes,
     find_user_ssh_keys, generate_ssh_keypair, get_ssh_public_key, inspect_lab_ssh_includes,
     pub_ssh_key_to_md5_hash, pub_ssh_key_to_sha256_hash, remove_lab_ssh_include,
+    ssh_key_fingerprint,
 };
 pub use table::{
     CertificateTableInfo, render_bridges_table, render_certificates_table, render_devices_table,
     render_image_detail_table, render_images_table, render_lab_info_table, render_links_table,
     render_nodes_table, render_scanned_images_table, render_server_status_table,
-    render_ssh_config_inspection_table, render_tailnet_table,
+    render_ssh_config_inspection_table, render_ssh_keys_table, render_tailnet_table,
 };
 pub use text::split_node_int;
 pub use user::{get_username, normalize_username, sherpa_user};

@@ -4,10 +4,11 @@ use anyhow::{Result, ensure};
 use reqwest::{Client, Response, StatusCode, header};
 use serde_json::json;
 use shared::error::RpcErrorCode;
+use shared::util::ssh_key_fingerprint;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use sherpad::daemon::state::ensure_admin_account;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer, empty_database};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer, empty_database};
 use helpers::ws_client::TestWsClient;
 
 /// Element on the admin users page that receives a refused delete's message.
@@ -800,5 +801,118 @@ async fn startup_requires_the_admin_account() -> Result<()> {
 
     // Once the account exists, startup succeeds without the password.
     ensure_admin_account(&db, None).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn users_manage_their_own_ssh_keys_on_rpc_and_rest() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    for username in ["alice", "bob"] {
+        db::create_user(
+            &server.db,
+            username.to_owned(),
+            TEST_ADMIN_PASSWORD,
+            false,
+            vec![],
+        )
+        .await?;
+    }
+    let alice = ws.login("alice", TEST_ADMIN_PASSWORD).await?;
+    let bob = ws.login("bob", TEST_ADMIN_PASSWORD).await?;
+    let admin = ws.login_admin().await?;
+    let key = format!("{TEST_SSH_PUBLIC_KEY} alice@laptop");
+
+    // Add over RPC; usernames are case-insensitive.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "Alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["result"]["ssh_keys"] == json!([key]),
+        "add failed: {response}"
+    );
+
+    // The same key data again, whatever its comment, is a duplicate.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "alice", "ssh_key": TEST_SSH_PUBLIC_KEY }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_some(),
+        "duplicate accepted: {response}"
+    );
+
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.add",
+            json!({ "token": alice, "username": "alice", "ssh_key": "ssh-ed25519 broken" }),
+        )
+        .await?;
+    ensure!(
+        response.get("error").is_some(),
+        "invalid key accepted: {response}"
+    );
+
+    // Another user may not change alice's keys; an admin may.
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.remove",
+            json!({ "token": bob, "username": "alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "bob changed alice's keys: {response}"
+    );
+    let response = Client::new()
+        .post(format!(
+            "http://{}/api/v1/admin/users/alice/ssh-keys",
+            server.addr
+        ))
+        .bearer_auth(&bob)
+        .json(&json!({ "username": "alice", "ssh_key": key, "token": bob }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::FORBIDDEN,
+        "REST add for another user returned {}",
+        response.status()
+    );
+
+    // Remove by fingerprint over REST, as an admin.
+    let fingerprint = ssh_key_fingerprint(&key)?;
+    let response = Client::new()
+        .delete(format!(
+            "http://{}/api/v1/admin/users/alice/ssh-keys",
+            server.addr
+        ))
+        .bearer_auth(&admin)
+        .json(&json!({ "username": "alice", "ssh_key": fingerprint, "token": admin }))
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::OK,
+        "REST remove returned {}",
+        response.status()
+    );
+    let body: serde_json::Value = response.json().await?;
+    ensure!(body["ssh_keys"] == json!([]), "key not removed: {body}");
+
+    let response = ws
+        .rpc_call(
+            "user.ssh_key.remove",
+            json!({ "token": alice, "username": "alice", "ssh_key": key }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::NotFound),
+        "removing a missing key: {response}"
+    );
     Ok(())
 }
