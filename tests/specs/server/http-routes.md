@@ -86,8 +86,9 @@
 
 Run the isolated browser-state checks with `node tests/web/test_theme.cjs`.
 
-- Offer only Catppuccin Frappé, Soda Pop, Dracula, Nord and Gruvbox in every theme menu `[unit]` **P1**
-- Default to Soda Pop for new visitors and migrate removed or unknown saved palettes to Soda Pop `[unit]` **P1**
-- Preserve supported saved palettes and synchronize all menus when switching palettes `[unit]` **P1**
-- Follow the system light/dark preference until explicitly overridden `[unit]` **P1**
-- Include only retained light/dark palettes in source and built CSS, with Soda Pop as the CSS fallback `[unit]` **P1**
+Soda Pop is the only theme, in light and dark variants.
+
+- Follow the system light/dark preference until explicitly overridden; a saved choice wins `[unit]` **P1**
+- Forget a palette saved by an older release `[unit]` **P1**
+- Offer no palette menu in any template `[unit]` **P1**
+- Source and built CSS define only the Soda Pop light (`:root`) and dark (`:root.dark`) themes `[unit]` **P1**
