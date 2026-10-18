@@ -17,6 +17,7 @@ use crate::auth::policy::require_lab_owner;
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::lab_operations;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
@@ -62,6 +63,8 @@ pub async fn redeploy_node(
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
     let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
     let locks = REDEPLOY_LOCKS.get_or_init(DashMap::new);
     locks.retain(|_, lock| lock.strong_count() > 0);
     let lab_lock = {
@@ -1038,7 +1041,9 @@ pub async fn redeploy_node(
                             format!("Node {} - Waiting for {ready_label}", node_name),
                             StatusKind::Waiting,
                         );
-                        tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                        operation
+                            .sleep(Duration::from_secs(READINESS_SLEEP))
+                            .await?;
                     }
                 }
             }
@@ -1057,6 +1062,7 @@ pub async fn redeploy_node(
         }
     }
 
+    operation.ensure_active()?;
     util::create_file(&format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"), ssh_config)
         .context("Node redeployed, but failed to save SSH configuration")?;
     util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())

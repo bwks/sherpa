@@ -12,14 +12,18 @@ use shared::konst::{READINESS_SLEEP, TALOS_API_PORT};
 use template::TalosClusterSecrets;
 
 use super::plan::ClusterPlan;
+use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::PemPair;
 
 /// gRPC path of the Talos bootstrap call.
 const BOOTSTRAP_PATH: &str = "/machine.MachineService/Bootstrap";
-/// A gRPC message frame holding an empty `BootstrapRequest`: no compression, zero length.
+/// gRPC path of the Talos shutdown call.
+const SHUTDOWN_PATH: &str = "/machine.MachineService/Shutdown";
+/// A gRPC message frame holding an empty request message: no compression, zero length. An
+/// empty `ShutdownRequest` has `force` unset, which asks for a graceful shutdown.
 const EMPTY_GRPC_FRAME: [u8; 5] = [0, 0, 0, 0, 0];
-/// gRPC status codes Talos returns from Bootstrap.
+/// gRPC status codes Talos returns.
 const GRPC_OK: &str = "0";
 const GRPC_ALREADY_EXISTS: &str = "6";
 /// How long a single API request may take.
@@ -44,9 +48,41 @@ pub async fn bootstrap(
     secrets: &TalosClusterSecrets,
     admin: &PemPair,
 ) -> Result<BootstrapOutcome> {
+    let status = machine_service_call(node, BOOTSTRAP_PATH, secrets, admin).await?;
+    bootstrap_outcome(status.code.as_deref(), status.message.as_deref())
+        .with_context(|| format!("Talos refused to bootstrap {node}"))
+}
+
+/// Ask a node to shut down gracefully: Talos cordons and drains it, stops its services and
+/// powers it off. Returns once Talos has accepted the request, not once the node is off.
+#[instrument(skip(secrets, admin), fields(%node))]
+pub async fn shutdown(
+    node: Ipv4Addr,
+    secrets: &TalosClusterSecrets,
+    admin: &PemPair,
+) -> Result<()> {
+    let status = machine_service_call(node, SHUTDOWN_PATH, secrets, admin).await?;
+    accepted(status.code.as_deref(), status.message.as_deref())
+        .with_context(|| format!("Talos refused to shut down {node}"))
+}
+
+/// The gRPC status of a unary call.
+struct GrpcStatus {
+    code: Option<String>,
+    message: Option<String>,
+}
+
+/// Send an empty request to a `MachineService` method on one node's Talos API, trusting only
+/// the OS CA and presenting the admin certificate, and return the call's gRPC status.
+async fn machine_service_call(
+    node: Ipv4Addr,
+    path: &str,
+    secrets: &TalosClusterSecrets,
+    admin: &PemPair,
+) -> Result<GrpcStatus> {
     let client = api_client(&secrets.os_ca_cert, admin, true)?;
     let response = client
-        .post(format!("https://{node}:{TALOS_API_PORT}{BOOTSTRAP_PATH}"))
+        .post(format!("https://{node}:{TALOS_API_PORT}{path}"))
         .header("content-type", "application/grpc")
         .header("te", "trailers")
         .body(EMPTY_GRPC_FRAME.to_vec())
@@ -65,7 +101,7 @@ pub async fn bootstrap(
         .into_body()
         .collect()
         .await
-        .with_context(|| format!("Failed to read the bootstrap response from {node}"))?;
+        .with_context(|| format!("Failed to read the {path} response from {node}"))?;
     let (trailer_status, trailer_message) = match collected.trailers() {
         Some(trailers) => (
             header_value(trailers, "grpc-status"),
@@ -73,11 +109,19 @@ pub async fn bootstrap(
         ),
         None => (None, None),
     };
-    bootstrap_outcome(
-        header_status.or(trailer_status).as_deref(),
-        header_message.or(trailer_message).as_deref(),
-    )
-    .with_context(|| format!("Talos refused to bootstrap {node}"))
+    Ok(GrpcStatus {
+        code: header_status.or(trailer_status),
+        message: header_message.or(trailer_message),
+    })
+}
+
+/// Interpret the gRPC status of a call that succeeds only with `OK`.
+fn accepted(status: Option<&str>, message: Option<&str>) -> Result<()> {
+    match status {
+        Some(GRPC_OK) => Ok(()),
+        Some(code) => bail!("gRPC status {code}: {}", message.unwrap_or("no message")),
+        None => bail!("response had no gRPC status"),
+    }
 }
 
 /// Interpret the gRPC status of a Bootstrap call.
@@ -94,13 +138,15 @@ fn bootstrap_outcome(status: Option<&str>, message: Option<&str>) -> Result<Boot
 ///
 /// Returns `false` if the timeout passes first; the caller reports that but does not fail,
 /// as with node readiness.
-#[instrument(skip(plan, secrets, admin, progress), fields(cluster = %plan.name))]
+/// Fails if the lab is destroyed meanwhile.
+#[instrument(skip(plan, secrets, admin, progress, operation), fields(cluster = %plan.name))]
 pub async fn wait_for_kubernetes(
     plan: &ClusterPlan,
     secrets: &TalosClusterSecrets,
     admin: &PemPair,
     timeout: Duration,
     progress: &ProgressSender,
+    operation: &LabOperation,
 ) -> Result<bool> {
     let client = api_client(&secrets.kubernetes_ca_cert, admin, false)?;
     let url = format!("{}/api/v1/nodes", plan.endpoint_url());
@@ -140,7 +186,9 @@ pub async fn wait_for_kubernetes(
             ),
             StatusKind::Waiting,
         );
-        tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+        operation
+            .sleep(Duration::from_secs(READINESS_SLEEP))
+            .await?;
     }
     Ok(false)
 }
@@ -213,6 +261,18 @@ mod tests {
             .to_string();
         assert!(error.contains("14") && error.contains("unavailable"));
         assert!(bootstrap_outcome(None, None).is_err());
+    }
+
+    #[test]
+    fn shutdown_is_accepted_only_with_an_ok_status() {
+        accepted(Some("0"), None).unwrap();
+        let refused = accepted(Some("7"), Some("permission denied")).unwrap_err();
+        assert!(
+            refused
+                .to_string()
+                .contains("gRPC status 7: permission denied")
+        );
+        assert!(accepted(None, None).is_err());
     }
 
     #[test]

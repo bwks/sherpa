@@ -2,6 +2,7 @@
 //! configs, bootstrapping, credentials, and the redeploy and download paths.
 
 use std::fs;
+use std::net::Ipv4Addr;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
@@ -13,15 +14,16 @@ use shared::konst::{READINESS_SLEEP, SHERPA_LABS_PATH};
 use template::{
     TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
 };
-use topology::TalosCluster;
+use topology::{TalosCluster, find_talos_cluster};
 
-use super::bootstrap::{BootstrapOutcome, bootstrap, wait_for_kubernetes};
+use super::bootstrap::{BootstrapOutcome, bootstrap, shutdown, wait_for_kubernetes};
 use super::plan::{ClusterPlan, MemberInput, plan_clusters};
 use super::secrets::{
     CLUSTERS_DIR, KUBECONFIG_FILE, TALOSCONFIG_FILE, client_credentials, cluster_dir,
     generate_cluster_secrets, kubernetes_admin_credentials, load_secrets, save_secrets,
     talos_admin_credentials,
 };
+use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
 use crate::tls::generator::write_file_with_permissions;
 
@@ -89,6 +91,20 @@ pub fn ensure_redeployable(
     Ok(())
 }
 
+/// Whether `up` checks this node through Kubernetes instead of its Talos API port.
+///
+/// A worker's Talos API starts only once it has a certificate from a controller's trustd,
+/// which it reaches through the cluster endpoint. In a cluster with three controllers that
+/// endpoint is the VIP, which Talos brings up only after etcd is bootstrapped, and the bootstrap
+/// waits for node readiness. Waiting on a worker's API port would therefore deadlock, so workers
+/// are counted as ready when they are Ready Kubernetes nodes, which `bring_up_clusters` checks.
+pub fn readiness_waits_for_kubernetes(clusters: &[TalosCluster], node_name: &str) -> bool {
+    matches!(
+        find_talos_cluster(clusters, node_name),
+        Some((_, ClusterRole::Worker))
+    )
+}
+
 /// Find a prepared cluster by name.
 pub fn find_cluster<'a>(clusters: &'a [LabCluster], name: &str) -> Result<&'a LabCluster> {
     clusters
@@ -130,25 +146,36 @@ pub fn node_machine_config(
 /// Returns the credentials of every cluster, and the names of clusters that did not become
 /// ready within `timeout`. A cluster that is not ready is reported, not treated as a failure,
 /// the same way node readiness is.
-#[instrument(skip(clusters, progress), fields(%lab_id, clusters = clusters.len()))]
+#[instrument(skip(clusters, progress, operation), fields(%lab_id, clusters = clusters.len()))]
 pub async fn bring_up_clusters(
     lab_id: &str,
     clusters: &[LabCluster],
     timeout: Duration,
     progress: &ProgressSender,
+    operation: &LabOperation,
 ) -> Result<(Vec<ClusterInfo>, Vec<String>)> {
     let mut infos = Vec::with_capacity(clusters.len());
     let mut not_ready = vec![];
     for cluster in clusters {
+        // Never write credentials for a lab that is being destroyed.
+        operation.ensure_active()?;
         let plan = &cluster.plan;
         // Write credentials first, so the user has them even if the cluster is slow.
         let info = write_credentials(lab_id, cluster)?;
         infos.push(info);
 
-        let ready = match bootstrap_cluster(cluster, timeout, progress).await {
+        let ready = match bootstrap_cluster(cluster, timeout, progress, operation).await? {
             Some(remaining) => {
                 let admin = kubernetes_admin_credentials(&cluster.secrets)?;
-                wait_for_kubernetes(plan, &cluster.secrets, &admin, remaining, progress).await?
+                wait_for_kubernetes(
+                    plan,
+                    &cluster.secrets,
+                    &admin,
+                    remaining,
+                    progress,
+                    operation,
+                )
+                .await?
             }
             None => false,
         };
@@ -179,18 +206,22 @@ pub async fn bring_up_clusters(
 
 /// Send the bootstrap request to the cluster's first control plane, retrying the same node
 /// until it answers. Returns the time left, or `None` if the cluster never bootstrapped.
+/// Fails if the lab is destroyed meanwhile.
 async fn bootstrap_cluster(
     cluster: &LabCluster,
     timeout: Duration,
     progress: &ProgressSender,
-) -> Option<Duration> {
+    operation: &LabOperation,
+) -> Result<Option<Duration>> {
     let plan = &cluster.plan;
-    let node = plan.bootstrap_node()?;
+    let Some(node) = plan.bootstrap_node() else {
+        return Ok(None);
+    };
     let admin = match talos_admin_credentials(&cluster.secrets) {
         Ok(admin) => admin,
         Err(error) => {
             tracing::error!(cluster = %plan.name, error = ?error, "Failed to issue Talos admin certificate");
-            return None;
+            return Ok(None);
         }
     };
     let _ = progress.send_status(
@@ -205,19 +236,21 @@ async fn bootstrap_cluster(
         match bootstrap(node.ipv4, &cluster.secrets, &admin).await {
             Ok(BootstrapOutcome::Bootstrapped) => {
                 tracing::info!(cluster = %plan.name, node = %node.name, "Cluster bootstrapped");
-                return Some(timeout.saturating_sub(started.elapsed()));
+                return Ok(Some(timeout.saturating_sub(started.elapsed())));
             }
             Ok(BootstrapOutcome::AlreadyBootstrapped) => {
                 tracing::info!(cluster = %plan.name, node = %node.name, "Cluster was already bootstrapped");
-                return Some(timeout.saturating_sub(started.elapsed()));
+                return Ok(Some(timeout.saturating_sub(started.elapsed())));
             }
             Err(error) => {
                 tracing::debug!(cluster = %plan.name, error = ?error, "Bootstrap not accepted yet");
-                tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                operation
+                    .sleep(Duration::from_secs(READINESS_SLEEP))
+                    .await?;
             }
         }
     }
-    None
+    Ok(None)
 }
 
 /// Issue admin credentials, write them to the cluster directory and return them.
@@ -258,6 +291,57 @@ fn write_credentials(lab_id: &str, cluster: &LabCluster) -> Result<ClusterInfo> 
 /// Read the credentials of every cluster in a lab, for `sherpa download`.
 #[instrument(level = "debug", fields(%lab_id))]
 pub fn read_cluster_credentials(lab_id: &str) -> Result<Vec<ClusterInfo>> {
+    let mut infos = vec![];
+    for name in saved_cluster_names(lab_id)? {
+        let cluster = load_cluster(lab_id, &name)?;
+        let dir = cluster_dir(lab_id, &name);
+        infos.push(ClusterInfo {
+            endpoint: cluster.plan.endpoint_url(),
+            talosconfig: fs::read_to_string(dir.join(TALOSCONFIG_FILE))
+                .with_context(|| format!("Failed to read the talosconfig of cluster '{name}'"))?,
+            kubeconfig: fs::read_to_string(dir.join(KUBECONFIG_FILE))
+                .with_context(|| format!("Failed to read the kubeconfig of cluster '{name}'"))?,
+            name,
+        });
+    }
+    infos.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(infos)
+}
+
+/// The saved cluster `node_name` belongs to, with its role and management address.
+#[instrument(level = "debug", fields(%lab_id, %node_name))]
+pub fn find_member_cluster(
+    lab_id: &str,
+    node_name: &str,
+) -> Result<Option<(LabCluster, ClusterRole, Ipv4Addr)>> {
+    for name in saved_cluster_names(lab_id)? {
+        let cluster = load_cluster(lab_id, &name)?;
+        let Some(role) = cluster.plan.role_of(node_name) else {
+            continue;
+        };
+        let member = cluster
+            .plan
+            .control_planes
+            .iter()
+            .chain(&cluster.plan.workers)
+            .find(|member| member.name == node_name)
+            .with_context(|| format!("Cluster '{name}' has no address for node '{node_name}'"))?;
+        let ipv4 = member.ipv4;
+        return Ok(Some((cluster, role, ipv4)));
+    }
+    Ok(None)
+}
+
+/// Ask a cluster node to shut down gracefully through its Talos API, with the cluster's
+/// saved admin credentials.
+#[instrument(skip(cluster), fields(cluster = %cluster.plan.name, %node))]
+pub async fn request_shutdown(cluster: &LabCluster, node: Ipv4Addr) -> Result<()> {
+    let admin = talos_admin_credentials(&cluster.secrets)?;
+    shutdown(node, &cluster.secrets, &admin).await
+}
+
+/// Names of the clusters saved in a lab's directory.
+fn saved_cluster_names(lab_id: &str) -> Result<Vec<String>> {
     let clusters_dir = Path::new(SHERPA_LABS_PATH).join(lab_id).join(CLUSTERS_DIR);
     let entries = match fs::read_dir(&clusters_dir) {
         Ok(entries) => entries,
@@ -270,27 +354,19 @@ pub fn read_cluster_credentials(lab_id: &str) -> Result<Vec<ClusterInfo>> {
                 .with_context(|| format!("Failed to list {}", clusters_dir.display()));
         }
     };
-    let mut infos = vec![];
+    let mut names = vec![];
     for entry in entries {
         let dir = entry
             .with_context(|| format!("Failed to list {}", clusters_dir.display()))?
             .path();
-        let Some(name) = dir.file_name().and_then(|name| name.to_str()) else {
-            tracing::warn!(path = %dir.display(), "Skipping cluster directory with a non-UTF-8 name");
-            continue;
-        };
-        let cluster = load_cluster(lab_id, name)?;
-        infos.push(ClusterInfo {
-            name: name.to_owned(),
-            endpoint: cluster.plan.endpoint_url(),
-            talosconfig: fs::read_to_string(dir.join(TALOSCONFIG_FILE))
-                .with_context(|| format!("Failed to read the talosconfig of cluster '{name}'"))?,
-            kubeconfig: fs::read_to_string(dir.join(KUBECONFIG_FILE))
-                .with_context(|| format!("Failed to read the kubeconfig of cluster '{name}'"))?,
-        });
+        match dir.file_name().and_then(|name| name.to_str()) {
+            Some(name) => names.push(name.to_owned()),
+            None => {
+                tracing::warn!(path = %dir.display(), "Skipping cluster directory with a non-UTF-8 name");
+            }
+        }
     }
-    infos.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(infos)
+    Ok(names)
 }
 
 #[cfg(test)]
@@ -310,5 +386,17 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("controller of talos cluster 'k8s'"));
+    }
+
+    #[test]
+    fn only_cluster_workers_wait_for_kubernetes_instead_of_their_api_port() {
+        let clusters = [TalosCluster {
+            name: "k8s".to_owned(),
+            controllers: vec!["cp1".to_owned(), "cp2".to_owned(), "cp3".to_owned()],
+            workers: vec!["w1".to_owned()],
+        }];
+        assert!(readiness_waits_for_kubernetes(&clusters, "w1"));
+        assert!(!readiness_waits_for_kubernetes(&clusters, "cp1"));
+        assert!(!readiness_waits_for_kubernetes(&clusters, "standalone"));
     }
 }

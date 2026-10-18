@@ -9,6 +9,7 @@ pub mod plan;
 pub mod secrets;
 
 pub use lab::{
-    LabCluster, bring_up_clusters, ensure_redeployable, find_cluster, load_cluster,
-    node_machine_config, prepare_clusters, read_cluster_credentials,
+    LabCluster, bring_up_clusters, ensure_redeployable, find_cluster, find_member_cluster,
+    load_cluster, node_machine_config, prepare_clusters, read_cluster_credentials,
+    readiness_waits_for_kubernetes, request_shutdown,
 };

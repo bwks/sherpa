@@ -23,3 +23,4 @@ pub mod user_delete;
 pub(crate) mod tailscale;
 
 pub(crate) mod image_lifecycle;
+pub mod lab_operations;

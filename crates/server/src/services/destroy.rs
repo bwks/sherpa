@@ -12,19 +12,19 @@ use container::{
 };
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
-use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo, StatusKind};
+use shared::data::{DestroyError, DestroyResponse, DestroySummary, StatusKind};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL,
-    TAP_PREFIX, VETH_PREFIX,
+    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL, TAP_PREFIX,
+    VETH_PREFIX,
 };
-use shared::util::{dir_exists, load_file};
-use std::str::FromStr;
+use shared::util::dir_exists;
 
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::lab_operations;
 use crate::services::progress::ProgressSender;
 
 /// Destroy a lab and all its resources
@@ -53,7 +53,7 @@ pub async fn destroy_lab(
 ) -> Result<DestroyResponse> {
     let start_time = std::time::Instant::now();
 
-    require_lab_access(ctx, &state.db, lab_id).await?;
+    let lab = require_lab_access(ctx, &state.db, lab_id).await?;
 
     tracing::info!(
         lab_id = %lab_id,
@@ -61,16 +61,27 @@ pub async fn destroy_lab(
         "Starting lab destruction"
     );
 
+    // Stop any operation still building or changing the lab, so nothing writes to it after
+    // its resources are removed. Hold the lease until destruction finishes.
+    let _ = progress.send_status(
+        "Stopping operations in progress on this lab...".to_string(),
+        StatusKind::Progress,
+    );
+    let (was_running, _stopped) = lab_operations::stop(lab_id).await;
+    if was_running {
+        tracing::info!(lab_id = %lab_id, "Stopped operations in progress before destruction");
+        let _ = progress.send_status(
+            "Stopped an operation in progress".to_string(),
+            StatusKind::Done,
+        );
+    }
+
     let mut summary = DestroySummary::default();
     let mut errors = Vec::new();
 
-    // Load lab info from filesystem
+    // The lab record has the name; the lab info file may not exist if `up` was stopped early.
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
-    let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
-        .context("Unable to load lab file. Is the lab running?")?;
-    let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
-
-    let lab_name = lab_info.name.clone();
+    let lab_name = lab.name.clone();
 
     tracing::debug!(
         lab_id = %lab_id,
@@ -722,6 +733,7 @@ mod tests {
     use tokio::task::JoinHandle;
 
     use super::*;
+    use shared::konst::LAB_FILE_NAME;
 
     struct DockerMock {
         docker: Docker,

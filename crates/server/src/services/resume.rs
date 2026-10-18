@@ -14,6 +14,7 @@ use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 
 use tracing::instrument;
 
+use super::lab_operations::{self, LabOperation};
 use super::node_ops;
 use super::progress::ProgressSender;
 use crate::auth::context::AuthContext;
@@ -62,6 +63,8 @@ pub async fn start_lab_nodes(
     let start = Instant::now();
 
     let db_lab = require_lab_access(ctx, &state.db, lab_id).await?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
 
     let tailscale = if node_name.is_none() {
         super::tailscale::resume(state, &db_lab).await?
@@ -182,7 +185,8 @@ pub async fn start_lab_nodes(
     let targets = readiness_targets(lab_id, &target_nodes, &cold_booted, manifest.as_ref());
     if !targets.is_empty() {
         let timeout = ready_timeout(manifest.as_ref());
-        let ready = wait_for_readiness(lab_id, &targets, timeout, state, progress).await;
+        let ready =
+            wait_for_readiness(lab_id, &targets, timeout, state, progress, &operation).await?;
         for result in results.iter_mut() {
             if targets.iter().any(|target| target.name == result.name) {
                 result.message = readiness_message(ready.contains(&result.name), timeout);
@@ -321,14 +325,16 @@ fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
     }
 }
 
-#[instrument(skip(targets, state, progress), fields(%lab_id, nodes = targets.len()), level = "debug")]
+/// Fails if the lab is destroyed meanwhile.
+#[instrument(skip(targets, state, progress, operation), fields(%lab_id, nodes = targets.len()), level = "debug")]
 async fn wait_for_readiness(
     lab_id: &str,
     targets: &[ReadinessTarget],
     timeout: Duration,
     state: &AppState,
     progress: Option<&ProgressSender>,
-) -> HashSet<String> {
+    operation: &LabOperation,
+) -> Result<HashSet<String>> {
     report(
         progress,
         format!(
@@ -356,7 +362,9 @@ async fn wait_for_readiness(
         if ready.len() == targets.len() || start.elapsed() >= timeout {
             break;
         }
-        tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+        operation
+            .sleep(Duration::from_secs(READINESS_SLEEP))
+            .await?;
     }
     for target in targets {
         if !ready.contains(&target.name) {
@@ -372,7 +380,7 @@ async fn wait_for_readiness(
             );
         }
     }
-    ready
+    Ok(ready)
 }
 
 async fn start_vm(device_name: &str, node_name: &str, state: &AppState) -> NodeActionResult {

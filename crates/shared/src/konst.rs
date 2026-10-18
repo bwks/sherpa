@@ -219,6 +219,10 @@ pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;
+/// Seconds `down` waits for a VM to shut down cleanly before powering it off.
+pub const VM_SHUTDOWN_TIMEOUT: u64 = 60;
+/// Seconds between VM power state checks while waiting for a clean shutdown.
+pub const VM_SHUTDOWN_POLL: u64 = 1;
 /// Storage pool refreshes retried while concurrent jobs hold the pool (30s in total).
 pub const STORAGE_POOL_REFRESH_ATTEMPTS: u32 = 60;
 pub const STORAGE_POOL_REFRESH_RETRY_MS: u64 = 500;

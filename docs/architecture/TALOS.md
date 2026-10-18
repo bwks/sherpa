@@ -117,15 +117,25 @@ Once etcd has data Talos answers `ALREADY_EXISTS`, which counts as done.
 every member is Ready, within the lab's `ready_timeout`. A cluster that is not ready is
 reported as a non-critical `UpError`, like node readiness.
 
+Cluster workers are not waited for on port 50000 during `up`'s node readiness phase
+(`talos::readiness_waits_for_kubernetes`); `wait_for_kubernetes` checks them instead. A
+worker's Talos API starts only after trustd on a controller issues its certificate, and the
+worker reaches trustd through the cluster endpoint. With three controllers that endpoint is
+the VIP, which Talos assigns only once etcd runs, after the bootstrap, and the bootstrap
+follows node readiness: waiting on workers' API ports deadlocked every HA cluster.
+Controllers keep the port check; their API does not depend on etcd. `redeploy` and `resume`
+still probe workers' API port, which works because the VIP is up in an existing cluster.
+
 ### Lifecycle
 
 | Operation | Behaviour |
 |---|---|
-| `down` / `resume` | Unchanged; Talos keeps its state on disk. |
+| `down` | Talos ignores the ACPI power button, so cluster nodes get a graceful `machine.MachineService/Shutdown` over the Talos API (`bootstrap::shutdown`, same HTTP/2 client as the bootstrap, saved admin credentials; Talos cordons, drains and powers off). Workers stop before controllers, because draining needs the Kubernetes API. `down` waits for the VM to stop and forces it off after `VM_SHUTDOWN_TIMEOUT`. Talos nodes outside a Sherpa-built cluster are powered off directly. |
+| `resume` | Unchanged; Talos keeps its state on disk. |
 | `redeploy` worker | Config regenerated from the saved secrets and plan; the node rejoins. |
 | `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
 | `download` | Returns each cluster's talosconfig and kubeconfig (`DownloadLabResponse::clusters`). |
-| `destroy` | Nothing extra; the cluster directory goes with the lab directory. |
+| `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |
 
 The client writes `kubeconfig-<cluster>` and `talosconfig-<cluster>` (owner only) on `up` and
 `download` (`crates/client/src/cluster_credentials.rs`).

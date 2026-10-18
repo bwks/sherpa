@@ -40,14 +40,20 @@
 - Lab ownership validated before destruction `[integration]` **P0**
 - Partial failures reported but destruction continues `[integration]` **P0**
 - Streaming progress during destruction `[integration]` **P1**
+- Destroy stops `up`, `redeploy` and `resume` running on the same lab and waits for them; a stopped operation fails with "being destroyed", its sleeps end early, other labs are unaffected, and operations started after the destroy get a fresh token (`services::lab_operations`) `[unit]` **P0**
+- A stopped `up` skips its auto-cleanup, and no cluster credentials are written after a destroy `[e2e]` **P1**
+- Destroy works when the lab info file was never written (name from the lab record) `[integration]` **P1**
 
 ---
 
 ## Node Shutdown (`down`)
 
 **What to test:**
-- VM nodes: graceful ACPI shutdown when guest agent available `[integration]` **P0**
-- VM nodes: force power-off when no guest agent `[integration]` **P0**
+- VM nodes: clean shutdown request (guest agent or ACPI), then a forced power-off only if still running after `VM_SHUTDOWN_TIMEOUT` or if the request fails; result messages say which `[unit]` `[integration]` **P0**
+- Unikernel nodes: powered off without a shutdown request `[unit]` **P1**
+- Routing: Ubuntu-style VMs via libvirt shutdown, Talos cluster nodes via the Talos API (controllers in the last wave), Talos nodes outside a cluster and unikernels powered off with the reason reported, containers paused `[unit]` **P0**
+- Talos `Shutdown` call accepted only with gRPC `OK` `[unit]` **P0**
+- Talos cluster nodes and Ubuntu VMs shut down cleanly (no forced power-off) `[e2e]` **P0**
 - Container nodes: paused via Docker `[integration]` **P0**
 - All nodes or specific node targeted `[integration]` **P0**
 - Node state updated to Stopped in DB `[integration]` **P0**

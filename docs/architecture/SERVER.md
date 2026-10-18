@@ -643,7 +643,7 @@ topology::Manifest
 destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)
     |
     +- require_lab_access: load lab, check owner or admin
-    +- Load lab info file from /opt/sherpa/labs/{lab_id}
+    +- lab_operations::stop: cancel up/redeploy/resume on this lab and wait for them to end
     |
     +- destroy_containers
     |   +- container::list_containers
@@ -678,6 +678,29 @@ destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)
 ```
 
 Destruction uses name-based matching for many runtime resources because the runtime backends are external systems and the database may not be fully reliable after partial failures. This is why consistent naming with `lab_id` embedded in resource names is part of the architecture.
+
+The lab name comes from the lab's database record, so destroy also works when `up` was stopped
+before it wrote the lab info file.
+
+### Stopping operations on a destroyed lab
+
+`up`, `redeploy` and `resume` run as detached tasks and outlive the request that started them.
+`services/lab_operations.rs` keeps, per lab, a read/write lease and a cancellation token:
+
+- each of those operations calls `lab_operations::begin` and holds the read lease until it
+  returns;
+- `destroy_lab` and the admin `clean_lab` call `lab_operations::stop`, which cancels the token,
+  then takes the write lease and holds it while the lab is removed.
+
+Operations check the token only at safe points: between `up` phases, in the readiness and
+Talos bootstrap and Kubernetes waits (`LabOperation::sleep` ends early when cancelled), and
+before writing lab files. They are never dropped mid-step, because disk and VM steps run in
+`spawn_blocking` tasks that would carry on detached. A stopped `up` skips its auto-cleanup and
+leaves the removal to the destroy that stopped it. Without this, an orphaned `up` kept polling
+destroyed VMs, held its image leases (blocking image pull, import and delete), and recreated
+the lab directory with cluster credentials after destroy.
+
+Operations whose client disconnects are not stopped; that is tracked separately.
 
 ### Redeploy architecture
 
@@ -715,6 +738,16 @@ RPC down/resume with node_name optional  +
 ```
 
 Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
+
+`down` routes each node (`shutdown_route`): VMs are asked to shut down (`domain.shutdown()`:
+libvirt uses the guest agent when present, otherwise the ACPI power button); Talos cluster
+nodes, whose kernel ignores the power button, get a graceful shutdown over the Talos API
+(see `TALOS.md`). `down` then polls until the VM stops and forces a power-off only if it is
+still running after `VM_SHUTDOWN_TIMEOUT` (60 seconds) or the request fails. Nodes stop in
+parallel in two waves, Talos cluster controllers last, so a lab takes at most about two
+timeouts. Unikernels and Talos nodes outside a Sherpa-built cluster are powered off directly,
+and the result says why. A node is marked `Stopped` only once it has stopped. Forcing guests off without asking lost recently
+written files on every VM without a guest agent, which includes Talos and the Ubuntu images.
 
 Resume then waits for the nodes it cold-booted, as `up` does. It loads the lab's saved
 manifest (`manifest.toml` in the lab directory, written by `up`) for `ready_timeout`,

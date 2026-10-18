@@ -20,6 +20,7 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::lab_operations;
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
@@ -437,6 +438,8 @@ pub async fn up_lab(
         state.config.tls.enabled,
     )?;
     db::validate_lab_id(lab_id)?;
+    // Destroying the lab stops this operation; see `lab_operations`.
+    let operation = lab_operations::begin(lab_id).await;
 
     tracing::info!(
         "Starting lab creation: lab_id={}, name={}",
@@ -705,6 +708,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 3: Database Records & Data Structure Building
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::DatabaseRecords,
             "Creating database records".to_string(),
@@ -928,6 +932,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 4: Lab Network Setup
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::LabNetworkSetup,
             "Allocating lab network and creating management network".to_string(),
@@ -1062,6 +1067,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 5: Point-to-Point Link Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::LinkCreation,
             format!("Creating {} point-to-point links", links_detailed.len()),
@@ -1329,6 +1335,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 6: Docker Container Link Networks
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::ContainerNetworks,
             "Creating Docker networks for container links".to_string(),
@@ -1442,6 +1449,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 7: Shared Bridge Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::SharedBridges,
             format!("Creating {} shared bridges", bridges_detailed.len()),
@@ -1511,6 +1519,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 8: ZTP Configuration Generation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::ZtpGeneration,
             "Generating ZTP configurations".to_string(),
@@ -2113,6 +2122,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 9: Sherpa Router & ZTP File Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::BootContainers,
             "Creating boot containers and ZTP files".to_string(),
@@ -2242,6 +2252,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 10: Disk Cloning (For VMs and Unikernels)
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(data::UpPhase::DiskCloning, "Cloning disks".to_string());
 
         node_ops::clone_node_disks(
@@ -2258,6 +2269,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 11: VM Creation
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(data::UpPhase::VmCreation, "Creating VMs".to_string());
 
         if !domains.is_empty() {
@@ -2411,6 +2423,7 @@ pub async fn up_lab(
         // ========================================================================
         // PHASE 12: SSH Config & Network Map Building
         // ========================================================================
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::SshConfig,
             "Generating SSH config".to_string(),
@@ -2605,6 +2618,7 @@ pub async fn up_lab(
         // PHASE 13: Node Readiness Polling
         // ========================================================================
         let ready_timeout_secs = manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT);
+        operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::NodeReadiness,
             format!(
@@ -2645,18 +2659,27 @@ pub async fn up_lab(
             StatusKind::Waiting,
         );
 
-        // Handle nodes with skip_ready_check enabled
+        // Handle nodes with skip_ready_check enabled, and Talos cluster workers, which are
+        // checked as Kubernetes nodes once their cluster is bootstrapped.
+        let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
         for node in &all_lab_nodes {
-            if node.skip_ready_check.unwrap_or(false) {
+            let cluster_worker = talos::readiness_waits_for_kubernetes(talos_clusters, &node.name);
+            if node.skip_ready_check.unwrap_or(false) || cluster_worker {
                 tracing::info!(
                     lab_id = %lab_id,
                     node_name = %node.name,
+                    cluster_worker,
                     "Skipping ready check for node"
                 );
-                let _ = progress.send_status(
-                    format!("Node {} - Ready check skipped", node.name),
-                    StatusKind::Done,
-                );
+                let message = if cluster_worker {
+                    format!(
+                        "Node {} - Ready check deferred to its Kubernetes cluster",
+                        node.name
+                    )
+                } else {
+                    format!("Node {} - Ready check skipped", node.name)
+                };
+                let _ = progress.send_status(message, StatusKind::Done);
                 connected_nodes.insert(node.name.clone());
                 let kind = lab_node_data
                     .iter()
@@ -2961,7 +2984,9 @@ pub async fn up_lab(
             }
 
             if connected_nodes.len() < total_lab_nodes {
-                tokio::time::sleep(Duration::from_secs(READINESS_SLEEP)).await;
+                operation
+                    .sleep(Duration::from_secs(READINESS_SLEEP))
+                    .await?;
             }
         }
 
@@ -3018,6 +3043,7 @@ pub async fn up_lab(
                 &lab_clusters,
                 Duration::from_secs(ready_timeout_secs),
                 &progress,
+                &operation,
             )
             .await?;
             for name in not_ready {
@@ -3100,6 +3126,12 @@ pub async fn up_lab(
                 .metrics
                 .operation_duration
                 .record(start_time.elapsed().as_secs_f64(), op_attrs);
+
+            if operation.is_cancelled() {
+                // The lab is being destroyed, which removes everything this run created.
+                tracing::info!(lab_id = %lab_id, "Lab creation stopped because the lab is being destroyed");
+                return Err(e);
+            }
 
             tracing::error!(
                 lab_id = %lab_id,
