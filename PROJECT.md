@@ -17,9 +17,9 @@
 
 ## Talos Linux and Kubernetes
 
-- [ ] **Talos end-to-end test in the VM suite** — Provision the Talos 1.14 image in the VM release suite so `talos_cluster_tests` runs every release. See `tests/specs/server/talos.md`.
+- [x] **Talos end-to-end test through the CLI** — `tests/labs/talos-linux/talos_lab_test.py` (single and ha labs) passed against a server running this branch on 2026-10-17.
 - [ ] **Offline clusters** — Serve a Talos image cache as a registry mirror so clusters come up without internet access.
-- [ ] **Control-plane redeploy** — Remove the old etcd member before rebuilding a control plane.
+- [ ] **Controller redeploy** — Remove the old etcd member before rebuilding a controller.
 - [ ] **Talos and Kubernetes upgrades, CNI choice** — Today: one pinned Talos minor (1.14), Flannel only. See `docs/architecture/TALOS.md`.
 
 ## Web UI

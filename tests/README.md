@@ -11,6 +11,7 @@ instead of repeating these instructions.
 | `tests/specs/` | Testing principles and what each crate must test ([README](specs/README.md)) |
 | `tests/environments/` | Disposable Ubuntu VMs for the VM suites ([README](environments/README.md)) |
 | `tests/harness/` | VM test tooling: `test_env.py`, the release-test runner and guest helpers |
+| `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |
 | `tests/bats/` | Supplementary installer BATS tests |
 | `tests/web/` | Web UI JavaScript tests |
 | `dev/testdb` | Local SurrealDB container for integration tests |
@@ -25,6 +26,7 @@ instead of repeating these instructions.
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
 | VM code suite | `python3 tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
+| Talos lab test | `python3 tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.11+ | seconds |
 
@@ -139,6 +141,18 @@ bats tests/bats/install_tests.bats
 
 Skipped BATS integration checks do not count as installer coverage.
 
+## Lab tests
+
+Lab tests build real labs with the `sherpa` CLI against the server it is logged in to, check
+them from inside the lab, and always destroy them. They test whatever `sherpad` that server
+runs, so install the build under test first.
+
+```sh
+python3 tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
+```
+
+See [labs/README.md](labs/README.md) for the rules and each lab's README for what it checks.
+
 ## Harness self-tests
 
 ```sh
@@ -146,9 +160,10 @@ python3 tests/harness/test_env.py --self-test
 python3 tests/harness/test_env_guest.py --self-test
 python3 tests/harness/vm_release_test.py --self-test
 python3 tests/harness/vm_release_guest.py --self-test
+python3 tests/labs/talos-linux/talos_lab_test.py --self-test
 ```
 
-Run these after changing anything in `tests/harness/`.
+Run these after changing anything in `tests/harness/` or a lab runner.
 
 ## When to run what
 
@@ -158,6 +173,7 @@ Run these after changing anything in `tests/harness/`.
 | Database schema or queries | Also the db integration tests |
 | Runtime code (server services, libvirt, container, network, guest templates) | The VM code suite on one release, in the background, before merging |
 | Installer or uninstaller scripts | The installer suite |
+| Talos nodes or clusters | The Talos lab test, against a server running the change |
 | Before a release, or periodically | The VM code suite on both releases |
 
 These are guidelines, not gates: none of them blocks a commit, a version bump or a merge.

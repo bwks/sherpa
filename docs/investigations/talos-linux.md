@@ -85,7 +85,7 @@ Ready about 2 minutes after power-on, the generated kubeconfig worked with `kube
 - A lab with no internet access (image cache / registry mirror).
 - Talos versions other than 1.14.4. The config schema changed substantially between 1.10 and 1.14.
 - Running the real `up` path inside Sherpa (Q35, SATA CD-ROM, libvirt NAT, dnsmasq): covered by
-  the ignored `talos_cluster_tests` integration test, which needs root and the Talos image.
+  the CLI-driven lab test in `tests/labs/talos-linux/`.
 
 ## Reproducing
 

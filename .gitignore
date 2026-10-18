@@ -35,10 +35,14 @@ sherpa_ssh_*
 .ruff_cache
 __pycache__/
 lab-info.toml
+# Talos cluster admin credentials written by `sherpa up` and `sherpa download`
+kubeconfig-*
+talosconfig-*
 *.env
 manifest*.toml*
 !dev/integration-test/manifest.toml
 !tests/environments/*/manifest.toml
+!tests/labs/*/*/manifest.toml
 
 # Tailwind CSS
 tailwindcss

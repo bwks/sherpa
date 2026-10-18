@@ -28,17 +28,8 @@ Design: `docs/architecture/TALOS.md`.
 - talosconfig and kubeconfig rendering `[unit]` **P1**
 - Bootstrap gRPC status handling (`0`, `6` ALREADY_EXISTS, errors) and Ready node counting `[unit]` **P0**
 - Controllers cannot be redeployed; workers can `[unit]` **P0**
-- End to end: 1 controller + 1 worker come up Ready, the returned kubeconfig works, controller redeploy is refused, a worker redeploy rejoins, `download` returns credentials `[integration]` **P0**
+- End to end through the `sherpa` CLI against an installed server: `tests/labs/talos-linux/talos_lab_test.py` (single and ha labs; see its README for the checks) `[e2e]` **P0**
 
 Tests: `shared::data::node`, `services::{node_ops, up, resume, ssh_config, import, guest_account}`,
-`services::talos::*`, `tls::generator`, `validate::cluster`, `crates/template/tests/talos`,
-client `cluster_credentials`, and `crates/server/tests/talos_cluster_tests.rs`.
-
-The integration test needs root, KVM, internet access and the Talos image at
-`/opt/sherpa/images/talos_linux/<version>/virtioa.qcow2` (default version 1.14.4, override with
-`SHERPA_TEST_TALOS_VERSION`). It is not provisioned by the VM release suite yet. Run it on a
-disposable host:
-
-```sh
-sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p sherpad --test talos_cluster_tests -- --ignored --nocapture
-```
+`services::talos::*`, `tls::generator`, `topology::talos_cluster`, `validate::talos_cluster`,
+`crates/template/tests/talos`, and client `cluster_credentials`.
