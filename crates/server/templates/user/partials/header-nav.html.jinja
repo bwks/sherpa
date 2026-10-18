@@ -10,13 +10,6 @@
         <a href="/profile" class="text-sm font-semibold text-header-link hover:text-header-link-hover transition-colors">
             {{ username }}
         </a>
-        <select onchange="setPalette(this.value)" class="palette-selector text-xs bg-header border border-header-border text-header-text rounded px-1 py-0.5 cursor-pointer">
-            <option value="theme-ctp-frappe">Catppuccin Frappé</option>
-            <option value="theme-dracula">Dracula</option>
-            <option value="theme-gruvbox">Gruvbox</option>
-            <option value="theme-nord">Nord</option>
-            <option value="theme-sodapop">Sodapop</option>
-        </select>
         <button onclick="toggleTheme()" class="text-muted hover:text-heading cursor-pointer transition-colors" title="Toggle dark mode">
             <!-- Sun icon (shown in dark mode) -->
             <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -21,9 +21,18 @@
     <div class="w-full max-w-[420px]">
         <!-- Logo -->
         <div class="mb-8">
-            <div class="w-16 h-16 bg-gradient-to-br from-logo-from to-logo-to rounded-lg flex items-center justify-center mx-auto mb-4">
-                <span class="text-white font-bold text-3xl">S</span>
-            </div>
+            <svg class="block w-16 h-16 mx-auto mb-4" viewBox="0 0 64 64" aria-hidden="true">
+                <defs>
+                    <linearGradient id="auth-logo-gradient" x1="0" y1="0" x2="1" y2="1">
+                        <stop offset="0%" class="[stop-color:var(--color-logo-from)]"/>
+                        <stop offset="100%" class="[stop-color:var(--color-logo-to)]"/>
+                    </linearGradient>
+                </defs>
+                <path d="M32 3 L57 17.5 L57 46.5 L32 61 L7 46.5 L7 17.5 Z" fill="url(#auth-logo-gradient)" stroke="url(#auth-logo-gradient)" stroke-width="4" stroke-linejoin="round"/>
+                <path d="M16 45 L32 21 L48 45" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M25 45 L32 34.5 L39 45" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                <circle cx="32" cy="20" r="5.5" fill="#fff"/>
+            </svg>
             <h1 class="text-3xl font-bold text-heading text-center">Sherpa Labs</h1>
             <p class="text-muted text-center mt-2">{% block subtitle %}{% endblock %}</p>
         </div>

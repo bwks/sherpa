@@ -1,9 +1,18 @@
 <aside class="fixed top-0 left-0 h-screen w-60 bg-header flex flex-col border-r border-header-border z-50">
     <!-- Logo -->
     <div class="flex items-center space-x-3 px-5 py-5">
-        <div class="w-9 h-9 bg-gradient-to-br from-logo-from to-logo-to rounded-lg flex items-center justify-center">
-            <span class="text-white font-bold text-lg">S</span>
-        </div>
+        <svg class="w-9 h-9 flex-shrink-0" viewBox="0 0 64 64" aria-hidden="true">
+            <defs>
+                <linearGradient id="sidebar-logo-gradient" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" class="[stop-color:var(--color-logo-from)]"/>
+                    <stop offset="100%" class="[stop-color:var(--color-logo-to)]"/>
+                </linearGradient>
+            </defs>
+            <path d="M32 3 L57 17.5 L57 46.5 L32 61 L7 46.5 L7 17.5 Z" fill="url(#sidebar-logo-gradient)" stroke="url(#sidebar-logo-gradient)" stroke-width="4" stroke-linejoin="round"/>
+            <path d="M16 45 L32 21 L48 45" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M25 45 L32 34.5 L39 45" fill="none" stroke="#fff" stroke-opacity="0.6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="32" cy="20" r="5.5" fill="#fff"/>
+        </svg>
         <span class="text-lg font-bold text-header-text">Sherpa Labs</span>
     </div>
 
@@ -93,14 +102,7 @@
     <!-- Bottom Section -->
     <div class="border-t border-header-border px-3 py-4 space-y-3">
         <!-- Theme Controls -->
-        <div class="flex items-center justify-between px-3">
-            <select id="palette-select" hx-preserve="true" onchange="setPalette(this.value)" class="palette-selector text-xs bg-header border border-header-border text-header-text rounded px-1.5 py-1 cursor-pointer">
-                <option value="theme-ctp-frappe">Catppuccin Frappé</option>
-                <option value="theme-dracula">Dracula</option>
-                <option value="theme-gruvbox">Gruvbox</option>
-                <option value="theme-nord">Nord</option>
-                <option value="theme-sodapop">Sodapop</option>
-            </select>
+        <div class="flex items-center justify-end px-3">
             <button onclick="toggleTheme()" class="text-muted hover:text-heading cursor-pointer transition-colors" title="Toggle dark mode">
                 <svg class="w-5 h-5 hidden dark:block" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
