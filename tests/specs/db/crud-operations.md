@@ -78,7 +78,10 @@
 **What to test:**
 - Create user with username, password_hash, is_admin `[integration]` **P0**
 - Unique username enforced `[integration]` **P0**
-- Username validation (min 3 chars, allowed characters) `[integration]` **P0**
+- Username validation (3–32 lowercase letters, digits, `_`, `-`; reserved names rejected) `[integration]` **P0**
+- Usernames are stored lower case; lookups and delete by username ignore case `[integration]` **P0**
+- A case variant of an existing username is a duplicate `[integration]` **P0**
+- `create_admin_user()` creates the reserved `admin` account `[integration]` **P0**
 - `get_user_for_auth()` returns user with password_hash for login `[integration]` **P0**
 - List users, count users `[integration]` **P0**
 - Update user (password, SSH keys, admin status) `[integration]` **P0**

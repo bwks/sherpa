@@ -70,7 +70,7 @@ pub use table::{
     render_ssh_config_inspection_table, render_tailnet_table,
 };
 pub use text::split_node_int;
-pub use user::{get_username, sherpa_user};
+pub use user::{get_username, normalize_username, sherpa_user};
 
 mod manifest;
 pub use manifest::load_saved_manifest;

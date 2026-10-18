@@ -58,8 +58,8 @@ use shared::konst::{
     ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
     SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
-use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
-use shared::validators::{validate_password_strength, validate_ssh_key};
+use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest, normalize_username};
+use shared::validators::{validate_password_strength, validate_ssh_key, validate_username};
 
 /// Authenticate user and issue JWT token
 ///
@@ -323,7 +323,7 @@ pub async fn signup_page_handler() -> impl IntoResponse {
 /// All self-registered users are created as non-admin.
 ///
 /// Form fields:
-/// - username: Desired username (min 3 chars, alphanumeric + @._-)
+/// - username: Desired username (3–32 lowercase letters, digits, `_` or `-`; not reserved)
 /// - password: Desired password (must meet strength requirements)
 /// - confirm_password: Password confirmation (must match password)
 ///
@@ -465,8 +465,7 @@ fn extract_validation_message(error_str: &str, context: &str) -> String {
     // For username errors, extract the specific requirement message
     if context == "Username" {
         // Username errors typically have the format:
-        // "Username must be at least 3 characters long" or
-        // "Username can only contain alphanumeric characters and @._- symbols"
+        // "Username must be 3–32 lowercase letters, ..." or "Username 'admin' is reserved"
         if let Some(pos) = error_str.find("Username") {
             let msg_part = &error_str[pos..];
             // Take everything until we hit a newline or end
@@ -1729,7 +1728,7 @@ pub async fn admin_user_edit_handler(
         })?;
 
     // Check if admin is editing themselves
-    let is_self = admin.username == target_username;
+    let is_self = admin.username == normalize_username(&target_username);
 
     if is_self {
         tracing::debug!("Admin is editing their own account");
@@ -1780,7 +1779,7 @@ pub async fn admin_update_user_password_handler(
     );
 
     // Prevent admin from updating their own password via admin dashboard
-    if admin.username == target_username {
+    if admin.username == normalize_username(&target_username) {
         tracing::warn!(
             "Admin '{}' attempted to update their own password via admin dashboard",
             admin.username
@@ -3244,9 +3243,12 @@ pub async fn create_user_json(
 ) -> Result<Json<CreateUserResponse>, ApiError> {
     require_admin_auth(&auth)?;
 
+    let username = normalize_username(&request.username);
+    validate_username(&username).map_err(|e| ApiError::bad_request(e.to_string()))?;
+
     let user = db::create_user(
         &state.db,
-        request.username.clone(),
+        username,
         &request.password,
         request.is_admin,
         request.ssh_keys.unwrap_or_default(),
@@ -3312,7 +3314,7 @@ pub async fn change_password_json(
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<Json<ChangePasswordResponse>, ApiError> {
     // Admins can change any password; users can only change their own
-    if !auth.is_admin && auth.username != username {
+    if !auth.is_admin && auth.username != normalize_username(&username) {
         return Err(ApiError::forbidden("You can only change your own password"));
     }
 
@@ -3343,7 +3345,7 @@ pub async fn get_user_info_json(
     Path(username): Path<String>,
 ) -> Result<Json<GetUserInfoResponse>, ApiError> {
     // Admins can view any user; users can only view themselves
-    if !auth.is_admin && auth.username != username {
+    if !auth.is_admin && auth.username != normalize_username(&username) {
         return Err(ApiError::forbidden("You can only view your own profile"));
     }
 

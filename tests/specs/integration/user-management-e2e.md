@@ -11,7 +11,9 @@
 **What to test:**
 - Admin creates new user via RPC → user exists in DB `[e2e]` **P0**
 - Created user can log in with provided credentials `[e2e]` **P0**
-- Duplicate username rejected `[e2e]` **P0**
+- Duplicate username rejected, including case variants `[e2e]` **P0**
+- Usernames are lowercased on create; login and self-service lookups ignore case `[e2e]` **P0**
+- Invalid and reserved usernames rejected on RPC; REST returns `400 Bad Request` `[e2e]` **P0**
 - Non-admin cannot create users `[e2e]` **P0**
 - Password stored as Argon2id hash (not plaintext) `[e2e]` **P0**
 

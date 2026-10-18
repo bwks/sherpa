@@ -91,6 +91,68 @@ pub const SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX: &str = "brr";
 pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
 pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
+pub const ADMIN_USERNAME: &str = "admin";
+pub const USERNAME_MIN_LENGTH: usize = 3;
+pub const USERNAME_MAX_LENGTH: usize = 32;
+/// Names users cannot take: Sherpa's own accounts, privileged and system accounts, and the
+/// default users of common guest images, which would collide on lab nodes.
+pub const RESERVED_USERNAMES: &[&str] = &[
+    // Sherpa and privileged accounts
+    "root",
+    SHERPA_USERNAME,
+    ADMIN_USERNAME,
+    "administrator",
+    "toor",
+    "operator",
+    "wheel",
+    // Linux system accounts
+    "bin",
+    "daemon",
+    "sys",
+    "sync",
+    "games",
+    "man",
+    "lp",
+    "mail",
+    "news",
+    "uucp",
+    "proxy",
+    "www-data",
+    "backup",
+    "list",
+    "irc",
+    "gnats",
+    "nobody",
+    "nogroup",
+    "messagebus",
+    "sshd",
+    "polkitd",
+    "syslog",
+    "_apt",
+    // Cloud and distribution default users
+    "ubuntu",
+    "debian",
+    "core",
+    "centos",
+    "fedora",
+    "rocky",
+    "almalinux",
+    "alpine",
+    "freebsd",
+    "ec2-user",
+    "cloud-user",
+    "opc",
+    "vagrant",
+    "guest",
+    // Network OS default and generated accounts
+    "enable_1",
+    "cisco",
+    "cumulus",
+    "netadmin",
+    "linuxadmin",
+];
+/// Prefixes of reserved system account names.
+pub const RESERVED_USERNAME_PREFIXES: &[&str] = &["systemd-"];
 pub const SHERPA_PASSWORD: &str = "Everest1953!";
 pub const SHERPA_PASSWORD_HASH: &str = "$6$rounds=4096$amTfvavVzUSS6wQS$4jB1NvmLzRytnUjaVaMkw/JjD99eHj9OL2tLcnccQhV7Rw1rVQp8tZQMu4mi6y8NlwsRSSeEPZq44hVPu4tE7/";
 pub const SHERPA_PASSWORD_HASH_MD5: &str = "$1$xXKaRUnh$v5.fg9lEMWQGAqu4DAgaG0";

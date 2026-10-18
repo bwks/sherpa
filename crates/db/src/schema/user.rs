@@ -4,7 +4,7 @@
 //! Each user can own multiple labs and has a unique username.
 //!
 //! ## Fields
-//! - `username`: Unique username (min 3 chars, alphanumeric + @._-)
+//! - `username`: Unique lower-case username, also used as the guest login name on lab nodes
 //! - `password_hash`: Argon2id password hash for authentication
 //! - `is_admin`: Boolean flag indicating admin privileges
 //! - `ssh_keys`: Array of SSH public keys for authentication
@@ -12,9 +12,12 @@
 //! - `updated_at`: Timestamp of last update (set by application)
 //!
 //! ## Constraints
-//! - Username must be at least 3 characters long
-//! - Username must match pattern: `[a-zA-Z0-9@._-]+`
+//! - Username must be 3–32 characters long
+//! - Username must match pattern: `[a-z_][a-z0-9_-]*`
 //! - Username must be unique across all users
+//!
+//! Reserved names are enforced by `shared::validators::validate_username`, not the schema,
+//! because server bootstrap creates the reserved `admin` account.
 //!
 //! ## Computed Fields
 //! - `labs`: Reverse reference to all labs owned by this user (`<~(lab FIELD user)`)
@@ -34,7 +37,7 @@
 ///
 /// - **Table**: `user` (SCHEMAFULL)
 /// - **Fields**:
-///   - `username`: string with length >= 3 and pattern validation
+///   - `username`: lower-case string, 3–32 characters, with pattern validation
 ///   - `password_hash`: string containing Argon2id hash
 ///   - `is_admin`: boolean flag for admin privileges (default: false)
 ///   - `ssh_keys`: array of strings (default: empty array)
@@ -48,7 +51,8 @@ pub(crate) fn generate_user_schema() -> String {
 DEFINE TABLE OVERWRITE user SCHEMAFULL;
 DEFINE FIELD OVERWRITE username ON TABLE user TYPE string
     ASSERT string::len($value) >= 3
-    AND $value = /^[a-zA-Z0-9@._-]+$/;
+    AND string::len($value) <= 32
+    AND $value = /^[a-z_][a-z0-9_-]*$/;
 DEFINE FIELD OVERWRITE password_hash ON TABLE user TYPE string;
 DEFINE FIELD OVERWRITE is_admin ON TABLE user TYPE bool DEFAULT false;
 DEFINE FIELD OVERWRITE ssh_keys ON TABLE user TYPE array<string> DEFAULT [];

@@ -4,7 +4,9 @@ use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::user::{create_user, get_user};
+use shared::konst::ADMIN_USERNAME;
+
+use crate::user::{create_admin_user, get_user};
 
 /// Seed the database with an admin user
 ///
@@ -28,7 +30,7 @@ use crate::user::{create_user, get_user};
 #[instrument(skip(db, password), level = "debug")]
 pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Result<bool> {
     // Check if admin user already exists
-    match get_user(db, "admin").await {
+    match get_user(db, ADMIN_USERNAME).await {
         Ok(_) => {
             tracing::debug!("Admin user seeding skipped (admin user already exists)");
             return Ok(false);
@@ -39,7 +41,7 @@ pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Resul
     }
 
     // Create admin user
-    create_user(db, "admin".to_string(), password, true, vec![])
+    create_admin_user(db, password)
         .await
         .context("Failed to create admin user")?;
 
@@ -50,7 +52,7 @@ pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::user::{count_users, get_user};
+    use crate::user::{count_users, create_user, get_user};
     use shared::konst::SHERPA_PASSWORD;
     use std::time::{SystemTime, UNIX_EPOCH};
 

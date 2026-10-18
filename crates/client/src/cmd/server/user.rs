@@ -5,7 +5,8 @@ use base64::{Engine as _, engine::general_purpose};
 use clap::Subcommand;
 
 use shared::data::{self, ServerConnection};
-use shared::util::emoji_success;
+use shared::util::{emoji_success, normalize_username};
+use shared::validators::validate_username;
 
 use super::OutputFormat;
 use super::rpc_call;
@@ -114,6 +115,10 @@ async fn create_user(
     server_connection: &ServerConnection,
     output_format: &OutputFormat,
 ) -> Result<()> {
+    // Check the name before prompting for a password; the server enforces the same rule.
+    let username = normalize_username(username);
+    validate_username(&username)?;
+
     // Prompt for password from env or interactively
     let password = if let Ok(env_password) = std::env::var("SHERPA_USER_PASSWORD") {
         env_password
@@ -130,7 +135,7 @@ async fn create_user(
     };
 
     let request = data::CreateUserRequest {
-        username: username.to_string(),
+        username,
         password,
         is_admin,
         ssh_keys: if ssh_keys.is_empty() {

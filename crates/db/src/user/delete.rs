@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbUser, RecordId};
+use shared::util::normalize_username;
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -62,7 +63,7 @@ pub async fn delete_user_by_username(db: &Arc<Surreal<Client>>, username: &str) 
     // First get the user to obtain their ID
     let mut response = db
         .query("SELECT * FROM ONLY user WHERE username = $username")
-        .bind(("username", username.to_string()))
+        .bind(("username", normalize_username(username)))
         .await
         .context(format!("Failed to query user: {}", username))?;
 

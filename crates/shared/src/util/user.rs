@@ -12,6 +12,15 @@ pub fn get_username() -> Result<String> {
         .or_else(|_| env::var("USERNAME"))
         .map_err(|_| anyhow!("Failed to get current user from environment variables"))
 }
+
+/// Normalise a Sherpa server username for storage and lookup.
+///
+/// Usernames are case-insensitive: they are trimmed and stored in lower case, and every lookup
+/// lowercases its input the same way.
+pub fn normalize_username(username: &str) -> String {
+    username.trim().to_lowercase()
+}
+
 /// Returns the default sherpa user and set sudo to True.
 pub fn sherpa_user() -> Result<User> {
     let username = SHERPA_USERNAME;
@@ -59,11 +68,17 @@ pub fn sherpa_user() -> Result<User> {
 mod tests {
     use std::env;
 
+    use std::sync::Mutex;
+
     use super::*;
+
+    /// Serialises the tests that change `USER` and `USERNAME`, which are process-wide.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn test_get_username_from_user() {
-        // SAFETY: single-threaded test; no other thread reads USER concurrently.
+        let _guard = ENV_LOCK.lock().unwrap();
+        // SAFETY: ENV_LOCK keeps the other environment tests from running concurrently.
         unsafe {
             env::set_var("USER", "testuser");
             env::remove_var("USERNAME");
@@ -74,7 +89,8 @@ mod tests {
 
     #[test]
     fn test_get_username_from_username_fallback() {
-        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        let _guard = ENV_LOCK.lock().unwrap();
+        // SAFETY: ENV_LOCK keeps the other environment tests from running concurrently.
         unsafe {
             env::remove_var("USER");
             env::set_var("USERNAME", "fallbackuser");
@@ -88,12 +104,19 @@ mod tests {
 
     #[test]
     fn test_get_username_failure_when_both_unset() {
-        // SAFETY: single-threaded test; no other thread reads these vars concurrently.
+        let _guard = ENV_LOCK.lock().unwrap();
+        // SAFETY: ENV_LOCK keeps the other environment tests from running concurrently.
         unsafe {
             env::remove_var("USER");
             env::remove_var("USERNAME");
         }
         let result = get_username();
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_normalize_username_trims_and_lowercases() {
+        assert_eq!(normalize_username("  BRadmin "), "bradmin");
+        assert_eq!(normalize_username("bradmin"), "bradmin");
     }
 }

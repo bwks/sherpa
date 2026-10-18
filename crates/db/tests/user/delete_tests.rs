@@ -27,6 +27,19 @@ async fn test_delete_user_success() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn test_delete_user_by_username_ignores_case() -> Result<()> {
+    let db = setup_db("test_delete_user_by_username_ignores_case").await?;
+
+    create_user(&db, "carol".to_string(), "TestPass123!", false, vec![]).await?;
+    delete_user_by_username(&db, "CaRoL").await?;
+    assert!(get_user(&db, "carol").await.is_err());
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_delete_user_by_username() -> Result<()> {
     let db = setup_db("test_delete_user_by_username").await?;
 

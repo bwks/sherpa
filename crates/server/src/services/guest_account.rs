@@ -6,7 +6,7 @@ use ssh_key::PublicKey;
 use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
-use shared::konst::SHERPA_USERNAME;
+use shared::konst::RESERVED_USERNAMES;
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
 use shared::validators::validate_ssh_key;
@@ -73,7 +73,7 @@ pub(crate) async fn resolve_owner(db: &db::Database, owner_id: RecordId) -> Resu
 
 #[instrument(level = "debug", skip(user))]
 pub(crate) fn from_user(user: &DbUser) -> Result<GuestAccount> {
-    validate_guest_username(&user.username, &[SHERPA_USERNAME])
+    validate_guest_username(&user.username, RESERVED_USERNAMES)
         .context("Lab owner cannot be provisioned as a Linux account")?;
     ensure!(
         !user.ssh_keys.is_empty(),
@@ -149,7 +149,7 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
 mod tests {
     use super::*;
     use jiff::Timestamp;
-    use shared::konst::SHERPA_PASSWORD_HASH;
+    use shared::konst::{ADMIN_USERNAME, SHERPA_PASSWORD_HASH, SHERPA_USERNAME};
     use shared::util::base64_decode;
     use template::{CloudInitConfig, IgnitionConfig};
 
@@ -194,7 +194,13 @@ mod tests {
 
     #[test]
     fn validates_owner_username() {
-        for name in ["root", SHERPA_USERNAME, "Alice", "alice@example.com"] {
+        for name in [
+            "root",
+            SHERPA_USERNAME,
+            ADMIN_USERNAME,
+            "Alice",
+            "alice@example.com",
+        ] {
             assert!(from_user(&owner(name, vec![KEY.to_owned()])).is_err());
         }
     }

@@ -42,6 +42,7 @@ use shared::konst::{
     RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
     RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
+use shared::util::normalize_username;
 
 /// Authenticate request and verify admin privileges.
 ///
@@ -2317,7 +2318,7 @@ async fn handle_user_passwd(
     };
 
     // Check authorization: admin can change any password, regular user only their own
-    if !auth_ctx.is_admin && request.username != auth_ctx.username {
+    if !auth_ctx.is_admin && normalize_username(&request.username) != auth_ctx.username {
         tracing::warn!(
             user = %auth_ctx.username,
             target = %request.username,
@@ -2469,7 +2470,7 @@ async fn handle_user_info(
     };
 
     // Check authorization: admin can view any user, regular user only themselves
-    if !auth_ctx.is_admin && request.username != auth_ctx.username {
+    if !auth_ctx.is_admin && normalize_username(&request.username) != auth_ctx.username {
         tracing::warn!(
             user = %auth_ctx.username,
             target = %request.username,

@@ -12,7 +12,7 @@
 - `apply_schema()` creates all 6 tables (lab, node, link, bridge, user, node_image) `[integration]` **P0**
 - Schema is idempotent — applying twice does not fail or corrupt data `[integration]` **P0**
 - Field constraints enforced after schema application:
-  - User: username min 3 chars, alphanumeric + @._- `[integration]` **P0**
+  - User: username 3–32 chars matching `[a-z_][a-z0-9_-]*`, also when written directly with a query `[integration]` **P0**
   - Node: index range 0-65535 `[integration]` **P1**
   - Link: index range 0-65535 `[integration]` **P1**
 - Unique indexes created and enforced:

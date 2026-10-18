@@ -36,9 +36,16 @@ Validators used by more than one crate. Single-owner validators live in that cra
 
 ---
 
-## Guest Username (`validators/guest_username.rs`)
+## Usernames (`validators/username.rs`)
 
 **What to test:**
+- `validate_username()` accepts 3–32 lowercase letters, digits, `_` and `-`, starting with a letter or `_` `[unit]` **P0**
+- Rejects short, uppercase, leading digit or hyphen, `.`, `@`, spaces, non-ASCII and 33 characters `[unit]` **P0**
+- Rejects every name in `konst::RESERVED_USERNAMES` and the `systemd-` prefix `[unit]` **P0**
+- Every reserved name is itself a portable name `[unit]` **P1**
+- `util::normalize_username()` trims and lowercases `[unit]` **P0**
+
+Guest usernames (`validate_guest_username()`):
 - Portable lowercase names and the 32-character boundary pass `[unit]` **P0**
 - Uppercase, leading digit or hyphen, `.`, `@`, non-ASCII, newlines and 33 characters fail `[unit]` **P0**
 - `root` and caller-supplied reserved names fail `[unit]` **P0**

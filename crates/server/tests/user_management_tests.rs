@@ -140,6 +140,113 @@ async fn test_non_admin_cannot_create_user() -> Result<()> {
     Ok(())
 }
 
+#[tokio::test]
+#[ignore]
+async fn test_usernames_are_lowercased_and_case_insensitive() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": admin_token,
+                "username": "MixedCase",
+                "password": "MixedCase123!",
+                "is_admin": false,
+            }),
+        )
+        .await?;
+    let created = response
+        .get("result")
+        .and_then(|r| r.get("username"))
+        .and_then(|u| u.as_str());
+    assert_eq!(created, Some("mixedcase"), "{response}");
+
+    // Login and self-service lookups ignore case.
+    let user_token = ws.login("MIXEDCASE", "MixedCase123!").await?;
+    let response = ws
+        .rpc_call(
+            "user.info",
+            json!({ "token": user_token, "username": "MixedCase" }),
+        )
+        .await?;
+    let username = response
+        .get("result")
+        .and_then(|r| r.get("user"))
+        .and_then(|u| u.get("username"))
+        .and_then(|u| u.as_str());
+    assert_eq!(username, Some("mixedcase"), "{response}");
+
+    // A case variant of an existing user is a duplicate.
+    let response = ws
+        .rpc_call(
+            "user.create",
+            json!({
+                "token": admin_token,
+                "username": "mixedCASE",
+                "password": "MixedCase123!",
+                "is_admin": false,
+            }),
+        )
+        .await?;
+    assert!(response.get("error").is_some(), "{response}");
+
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_invalid_and_reserved_usernames_rejected() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let admin_token = ws.login_admin().await?;
+
+    for username in [
+        "brad.searle",
+        "brad@example.com",
+        "1brad",
+        "Admin",
+        "sherpa",
+        "ubuntu",
+    ] {
+        let response = ws
+            .rpc_call(
+                "user.create",
+                json!({
+                    "token": admin_token,
+                    "username": username,
+                    "password": "Rejected123!",
+                    "is_admin": false,
+                }),
+            )
+            .await?;
+        assert!(
+            response.get("error").is_some(),
+            "'{username}' should be rejected: {response}"
+        );
+    }
+
+    // The REST endpoint reports the rule as a bad request.
+    let response = Client::new()
+        .post(format!("http://{}/api/v1/admin/users", server.addr))
+        .bearer_auth(&admin_token)
+        .json(&json!({
+            "username": "brad.searle",
+            "password": "Rejected123!",
+            "is_admin": false,
+            "token": admin_token,
+        }))
+        .send()
+        .await?;
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    let body = response.text().await?;
+    assert!(body.contains("lowercase letters"), "{body}");
+
+    Ok(())
+}
+
 // ── User Info ──
 
 #[tokio::test]
