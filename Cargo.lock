@@ -4767,7 +4767,6 @@ dependencies = [
  "tokio",
  "tokio-tungstenite",
  "toml",
- "toml_edit 0.22.27",
  "topology",
  "tracing",
  "tracing-subscriber",
@@ -4824,7 +4823,6 @@ dependencies = [
  "tokio-tungstenite",
  "tokio-util",
  "toml",
- "toml_edit 0.22.27",
  "topology",
  "tower",
  "tower-http",
@@ -5729,7 +5727,6 @@ dependencies = [
  "serde_derive",
  "shared",
  "toml",
- "toml_edit 0.22.27",
  "tracing",
 ]
 

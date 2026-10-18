@@ -19,7 +19,6 @@ serde = { workspace = true }
 serde_derive = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
-toml_edit = { workspace = true }
 
 # De/Compression
 async-compression = { workspace = true }
