@@ -20,7 +20,7 @@ use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
-use crate::services::lab_operations;
+use crate::services::lab_operations::{self, StopReason};
 use crate::services::node_ops;
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
@@ -548,8 +548,11 @@ pub async fn up_lab(
 
     let nodes_expanded = process_manifest_nodes(&validated_nodes);
     // Acquire in a stable order to avoid deadlocks between overlapping labs.
-    // Hold until all provisioning and rollback has completed, so deletion cannot
-    // race between validation, database references and overlay creation.
+    // Leases stop deletion racing validation, database references and disk creation.
+    // Disk image (VM and unikernel) leases end once every disk and domain exists: node
+    // records and overlay backing files protect the images from then on, and a long
+    // readiness wait must not block image pull, import or delete. Container image leases
+    // last until the containers start, during readiness polling.
     let mut selected_images = nodes_expanded
         .iter()
         .map(|node| get_node_image(&node.model, node.version.as_deref(), &node_images))
@@ -557,8 +560,14 @@ pub async fn up_lab(
     selected_images.sort_by_key(|image| (image.model.to_string(), image.version.clone()));
     selected_images.dedup_by(|a, b| a.model == b.model && a.version == b.version);
     let mut image_guards = Vec::new();
+    let mut container_image_guards = Vec::new();
     for image in &selected_images {
-        image_guards.push(lease_image(image.model, &image.version).await);
+        let lease = lease_image(image.model, &image.version).await;
+        if image.kind == data::NodeKind::Container {
+            container_image_guards.push(lease);
+        } else {
+            image_guards.push(lease);
+        }
         let current = db::get_node_image_by_model_kind_version(
             &db,
             &image.model,
@@ -2330,6 +2339,8 @@ pub async fn up_lab(
                 StatusKind::Done,
             );
         }
+        // Every disk and domain exists; stop holding the disk images.
+        image_guards.clear();
 
         // ========================================================================
         // PHASE 11b: Attach eBPF redirect on P2p links
@@ -3121,27 +3132,38 @@ pub async fn up_lab(
             Ok(response)
         }
         Err(e) => {
-            state.metrics.error_count.add(1, op_attrs);
             state
                 .metrics
                 .operation_duration
                 .record(start_time.elapsed().as_secs_f64(), op_attrs);
 
-            if operation.is_cancelled() {
-                // The lab is being destroyed, which removes everything this run created.
-                tracing::info!(lab_id = %lab_id, "Lab creation stopped because the lab is being destroyed");
-                return Err(e);
+            match operation.stop_reason() {
+                Some(StopReason::Destroy) => {
+                    // The lab is being destroyed, which removes everything this run created.
+                    tracing::info!(lab_id = %lab_id, "Lab creation stopped because the lab is being destroyed");
+                    return Err(e);
+                }
+                Some(StopReason::Request) => {
+                    // Stopped by the user: roll back what this run created.
+                    tracing::info!(lab_id = %lab_id, "Lab creation stopped on request, starting auto-cleanup");
+                    let _ = progress.send_status(
+                        "Lab creation stopped, removing what it created...".to_string(),
+                        StatusKind::Info,
+                    );
+                }
+                None => {
+                    state.metrics.error_count.add(1, op_attrs);
+                    tracing::error!(
+                        lab_id = %lab_id,
+                        error = ?e,
+                        "Lab creation failed after resource creation began, starting auto-cleanup"
+                    );
+                    let _ = progress.send_status(
+                        "Lab creation failed, cleaning up resources...".to_string(),
+                        StatusKind::Info,
+                    );
+                }
             }
-
-            tracing::error!(
-                lab_id = %lab_id,
-                error = ?e,
-                "Lab creation failed after resource creation began, starting auto-cleanup"
-            );
-            let _ = progress.send_status(
-                "Lab creation failed, cleaning up resources...".to_string(),
-                StatusKind::Info,
-            );
 
             match clean::clean_lab_resources(lab_id, state).await {
                 Ok(clean_response) => {

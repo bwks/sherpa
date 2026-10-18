@@ -24,7 +24,7 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
-use crate::services::lab_operations;
+use crate::services::lab_operations::{self, StopReason};
 use crate::services::progress::ProgressSender;
 
 /// Destroy a lab and all its resources
@@ -67,7 +67,7 @@ pub async fn destroy_lab(
         "Stopping operations in progress on this lab...".to_string(),
         StatusKind::Progress,
     );
-    let (was_running, _stopped) = lab_operations::stop(lab_id).await;
+    let (was_running, _stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
     if was_running {
         tracing::info!(lab_id = %lab_id, "Stopped operations in progress before destruction");
         let _ = progress.send_status(

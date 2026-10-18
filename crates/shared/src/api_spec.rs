@@ -5,11 +5,11 @@ use serde::Serialize;
 use serde_json::json;
 
 use crate::data::{
-    ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest, ContainerPullResponse,
-    CreateUserRequest, CreateUserResponse, DeleteImageRequest, DeleteImageResponse,
-    DeleteUserRequest, DeleteUserResponse, DestroyRequest, DestroyResponse, DownloadImageRequest,
-    GetUserInfoRequest, GetUserInfoResponse, ImportRequest, ImportResponse, InspectRequest,
-    InspectResponse, LabNodeActionResponse, ListImagesRequest, ListImagesResponse,
+    CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse, ContainerPullRequest,
+    ContainerPullResponse, CreateUserRequest, CreateUserResponse, DeleteImageRequest,
+    DeleteImageResponse, DeleteUserRequest, DeleteUserResponse, DestroyRequest, DestroyResponse,
+    DownloadImageRequest, GetUserInfoRequest, GetUserInfoResponse, ImportRequest, ImportResponse,
+    InspectRequest, InspectResponse, LabNodeActionResponse, ListImagesRequest, ListImagesResponse,
     ListUsersRequest, ListUsersResponse, LoginRequest, LoginResponse, RedeployRequest,
     RedeployResponse, ScanImagesRequest, ScanImagesResponse, SetDefaultImageRequest,
     SetDefaultImageResponse, ShowImageRequest, ShowImageResponse, UpRequest, UpResponse,
@@ -267,6 +267,29 @@ fn build_operations() -> Vec<OperationDef> {
                 },
                 cli: CliBinding {
                     command: "sherpa down".to_string(),
+                },
+            },
+        },
+        OperationDef {
+            name: "lab.cancel".to_string(),
+            description: "Stop the operations running on a lab (up, redeploy, resume) at their next safe point and wait for them to end; a stopped up rolls back".to_string(),
+            category: Category::Lab,
+            auth: AuthRequirement::Authenticated,
+            streaming: false,
+            request_schema: None,
+            response_schema: Some("CancelLabResponse".to_string()),
+            transports: Transports {
+                rest: RestBinding {
+                    method: HttpMethod::Post,
+                    path: "/api/v1/labs/{id}/cancel".to_string(),
+                    path_params: vec!["id".to_string()],
+                    stream_type: None,
+                },
+                rpc: RpcBinding {
+                    method: "cancel".to_string(),
+                },
+                cli: CliBinding {
+                    command: "Ctrl-C during sherpa up, redeploy or resume".to_string(),
                 },
             },
         },
@@ -719,6 +742,7 @@ fn build_schemas() -> BTreeMap<String, serde_json::Value> {
     add_schema::<RedeployRequest>(&mut schemas);
     add_schema::<RedeployResponse>(&mut schemas);
     add_schema::<LabNodeActionResponse>(&mut schemas);
+    add_schema::<CancelLabResponse>(&mut schemas);
 
     // Image management
     add_schema::<ListImagesRequest>(&mut schemas);
@@ -984,9 +1008,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_build_spec_has_24_operations() {
+    fn test_build_spec_has_25_operations() {
         let spec = build_spec();
-        assert_eq!(spec.operations.len(), 24);
+        assert_eq!(spec.operations.len(), 25);
     }
 
     #[test]
@@ -1032,7 +1056,7 @@ mod tests {
             .map(|op| op.transports.rpc.method.as_str())
             .collect();
 
-        // These are the 23 RPC methods from the WebSocket handler
+        // These are the RPC methods from the WebSocket handler
         let expected = vec![
             "auth.login",
             "auth.validate",
@@ -1040,6 +1064,7 @@ mod tests {
             "destroy",
             "inspect",
             "down",
+            "cancel",
             "resume",
             "clean",
             "redeploy",

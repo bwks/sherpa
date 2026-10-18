@@ -14,7 +14,7 @@ use crate::services::destroy::{
     cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
     destroy_interfaces, destroy_libvirt_networks, destroy_vms_and_disks,
 };
-use crate::services::lab_operations;
+use crate::services::lab_operations::{self, StopReason};
 
 /// Clean all resources for a lab (admin only)
 ///
@@ -32,7 +32,7 @@ pub async fn clean_lab(
 ) -> Result<DestroyResponse> {
     require_admin(ctx)?;
     // Stop operations still building or changing the lab before removing its resources.
-    let (_, _stopped) = lab_operations::stop(lab_id).await;
+    let (_, _stopped) = lab_operations::stop(lab_id, StopReason::Destroy).await;
     clean_lab_resources(lab_id, state).await
 }
 

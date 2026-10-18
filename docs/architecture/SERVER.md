@@ -682,25 +682,44 @@ Destruction uses name-based matching for many runtime resources because the runt
 The lab name comes from the lab's database record, so destroy also works when `up` was stopped
 before it wrote the lab info file.
 
-### Stopping operations on a destroyed lab
+### Operation lifecycle and stopping operations
 
-`up`, `redeploy` and `resume` run as detached tasks and outlive the request that started them.
-`services/lab_operations.rs` keeps, per lab, a read/write lease and a cancellation token:
+Long-running operations (`up`, `destroy`, `redeploy`, `resume`, `down`, admin `clean`, image
+operations) always run as their own tasks, on every transport, and keep running when their
+client disconnects. The WebSocket and SSE handlers spawn them; the plain HTTP handlers wait on
+them through `run_detached` in `api/handlers.rs`, because axum drops a handler's future when
+its client disconnects and would otherwise stop the operation at an arbitrary await point.
 
-- each of those operations calls `lab_operations::begin` and holds the read lease until it
-  returns;
-- `destroy_lab` and the admin `clean_lab` call `lab_operations::stop`, which cancels the token,
-  then takes the write lease and holds it while the lab is removed.
+`services/lab_operations.rs` keeps, per lab, a read/write lease and a cancellation token with
+a stop reason:
+
+- `up`, `redeploy` and `resume` call `lab_operations::begin` and hold the read lease until
+  they return;
+- `lab_operations::stop(lab_id, reason)` cancels the token, then waits for the write lease, so
+  it returns once every operation on the lab has ended.
 
 Operations check the token only at safe points: between `up` phases, in the readiness and
 Talos bootstrap and Kubernetes waits (`LabOperation::sleep` ends early when cancelled), and
 before writing lab files. They are never dropped mid-step, because disk and VM steps run in
-`spawn_blocking` tasks that would carry on detached. A stopped `up` skips its auto-cleanup and
-leaves the removal to the destroy that stopped it. Without this, an orphaned `up` kept polling
-destroyed VMs, held its image leases (blocking image pull, import and delete), and recreated
-the lab directory with cluster credentials after destroy.
+`spawn_blocking` tasks that would carry on detached.
 
-Operations whose client disconnects are not stopped; that is tracked separately.
+| Stopped by | Reason | Stopped `up` |
+|---|---|---|
+| `destroy_lab`, admin `clean_lab` | `Destroy`; the write lease is held while the lab is removed | Skips its auto-cleanup; the destroy removes the lab |
+| `lab.cancel` (`services/cancel.rs`): RPC `cancel`, `POST /api/v1/labs/{id}/cancel`, Ctrl-C in the CLI | `Request`; the lease is released at once | Rolls back like a failed `up` |
+
+The first reason wins if both happen. Without this, an orphaned `up` kept polling destroyed
+VMs, held its image leases, and recreated the lab directory with cluster credentials after
+destroy.
+
+The CLI (`cmd/interrupt.rs`) waits for `up`, `redeploy` and `resume` while listening for
+Ctrl-C. On Ctrl-C it asks whether to stop the operation on the server too, defaulting to no; a
+yes opens a new connection and calls `cancel`.
+
+`up` holds read leases on its node images so they cannot be deleted while it provisions. VM
+and unikernel image leases end once every disk and domain exists (node records and overlay
+backing files protect the images from then on), so a long readiness wait does not block image
+pull, import or delete. Container image leases last until the containers start.
 
 ### Redeploy architecture
 

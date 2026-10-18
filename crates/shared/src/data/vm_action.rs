@@ -17,3 +17,11 @@ pub struct LabNodeActionResponse {
     pub tailscale: Option<TailnetStatus>,
     pub results: Vec<NodeActionResult>,
 }
+
+/// Response for stopping the operations running on a lab.
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+pub struct CancelLabResponse {
+    pub lab_id: String,
+    /// Whether an operation was running and has now stopped.
+    pub stopped: bool,
+}

@@ -41,7 +41,7 @@
 - Partial failures reported but destruction continues `[integration]` **P0**
 - Streaming progress during destruction `[integration]` **P1**
 - Destroy stops `up`, `redeploy` and `resume` running on the same lab and waits for them; a stopped operation fails with "being destroyed", its sleeps end early, other labs are unaffected, and operations started after the destroy get a fresh token (`services::lab_operations`) `[unit]` **P0**
-- A stopped `up` skips its auto-cleanup, and no cluster credentials are written after a destroy `[e2e]` **P1**
+- A destroy-stopped `up` skips its auto-cleanup, and no cluster credentials are written after a destroy `[e2e]` **P1**
 - Destroy works when the lab info file was never written (name from the lab record) `[integration]` **P1**
 
 ---
@@ -198,3 +198,17 @@ forwarding restrictions, secret stdin delivery, restart, and cleanup. The ignore
 tailnet credential. See [Tailscale setup](../../../docs/TAILNET.md) for configuration
 and [Tailscale testing](../integration/tailscale.md) for commands, prerequisites,
 mixed VM/container acceptance, and cleanup-retry checks.
+
+---
+
+## Operation Lifecycle and Cancel (`lab_operations`, `cancel`)
+
+**What to test:**
+- A requested stop (`lab.cancel`) fails the operation with "stopped on request", releases the lab at once, and later operations run normally `[unit]` **P0**
+- A destroy after a requested stop keeps the first reason `[unit]` **P1**
+- A cancelled `up` rolls back what it created; a cancelled `redeploy` or `resume` stops at its next safe point `[e2e]` **P0**
+- Cancel requires lab owner or admin; cancelling a lab with nothing running reports `stopped = false` `[integration]` **P1**
+- HTTP handlers wait on operations through `run_detached`: a dropped handler does not stop its operation, and results and errors pass through `[unit]` **P0**
+- `up` releases VM and unikernel image leases once every disk and domain exists; container image leases last until containers start `[integration]` **P2**
+- CLI: only `y`/`yes` stops the operation on Ctrl-C; the default leaves it running `[unit]` **P0**
+
