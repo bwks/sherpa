@@ -4773,7 +4773,6 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
- "validate",
  "windows-sys 0.61.2",
 ]
 
@@ -4833,7 +4832,6 @@ dependencies = [
  "tracing-opentelemetry",
  "tracing-subscriber",
  "uuid",
- "validate",
  "virt",
  "x509-parser",
  "zip",
@@ -5732,6 +5730,7 @@ dependencies = [
  "shared",
  "toml",
  "toml_edit 0.22.27",
+ "tracing",
 ]
 
 [[package]]
@@ -6008,17 +6007,6 @@ dependencies = [
  "js-sys",
  "serde_core",
  "wasm-bindgen",
-]
-
-[[package]]
-name = "validate"
-version = "0.3.92"
-dependencies = [
- "anyhow",
- "shared",
- "toml",
- "topology",
- "tracing",
 ]
 
 [[package]]

@@ -40,7 +40,7 @@ generates for cluster nodes (validation forbids users setting `ztp_config` on th
 Manifest `talos_clusters` (`topology::TalosCluster`): each cluster names its member nodes in
 `controllers` (the Talos control plane, in bootstrap order) and `workers`. Nodes carry no cluster
 fields; `topology::find_talos_cluster` looks up a node's cluster and role (`ClusterRole`, which
-keeps the Talos term `ControlPlane` internally). `validate::validate_talos_clusters` enforces the
+keeps the Talos term `ControlPlane` internally). `topology::validate::validate_talos_clusters` enforces the
 rules (names, one or three controllers, members are defined `talos_linux` nodes listed once
 without a user `ztp_config`, VIP capacity). Two controllers are refused: etcd needs a majority,
 so two members tolerate no failure and are less available than one.

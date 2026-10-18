@@ -32,6 +32,7 @@ use shared::konst::{
     SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
+use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
@@ -147,15 +148,12 @@ pub async fn redeploy_node(
         "Redeploy cannot change node model; expected {}",
         node_image.model
     );
-    let data_interface_count = validate::effective_data_interface_count(
-        node_name,
-        target_node.data_interface_count,
-        &node_image,
-    )
-    .context(format!(
-        "Data interface count validation failed for node: {}",
-        node_name
-    ))?;
+    let data_interface_count =
+        effective_data_interface_count(node_name, target_node.data_interface_count, &node_image)
+            .context(format!(
+                "Data interface count validation failed for node: {}",
+                node_name
+            ))?;
 
     let image_guard = lease_image(node_image.model, &node_image.version).await;
     target_node.version = Some(node_image.version.clone());

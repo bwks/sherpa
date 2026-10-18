@@ -28,8 +28,7 @@ The project is organized as a Cargo workspace with crates under `crates/`:
 | `network`    | Host network operations                        |
 | `shared`     | Shared data models and utilities               |
 | `template`   | Configuration template generation              |
-| `topology`   | Lab topology data models and transformers      |
-| `validate`   | Input validation                               |
+| `topology`   | Lab topology data models, transformers and manifest validation |
 
 ### Building
 

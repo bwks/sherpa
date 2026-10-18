@@ -12,7 +12,7 @@ and linting successfully before running tests:
 ```bash
 cargo fmt
 cargo clippy --workspace -- -D warnings
-cargo test -p shared -p container -p validate -p sherpad --lib
+cargo test -p shared -p container -p topology -p sherpad --lib
 ```
 
 The tests use mock Docker API responses and do not require a live Docker daemon,

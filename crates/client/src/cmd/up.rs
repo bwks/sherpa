@@ -21,6 +21,8 @@ use crate::cmd::interrupt::{
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
+use shared::validators::validate_tailscale_key;
+use topology::validate::validate_tailscale;
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -368,7 +370,7 @@ fn resolve_tailscale_key_using(
     config: &ClientConfig,
     lookup: impl FnOnce(&str) -> Option<String>,
 ) -> Result<Option<TailnetAuthKey>> {
-    validate::validate_tailscale(manifest)?;
+    validate_tailscale(manifest)?;
     let Some(tailscale) = manifest.tailscale.as_ref().filter(|c| c.enabled) else {
         return Ok(None);
     };
@@ -385,7 +387,7 @@ fn resolve_tailscale_key_using(
             "Tailscale auth-key environment variable '{name}' is not set or is not valid Unicode"
         )
     })?;
-    validate::validate_tailscale_key(&key)?;
+    validate_tailscale_key(&key)?;
     Ok(Some(TailnetAuthKey::new(key)))
 }
 

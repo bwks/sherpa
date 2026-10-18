@@ -13,6 +13,7 @@ use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::daemon::metrics::Metrics;
+use crate::validate::validate_tailscale_gateway_settings;
 
 /// The type of operation a job represents.
 pub enum JobType {
@@ -70,7 +71,7 @@ impl AppState {
     /// Create a new AppState with all infrastructure connections
     #[instrument(skip(config, metrics))]
     pub async fn new(config: Config, metrics: Metrics) -> Result<Self> {
-        validate::validate_tailscale_gateway_settings(&config.tailscale)
+        validate_tailscale_gateway_settings(&config.tailscale)
             .context("Invalid server Tailscale settings")?;
         // Load or generate JWT secret
         let jwt_secret =

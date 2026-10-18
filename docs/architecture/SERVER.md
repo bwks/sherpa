@@ -2,7 +2,7 @@
 
 `sherpad` is the Sherpa application server daemon. It is not just an HTTP wrapper around the old CLI path; it is the process that owns the server-side control plane for browser users, REST clients, WebSocket JSON-RPC clients, and the Sherpa CLI.
 
-The server crate is `crates/server`. It sits above the infrastructure crates (`db`, `libvirt`, `container`, `network`, `template`, `topology`, `validate`) and coordinates them through explicit service modules under `crates/server/src/services`.
+The server crate is `crates/server`. It sits above the infrastructure crates (`db`, `libvirt`, `container`, `network`, `template`, `topology`) and coordinates them through explicit service modules under `crates/server/src/services`.
 
 ## System context
 
@@ -500,7 +500,7 @@ The services directory is the orchestration layer. Each service is built around 
                           |        | Transformation and generation               |
                           |        |                                             |
                           |        | - topology crate: manifest expansion        |
-                          |        | - validate crate: input validation          |
+                          |        | - topology::validate: manifest checks       |
                           |        | - template crate: configs/XML/scripts       |
                           |        +---------------------------------------------+
                           |
@@ -556,10 +556,10 @@ up_lab(&AuthContext, UpRequest, &AppState, ProgressSender)
     +- Load node image records from DB
     |
     +- Manifest validation and expansion
-    |   +- validate::check_duplicate_device
+    |   +- topology::validate::check_duplicate_device
     |   +- validate environment variables
     |   +- container::get_local_images
-    |   +- validate::validate_and_resolve_node_versions
+    |   +- validate::validate_and_resolve_node_versions (server)
     |   +- process_manifest_nodes
     |   +- process_manifest_links
     |   +- process_manifest_bridges
@@ -620,7 +620,7 @@ topology::Manifest
         |      +- LinkDetailed[]
         |      `- BridgeDetailed[]
         |
-        +- validate crate checks caller-supplied data
+        +- topology::validate and server validate check caller-supplied data
         |
         +- db crate persists desired state
         |      +- lab record
@@ -1028,7 +1028,7 @@ blocks, defined in `crates/shared/src/konst.rs` and applied to both address fami
 | `21`–`254` | Lab nodes (`MANAGEMENT_NODE_HOST_OFFSETS`) | node `n` (1-based manifest index) at `.20 + n`; the dnsmasq DHCP range |
 
 `util::node_management_host_offset` maps a node index to its offset and refuses indexes outside
-the node block, so a lab holds at most 234 nodes; `validate::check_device_count` rejects larger
+the node block, so a lab holds at most 234 nodes; `topology::validate::check_device_count` rejects larger
 manifests before anything is created. Nodes keep `dhcp-host` reservations inside the DHCP range,
 so dnsmasq never leases a node's address to another client.
 

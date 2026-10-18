@@ -9,6 +9,9 @@ shared = { path = "../shared" }
 # Errors
 anyhow = { workspace = true }
 
+# Logging
+tracing = { workspace = true }
+
 # Se/Deserialzation
 serde = { workspace = true }
 serde_derive = { workspace = true }

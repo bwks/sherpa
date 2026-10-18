@@ -83,19 +83,20 @@ tests/specs/
     tls.md
     daemon.md
     talos.md
+    validation.md
   shared/
     auth-utilities.md
     data-models.md
     networking-utilities.md
     tls.md
+    validators.md
   template/
     vendor-configs.md
     cloud-init-ignition.md
     infrastructure.md
   topology/
     manifest-parsing.md
-  validate/
-    validation-rules.md
+    manifest-validation.md
   install/
     sherpa-install.md
     vm-release-harness.md
@@ -174,6 +175,7 @@ The main Axum-based web server with HTTP routes, WebSocket RPC, authentication, 
 | `tls.md` | What to test for TLS certificate management: self-signed certificate generation, loading certs from disk, handling invalid/expired certs, certificate renewal, and the `/cert` endpoint for client cert distribution. |
 | `talos.md` | What to test for Talos Linux nodes and Kubernetes clusters: model defaults, readiness port, NoCloud delivery, cluster validation and planning, secrets and credentials, machine config documents, bootstrap, redeploy rules, and the end-to-end cluster test. |
 | `daemon.md` | What to test for daemon lifecycle management: starting the server, PID file creation and cleanup, stop/restart behavior, stale PID file detection, log output, AppState initialization, and health check (`doctor`). |
+| `validation.md` | What to test for server-only validators in `crates/server/src/validate/`: environment variable entries, node image field updates, version resolution with container image and VM disk existence, Tailscale gateway settings, and the node readiness port check. |
 
 ### `shared/` — Shared Data Models & Utilities
 
@@ -181,10 +183,11 @@ Common types, utilities, and constants used across all crates.
 
 | File | Purpose |
 |------|---------|
-| `auth-utilities.md` | What to test for auth primitives: password hashing and verification (argon2), JWT token encode/decode/claims extraction, SSH key generation and validation, and SSH key fingerprint computation. |
+| `auth-utilities.md` | What to test for auth primitives: password hashing and verification (argon2), and JWT token encode/decode/claims extraction. |
 | `data-models.md` | What to test for core data types: serialization/deserialization round-trips (serde) for key structs and enums, `NodeModel` enum completeness (60+ variants), `NodeState` transitions, `Display` and `FromStr` implementations, `Default` trait correctness, interface type/name mappings per device model, and enum variant string representations. |
 | `networking-utilities.md` | What to test for network utility functions: IPv4/IPv6 address parsing and arithmetic, subnet calculations, MAC address generation and formatting, port availability checks, DNS record generation, DHCP configuration generation, interface naming utilities, SSH config generation, and host resolution helpers. |
 | `tls.md` | What to test for TLS utilities: certificate fetching from remote servers, TLS configuration construction, trust store management (adding/removing/listing trusted certs), and certificate validation. |
+| `validators.md` | What to test for validators shared by more than one crate (`crates/shared/src/validators/`): password strength, SSH public key format, guest usernames, Tailscale auth keys, and data interface count overrides. |
 
 ### `template/` — Configuration Template Generation
 
@@ -203,14 +206,7 @@ TOML manifest parsing and representation for lab definitions.
 | File | Purpose |
 |------|---------|
 | `manifest-parsing.md` | What to test for manifest handling: parsing valid TOML manifests, round-trip fidelity (parse then serialize), minimal manifest (just a name and one node), full manifest with all optional fields populated, missing required fields, invalid TOML syntax, node/link/bridge struct defaults, volume mount and startup script parsing, example manifest generation, and TOML editing operations (add/remove nodes and links). |
-
-### `validate/` — Validation Primitives
-
-Input validation for user-supplied manifests and configuration data.
-
-| File | Purpose |
-|------|---------|
-| `validation-rules.md` | What to test for all validation functions: duplicate device name detection, management interface protection (index 0 not used in data links), duplicate interface usage across links and bridges, interface index bounds checking per device model, link device existence validation, node image field validation (CPU count, memory, interface count, MTU, version string, interface prefix), version resolution against database, container image existence verification, VM disk file existence verification, TCP connectivity checks, environment variable validation, and IPv6 address validation. |
+| `manifest-validation.md` | What to test for manifest checks in `crates/topology/src/validate/`, shared by the client and the server: duplicate device names and device count, management interface protection, duplicate interface usage across links and bridges, interface index bounds per device model, link and bridge device existence, and IPv6 address validation. |
 
 ### `install/` — Install Script
 
@@ -248,4 +244,3 @@ Tests that exercise multiple crates together through realistic workflows.
 | shared | ~48 files with inline `#[cfg(test)]` modules | Partial — utilities well-covered, data models/TLS gaps |
 | template | None | No coverage |
 | topology | Minimal inline tests | Minimal |
-| validate | 23 unit tests (device, image, version) | Partial — link/connection/env/IPv6 gaps |

@@ -2,7 +2,7 @@ use std::net::Ipv6Addr;
 
 use anyhow::{Result, bail};
 
-use topology::Node;
+use crate::Node;
 
 /// Validate IPv6 addresses in manifest nodes.
 ///

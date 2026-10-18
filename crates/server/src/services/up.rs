@@ -27,6 +27,7 @@ use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
+use crate::validate::{validate_and_resolve_node_versions, validate_environment_variables};
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
@@ -42,7 +43,13 @@ use shared::konst::{
     SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
+use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
+use topology::validate::{
+    check_bridge_device, check_device_count, check_duplicate_device,
+    check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
+    validate_talos_clusters,
+};
 
 // ============================================================================
 // ============================================================================
@@ -517,17 +524,15 @@ pub async fn up_lab(
     tracing::debug!(lab_id = %lab_id, node_images = node_images.len(), "Fetched node configs from database");
 
     // Device Validators (CRITICAL ERROR - fail fast on validation failure)
-    validate::check_duplicate_device(&manifest.nodes)
+    check_duplicate_device(&manifest.nodes)
         .context("Manifest validation failed: duplicate devices")?;
-    validate::check_device_count(&manifest.nodes)
-        .context("Manifest validation failed: node count")?;
-    validate::validate_talos_clusters(&manifest)
-        .context("Manifest validation failed: talos clusters")?;
+    check_device_count(&manifest.nodes).context("Manifest validation failed: node count")?;
+    validate_talos_clusters(&manifest).context("Manifest validation failed: talos clusters")?;
 
     // Environment variable validators
     for node in &manifest.nodes {
         if let Some(ref env_vars) = node.environment_variables {
-            validate::validate_environment_variables(env_vars, &node.name)
+            validate_environment_variables(env_vars, &node.name)
                 .context("Manifest validation failed: environment variables")?;
         }
     }
@@ -538,7 +543,7 @@ pub async fn up_lab(
         .await
         .context("Failed to list local Docker images")?;
 
-    let validated_nodes = validate::validate_and_resolve_node_versions(
+    let validated_nodes = validate_and_resolve_node_versions(
         &manifest.nodes,
         &node_images,
         &config.images_dir,
@@ -637,7 +642,7 @@ pub async fn up_lab(
             .context(format!("Node config not found for model: {}", node.model))?;
 
         if !node_image.dedicated_management_interface {
-            validate::check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed).context(
+            check_mgmt_usage(&node.name, 0, &links_detailed, &bridges_detailed).context(
                 format!(
                     "Management interface validation failed for node: {}",
                     node.name
@@ -645,17 +650,14 @@ pub async fn up_lab(
             )?;
         }
 
-        let data_interface_count = validate::effective_data_interface_count(
-            &node.name,
-            node.data_interface_count,
-            &node_image,
-        )
-        .context(format!(
-            "Data interface count validation failed for node: {}",
-            node.name
-        ))?;
+        let data_interface_count =
+            effective_data_interface_count(&node.name, node.data_interface_count, &node_image)
+                .context(format!(
+                    "Data interface count validation failed for node: {}",
+                    node.name
+                ))?;
 
-        validate::check_interface_bounds(
+        check_interface_bounds(
             &node.name,
             &node_image.model,
             data_interface_count,
@@ -672,15 +674,15 @@ pub async fn up_lab(
 
     // Connection Validators
     if !links_detailed.is_empty() {
-        validate::check_duplicate_interface_link(&links_detailed, &bridges_detailed)
+        check_duplicate_interface_link(&links_detailed, &bridges_detailed)
             .context("Duplicate interface link validation failed")?;
-        validate::check_link_device(&manifest.nodes, &links_detailed)
+        check_link_device(&manifest.nodes, &links_detailed)
             .context("Link device validation failed")?;
     }
 
     // Bridge Validators
     if !bridges_detailed.is_empty() {
-        validate::check_bridge_device(&manifest.nodes, &bridges_detailed)
+        check_bridge_device(&manifest.nodes, &bridges_detailed)
             .context("Bridge device validation failed")?;
     }
 
@@ -765,11 +767,8 @@ pub async fn up_lab(
 
             // Build interface data structures
             let mut node_interfaces_detailed: Vec<data::InterfaceData> = vec![];
-            let data_interface_count = validate::effective_data_interface_count(
-                &node.name,
-                node.data_interface_count,
-                &node_image,
-            )?;
+            let data_interface_count =
+                effective_data_interface_count(&node.name, node.data_interface_count, &node_image)?;
             let first_data_interface_idx = node_image
                 .reserved_interface_count
                 .checked_add(1)

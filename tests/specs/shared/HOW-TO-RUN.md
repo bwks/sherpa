@@ -21,8 +21,8 @@ cargo test -p shared auth::password::
 # JWT claims
 cargo test -p shared auth::jwt::
 
-# SSH key validation
-cargo test -p shared auth::ssh::
+# Shared validators (password strength, SSH keys, usernames, ...)
+cargo test -p shared validators::
 ```
 
 ## Run a Single Test

@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
+use crate::{Manifest, Node};
 use shared::data::NodeModel;
 use shared::konst::TALOS_VIP_HOST_OFFSETS;
-use topology::{Manifest, Node};
 
 /// Longest cluster name; cluster names are used in DNS names and certificate SANs.
 const MAX_CLUSTER_NAME_LEN: usize = 63;

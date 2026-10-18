@@ -31,5 +31,5 @@ Design: `docs/architecture/TALOS.md`.
 - End to end through the `sherpa` CLI against an installed server: `tests/labs/talos-linux/talos_lab_test.py` (single and ha labs; see its README for the checks) `[e2e]` **P0**
 
 Tests: `shared::data::node`, `services::{node_ops, up, resume, ssh_config, import, guest_account}`,
-`services::talos::*`, `tls::generator`, `topology::talos_cluster`, `validate::talos_cluster`,
+`services::talos::*`, `tls::generator`, `topology::talos_cluster`, `topology::validate::talos_cluster`,
 `crates/template/tests/talos`, and client `cluster_credentials`.

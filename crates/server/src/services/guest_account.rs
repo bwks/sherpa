@@ -5,10 +5,11 @@ use anyhow::{Context, Result, ensure};
 use ssh_key::PublicKey;
 use tracing::instrument;
 
-use shared::auth::ssh::validate_ssh_key;
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
 use shared::konst::SHERPA_USERNAME;
 use shared::util::base64_encode;
+use shared::validators::validate_guest_username;
+use shared::validators::validate_ssh_key;
 use template::{CloudInitUser, IgnitionFile, IgnitionFileContents, IgnitionUser};
 
 #[derive(Debug, Clone)]
@@ -72,7 +73,7 @@ pub(crate) async fn resolve_owner(db: &db::Database, owner_id: RecordId) -> Resu
 
 #[instrument(level = "debug", skip(user))]
 pub(crate) fn from_user(user: &DbUser) -> Result<GuestAccount> {
-    validate::validate_guest_username(&user.username, &[SHERPA_USERNAME])
+    validate_guest_username(&user.username, &[SHERPA_USERNAME])
         .context("Lab owner cannot be provisioned as a Linux account")?;
     ensure!(
         !user.ssh_keys.is_empty(),

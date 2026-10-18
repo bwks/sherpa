@@ -6,6 +6,12 @@
 cargo test -p topology
 ```
 
+## Run Only Manifest Validation Tests
+
+```bash
+cargo test -p topology validate::
+```
+
 ## Run Only Integration Tests
 
 ```bash
@@ -26,7 +32,7 @@ cargo test -p topology -- --nocapture
 
 ## Prerequisites
 
-- No external services required. All tests are pure TOML parsing and struct logic.
+- No external services required. All tests are pure TOML parsing, struct logic and validation.
 - The write/load round-trip test writes to `/tmp/` — no special permissions needed.
 
 ## Test Location

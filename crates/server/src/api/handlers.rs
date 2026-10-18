@@ -41,8 +41,9 @@ use super::extractors::{
     trace_rejected_session, trace_validated_session, validate_cookie_session,
 };
 
+use crate::validate::validate_node_image_update;
 use shared::api_spec;
-use shared::auth::{password, ssh};
+use shared::auth::password;
 use shared::data::{
     BiosTypes, CancelLabResponse, ChangePasswordRequest, ChangePasswordResponse,
     ContainerPullRequest, CpuArchitecture, CpuModels, CreateUserRequest, CreateUserResponse,
@@ -58,6 +59,7 @@ use shared::konst::{
     SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest};
+use shared::validators::{validate_password_strength, validate_ssh_key};
 
 /// Authenticate user and issue JWT token
 ///
@@ -614,7 +616,7 @@ pub async fn update_password_handler(
     }
 
     // 4. Validate new password strength
-    if let Err(e) = password::validate_password_strength(&form.new_password) {
+    if let Err(e) = validate_password_strength(&form.new_password) {
         return PasswordErrorTemplate {
             message: format!("New password does not meet requirements: {}", e),
         }
@@ -674,7 +676,7 @@ pub async fn add_ssh_key_handler(
     axum::Form(form): axum::Form<AddSshKeyForm>,
 ) -> impl IntoResponse {
     // 1. Validate SSH key format
-    if let Err(e) = ssh::validate_ssh_key(&form.ssh_key) {
+    if let Err(e) = validate_ssh_key(&form.ssh_key) {
         return SshKeyErrorTemplate {
             message: format!("Invalid SSH key: {}", e),
         }
@@ -1799,7 +1801,7 @@ pub async fn admin_update_user_password_handler(
     }
 
     // Validate password strength
-    if let Err(e) = password::validate_password_strength(&form.new_password) {
+    if let Err(e) = validate_password_strength(&form.new_password) {
         return Ok(AdminPasswordErrorTemplate {
             error_message: format!("Password validation failed: {}", e),
         }
@@ -1865,7 +1867,7 @@ pub async fn admin_add_ssh_key_handler(
     let ssh_key = form.ssh_key.trim();
 
     // Validate SSH key format
-    if let Err(e) = ssh::validate_ssh_key(ssh_key) {
+    if let Err(e) = validate_ssh_key(ssh_key) {
         tracing::debug!("Invalid SSH key format: {:?}", e);
         return Ok(AdminSshKeysListTemplate {
             target_username: target_username.clone(),
@@ -2498,7 +2500,7 @@ pub async fn admin_image_update_handler(
     let ztp_password = form.ztp_password.filter(|s| !s.trim().is_empty());
 
     // Validate form data
-    if let Err(e) = validate::validate_node_image_update(
+    if let Err(e) = validate_node_image_update(
         form.cpu_count,
         form.memory,
         form.interface_mtu,

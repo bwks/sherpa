@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow, bail};
 use tracing::instrument;
 
-use shared::data::NodeConfig;
-use shared::util;
+use crate::data::NodeConfig;
+use crate::util;
 
 #[instrument(skip(node_image), fields(node_name = %node_name, node_model = %node_image.model), level = "debug")]
 pub fn effective_data_interface_count(
@@ -64,7 +64,7 @@ pub fn validate_data_interface_count_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeConfig;
+    use crate::data::NodeConfig;
 
     #[test]
     fn test_effective_data_interface_count_uses_default_without_override() {

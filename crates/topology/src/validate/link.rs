@@ -2,8 +2,8 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
+use crate::{BridgeDetailed, LinkDetailed, Node};
 use shared::data::NodeModel;
-use topology::{BridgeDetailed, LinkDetailed, Node};
 
 /// Checks if any links or bridges use the management interface (index 0) on a node.
 /// Returns an error if a link or bridge attempts to use the management interface.
@@ -255,8 +255,8 @@ pub fn check_interface_bounds(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::BridgeLinkDetailed;
     use anyhow::Result;
-    use topology::BridgeLinkDetailed;
 
     /// Helper to create a test link
     fn create_link(node_a: &str, int_a: u8, node_b: &str, int_b: u8) -> LinkDetailed {
