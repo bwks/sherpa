@@ -2,6 +2,47 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.91] - 2026-10-18
+
+### Bug Fixes
+
+- Stop orphaned lab operations, unblock HA clusters, shut down cleanly by @bwks ([415ee49](https://github.com/bwks/sherpa/commit/415ee49b53d2f079fcf311b5137ecb51666875ae))
+
+### Documentation
+
+- Talos architecture, investigation and test spec [skip ci] by @bwks ([fd93809](https://github.com/bwks/sherpa/commit/fd93809fe9c3db02757864450257a7fbedb363c6))
+
+### Features
+
+- Define Talos clusters in a talos_clusters manifest section by @bwks ([1cfd8a3](https://github.com/bwks/sherpa/commit/1cfd8a3116f97d46cd4ba6f52728049239a88763))
+- Split lab management addresses into fixed blocks by @bwks ([292db21](https://github.com/bwks/sherpa/commit/292db21e9891bb87f341401b7d2ea8ca508b9731))
+- Look up the Talos vanilla schematic from the Image Factory by @bwks ([4a7b028](https://github.com/bwks/sherpa/commit/4a7b028fa812a5510e7228f886c1296dca8e6c26))
+- Build Talos Kubernetes clusters during lab up by @bwks ([d12148c](https://github.com/bwks/sherpa/commit/d12148c587cbaf2de6ea2e24e894cc9964926369))
+- Generate Talos cluster secrets and machine configs by @bwks ([de83bbd](https://github.com/bwks/sherpa/commit/de83bbd890b46863fc3378739b8bbb2ec78f8b37))
+- Add the talos_linux node model by @bwks ([fab1499](https://github.com/bwks/sherpa/commit/fab1499ba64cf189062e470f5ccaa6aa0c997fa5))
+
+### Miscellaneous
+
+- Merge pull request #329 from bwks/feat/talos-linux
+
+feat: Talos Linux nodes and Sherpa-built Kubernetes clusters by @bwks in [#329](https://github.com/bwks/sherpa/pull/329) ([45b31a0](https://github.com/bwks/sherpa/commit/45b31a022126ebdf3dfa970e437fd8312fab8d47))
+- Ignore local HANDOVER.md session notes [skip ci] by @bwks ([af4ae8f](https://github.com/bwks/sherpa/commit/af4ae8f0960366fce5ca97158a198bbcd9da9cf9))
+- Bump crate versions to 0.3.91 by @bwks ([a4fab03](https://github.com/bwks/sherpa/commit/a4fab037b77033fd234309eaee811eda4fb43fab))
+- Updaet agenet instructions by @bwks ([5275cb8](https://github.com/bwks/sherpa/commit/5275cb88c4a2537b3ff0ab1df720ee39bf3d7dfa))
+- Merge pull request #328 from bwks/changelog/v0.3.90
+
+chore(release): update changelog for v0.3.90 by @github-actions[bot] in [#328](https://github.com/bwks/sherpa/pull/328) ([13bedc4](https://github.com/bwks/sherpa/commit/13bedc4bc03a53cee1727ff2e26c3a4672afcd61))
+
+### Refactor
+
+- Declare consts and statics directly under use statements by @bwks ([5563aae](https://github.com/bwks/sherpa/commit/5563aaebe12f49f3d3d053351244d3fc1a14383d))
+- Move Talos lab integration out of the module file by @bwks ([0aa2f46](https://github.com/bwks/sherpa/commit/0aa2f46ac0771b1ab00e7dd029248f08f0b8129a))
+- Remove secret file wrapper functions in the client by @bwks ([c15e7dc](https://github.com/bwks/sherpa/commit/c15e7dcb4fd35a25d09ba45cc24e1905a07ff45e))
+
+### Testing
+
+- Drive Talos clusters end to end through the sherpa CLI by @bwks ([79c2b51](https://github.com/bwks/sherpa/commit/79c2b5134a7a099137fa725574a6e169ac64110f))
+- Add an end-to-end Talos cluster integration test by @bwks ([6851349](https://github.com/bwks/sherpa/commit/6851349108c0f8b567d172cc96c8834fb3cebf0d))
 ## [0.3.90] - 2026-10-17
 
 ### Bug Fixes
