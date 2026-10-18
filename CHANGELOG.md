@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.93] - 2026-10-18
+
+### Bug Fixes
+
+- Reject manifest management addresses by @bwks ([30f27bc](https://github.com/bwks/sherpa/commit/30f27bcdca799d867d1d43e15a93d0dea6888e31))
+
+### Features
+
+- Require SSH keys to start labs; CLI key management by @bwks ([2b9a85c](https://github.com/bwks/sherpa/commit/2b9a85c2b175d4c6ab2415285195f53eba0fde6b))
+- Protected built-in admin account by @bwks ([8590da7](https://github.com/bwks/sherpa/commit/8590da7c5abc60d14a96239a78b47866006781c8))
+- Guest-safe, case-insensitive server usernames by @bwks ([211bd25](https://github.com/bwks/sherpa/commit/211bd257725a38a27e2768778591866eed0a6897))
+
+### Miscellaneous
+
+- Merge pull request #340 from bwks/feat/338-server-accounts
+
+Server accounts: built-in admin, guest-safe usernames, required SSH keys by @bwks in [#340](https://github.com/bwks/sherpa/pull/340) ([ed17b17](https://github.com/bwks/sherpa/commit/ed17b17effedf892ee0a41d0557a03e5ca0d8f1e))
+- Bump crate versions to 0.3.93 by @bwks ([298912c](https://github.com/bwks/sherpa/commit/298912c749065dc16f8bec22cb1764d7cf455a33))
+- Merge pull request #337 from bwks/chore/332-upgrade-tabled
+
+chore: upgrade tabled to 0.22 to drop proc-macro-error2 by @bwks in [#337](https://github.com/bwks/sherpa/pull/337) ([de510b9](https://github.com/bwks/sherpa/commit/de510b9958beab5277c5ec1cbe1d62f8c9eff44f))
+- Upgrade tabled to 0.22 to drop proc-macro-error2 by @bwks ([599cbd8](https://github.com/bwks/sherpa/commit/599cbd8813d031681262a4a722114c4b59edc81d))
+- Merge pull request #336 from bwks/changelog/v0.3.92
+
+chore(release): update changelog for v0.3.92 by @github-actions[bot] in [#336](https://github.com/bwks/sherpa/pull/336) ([ab7662f](https://github.com/bwks/sherpa/commit/ab7662ff68e0edf4c0fa5f5c4abe08e2019cd782))
+
+### Refactor
+
+- Dissolve the validate crate into owning crates by @bwks ([04a0ff1](https://github.com/bwks/sherpa/commit/04a0ff1f4470a503359ddcc9920aadb5a203eea9))
 ## [0.3.92] - 2026-10-18
 
 ### Bug Fixes
