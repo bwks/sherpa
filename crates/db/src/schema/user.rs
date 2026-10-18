@@ -19,11 +19,22 @@
 //! Reserved names are enforced by `shared::validators::validate_username`, not the schema,
 //! because server bootstrap creates the reserved `admin` account.
 //!
+//! ## Built-in `admin` protection
+//! - The `username` and `is_admin` field assertions refuse renaming `admin` or clearing its
+//!   admin flag, and refuse any `admin` record without the flag.
+//! - The `protect_admin` event throws on deleting, renaming or demoting `admin`, which aborts
+//!   the whole statement, including bulk deletes.
+//!
+//! These guard against application bugs and ordinary queries. A database root user can still
+//! remove the definitions.
+//!
 //! ## Computed Fields
 //! - `labs`: Reverse reference to all labs owned by this user (`<~(lab FIELD user)`)
 //!
 //! ## Relationships
 //! - One-to-many with `lab` table (user owns multiple labs)
+
+use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
 
 /// Generate the user table schema.
 ///
@@ -45,16 +56,21 @@
 ///   - `updated_at`: datetime timestamp (set by application on updates)
 /// - **Indexes**:
 ///   - `unique_username`: Ensures username uniqueness
+/// - **Events**:
+///   - `protect_admin`: Refuses deleting, renaming or demoting the built-in `admin` account
 ///
 pub(crate) fn generate_user_schema() -> String {
-    r#"
+    format!(
+        r#"
 DEFINE TABLE OVERWRITE user SCHEMAFULL;
 DEFINE FIELD OVERWRITE username ON TABLE user TYPE string
     ASSERT string::len($value) >= 3
     AND string::len($value) <= 32
-    AND $value = /^[a-z_][a-z0-9_-]*$/;
+    AND $value = /^[a-z_][a-z0-9_-]*$/
+    AND ($before IS NONE OR $before != '{ADMIN_USERNAME}' OR $value = '{ADMIN_USERNAME}');
 DEFINE FIELD OVERWRITE password_hash ON TABLE user TYPE string;
-DEFINE FIELD OVERWRITE is_admin ON TABLE user TYPE bool DEFAULT false;
+DEFINE FIELD OVERWRITE is_admin ON TABLE user TYPE bool DEFAULT false
+    ASSERT $this.username != '{ADMIN_USERNAME}' OR $value = true;
 DEFINE FIELD OVERWRITE ssh_keys ON TABLE user TYPE array<string> DEFAULT [];
 DEFINE FIELD OVERWRITE created_at ON TABLE user TYPE datetime;
 DEFINE FIELD OVERWRITE updated_at ON TABLE user TYPE datetime;
@@ -63,6 +79,12 @@ DEFINE FIELD OVERWRITE labs ON TABLE user COMPUTED <~(lab FIELD user);
 
 DEFINE INDEX OVERWRITE unique_username
   ON TABLE user FIELDS username UNIQUE;
+
+DEFINE EVENT OVERWRITE protect_admin ON TABLE user
+    WHEN ($before.username = '{ADMIN_USERNAME}'
+        AND ($event = 'DELETE' OR $after.username != '{ADMIN_USERNAME}' OR $after.is_admin != true))
+    OR ($after.username = '{ADMIN_USERNAME}' AND $after.is_admin != true)
+    THEN {{ THROW '{ADMIN_PROTECTED_MESSAGE}' }};
 "#
-    .to_string()
+    )
 }

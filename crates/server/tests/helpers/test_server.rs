@@ -20,6 +20,13 @@ use sherpad::daemon::state::AppState;
 
 /// Default admin password used for test servers
 pub const TEST_ADMIN_PASSWORD: &str = "TestPass123!";
+/// Personal admin account used by tests that start labs; the built-in `admin` cannot.
+#[allow(dead_code)]
+pub const TEST_LAB_ADMIN: &str = "labadmin";
+/// SSH public key registered for test users who start labs.
+#[allow(dead_code)]
+pub const TEST_SSH_PUBLIC_KEY: &str =
+    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJbRB5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5JhR5Jh";
 
 /// A test server that runs an in-process instance of sherpad
 pub struct TestServer {
@@ -111,6 +118,27 @@ impl TestServer {
     pub fn ws_url(&self) -> String {
         format!("ws://{}/ws", self.addr)
     }
+}
+
+/// Connect to a fresh, empty database in its own namespace, with the schema applied and no
+/// users. Used by tests that check startup behaviour before the admin account exists.
+#[allow(dead_code)]
+pub async fn empty_database() -> Result<db::Database> {
+    let db_password =
+        std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string());
+    let db_port: u16 = std::env::var("SHERPA_DEV_DB_PORT")
+        .unwrap_or_else(|_| "42069".to_string())
+        .parse()?;
+    let db = db::connect(
+        "localhost",
+        db_port,
+        &generate_test_namespace(),
+        "test_db",
+        &db_password,
+    )
+    .await?;
+    db::apply_schema(&db).await?;
+    Ok(db)
 }
 
 fn generate_test_namespace() -> String {

@@ -1,6 +1,6 @@
 /// CREATE operation tests for user
 use anyhow::Result;
-use db::{create_admin_user, create_user, get_user, list_users, upsert_user};
+use db::{create_admin_user, create_user, get_user, list_users};
 
 use crate::{setup_db, teardown_db};
 
@@ -235,68 +235,6 @@ async fn test_schema_rejects_username_written_directly() -> Result<()> {
     )
     .await?
     .check()?;
-
-    teardown_db(&db).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_upsert_user_creates_new() -> Result<()> {
-    let db = setup_db("test_upsert_user_creates").await?;
-
-    let user = upsert_user(
-        &db,
-        "dave".to_string(),
-        "TestPass123!",
-        false,
-        vec!["key1".to_string()],
-    )
-    .await?;
-
-    assert_eq!(user.username, "dave");
-    assert_eq!(user.ssh_keys.len(), 1);
-
-    // Verify it exists
-    let fetched = get_user(&db, "dave").await?;
-    assert_eq!(fetched.username, "dave");
-
-    teardown_db(&db).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_upsert_user_updates_existing() -> Result<()> {
-    let db = setup_db("test_upsert_user_updates").await?;
-
-    // Create initial user
-    let user1 = upsert_user(
-        &db,
-        "eve".to_string(),
-        "TestPass123!",
-        false,
-        vec!["key1".to_string()],
-    )
-    .await?;
-    assert_eq!(user1.ssh_keys.len(), 1);
-
-    // Upsert with more keys
-    let user2 = upsert_user(
-        &db,
-        "eve".to_string(),
-        "TestPass123!",
-        false,
-        vec!["key1".to_string(), "key2".to_string()],
-    )
-    .await?;
-    assert_eq!(user2.ssh_keys.len(), 2);
-    assert_eq!(user2.username, "eve");
-
-    // Verify only one user exists
-    let all_users = list_users(&db).await?;
-    let eve_users: Vec<_> = all_users.iter().filter(|u| u.username == "eve").collect();
-    assert_eq!(eve_users.len(), 1, "Should only have one 'eve' user");
 
     teardown_db(&db).await?;
     Ok(())

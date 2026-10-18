@@ -16,6 +16,7 @@ use tracing::instrument;
 use virt::storage_pool::StoragePool;
 
 use crate::auth::context::AuthContext;
+use crate::auth::policy::require_lab_starter;
 use crate::daemon::state::AppState;
 use crate::services::clean;
 use crate::services::guest_account;
@@ -421,7 +422,8 @@ async fn reserve_lab_networks(
 
 /// Start a lab with streaming progress updates
 ///
-/// The lab is created for the authenticated caller. `request.username` is ignored.
+/// The lab is created for the authenticated caller. `request.username` is ignored. The built-in
+/// `admin` account cannot start labs.
 #[instrument(skip(ctx, request, state, progress), fields(username = %ctx.username, lab_id = %request.lab_id))]
 pub async fn up_lab(
     ctx: &AuthContext,
@@ -434,6 +436,7 @@ pub async fn up_lab(
     let mut errors = Vec::new();
 
     let lab_id = &request.lab_id;
+    require_lab_starter(ctx)?;
 
     // Deserialize manifest from JSON Value
     let manifest: topology::Manifest =

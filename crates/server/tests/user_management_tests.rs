@@ -5,8 +5,9 @@ use reqwest::{Client, Response, StatusCode, header};
 use serde_json::json;
 use shared::error::RpcErrorCode;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
+use sherpad::daemon::state::ensure_admin_account;
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer, empty_database};
 use helpers::ws_client::TestWsClient;
 
 /// Element on the admin users page that receives a refused delete's message.
@@ -725,5 +726,79 @@ async fn self_delete_is_refused_on_all_transports() -> Result<()> {
         db::find_user(&server.db, "dana").await?.is_some(),
         "a refused self-delete removed the user"
     );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    // A second admin, so neither the self-delete nor the last-admin rule is what refuses.
+    db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
+
+    let response = ws
+        .rpc_call(
+            "user.delete",
+            json!({ "token": token, "username": "admin" }),
+        )
+        .await?;
+    ensure!(
+        response["error"]["code"] == json!(RpcErrorCode::AccessDenied),
+        "RPC delete of admin was not refused: {response}"
+    );
+
+    let response = Client::new()
+        .delete(format!("http://{}/api/v1/admin/users/admin", server.addr))
+        .bearer_auth(&token)
+        .send()
+        .await?;
+    ensure!(
+        response.status() == StatusCode::FORBIDDEN,
+        "REST delete of admin returned {}",
+        response.status()
+    );
+
+    ensure_web_refusal(
+        web_delete_user(&server, &token, "admin").await?,
+        "built-in admin account",
+    )
+    .await?;
+
+    ensure!(
+        db::find_user(&server.db, "admin").await?.is_some(),
+        "a refused delete removed the admin account"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database"]
+async fn startup_requires_the_admin_account() -> Result<()> {
+    let db = empty_database().await?;
+
+    let error = ensure_admin_account(&db, None).await.unwrap_err();
+    ensure!(
+        error.to_string().contains("sherpad init"),
+        "missing admin should point to sherpad init: {error}"
+    );
+
+    ensure_admin_account(&db, Some(TEST_ADMIN_PASSWORD)).await?;
+    let admin = db::find_user(&db, "admin").await?;
+    ensure!(
+        admin.is_some_and(|admin| admin.is_admin),
+        "SHERPA_ADMIN_PASSWORD should seed the admin account"
+    );
+
+    // Once the account exists, startup succeeds without the password.
+    ensure_admin_account(&db, None).await?;
     Ok(())
 }

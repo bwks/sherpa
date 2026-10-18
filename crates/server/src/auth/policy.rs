@@ -12,6 +12,7 @@
 use anyhow::{Context, Result, anyhow};
 use db::Database;
 use shared::data::DbLab;
+use shared::konst::{ADMIN_LAB_START_MESSAGE, ADMIN_USERNAME};
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
@@ -60,6 +61,22 @@ pub fn require_admin(ctx: &AuthContext) -> Result<(), ServiceError> {
         "Non-admin attempted an admin-only operation"
     );
     Err(ServiceError::Denied("admin privileges required".to_owned()))
+}
+
+/// Refuse lab-starting work (`up`, `resume`, `redeploy`) for the built-in `admin` account.
+///
+/// `admin` is the server's recovery account and gets no personal account on lab nodes, so lab
+/// work is done from personal accounts. `admin` may still destroy, stop and clean up labs.
+pub fn require_lab_starter(ctx: &AuthContext) -> Result<(), ServiceError> {
+    if ctx.username != ADMIN_USERNAME {
+        return Ok(());
+    }
+    tracing::warn!(
+        event = "auth.access_denied",
+        username = %ctx.username,
+        "The built-in admin account attempted to start lab work"
+    );
+    Err(ServiceError::Denied(ADMIN_LAB_START_MESSAGE.to_owned()))
 }
 
 /// Require that the caller is `username`, or an admin.
@@ -172,6 +189,17 @@ mod tests {
             require_admin(&ctx("alice", false)),
             Err(ServiceError::Denied(_))
         ));
+    }
+
+    #[test]
+    fn the_built_in_admin_may_not_start_lab_work() {
+        assert_eq!(
+            require_lab_starter(&ctx(ADMIN_USERNAME, true)),
+            Err(ServiceError::Denied(ADMIN_LAB_START_MESSAGE.to_owned()))
+        );
+        // Other administrators and regular users may.
+        assert!(require_lab_starter(&ctx("dana", true)).is_ok());
+        assert!(require_lab_starter(&ctx("alice", false)).is_ok());
     }
 
     #[test]

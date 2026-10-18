@@ -4,7 +4,7 @@ mod read;
 mod update;
 
 // Public exports - CREATE operations
-pub use create::{create_admin_user, create_user, upsert_user};
+pub use create::{create_admin_user, create_user};
 
 // Public exports - READ operations
 pub use read::{count_users, find_user, get_user, get_user_by_id, get_user_for_auth, list_users};

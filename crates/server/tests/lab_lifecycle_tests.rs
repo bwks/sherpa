@@ -198,7 +198,7 @@ async fn lab_up(
 async fn test_container_lab_up_and_inspect() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
@@ -237,7 +237,7 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 async fn test_container_lab_down_and_resume() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
@@ -278,7 +278,7 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
 async fn test_container_lab_destroy() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
@@ -326,7 +326,7 @@ async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
     let server = TestServer::start().await?;
     let mut first = TestWsClient::connect(&server).await?;
     let mut second = TestWsClient::connect(&server).await?;
-    let token = first.login_admin().await?;
+    let token = first.login_lab_admin(&server).await?;
     bootstrap_images(&mut first, &token).await?;
 
     // lab_id must be exactly 8 characters
@@ -392,7 +392,7 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
     bootstrap_images(&mut ws, &token).await?;
 
     // lab_id must be exactly 8 characters
@@ -426,7 +426,7 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 async fn test_lab_up_missing_image() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
 
     // Use a model that doesn't have images imported
     let manifest = json!({
@@ -465,7 +465,7 @@ async fn test_lab_up_missing_image() -> Result<()> {
 async fn test_lab_up_invalid_manifest() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
 
     // Empty manifest - missing required fields
     let (_s, response) = ws
@@ -519,7 +519,7 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let token = ws.login_admin().await?;
+    let token = ws.login_lab_admin(&server).await?;
 
     // Seed a lab record directly in the DB to simulate an already-running lab
     let admin_user = db::get_user(&server.db, "admin").await?;
@@ -676,8 +676,16 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
 async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
-    let admin_token = ws.login_admin().await?;
-    let admin = db::get_user(&server.db, "admin").await?;
+    // A personal admin: the built-in `admin` account cannot redeploy at all.
+    let admin = db::create_user(
+        &server.db,
+        "dana".to_owned(),
+        TEST_ADMIN_PASSWORD,
+        true,
+        vec![],
+    )
+    .await?;
+    let admin_token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
     let alice = db::create_user(
         &server.db,
         "alice".to_owned(),
@@ -702,7 +710,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
     let callers = [
         ("alice", alice_token.as_str()),
         ("bob", bob_token.as_str()),
-        ("admin", admin_token.as_str()),
+        ("dana", admin_token.as_str()),
     ];
     // Lab ownership is immutable, so exercise both regular-user and admin-owned labs.
     for (index, owner) in [&alice, &bob, &admin].into_iter().enumerate() {

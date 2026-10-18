@@ -336,10 +336,15 @@ class Guest:
 
     def initialize(self):
         command = ["sudo", "-u", "sherpa", "-H", str(self.base / "bin/sherpad"), "init"]
-        prompts = [(b"Admin username: ", self.credentials["admin_username"]),
+        # The built-in admin account, then the first user account, a personal administrator.
+        prompts = [(b"Password for admin: ", self.credentials["admin_password"]),
+                   (b"Confirm password: ", self.credentials["admin_password"]),
+                   (b"Username: ", self.credentials["admin_username"]),
                    (f"Password for {self.credentials['admin_username']}: ".encode(),
                     self.credentials["admin_password"]),
-                   (b"Confirm password: ", self.credentials["admin_password"])]
+                   (b"Confirm password: ", self.credentials["admin_password"]),
+                   (b"Make this user an administrator? [Y/n]: ", "y"),
+                   (b"(file path or key, Enter to skip): ", "")]
         pid, descriptor = pty.fork()
         if pid == 0:
             os.chdir(self.base)
@@ -429,6 +434,8 @@ class Guest:
                 users = self.request("/api/v1/admin/users", token=token)["users"]
                 require(any(user["username"] == self.credentials["admin_username"] for user in users),
                         "Persistent test user missing")
+                require(any(user["username"] == "admin" and user["is_admin"] for user in users),
+                        "Built-in admin account missing")
                 client_base = Path.home() / ".sherpa"
                 (client_base / "config").mkdir(parents=True, exist_ok=True, mode=0o700)
                 (client_base / "token").write_text(token)
@@ -945,10 +952,14 @@ class GuestTests(unittest.TestCase):
         with patch.object(pty, "fork", return_value=(1234, 99)), \
              patch.object(time, "monotonic", return_value=0), patch.object(time, "sleep"), \
              patch.object(select, "select", return_value=([99], [], [])), \
-             patch.object(os, "read", side_effect=[b"Admin username: ", b"Password for test-admin: ",
-                                                    b"Confirm password: ", OSError("PTY closed")]), \
+             patch.object(os, "read", side_effect=[b"Password for admin: ", b"Confirm password: ",
+                                                    b"Username: ", b"Password for test-admin: ",
+                                                    b"Confirm password: ",
+                                                    b"Make this user an administrator? [Y/n]: ",
+                                                    b"SSH public key for test-admin (file path or key, "
+                                                    b"Enter to skip): ", OSError("PTY closed")]), \
              patch.object(os, "write"), \
-             patch.object(os, "waitpid", side_effect=[(0, 0)] * 4 + [(1234, 0)]), \
+             patch.object(os, "waitpid", side_effect=[(0, 0)] * 8 + [(1234, 0)]), \
              patch.object(os, "killpg") as terminate, patch.object(os, "close"):
             guest.initialize()
             terminate.assert_not_called()

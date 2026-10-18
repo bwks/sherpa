@@ -1,11 +1,13 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
 use shared::konst::{
-    SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
+    ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
+    SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
 };
+use std::env;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -107,38 +109,8 @@ impl AppState {
             .context("Failed to apply database schema")?;
         tracing::debug!("Database schema applied");
 
-        // Seed admin user if SHERPA_ADMIN_PASSWORD is set
-        if let Ok(admin_password) = std::env::var("SHERPA_ADMIN_PASSWORD") {
-            match db::seed_admin_user(&db, &admin_password).await {
-                Ok(true) => {
-                    tracing::info!("Admin user created successfully");
-                    tracing::info!("Default admin username: admin");
-                }
-                Ok(false) => {
-                    tracing::debug!("Admin user seeding skipped (admin user already exists)");
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "Failed to create admin user");
-                    return Err(e).context("Admin user creation failed");
-                }
-            }
-        } else {
-            // Check if admin user exists
-            match db::get_user(&db, "admin").await {
-                Ok(_) => {
-                    tracing::debug!("Admin user exists");
-                }
-                Err(_) => {
-                    tracing::warn!("No admin user exists in database");
-                    tracing::warn!(
-                        "Set SHERPA_ADMIN_PASSWORD environment variable to create admin user"
-                    );
-                    tracing::warn!(
-                        "Example: SHERPA_ADMIN_PASSWORD='YourSecurePass123!' sherpad start"
-                    );
-                }
-            }
-        }
+        let admin_password = env::var(SHERPA_ADMIN_PASSWORD_ENV).ok();
+        ensure_admin_account(&db, admin_password.as_deref()).await?;
 
         // Initialize libvirt client
         let qemu = Qemu::default();
@@ -161,6 +133,44 @@ impl AppState {
             pending_jobs: Arc::new(DashMap::new()),
         })
     }
+}
+
+/// Make sure the built-in `admin` account exists before the server starts.
+///
+/// With `admin_password` (from `SHERPA_ADMIN_PASSWORD`) a missing account is created; without
+/// it, a missing account is an error, so the server never runs without its recovery account.
+#[instrument(skip(db, admin_password))]
+pub async fn ensure_admin_account(db: &db::Database, admin_password: Option<&str>) -> Result<()> {
+    if let Some(admin_password) = admin_password {
+        match db::seed_admin_user(db, admin_password).await {
+            Ok(true) => {
+                tracing::info!(username = ADMIN_USERNAME, "Admin account created");
+            }
+            Ok(false) => {
+                tracing::debug!("Admin account seeding skipped (admin account already exists)");
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "Failed to create admin account");
+                return Err(e).context("Admin account creation failed");
+            }
+        }
+    } else {
+        let admin = db::find_user(db, ADMIN_USERNAME)
+            .await
+            .context("Failed to look up the admin account")?;
+        if admin.is_none() {
+            tracing::error!(
+                username = ADMIN_USERNAME,
+                "The built-in admin account does not exist"
+            );
+            bail!(
+                "The built-in '{ADMIN_USERNAME}' account does not exist. Run 'sherpad init', \
+                 or set {SHERPA_ADMIN_PASSWORD_ENV} to create it on startup"
+            );
+        }
+        tracing::debug!("Admin account exists");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

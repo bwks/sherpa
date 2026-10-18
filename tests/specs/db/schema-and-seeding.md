@@ -37,6 +37,19 @@
 
 ---
 
+## Built-in Admin Protection
+
+**What to test:**
+- Deleting `admin` by id, by username or with a bulk `DELETE user` is refused, and a bulk delete removes nobody `[integration]` **P0**
+- Renaming `admin` or clearing its admin flag is refused through `update_user` and direct queries `[integration]` **P0**
+- An `admin` record without the admin flag cannot be created `[integration]` **P0**
+- `admin`'s password and SSH keys can still change `[integration]` **P0**
+- Other admins can still be demoted and deleted `[integration]` **P0**
+
+Tests: `crates/db/tests/user/admin_protection_tests.rs`.
+
+---
+
 ## Database Connection
 
 **What to test:**

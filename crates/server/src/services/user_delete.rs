@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use tracing::instrument;
 
 use shared::data::{DbUser, DeleteUserResponse};
+use shared::konst::ADMIN_USERNAME;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_admin;
@@ -13,6 +14,7 @@ use crate::services::error::ServiceError;
 /// Every transport calls this, so the same rules apply everywhere:
 /// - only admins may delete users;
 /// - an admin cannot delete their own account;
+/// - the built-in `admin` account cannot be deleted (the database also refuses this);
 /// - the last admin account cannot be deleted;
 /// - a user who owns labs cannot be deleted until their labs are destroyed, because deleting
 ///   only the records would leave the labs' VMs, containers and networks running with nothing
@@ -90,6 +92,11 @@ pub fn check_user_delete(
             "you cannot delete your own account".to_owned(),
         ));
     }
+    if target.username == ADMIN_USERNAME {
+        return Err(ServiceError::Denied(
+            "the built-in admin account cannot be deleted".to_owned(),
+        ));
+    }
     if target.is_admin && admin_count <= 1 {
         return Err(ServiceError::Denied(
             "cannot delete the last admin account".to_owned(),
@@ -147,6 +154,16 @@ mod tests {
             check_user_delete(&admin("dana"), &user("dana", true), 2, &[]),
             Err(ServiceError::Denied(
                 "you cannot delete your own account".to_owned()
+            ))
+        );
+    }
+
+    #[test]
+    fn the_built_in_admin_may_not_be_deleted() {
+        assert_eq!(
+            check_user_delete(&admin("dana"), &user(ADMIN_USERNAME, true), 3, &[]),
+            Err(ServiceError::Denied(
+                "the built-in admin account cannot be deleted".to_owned()
             ))
         );
     }

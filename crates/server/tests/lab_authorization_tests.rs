@@ -94,20 +94,22 @@ fn cookie(token: &str) -> String {
     format!("{AUTH_COOKIE_NAME}={token}")
 }
 
-/// Log in alice and bob (regular users) and the seeded admin.
+/// Log in alice and bob (regular users) and dana (a personal admin account).
+///
+/// The built-in `admin` account cannot start lab work, so the matrix uses a personal admin;
+/// `built_in_admin_cannot_start_lab_work_on_any_transport` covers `admin` itself.
 async fn login_callers(
     server: &TestServer,
     ws: &mut TestWsClient,
 ) -> Result<(Vec<Caller>, Vec<DbUser>)> {
-    let admin_token = ws.login_admin().await?;
-    let mut owners = vec![db::get_user(&server.db, "admin").await?];
-    for username in ["alice", "bob"] {
+    let mut owners = Vec::new();
+    for (username, is_admin) in [("dana", true), ("alice", false), ("bob", false)] {
         owners.push(
             db::create_user(
                 &server.db,
                 username.to_owned(),
                 TEST_ADMIN_PASSWORD,
-                false,
+                is_admin,
                 vec![],
             )
             .await?,
@@ -125,8 +127,8 @@ async fn login_callers(
             is_admin: false,
         },
         Caller {
-            username: "admin",
-            token: admin_token,
+            username: "dana",
+            token: ws.login("dana", TEST_ADMIN_PASSWORD).await?,
             is_admin: true,
         },
     ];
@@ -416,7 +418,7 @@ async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
     let response = list_labs(
         &http,
         &base,
-        &token_of(&callers, "admin")?,
+        &token_of(&callers, "dana")?,
         "?username=alice",
     )
     .await?;
@@ -427,4 +429,98 @@ async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
         "admin did not get alice's labs: {body}"
     );
     Ok(())
+}
+
+#[tokio::test]
+#[ignore = "requires the disposable SurrealDB test database, Docker and libvirt"]
+async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
+    let server = TestServer::start().await?;
+    let mut ws = TestWsClient::connect(&server).await?;
+    let (_, owners) = login_callers(&server, &mut ws).await?;
+    let admin = ws.login_admin().await?;
+    let http = http_client()?;
+    let base = format!("http://{}", server.addr);
+    let alice = owners
+        .iter()
+        .find(|owner| owner.username == "alice")
+        .context("alice missing")?;
+    let lab_id = seed_lab(&server, alice, 1).await?;
+    let manifest = json!({ "name": "admin-lab", "nodes": [] });
+
+    for (method, params) in [
+        (
+            "up",
+            json!({ "token": admin, "lab_id": "adm1n001", "manifest": manifest }),
+        ),
+        ("resume", json!({ "token": admin, "lab_id": lab_id })),
+        (
+            "redeploy",
+            json!({ "token": admin, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }),
+        ),
+    ] {
+        check_rpc(
+            &mut ws,
+            method,
+            params,
+            false,
+            &format!("RPC {method}, admin"),
+        )
+        .await?;
+    }
+
+    let response = http
+        .post(format!("{base}/api/v1/labs"))
+        .bearer_auth(&admin)
+        .json(&json!({ "lab_id": "adm1n002", "manifest": manifest }))
+        .send()
+        .await?;
+    check_http(&response, false, "REST create, admin")?;
+    let response = http
+        .post(format!("{base}/api/v1/labs/{lab_id}/resume"))
+        .bearer_auth(&admin)
+        .json(&json!({}))
+        .send()
+        .await?;
+    check_http(&response, false, "REST resume, admin")?;
+    for path in [
+        format!("/labs/{lab_id}/start"),
+        format!("/labs/{lab_id}/nodes/vm/start"),
+    ] {
+        let response = http
+            .post(format!("{base}{path}"))
+            .header(header::COOKIE, cookie(&admin))
+            .send()
+            .await?;
+        check_http(&response, false, &format!("web POST {path}, admin"))?;
+    }
+    let response = http
+        .post(format!("{base}/labs/create"))
+        .header(header::COOKIE, cookie(&admin))
+        .form(&[("manifest", "name = \"admin-lab\"\nnodes = []\n")])
+        .send()
+        .await?;
+    let body = response.text().await?;
+    ensure!(
+        body.contains("cannot start, resume or redeploy labs"),
+        "web create was not refused for admin: {body}"
+    );
+
+    // Clean-up work is still allowed.
+    check_rpc(
+        &mut ws,
+        "down",
+        json!({ "token": admin, "lab_id": lab_id }),
+        true,
+        "RPC down, admin",
+    )
+    .await?;
+    check_rpc(
+        &mut ws,
+        "destroy",
+        json!({ "token": admin, "lab_id": lab_id }),
+        true,
+        "RPC destroy, admin",
+    )
+    .await?;
+    remove_lab(&server, &lab_id).await
 }

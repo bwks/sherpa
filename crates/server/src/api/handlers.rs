@@ -14,7 +14,7 @@ use std::str::FromStr;
 use strum::IntoEnumIterator;
 
 use crate::api::sse::{destroy_progress_stream, json_progress_stream, up_progress_stream};
-use crate::auth::policy::{require_lab_access, require_lab_owner};
+use crate::auth::policy::{require_lab_access, require_lab_owner, require_lab_starter};
 use crate::auth::{cookies, jwt};
 use crate::daemon::state::AppState;
 use crate::daemon::state::{Job, JobType};
@@ -2848,8 +2848,10 @@ pub async fn create_lab_json(
     auth: AuthenticatedUser,
     State(state): State<AppState>,
     Json(payload): Json<UpRequest>,
-) -> impl IntoResponse {
+) -> Result<impl IntoResponse, ApiError> {
     let auth = auth.into_context();
+    // Checked before the stream opens so a refusal is a 403, not an error event.
+    require_lab_starter(&auth)?;
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
     let (result_tx, result_rx) = tokio::sync::oneshot::channel();
@@ -2860,7 +2862,7 @@ pub async fn create_lab_json(
         let _ = result_tx.send(result);
     });
 
-    sse::Sse::new(json_progress_stream(progress_rx, result_rx))
+    Ok(sse::Sse::new(json_progress_stream(progress_rx, result_rx)))
 }
 
 /// Destroy a lab (SSE streaming)
@@ -3657,6 +3659,14 @@ pub async fn lab_create_post_handler(
     State(state): State<AppState>,
     Form(form): Form<HashMap<String, String>>,
 ) -> impl IntoResponse {
+    let auth = auth.into_context();
+    if let Err(refusal) = require_lab_starter(&auth) {
+        return ErrorTemplate {
+            message: refusal.to_string(),
+        }
+        .into_response();
+    }
+
     let manifest_toml = match form.get("manifest") {
         Some(m) if !m.trim().is_empty() => m.trim().to_string(),
         _ => {
@@ -3710,7 +3720,7 @@ pub async fn lab_create_post_handler(
         Job {
             lab_name,
             job_type: JobType::Create { request },
-            requester: auth.into_context(),
+            requester: auth,
         },
     );
 

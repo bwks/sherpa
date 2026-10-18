@@ -13,7 +13,7 @@ use tokio::sync::Mutex;
 use tracing::instrument;
 
 use crate::auth::context::AuthContext;
-use crate::auth::policy::require_lab_owner;
+use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
@@ -63,6 +63,7 @@ pub async fn redeploy_node(
     let start_time = Instant::now();
     let lab_id = &request.lab_id;
     let node_name = &request.node_name;
+    require_lab_starter(ctx)?;
     let db_lab = require_lab_owner(ctx, &state.db, lab_id).await?;
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;

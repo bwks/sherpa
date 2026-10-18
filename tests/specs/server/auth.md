@@ -112,7 +112,8 @@ SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test la
 - Deleting a user who owns labs is refused on RPC (`ServerError`, labs listed), REST (409) and web (notification), and the user and labs remain `[integration]` **P0**
 - Once their labs are gone, the user can be deleted `[integration]` **P0**
 - Self-delete is refused on RPC (`AccessDenied`), REST (403) and web (notification) `[integration]` **P0**
-- Only admins may delete users; the last admin cannot be deleted `[unit]` **P0**
+- Only admins may delete users; the built-in `admin` and the last admin cannot be deleted `[unit]` `[integration]` **P0**
+- The built-in `admin` cannot create, resume or redeploy labs on RPC, REST or web, and can still stop and destroy them `[unit]` `[integration]` **P0** (`built_in_admin_cannot_start_lab_work_on_any_transport`)
 - The schema rejects deleting a lab owner, including on a database upgraded from the old cascading definition `[integration]` (db) **P0**
 
 Tests: `deleting_a_user_who_owns_labs_is_refused_on_all_transports` and

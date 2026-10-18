@@ -92,6 +92,11 @@ pub const SHERPA_BRIDGE_NETWORK_NAME: &str = "sherpa-bridge";
 pub const SHERPA_BRIDGE_NETWORK_BRIDGE: &str = "br-sherpa0";
 pub const SHERPA_USERNAME: &str = "sherpa";
 pub const ADMIN_USERNAME: &str = "admin";
+pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
+pub const ADMIN_LAB_START_MESSAGE: &str =
+    "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
+pub const ADMIN_PROTECTED_MESSAGE: &str =
+    "The built-in admin account cannot be deleted, renamed or lose administrator rights";
 pub const USERNAME_MIN_LENGTH: usize = 3;
 pub const USERNAME_MAX_LENGTH: usize = 32;
 /// Names users cannot take: Sherpa's own accounts, privileged and system accounts, and the
