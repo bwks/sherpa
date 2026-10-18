@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.94] - 2026-10-18
+
+### Features
+
+- Node Peak icon and Soda Pop as the only web UI theme [skip ci] by @bwks ([289c565](https://github.com/bwks/sherpa/commit/289c56566a2b69ef779b8aa905faf4a583b24166))
+
+### Miscellaneous
+
+- Merge pull request #343 from bwks/refactor/remove-toml-edit
+
+refactor: write manifests with serde instead of toml_edit by @bwks in [#343](https://github.com/bwks/sherpa/pull/343) ([1451c24](https://github.com/bwks/sherpa/commit/1451c2446a415c5fad970871b0a9c00cee6797fa))
+- Bump crate versions to 0.3.94 by @bwks ([8a81f9d](https://github.com/bwks/sherpa/commit/8a81f9ddb4b1b9e182b918c5cb775c7a1ce1678f))
+- Merge pull request #342 from bwks/feat/web-ui-icon-and-theme
+
+Node Peak icon and Soda Pop as the only web UI theme by @bwks in [#342](https://github.com/bwks/sherpa/pull/342) ([5b68a40](https://github.com/bwks/sherpa/commit/5b68a403465d5cf6f6664210c2812018f4eef4c1))
+- Merge pull request #341 from bwks/changelog/v0.3.93
+
+chore(release): update changelog for v0.3.93 by @github-actions[bot] in [#341](https://github.com/bwks/sherpa/pull/341) ([d60a440](https://github.com/bwks/sherpa/commit/d60a440c686fdd3ccc369e7e46ca1ebb32f5c584))
+
+### Refactor
+
+- Write manifests with serde instead of toml_edit by @bwks ([24be342](https://github.com/bwks/sherpa/commit/24be342a1777dbd42dcfd75b59fe8dcac94db60c))
 ## [0.3.93] - 2026-10-18
 
 ### Bug Fixes
