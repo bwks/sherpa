@@ -125,7 +125,10 @@ pub async fn destroy(
         .collect();
 
     if !nodes.is_empty() {
-        println!("\n{}", render_nodes_table(&nodes));
+        println!(
+            "\n{}",
+            render_nodes_table(&nodes, &inspect_data.lab_info.id)
+        );
     }
 
     let device_count = inspect_data.devices.len();

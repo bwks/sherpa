@@ -73,11 +73,12 @@ struct NodeTableRow {
 ///
 /// # Arguments
 /// * `nodes` - Slice of NodeInfo structs to display in the table
+/// * `lab_id` - Lab ID appended to each node name, as `<name>.<lab_id>`
 ///
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-pub fn render_nodes_table(nodes: &[NodeInfo]) -> String {
+pub fn render_nodes_table(nodes: &[NodeInfo], lab_id: &str) -> String {
     let rows: Vec<NodeTableRow> = nodes
         .iter()
         .map(|node| {
@@ -89,7 +90,7 @@ pub fn render_nodes_table(nodes: &[NodeInfo]) -> String {
             let node_model = node.model.to_string();
 
             NodeTableRow {
-                node: node.name.clone(),
+                node: format!("{}.{lab_id}", node.name),
                 mgmt_ip: mgmt_ip.to_string(),
                 connection,
                 node_model,
@@ -137,11 +138,12 @@ struct DeviceTableRow {
 ///
 /// # Arguments
 /// * `devices` - Slice of DeviceInfo structs to display in the table
+/// * `lab_id` - Lab ID appended to each device name, as `<name>.<lab_id>`
 ///
 /// # Returns
 /// A formatted table string using modern Unicode box-drawing characters
 ///
-pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
+pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
     let rows: Vec<DeviceTableRow> = devices
         .iter()
         .map(|device| {
@@ -165,7 +167,7 @@ pub fn render_devices_table(devices: &[DeviceInfo]) -> String {
             let mgmt_ipv6 = device.mgmt_ipv6.as_deref().unwrap_or("-").to_string();
 
             DeviceTableRow {
-                device: device.name.clone(),
+                device: format!("{}.{lab_id}", device.name),
                 model: device.model.to_string(),
                 kind: device.kind.to_string(),
                 state: device.state.to_string(),
@@ -706,10 +708,10 @@ mod tests {
             ssh_port: Some(22),
         }];
 
-        let table = render_nodes_table(&nodes);
+        let table = render_nodes_table(&nodes, "a1b2c3d4");
 
         // Check that table contains expected data
-        assert!(table.contains("dev01"));
+        assert!(table.contains("dev01.a1b2c3d4"));
         assert!(table.contains("172.31.0.11"));
         assert!(table.contains("172.31.0.11:22"));
         assert!(table.contains("aruba_aoscx"));
@@ -739,7 +741,7 @@ mod tests {
             },
         ];
 
-        let table = render_nodes_table(&nodes);
+        let table = render_nodes_table(&nodes, "a1b2c3d4");
         println!("\n{}", table);
 
         // Check that all nodes are present
@@ -762,7 +764,7 @@ mod tests {
             ssh_port: None,
         }];
 
-        let table = render_nodes_table(&nodes);
+        let table = render_nodes_table(&nodes, "a1b2c3d4");
 
         // Check that missing data is represented with "-"
         assert!(table.contains("dev01"));
@@ -774,7 +776,7 @@ mod tests {
     #[test]
     fn test_render_empty_nodes() {
         let nodes: Vec<NodeInfo> = vec![];
-        let table = render_nodes_table(&nodes);
+        let table = render_nodes_table(&nodes, "a1b2c3d4");
 
         // Empty table should still have headers
         assert!(table.contains("Node"));
@@ -796,10 +798,10 @@ mod tests {
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
         }];
 
-        let table = render_devices_table(&devices);
+        let table = render_devices_table(&devices, "a1b2c3d4");
 
         // Check that table contains expected data
-        assert!(table.contains("router01"));
+        assert!(table.contains("router01.a1b2c3d4"));
         assert!(table.contains("172.31.0.11"));
         assert!(table.contains("cisco_cat8000v"));
         assert!(table.contains("virtual_machine"));
@@ -838,7 +840,7 @@ mod tests {
             },
         ];
 
-        let table = render_devices_table(&devices);
+        let table = render_devices_table(&devices, "a1b2c3d4");
         println!("\n{}", table);
 
         // Check that all devices are present
@@ -865,7 +867,7 @@ mod tests {
             disks: vec![],
         }];
 
-        let table = render_devices_table(&devices);
+        let table = render_devices_table(&devices, "a1b2c3d4");
 
         // Check that missing data is represented with "-"
         assert!(table.contains("container01"));
@@ -877,7 +879,7 @@ mod tests {
     #[test]
     fn test_render_empty_devices() {
         let devices: Vec<DeviceInfo> = vec![];
-        let table = render_devices_table(&devices);
+        let table = render_devices_table(&devices, "a1b2c3d4");
 
         // Empty table should still have headers
         assert!(table.contains("Device"));

@@ -105,7 +105,7 @@ pub async fn inspect(
     // Display active devices in table format
     if !inspect_data.devices.is_empty() {
         println!();
-        let table = render_devices_table(&inspect_data.devices);
+        let table = render_devices_table(&inspect_data.devices, &inspect_data.lab_info.id);
         println!("{}", table);
     }
 

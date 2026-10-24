@@ -645,7 +645,10 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
 
     // Node information
     if !response.nodes.is_empty() {
-        println!("\n{}", render_nodes_table(&response.nodes));
+        println!(
+            "\n{}",
+            render_nodes_table(&response.nodes, &response.lab_info.id)
+        );
     }
 
     // Timing

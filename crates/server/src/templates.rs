@@ -975,6 +975,7 @@ pub struct DestroySummaryFailedFragment {
 #[cfg(test)]
 mod tests {
     use askama::{NO_VALUES, Template};
+    use shared::data::{NodeKind, NodeModel, NodeState};
 
     use super::filters::initial;
     use super::*;
@@ -1026,6 +1027,49 @@ mod tests {
         };
         let html = tpl.render().expect("template should render");
         assert!(html.contains("testuser"));
+    }
+
+    fn test_device() -> DeviceInfo {
+        DeviceInfo {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            kind: NodeKind::VirtualMachine,
+            state: NodeState::Running,
+            mgmt_ipv4: "172.31.0.11".to_string(),
+            mgmt_ipv6: None,
+            vnc_port: None,
+            disks: vec![],
+        }
+    }
+
+    #[test]
+    fn test_nodes_table_shows_node_name_with_lab_id() {
+        let tpl = NodesTableFragment {
+            lab_id: "a1b2c3d4".to_string(),
+            devices: vec![test_device()],
+            device_count: 1,
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(html.contains("dev01.a1b2c3d4"));
+        assert!(html.contains(r#"href="/labs/a1b2c3d4/nodes/dev01""#));
+    }
+
+    #[test]
+    fn test_node_detail_heading_shows_node_name_with_lab_id() {
+        let tpl = NodeDetailTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            lab_id: "a1b2c3d4".to_string(),
+            lab_name: "test-lab".to_string(),
+            device: test_device(),
+            node_config: NodeConfig::get_model(NodeModel::UbuntuLinux),
+            mgmt_mac: None,
+        };
+        let html = tpl.render().expect("template should render");
+        assert!(
+            html.contains(r#"<h1 class="text-2xl font-semibold text-heading">dev01.a1b2c3d4</h1>"#)
+        );
     }
 
     #[test]
