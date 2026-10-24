@@ -124,6 +124,9 @@ pub struct CloudInitWriteFile {
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub encoding: Option<String>,
+    /// Write in the final stage, after `users_groups` has created users.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub defer: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Default)]

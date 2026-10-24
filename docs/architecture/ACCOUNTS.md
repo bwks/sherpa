@@ -91,6 +91,9 @@ without a key, with an error that links to the user documentation
 cannot be a guest login (a legacy name, or one reserved on guests); `up` and `redeploy` report
 that the nodes use the `sherpa` account instead. Missing or malformed keys stay an error.
 
+Manifest `user_scripts` on cloud-init nodes run as the personal account when one is provisioned,
+otherwise as `sherpa` (`guest_account::guest_username`).
+
 ### Managing keys
 
 `services::user_ssh_keys` adds and removes keys for every transport:

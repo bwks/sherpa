@@ -1,7 +1,9 @@
 use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
-use template::{CloudInitConfig, CloudInitNetwork, CloudInitUser, MetaDataConfig};
+use template::{
+    CloudInitConfig, CloudInitNetwork, CloudInitUser, CloudInitWriteFile, MetaDataConfig,
+};
 
 use crate::helpers;
 
@@ -171,4 +173,35 @@ fn test_yaml_boolean_words_stay_strings() {
     assert_eq!(parsed["fqdn"], "no");
     assert_eq!(parsed["users"][0]["name"], "off");
     assert_eq!(parsed["users"][0]["plain_text_passwd"], "yes");
+}
+
+/// Deferred files are written in the final stage, after `users_groups` has created users.
+#[test]
+fn test_cloud_init_write_files_defer() {
+    let config = CloudInitConfig {
+        hostname: "ubuntu01".to_string(),
+        fqdn: "ubuntu01.lab.sherpa.local".to_string(),
+        write_files: Some(vec![
+            CloudInitWriteFile {
+                path: "/home/sherpa/.config/app.toml".to_string(),
+                content: "aGVsbG8=".to_string(),
+                permissions: "0600".to_string(),
+                owner: Some("sherpa:sherpa".to_string()),
+                encoding: Some("b64".to_string()),
+                defer: Some(true),
+            },
+            CloudInitWriteFile {
+                path: "/etc/profile.d/sherpa-env.sh".to_string(),
+                content: "export A=1".to_string(),
+                permissions: "0644".to_string(),
+                owner: Some("root:root".to_string()),
+                encoding: None,
+                defer: None,
+            },
+        ]),
+        ..Default::default()
+    };
+    let parsed = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(parsed["write_files"][0]["defer"], true);
+    assert!(parsed["write_files"][1].get("defer").is_none());
 }

@@ -6,7 +6,7 @@ use ssh_key::PublicKey;
 use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
-use shared::konst::{RESERVED_USERNAMES, SSH_KEYS_DOCS_URL};
+use shared::konst::{RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL};
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
 use shared::validators::validate_ssh_key;
@@ -144,6 +144,14 @@ pub(crate) fn cloud_init_user(account: &GuestAccount) -> CloudInitUser {
         sudo: "ALL=(ALL) NOPASSWD:ALL".to_owned(),
         groups: vec![],
         shell: "/bin/bash".to_owned(),
+    }
+}
+
+/// The login that owns guest-side work: the personal account when provisioned, otherwise `sherpa`.
+pub(crate) fn guest_username(account: Option<&GuestAccount>) -> &str {
+    match account {
+        Some(account) => &account.username,
+        None => SHERPA_USERNAME,
     }
 }
 
@@ -287,6 +295,15 @@ mod tests {
         let nodes = crate::services::up::process_manifest_nodes(&[node]);
         assert!(validate_node(&nodes[0], &NodeConfig::get_model(NodeModel::UbuntuLinux)).is_err());
         assert!(validate_node(&nodes[0], &NodeConfig::get_model(NodeModel::CiscoIosv)).is_ok());
+    }
+
+    #[test]
+    fn guest_username_is_the_personal_account_when_provisioned() {
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(guest_username(Some(&account)), "alice");
+        assert_eq!(guest_username(None), SHERPA_USERNAME);
     }
 
     #[test]

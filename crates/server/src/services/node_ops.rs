@@ -991,6 +991,7 @@ fn build_cloud_init_cert_files(
             permissions: "0644".to_string(),
             owner: Some("root:root".to_string()),
             encoding: None,
+            defer: None,
         },
         template::CloudInitWriteFile {
             path: format!("{target_dir}/node.crt"),
@@ -998,6 +999,7 @@ fn build_cloud_init_cert_files(
             permissions: "0644".to_string(),
             owner: Some("root:root".to_string()),
             encoding: None,
+            defer: None,
         },
         template::CloudInitWriteFile {
             path: format!("{target_dir}/node.key"),
@@ -1005,6 +1007,7 @@ fn build_cloud_init_cert_files(
             permissions: "0600".to_string(),
             owner: Some("root:root".to_string()),
             encoding: None,
+            defer: None,
         },
     ])
 }
@@ -1053,6 +1056,7 @@ fn build_cloud_init_text_files(
             permissions: format!("0{}", file.permissions),
             owner: Some(format!("{}:{}", file.user, file.group)),
             encoding: Some("b64".to_string()),
+            defer: Some(true),
         })
         .collect()
 }
@@ -1254,17 +1258,19 @@ fn generate_cloud_init_ztp(
                         permissions: "0755".to_string(),
                         owner: Some("root:root".to_string()),
                         encoding: None,
+                        defer: None,
                     });
 
                     runcmd.push(format!("bash {}", target_path));
                 }
             }
 
-            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Inject user_scripts into write_files and runcmd (run as the personal
+            // account when provisioned, otherwise the sherpa user).
             // Files are written as root (write_files runs before users are created)
             // then chowned via runcmd after the user exists.
             if let Some(ref scripts) = node.user_scripts {
-                let user = SHERPA_USERNAME;
+                let user = guest_account::guest_username(guest_account);
                 for script in scripts {
                     let contents = util::base64_decode(&script.content).with_context(|| {
                         format!(
@@ -1281,6 +1287,7 @@ fn generate_cloud_init_ztp(
                         permissions: "0755".to_string(),
                         owner: None,
                         encoding: None,
+                        defer: None,
                     });
                 }
 
@@ -1304,6 +1311,7 @@ fn generate_cloud_init_ztp(
                     permissions: "0644".to_string(),
                     owner: Some("root:root".to_string()),
                     encoding: None,
+                    defer: None,
                 });
 
                 let etc_env_content = build_etc_environment_entries(env_vars);
@@ -1502,17 +1510,19 @@ fn generate_cloud_init_ztp(
                         permissions: "0755".to_string(),
                         owner: Some("root:root".to_string()),
                         encoding: None,
+                        defer: None,
                     });
 
                     runcmd.push(format!("bash {}", target_path));
                 }
             }
 
-            // Inject user_scripts into write_files and runcmd (run as sherpa user).
+            // Inject user_scripts into write_files and runcmd (run as the personal
+            // account when provisioned, otherwise the sherpa user).
             // Files are written as root (write_files runs before users are created)
             // then chowned via runcmd after the user exists.
             if let Some(ref scripts) = node.user_scripts {
-                let user = SHERPA_USERNAME;
+                let user = guest_account::guest_username(guest_account);
                 for script in scripts {
                     let contents = util::base64_decode(&script.content).with_context(|| {
                         format!(
@@ -1529,6 +1539,7 @@ fn generate_cloud_init_ztp(
                         permissions: "0755".to_string(),
                         owner: None,
                         encoding: None,
+                        defer: None,
                     });
                 }
 
@@ -1552,6 +1563,7 @@ fn generate_cloud_init_ztp(
                     permissions: "0644".to_string(),
                     owner: Some("root:root".to_string()),
                     encoding: None,
+                    defer: None,
                 });
 
                 let etc_env_content = build_etc_environment_entries(env_vars);
@@ -3286,6 +3298,7 @@ mod tests {
         assert_eq!(result[0].permissions, "0644");
         assert_eq!(result[0].owner, Some("root:root".to_string()));
         assert_eq!(result[0].encoding, Some("b64".to_string()));
+        assert_eq!(result[0].defer, Some(true));
     }
 
     #[test]
@@ -3320,6 +3333,8 @@ mod tests {
         assert_eq!(result[1].path, "/opt/file2");
         assert_eq!(result[1].permissions, "0755");
         assert_eq!(result[1].owner, Some("sherpa:sherpa".to_string()));
+        assert_eq!(result[0].defer, Some(true));
+        assert_eq!(result[1].defer, Some(true));
     }
 
     #[test]
