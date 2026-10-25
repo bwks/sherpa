@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.99"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]

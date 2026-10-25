@@ -37,14 +37,14 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
     RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_NODE_SECRETS,
     RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY,
-    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED, RPC_MSG_LAB_CLEAN_FAILED,
-    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
-    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_NODE_SECRETS_FAILED,
-    RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
-    RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
-    RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
-    RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED, RPC_MSG_USER_LIST_FAILED,
-    RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
+    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_INVALID_TAILSCALE_KEY, RPC_MSG_LAB_CANCEL_FAILED,
+    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
+    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_NODE_SECRETS_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED,
+    RPC_MSG_SERIALIZE_FAILED, RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED,
+    RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
+    RPC_MSG_USER_ADMIN_ONLY_LIST, RPC_MSG_USER_CREATE_FAILED, RPC_MSG_USER_DELETE_FAILED,
+    RPC_MSG_USER_LIST_FAILED, RPC_MSG_USER_PASSWORD_UPDATE_FAILED,
 };
 use shared::util::normalize_username;
 
@@ -798,6 +798,16 @@ async fn handle_resume_streaming(
     }
 }
 
+/// The optional `tailscale_auth_key` param of `up` and `resume`.
+fn tailscale_auth_key_param(
+    params: &serde_json::Value,
+) -> Result<Option<data::TailnetAuthKey>, serde_json::Error> {
+    match params.get("tailscale_auth_key") {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => serde_json::from_value(value.clone()).map(Some),
+    }
+}
+
 /// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
 async fn handle_resume(
     id: String,
@@ -844,11 +854,24 @@ async fn handle_resume(
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
 
+    let Ok(tailscale_auth_key) = tailscale_auth_key_param(&params) else {
+        return ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(RpcError {
+                code: RpcErrorCode::InvalidParams,
+                message: RPC_MSG_INVALID_TAILSCALE_KEY.to_string(),
+                context: None,
+            }),
+        };
+    };
+
     // Call service
     match resume::start_lab_nodes(
         &auth_ctx,
         &lab_id,
         node_name.as_deref(),
+        tailscale_auth_key.as_ref(),
         state,
         Some(progress),
     )
@@ -1994,22 +2017,19 @@ async fn handle_up(
     let request = data::UpRequest {
         lab_id,
         manifest: manifest_value,
-        tailscale_auth_key: match params.get("tailscale_auth_key") {
-            None | Some(serde_json::Value::Null) => None,
-            Some(value) => match serde_json::from_value(value.clone()) {
-                Ok(key) => Some(key),
-                Err(_) => {
-                    send_rpc_error(
-                        connection,
-                        id,
-                        RpcErrorCode::InvalidParams,
-                        "Invalid Tailscale credential field".to_string(),
-                        None,
-                    )
-                    .await;
-                    return;
-                }
-            },
+        tailscale_auth_key: match tailscale_auth_key_param(&params) {
+            Ok(key) => key,
+            Err(_) => {
+                send_rpc_error(
+                    connection,
+                    id,
+                    RpcErrorCode::InvalidParams,
+                    RPC_MSG_INVALID_TAILSCALE_KEY.to_string(),
+                    None,
+                )
+                .await;
+                return;
+            }
         },
         node_secrets,
     };

@@ -3,6 +3,7 @@ use futures::future::join_all;
 use opentelemetry::KeyValue;
 use shared::data::{
     self, LabNodeActionResponse, NodeActionResult, NodeKind, NodeState, RecordId, StatusKind,
+    TailnetAuthKey,
 };
 use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
 use shared::util::load_saved_manifest;
@@ -51,12 +52,16 @@ struct ReadinessTarget {
 /// does not become ready within the timeout is reported in its result message; it is not an
 /// error, as with `up`.
 ///
+/// A whole-lab resume of a lab with a Tailscale gateway enrolls the gateway again with
+/// `tailscale_auth_key`, as `down` logged it out. The key is used, never stored.
+///
 /// The caller must own the lab or be an admin, and may not be the built-in `admin` account.
-#[instrument(skip(ctx, state, progress), fields(username = %ctx.username, %lab_id))]
+#[instrument(skip(ctx, tailscale_auth_key, state, progress), fields(username = %ctx.username, %lab_id))]
 pub async fn start_lab_nodes(
     ctx: &AuthContext,
     lab_id: &str,
     node_name: Option<&str>,
+    tailscale_auth_key: Option<&TailnetAuthKey>,
     state: &AppState,
     progress: Option<&ProgressSender>,
 ) -> Result<LabNodeActionResponse> {
@@ -67,10 +72,23 @@ pub async fn start_lab_nodes(
     // Destroying the lab stops this operation; see `lab_operations`.
     let operation = lab_operations::begin(lab_id).await;
 
-    let tailscale = if node_name.is_none() {
-        super::tailscale::resume(state, &db_lab).await?
-    } else {
-        super::tailscale::inspect(state, &db_lab).await
+    let credential = super::tailscale::resume_credential(
+        db_lab.tailscale_container_id.is_some(),
+        node_name.is_none(),
+        tailscale_auth_key,
+        state.config.tls.enabled,
+    )?;
+    let tailscale = match credential {
+        Some(key) => {
+            if let Some(progress) = progress {
+                let _ = progress.send_status(
+                    "Connecting lab to Tailscale".to_string(),
+                    StatusKind::Progress,
+                );
+            }
+            super::tailscale::resume(state, &db_lab, key).await?
+        }
+        None => super::tailscale::inspect(state, &db_lab).await,
     };
 
     let lab_record_id = db_lab.id.ok_or_else(|| anyhow!("Lab missing record ID"))?;

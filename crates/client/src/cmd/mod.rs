@@ -17,6 +17,7 @@ mod resume;
 pub mod server;
 mod ssh;
 mod ssh_config;
+mod tailscale_key;
 mod up;
 mod validate;
 

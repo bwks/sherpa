@@ -4,11 +4,14 @@ use std::time::Duration;
 
 use shared::data::{ClientConfig, LabNodeActionResponse, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
-use shared::util::{Emoji, term_msg_surround};
+use shared::konst::SHERPA_MANIFEST_FILE;
+use shared::util::{Emoji, file_exists, term_msg_surround};
+use topology::Manifest;
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
+use crate::cmd::tailscale_key::resolve_resume_tailscale_key;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -40,6 +43,15 @@ pub async fn resume(
         None => format!("Starting environment - {lab_name}-{lab_id}"),
     };
     term_msg_surround(&action_msg);
+
+    // `down` logged the Tailscale gateway out, so a whole-lab resume enrolls it again.
+    let manifest = if file_exists(SHERPA_MANIFEST_FILE) {
+        Some(Manifest::load_file(SHERPA_MANIFEST_FILE)?)
+    } else {
+        None
+    };
+    let tailscale_auth_key =
+        resolve_resume_tailscale_key(node_name, manifest.as_ref(), server_url, config)?;
 
     // Load authentication token
     let token = match load_token() {
@@ -74,6 +86,9 @@ pub async fn resume(
     });
     if let Some(name) = node_name {
         params["node_name"] = serde_json::Value::String(name.to_string());
+    }
+    if let Some(key) = tailscale_auth_key {
+        params["tailscale_auth_key"] = serde_json::to_value(key)?;
     }
 
     let request = RpcRequest::new("resume", params);

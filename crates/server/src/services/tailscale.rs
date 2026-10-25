@@ -57,7 +57,15 @@ pub(crate) async fn provision(
     db::update_lab(&state.db, updated)
         .await
         .context("Unable to persist Tailscale gateway ownership")?;
-    tailscale::enroll_gateway(&state.docker, &id, &config, key, settings).await
+    tailscale::enroll_gateway(
+        &state.docker,
+        &id,
+        &config.lab_id,
+        &config.routes,
+        key,
+        settings,
+    )
+    .await
 }
 
 fn routes(lab: &DbLab) -> Vec<String> {
@@ -87,16 +95,51 @@ pub(crate) async fn inspect(state: &AppState, lab: &DbLab) -> Option<TailnetStat
     }
 }
 
-#[instrument(skip(state, lab), fields(lab_id = %lab.lab_id))]
-pub(crate) async fn resume(state: &AppState, lab: &DbLab) -> Result<Option<TailnetStatus>> {
+/// The key a resume enrolls the gateway with. `down` logs the gateway out, so resuming a
+/// whole lab that has one needs a key; resuming one node leaves the gateway alone.
+#[instrument(skip(key), level = "debug")]
+pub(crate) fn resume_credential(
+    has_gateway: bool,
+    whole_lab: bool,
+    key: Option<&TailnetAuthKey>,
+    tls_enabled: bool,
+) -> Result<Option<&TailnetAuthKey>> {
+    if !has_gateway {
+        ensure!(
+            key.is_none(),
+            "Tailscale credential supplied for a lab without a Tailscale gateway"
+        );
+        return Ok(None);
+    }
+    if !whole_lab {
+        ensure!(
+            key.is_none(),
+            "Tailscale credential supplied for a single-node resume, which does not reconnect the gateway"
+        );
+        return Ok(None);
+    }
+    ensure!(tls_enabled, "Tailscale enrollment requires server TLS");
+    let key = key.context("Resuming a Tailscale lab needs an auth key; run sherpa resume in the lab folder with the variable named by tailscale.auth_key_env set")?;
+    validate_tailscale_key(key.expose())?;
+    Ok(Some(key))
+}
+
+/// Enroll the gateway again, as `down` logged it out.
+#[instrument(skip(state, lab, key), fields(lab_id = %lab.lab_id))]
+pub(crate) async fn resume(
+    state: &AppState,
+    lab: &DbLab,
+    key: &TailnetAuthKey,
+) -> Result<Option<TailnetStatus>> {
     let Some(id) = lab.tailscale_container_id.as_deref() else {
         return Ok(None);
     };
-    tailscale::resume_gateway(
+    tailscale::enroll_gateway(
         &state.docker,
         id,
         &lab.lab_id,
-        routes(lab),
+        &routes(lab),
+        key,
         &state.config.tailscale,
     )
     .await
@@ -119,5 +162,36 @@ mod tests {
         let disabled = Manifest::default();
         assert!(!validate_enrollment(&disabled, None, false).unwrap());
         assert!(validate_enrollment(&disabled, Some(&key), true).is_err());
+    }
+
+    #[test]
+    fn whole_lab_resume_of_a_tailnet_lab_requires_a_key_over_tls() {
+        let key = TailnetAuthKey::new("tskey-auth-fixture".into());
+        assert!(resume_credential(true, true, None, true).is_err());
+        assert!(resume_credential(true, true, Some(&key), false).is_err());
+        assert!(
+            resume_credential(true, true, Some(&key), true)
+                .unwrap()
+                .is_some()
+        );
+        let invalid = TailnetAuthKey::new("not-a-key".into());
+        assert!(resume_credential(true, true, Some(&invalid), true).is_err());
+    }
+
+    #[test]
+    fn resume_refuses_a_key_it_would_not_use() {
+        let key = TailnetAuthKey::new("tskey-auth-fixture".into());
+        assert!(
+            resume_credential(false, true, None, false)
+                .unwrap()
+                .is_none()
+        );
+        assert!(resume_credential(false, true, Some(&key), true).is_err());
+        assert!(
+            resume_credential(true, false, None, false)
+                .unwrap()
+                .is_none()
+        );
+        assert!(resume_credential(true, false, Some(&key), true).is_err());
     }
 }
