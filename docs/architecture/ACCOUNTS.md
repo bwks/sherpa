@@ -92,7 +92,37 @@ cannot be a guest login (a legacy name, or one reserved on guests); `up` and `re
 that the nodes use the `sherpa` account instead. Missing or malformed keys stay an error.
 
 Manifest `user_scripts` on cloud-init nodes run as the personal account when one is provisioned,
-otherwise as `sherpa` (`guest_account::guest_username`).
+otherwise as `sherpa` (`guest_account::guest_username`). `startup_scripts` and `user_scripts` are
+run directly, not through `bash`, so each script's shebang picks its interpreter and nodes without
+`bash` (Alpine, the BSDs) can run them (`build_cloud_init_scripts`).
+
+The personal account keeps each OS's native tools. On most Linux images it gets `/bin/bash` and a
+cloud-init `sudo` rule. On Alpine it gets `ash` (`/bin/sh`), the `wheel` group and a dedicated
+`doas` rule in `konst::NODE_DOAS_CONF_DIR` (`guest_account::alpine_cloud_init_user` and
+`doas_file`), so nothing is installed at first boot and the account works without internet access.
+Its shadow password is `*` (`konst::NODE_NO_PASSWORD_HASH`, with `lock_passwd: false`) rather than
+locked: Alpine's sshd is built without PAM and refuses accounts whose password starts with `!`,
+even for key logins. `*` matches no password, so only key logins work.
+Flatcar gets a dedicated sudoers file through Ignition.
+
+Manifest `environment_variables` on cloud-init and Flatcar nodes go to the same login, never
+system-wide. They are written to `~/.sherpa_env` (`konst::NODE_USER_ENV_FILE`, mode 0600, owned by
+the login), and a line that sources it is added to the login file bash reads (`~/.bash_profile`,
+otherwise `~/.profile`). On Flatcar an Ignition `append` entry adds it to the skeleton
+`~/.bash_profile`. Windows still sets them machine-wide. See `build_user_env_file` and
+`build_ignition_user_env` in `services/node_ops.rs`.
+
+## Files owned by guest users (cloud-init)
+
+cloud-init's `write_files` runs before `users_groups`, so it cannot own a file by a user it is
+about to create. `write_files` `defer` is not usable either: some images' packaged `cloud.cfg`
+(openSUSE 15.6) never run `write_files_deferred`. Instead, manifest `text_files` and the
+environment file are staged: `write_files` writes each as a root-only file under
+`konst::NODE_STAGING_DIR`, and the first `runcmd` entries move each into place, create missing
+parent directories owned by the file's user, set the owner and mode, then remove the staging
+directory (`stage_cloud_init_files`). The group defaults to the user's primary group (`id -gn`),
+because SUSE puts users in the shared `users` group rather than a group of their own. Values never
+appear in `runcmd`.
 
 ### Managing keys
 

@@ -28,7 +28,7 @@ impl IgnitionConfig {
         networkd_units: Vec<IgnitionUnit>,
         filesystems: Vec<IgnitionFileSystem>,
     ) -> IgnitionConfig {
-        let directories = vec![Directory::default()];
+        let directories = vec![IgnitionDirectory::default()];
         IgnitionConfig {
             ignition: Ignition::default(),
             passwd: Passwd { users },
@@ -113,7 +113,7 @@ pub struct IgnitionUser {
 pub struct Storage {
     pub files: Vec<IgnitionFile>,
     pub links: Vec<IgnitionLink>,
-    pub directories: Vec<Directory>,
+    pub directories: Vec<IgnitionDirectory>,
     pub filesystems: Vec<IgnitionFileSystem>,
 }
 
@@ -136,18 +136,25 @@ impl Default for IgnitionFileSystem {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Directory {
+pub struct IgnitionDirectory {
     pub path: String,
-    pub mode: u16,
+    #[serde(serialize_with = "serialize_mode_as_decimal")]
+    pub mode: u32,
     pub overwrite: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<IgnitionFileParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<IgnitionFileParams>,
 }
 
-impl Default for Directory {
+impl Default for IgnitionDirectory {
     fn default() -> Self {
         Self {
             path: "/opt/ztp".to_owned(),
             mode: 755,
             overwrite: false,
+            user: None,
+            group: None,
         }
     }
 }
@@ -163,7 +170,11 @@ pub struct IgnitionFile {
     pub mode: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub overwrite: Option<bool>,
-    pub contents: IgnitionFileContents,
+    /// Omitted for an append-only file, so an existing file is kept and appended to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contents: Option<IgnitionFileContents>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub append: Vec<IgnitionFileContents>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<IgnitionFileParams>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,9 +187,9 @@ impl IgnitionFile {
             path: "/etc/systemd/resolved.conf.d/no-stub.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(
+            contents: Some(IgnitionFileContents::new(
                 "data:text/plain;base64,RE5TU3R1Ykxpc3RlbmVyPW5vCg==",
-            ),
+            )),
             ..Default::default()
         }
     }
@@ -188,7 +199,7 @@ impl IgnitionFile {
             path: "/etc/flatcar/update.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new("data:,REBOOT_STRATEGY%3Doff%0A"),
+            contents: Some(IgnitionFileContents::new("data:,REBOOT_STRATEGY%3Doff%0A")),
             ..Default::default()
         }
     }
@@ -199,9 +210,9 @@ impl IgnitionFile {
             ),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(&format!(
+            contents: Some(IgnitionFileContents::new(&format!(
                 "https://extensions.flatcar.org/extensions/docker-compose-{DOCKER_COMPOSE_VERSION}-x86-64.raw"
-            )),
+            ))),
             ..Default::default()
         }
     }
@@ -210,9 +221,9 @@ impl IgnitionFile {
             path: "/etc/sysupdate.docker-compose.d/docker-compose.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(
+            contents: Some(IgnitionFileContents::new(
                 "https://extensions.flatcar.org/extensions/docker-compose.conf",
-            ),
+            )),
             ..Default::default()
         }
     }
@@ -221,9 +232,9 @@ impl IgnitionFile {
             path: "/etc/sysupdate.d/noop.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(
+            contents: Some(IgnitionFileContents::new(
                 "https://extensions.flatcar.org/extensions/noop.conf",
-            ),
+            )),
             ..Default::default()
         }
     }
@@ -261,13 +272,16 @@ Domains={domain}
             path: "/etc/systemd/network/00-eth0.network".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(&format!("data:;base64,{encoded_contents}")),
+            contents: Some(IgnitionFileContents::new(&format!(
+                "data:;base64,{encoded_contents}"
+            ))),
             user: Some(IgnitionFileParams {
                 name: "root".to_owned(),
             }),
             group: Some(IgnitionFileParams {
                 name: "root".to_owned(),
             }),
+            append: vec![],
         })
     }
     pub fn dnsmasq_config(config: &str) -> Self {
@@ -275,7 +289,9 @@ Domains={domain}
             path: "/opt/dnsmasq/dnsmasq.conf".to_owned(),
             mode: 644,
             overwrite: Some(true),
-            contents: IgnitionFileContents::new(&format!("data:text/plain;base64,{config}")),
+            contents: Some(IgnitionFileContents::new(&format!(
+                "data:text/plain;base64,{config}"
+            ))),
             ..Default::default()
         }
     }
@@ -545,11 +561,11 @@ mod tests {
         assert_eq!(fs.label, "data-disk");
     }
 
-    // ── Directory ─────────────────────────────────────────────────────────────
+    // ── IgnitionDirectory ─────────────────────────────────────────────────────────────
 
     #[test]
     fn test_directory_default_values() {
-        let d = Directory::default();
+        let d = IgnitionDirectory::default();
         assert_eq!(d.path, "/opt/ztp");
         assert_eq!(d.mode, 755);
         assert!(!d.overwrite);
@@ -611,7 +627,7 @@ mod tests {
     fn test_dnsmasq_config_embeds_content() {
         let f = IgnitionFile::dnsmasq_config("abc123==");
         assert_eq!(f.path, "/opt/dnsmasq/dnsmasq.conf");
-        assert!(f.contents.source.contains("abc123=="));
+        assert!(f.contents.as_ref().unwrap().source.contains("abc123=="));
     }
 
     fn make_netv4() -> NetworkV4 {
@@ -648,7 +664,13 @@ mod tests {
         assert_eq!(f.mode, 644);
         assert_eq!(f.user.as_ref().unwrap().name, "root");
         assert_eq!(f.group.as_ref().unwrap().name, "root");
-        assert!(f.contents.source.starts_with("data:;base64,"));
+        assert!(
+            f.contents
+                .as_ref()
+                .unwrap()
+                .source
+                .starts_with("data:;base64,")
+        );
     }
 
     #[test]
@@ -659,7 +681,7 @@ mod tests {
         let f =
             IgnitionFile::ztp_interface(addr, make_netv4(), Some(v6_addr), Some(&v6_net)).unwrap();
         assert_eq!(f.path, "/etc/systemd/network/00-eth0.network");
-        assert!(f.contents.source.len() > "data:;base64,".len());
+        assert!(f.contents.as_ref().unwrap().source.len() > "data:;base64,".len());
     }
 
     // ── IgnitionLink ──────────────────────────────────────────────────────────
@@ -740,6 +762,55 @@ mod tests {
         let json = config.to_json_pretty().unwrap();
         assert!(json.contains("ignition"));
         assert!(json.contains("version"));
+    }
+
+    // ── directories ───────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_directory_mode_serialized_as_decimal() {
+        let json = serde_json::to_value(IgnitionDirectory::default()).unwrap();
+        assert_eq!(json["mode"], 0o755);
+        assert!(json.get("user").is_none());
+    }
+
+    #[test]
+    fn test_directory_owner_serialized() {
+        let dir = IgnitionDirectory {
+            path: "/home/alice/.config".to_owned(),
+            mode: 755,
+            overwrite: false,
+            user: Some(IgnitionFileParams {
+                name: "alice".to_owned(),
+            }),
+            group: Some(IgnitionFileParams {
+                name: "alice".to_owned(),
+            }),
+        };
+        let json = serde_json::to_value(&dir).unwrap();
+        assert_eq!(json["user"]["name"], "alice");
+        assert_eq!(json["group"]["name"], "alice");
+    }
+
+    // ── append ────────────────────────────────────────────────────────────────
+
+    #[test]
+    fn test_append_only_file_omits_contents() {
+        let f = IgnitionFile {
+            path: "/home/alice/.bash_profile".to_owned(),
+            mode: 644,
+            append: vec![IgnitionFileContents::new("data:,extra")],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&f).unwrap();
+        assert!(json.get("contents").is_none());
+        assert_eq!(json["append"][0]["source"], "data:,extra");
+    }
+
+    #[test]
+    fn test_file_without_append_omits_append() {
+        let json = serde_json::to_value(IgnitionFile::disable_resolved()).unwrap();
+        assert!(json.get("append").is_none());
+        assert!(json.get("contents").is_some());
     }
 
     // ── serialize_mode_as_decimal ─────────────────────────────────────────────

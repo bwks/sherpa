@@ -6,11 +6,16 @@ use ssh_key::PublicKey;
 use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
-use shared::konst::{RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL};
+use shared::konst::{
+    NODE_DOAS_CONF_DIR, NODE_NO_PASSWORD_HASH, RESERVED_USERNAMES, SHERPA_USERNAME,
+    SSH_KEYS_DOCS_URL,
+};
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
 use shared::validators::validate_ssh_key;
-use template::{CloudInitUser, IgnitionFile, IgnitionFileContents, IgnitionUser};
+use template::{
+    CloudInitUser, CloudInitWriteFile, IgnitionFile, IgnitionFileContents, IgnitionUser,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct GuestAccount {
@@ -138,12 +143,40 @@ pub(crate) fn cloud_init_user(account: &GuestAccount) -> CloudInitUser {
     CloudInitUser {
         name: account.username.clone(),
         plain_text_passwd: None,
+        hashed_passwd: None,
         lock_passwd: true,
         homedir: Some(format!("/home/{}", account.username)),
         ssh_authorized_keys: account.ssh_keys.clone(),
         sudo: "ALL=(ALL) NOPASSWD:ALL".to_owned(),
         groups: vec![],
         shell: "/bin/bash".to_owned(),
+    }
+}
+
+/// The personal account on Alpine, which keeps its native tools: `ash` as the shell and
+/// `doas`, through [`doas_file`], for admin rights. Nothing is installed at boot. Its password
+/// is unusable rather than locked, because Alpine's sshd has no PAM and refuses locked accounts,
+/// even for key logins.
+#[instrument(level = "debug", skip(account))]
+pub(crate) fn alpine_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
+    CloudInitUser {
+        hashed_passwd: Some(NODE_NO_PASSWORD_HASH.to_owned()),
+        lock_passwd: false,
+        groups: vec!["wheel".to_owned()],
+        shell: "/bin/sh".to_owned(),
+        ..cloud_init_user(account)
+    }
+}
+
+/// A dedicated doas rule letting the personal account run commands as root without a password.
+#[instrument(level = "debug", skip(account))]
+pub(crate) fn doas_file(account: &GuestAccount) -> CloudInitWriteFile {
+    CloudInitWriteFile {
+        path: format!("{}/{}.conf", NODE_DOAS_CONF_DIR, account.username),
+        content: format!("permit nopass {}\n", account.username),
+        permissions: "0400".to_owned(),
+        owner: None,
+        encoding: None,
     }
 }
 
@@ -173,7 +206,10 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
     IgnitionFile {
         path: format!("/etc/sudoers.d/{}", account.username),
         mode: 440,
-        contents: IgnitionFileContents::new(&format!("data:;base64,{}", base64_encode(&content))),
+        contents: Some(IgnitionFileContents::new(&format!(
+            "data:;base64,{}",
+            base64_encode(&content)
+        ))),
         ..Default::default()
     }
 }
@@ -331,6 +367,34 @@ mod tests {
         assert!(!config.contains("plain_text_passwd"));
         assert!(!config.contains("server-login-hash"));
         assert!(!config.contains(SHERPA_PASSWORD_HASH));
+    }
+
+    #[test]
+    fn personal_alpine_user_uses_ash_and_wheel() {
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
+        let user = alpine_cloud_init_user(&account);
+        assert_eq!(user.name, "alice");
+        assert_eq!(user.shell, "/bin/sh");
+        assert_eq!(user.groups, vec!["wheel"]);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
+        // Alpine's sshd has no PAM and refuses locked (`!`) accounts, even for key logins.
+        assert!(!user.lock_passwd);
+        assert_eq!(user.hashed_passwd.as_deref(), Some("*"));
+        assert_eq!(user.plain_text_passwd, None);
+    }
+
+    #[test]
+    fn personal_alpine_user_gets_a_dedicated_doas_rule() {
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
+        let file = doas_file(&account);
+        assert_eq!(file.path, "/etc/doas.d/alice.conf");
+        assert_eq!(file.content, "permit nopass alice\n");
+        assert_eq!(file.permissions, "0400");
+        assert_eq!(file.owner, None);
     }
 
     #[test]

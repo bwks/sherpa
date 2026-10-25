@@ -116,6 +116,8 @@ fn test_ignition_ztp_interface_ipv4() {
 
     let b64 = file
         .contents
+        .as_ref()
+        .expect("has contents")
         .source
         .strip_prefix("data:;base64,")
         .expect("has data uri prefix");
@@ -136,6 +138,8 @@ fn test_ignition_ztp_interface_dual_stack() {
 
     let b64 = file
         .contents
+        .as_ref()
+        .expect("has contents")
         .source
         .strip_prefix("data:;base64,")
         .expect("has data uri prefix");

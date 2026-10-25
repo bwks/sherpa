@@ -48,8 +48,8 @@ pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate, UnikernelDomainTemplate};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
-    IgnitionConfig, IgnitionFile, IgnitionFileContents, IgnitionFileParams, IgnitionFileSystem,
-    IgnitionLink, IgnitionUnit, IgnitionUser,
+    IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents, IgnitionFileParams,
+    IgnitionFileSystem, IgnitionLink, IgnitionUnit, IgnitionUser,
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;

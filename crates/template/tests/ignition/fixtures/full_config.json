@@ -46,7 +46,7 @@
     "directories": [
       {
         "path": "/opt/ztp",
-        "mode": 755,
+        "mode": 493,
         "overwrite": false
       }
     ],

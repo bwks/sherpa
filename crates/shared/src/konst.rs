@@ -285,6 +285,18 @@ pub const NODE_KEY_FILE: &str = "node.key";
 pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
 pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
 pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
+pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
+/// Drop-in directory for per-user doas rules (Alpine).
+pub const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
+/// Shadow password value that matches no password but, unlike `!`, does not lock the
+/// account, so sshd builds without PAM still accept key logins.
+pub const NODE_NO_PASSWORD_HASH: &str = "*";
+/// Per-user file in the guest login's home holding manifest environment variables.
+pub const NODE_USER_ENV_FILE: &str = ".sherpa_env";
+/// Root-only directory where cloud-init stages files until their owners exist.
+pub const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
+/// Guest account database, read at boot to find a user's home directory.
+pub const NODE_PASSWD_FILE: &str = "/etc/passwd";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;

@@ -2,7 +2,7 @@ use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
 use template::{
-    CloudInitConfig, CloudInitNetwork, CloudInitUser, CloudInitWriteFile, MetaDataConfig,
+    CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, MetaDataConfig,
 };
 
 use crate::helpers;
@@ -62,6 +62,45 @@ fn test_cloud_init_config() {
             "runcmd": ["echo hello"],
         })
     );
+}
+
+#[test]
+fn test_cloud_init_resolv_conf_points_at_the_lab_dns() {
+    let config = CloudInitConfig {
+        manage_resolv_conf: Some(true),
+        resolv_conf: Some(CloudInitResolvConf::lab_dns(Ipv4Addr::new(172, 20, 0, 2))),
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(output["manage_resolv_conf"], json!(true));
+    assert_eq!(
+        output["resolv_conf"],
+        json!({
+            "domain": "sherpa.lab.local",
+            "searchdomains": ["sherpa.lab.local"],
+            "nameservers": ["172.20.0.2"],
+        })
+    );
+}
+
+#[test]
+fn test_cloud_init_user_without_groups_omits_the_key() {
+    let config = CloudInitConfig {
+        users: vec![CloudInitUser {
+            name: "alice".to_string(),
+            plain_text_passwd: None,
+            hashed_passwd: None,
+            homedir: None,
+            lock_passwd: true,
+            ssh_authorized_keys: vec![],
+            sudo: "ALL=(ALL) NOPASSWD:ALL".to_string(),
+            groups: vec![],
+            shell: "/bin/bash".to_string(),
+        }],
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(output["users"][0].get("groups"), None);
 }
 
 #[test]
@@ -159,6 +198,7 @@ fn test_yaml_boolean_words_stay_strings() {
         users: vec![CloudInitUser {
             name: "off".to_string(),
             plain_text_passwd: Some("yes".to_string()),
+            hashed_passwd: None,
             homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![],
@@ -173,35 +213,4 @@ fn test_yaml_boolean_words_stay_strings() {
     assert_eq!(parsed["fqdn"], "no");
     assert_eq!(parsed["users"][0]["name"], "off");
     assert_eq!(parsed["users"][0]["plain_text_passwd"], "yes");
-}
-
-/// Deferred files are written in the final stage, after `users_groups` has created users.
-#[test]
-fn test_cloud_init_write_files_defer() {
-    let config = CloudInitConfig {
-        hostname: "ubuntu01".to_string(),
-        fqdn: "ubuntu01.lab.sherpa.local".to_string(),
-        write_files: Some(vec![
-            CloudInitWriteFile {
-                path: "/home/sherpa/.config/app.toml".to_string(),
-                content: "aGVsbG8=".to_string(),
-                permissions: "0600".to_string(),
-                owner: Some("sherpa:sherpa".to_string()),
-                encoding: Some("b64".to_string()),
-                defer: Some(true),
-            },
-            CloudInitWriteFile {
-                path: "/etc/profile.d/sherpa-env.sh".to_string(),
-                content: "export A=1".to_string(),
-                permissions: "0644".to_string(),
-                owner: Some("root:root".to_string()),
-                encoding: None,
-                defer: None,
-            },
-        ]),
-        ..Default::default()
-    };
-    let parsed = parse_cloud_config(&config.to_string().expect("renders user-data"));
-    assert_eq!(parsed["write_files"][0]["defer"], true);
-    assert!(parsed["write_files"][1].get("defer").is_none());
 }
