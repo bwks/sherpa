@@ -30,8 +30,8 @@ main branch. Both build `runcmd` in the same order: staged file moves, the envir
 The login that owns guest-side work (`user_scripts`, the environment file) is the owner's personal
 account when one is provisioned, otherwise `sherpa` (`guest_account::guest_username`).
 `guest_account::supports_guest_account` lists the models that get a personal account: the Linux
-cloud-init models, Alpine and Flatcar. The BSDs, Windows, containers, unikernels and network
-devices use `sherpa` only.
+cloud-init models, Alpine, Flatcar, FreeBSD and OpenBSD. Windows, containers, unikernels and
+network devices use `sherpa` only.
 
 Each account keeps its OS's native tools:
 
@@ -40,13 +40,19 @@ Each account keeps its OS's native tools:
 | Linux (cloud-init) | `/bin/bash` | cloud-init `sudo` rule, passwordless | `guest_account::cloud_init_user` |
 | Alpine | `ash` (`/bin/sh`), `wheel` group | dedicated `konst::NODE_DOAS_CONF_DIR/<user>.conf`, `permit nopass` | `guest_account::alpine_cloud_init_user`, `doas_file` |
 | Flatcar | `/bin/bash` | dedicated `/etc/sudoers.d/<user>` | `guest_account::ignition_user`, `sudoers_file` |
-| FreeBSD, OpenBSD (`sherpa`) | `/bin/sh`, `wheel` group | cloud-init `sudo` rule | `cloud_init_user_settings` |
+| FreeBSD | `/bin/sh`, `wheel` group | cloud-init `sudo` rule, passwordless (neither `sudo` nor `doas` is in base; the image ships `sudo`) | `guest_account::bsd_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
+| OpenBSD | `/bin/sh`, `wheel` group | `doas`, in base: `konst::NODE_DOAS_CONF_FILE` with the stock `/etc/examples/doas.conf` rule plus `nopass`, `permit nopass keepenv :wheel`. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::bsd_cloud_init_user`, `node_ops::cloud_init_doas_file` |
+
+`CloudInitUser.groups` is written as a comma-separated string: cloud-init's BSD `add_user`
+passes only string values to `pw`/`useradd`, so a list left BSD logins out of `wheel`.
 
 Nothing is installed at first boot, so accounts work without internet access. No password is
-copied into the guest. Personal accounts are locked (`lock_passwd: true`), except on Alpine: its
-sshd is built without PAM and refuses accounts whose shadow password starts with `!`, even for
-key logins, so the Alpine account gets `*` (`konst::NODE_NO_PASSWORD_HASH`, with
-`lock_passwd: false`), which matches no password but is not a lock.
+copied into the guest. Personal accounts are locked (`lock_passwd: true`), except on Alpine and
+the BSDs: Alpine's sshd is built without PAM and refuses accounts whose shadow password starts
+with `!`, and OpenSSH on FreeBSD refuses `*LOCKED*` accounts, both even for key logins. Those
+accounts get `*` (`konst::NODE_NO_PASSWORD_HASH`, with `lock_passwd: false`), which matches no
+password but is not a lock. BSD accounts also leave the home to the OS, which is under
+`/usr/home` on FreeBSD.
 
 `CloudInitUser` omits an empty `groups` list, because cloud-init's schema rejects it.
 

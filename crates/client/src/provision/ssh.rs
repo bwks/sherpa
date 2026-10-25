@@ -6,12 +6,12 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, ensure};
+use anyhow::{Context, Result};
 
 use shared::konst::{PROVISIONER_FILE_DEFAULT_MODE, PROVISIONER_SSH_RETRY_INTERVAL};
-use shared::util::expand_path;
 use topology::SshProvisioner;
 
+use super::client_files::{existing_client_file, resolve_client_path};
 use super::remote::{
     cloud_init_wait_command, env_file_destination, env_loader_command, finish_file_command,
     prepare_file_command, scp_path, script_wrapper_command,
@@ -128,29 +128,6 @@ fn read_client_files(
     Ok((files, env_files, scripts))
 }
 
-/// Resolve a client path and check that it is a readable file.
-fn existing_client_file(manifest_dir: &Path, path: &str) -> Result<PathBuf> {
-    let resolved = resolve_client_path(manifest_dir, path);
-    let metadata = fs::metadata(&resolved)
-        .with_context(|| format!("Cannot read provisioner file {}", resolved.display()))?;
-    ensure!(
-        metadata.is_file(),
-        "Provisioner file {} is not a file",
-        resolved.display()
-    );
-    Ok(resolved)
-}
-
-/// A client path: `~` is expanded, and relative paths start at the manifest's directory.
-fn resolve_client_path(manifest_dir: &Path, path: &str) -> PathBuf {
-    let expanded = PathBuf::from(expand_path(path));
-    if expanded.is_absolute() {
-        expanded
-    } else {
-        manifest_dir.join(expanded)
-    }
-}
-
 fn copy_file(target: &SshTarget, file: &FileCopy) -> Result<()> {
     target
         .run(&prepare_file_command(&file.dst))
@@ -164,29 +141,9 @@ fn copy_file(target: &SshTarget, file: &FileCopy) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::env;
     use topology::ProvisionerFile;
 
     use tempfile::tempdir;
-
-    #[test]
-    fn client_paths_start_at_the_manifest_unless_absolute() {
-        let dir = Path::new("/labs/dev");
-        assert_eq!(
-            resolve_client_path(dir, "secrets/a.env"),
-            Path::new("/labs/dev/secrets/a.env")
-        );
-        let absolute = env::temp_dir().join("a");
-        assert_eq!(
-            resolve_client_path(dir, absolute.to_str().unwrap()),
-            absolute
-        );
-        let home = expand_path("~");
-        assert_eq!(
-            resolve_client_path(dir, "~/a.env"),
-            Path::new(&home).join("a.env")
-        );
-    }
 
     #[test]
     fn client_files_are_read_with_their_node_destinations() {

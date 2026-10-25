@@ -1,6 +1,8 @@
 // Server-side implementation of the redeploy operation for a single node
 
+use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::path::Path;
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
@@ -19,18 +21,19 @@ use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations;
 use crate::services::node_ops;
+use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
-use crate::validate::reject_provisioners;
+use crate::validate::{reject_provisioners, validate_node_secrets};
 
 use shared::data;
 use shared::data::{DbNode, NodeState, RedeployRequest, RedeployResponse, StatusKind};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE,
-    SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    BRIDGE_PREFIX, CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_SECRETS_DIR, SHERPA_SSH_CONFIG_FILE, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -105,6 +108,15 @@ pub async fn redeploy_node(
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    if let Some(files) = request.secrets.as_deref()
+        && !files.is_empty()
+    {
+        validate_node_secrets(
+            &manifest,
+            &BTreeMap::from([(node_name.clone(), files.to_vec())]),
+        )
+        .context("Manifest validation failed: container secret files")?;
+    }
 
     let manifest_nodes = process_manifest_nodes(&manifest.nodes);
 
@@ -600,12 +612,26 @@ pub async fn redeploy_node(
                 admin_down: false,
             };
 
+            // Secret files are replaced, removed or kept, and mounted from RAM.
+            let mut volumes = ztp_result.volumes;
+            if let Some(dir) = secrets_for_redeploy(
+                Path::new(SHERPA_SECRETS_DIR),
+                lab_id,
+                node_name,
+                request.secrets.as_deref(),
+            )
+            .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?
+            {
+                volumes.push(format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()));
+            }
+
+            let has_disabled = additional_networks.iter().any(|n| n.admin_down);
             let is_running = node_ops::start_container_node(
                 &docker_conn,
                 &container_name,
                 &container_image,
                 ztp_result.env_vars,
-                ztp_result.volumes,
+                volumes,
                 ztp_result.capabilities,
                 mgmt_attachment,
                 additional_networks,
@@ -623,6 +649,12 @@ pub async fn redeploy_node(
                     "Container {} is not in running state after redeploy",
                     container_name
                 );
+            }
+
+            // Take the carrier from disabled interfaces, as for VMs.
+            if has_disabled {
+                let isolated = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
+                network::set_link_down(&isolated.bridge_name).await?;
             }
 
             // P2p post-start: move veths into container netns and attach eBPF

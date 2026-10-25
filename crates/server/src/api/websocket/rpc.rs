@@ -1,6 +1,7 @@
 use axum::extract::ws::Message;
 use opentelemetry::KeyValue;
 use serde_json;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -13,7 +14,7 @@ use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
     cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, progress, redeploy, resume, up, user_delete, user_ssh_keys,
+    list_labs, node_secrets, progress, redeploy, resume, up, user_delete, user_ssh_keys,
 };
 use shared::auth::password;
 use shared::data;
@@ -34,10 +35,11 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMAGE_LIST, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT,
     RPC_MSG_INVALID_PARAMS_IMAGE_SHOW, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
-    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_REDEPLOY,
-    RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY, RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED,
-    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_NODE_SECRETS,
+    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY,
+    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_LAB_CANCEL_FAILED, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_NODE_SECRETS_FAILED,
     RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED, RPC_MSG_SERIALIZE_FAILED,
     RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED, RPC_MSG_TOKEN_CREATE_FAILED,
     RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE, RPC_MSG_USER_ADMIN_ONLY_LIST,
@@ -218,6 +220,7 @@ pub async fn handle_rpc_request(
         "download" => handle_download(id, params, state).await,
         "labs.list" => handle_labs_list(id, params, state).await,
         "down" => handle_down(id, params, state).await,
+        "node.secrets" => handle_node_secrets(id, params, state).await,
         "cancel" => handle_cancel(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         // Note: "resume" is handled separately via handle_streaming_rpc_request
@@ -630,6 +633,79 @@ async fn handle_down(id: String, params: serde_json::Value, state: &AppState) ->
             id,
             result: None,
             error: Some(service_error(&e, RPC_MSG_LAB_DOWN_FAILED)),
+        },
+    }
+}
+
+/// Handle "node.secrets" RPC call — rewrite a container node's secret files
+///
+/// Expected params: NodeSecretsRequest and "token". The files are never logged.
+async fn handle_node_secrets(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for node.secrets: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    // The parse error is not returned, as it could quote secret content.
+    let request: data::NodeSecretsRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(_) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_NODE_SECRETS.to_string(),
+                    context: None,
+                }),
+            };
+        }
+    };
+
+    match node_secrets::update_node_secrets(&auth_ctx, request, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' rewrote {} secret files for node '{}'",
+                    auth_ctx.username,
+                    response.files_written,
+                    response.node_name
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_NODE_SECRETS_FAILED)),
         },
     }
 }
@@ -1099,10 +1175,29 @@ async fn handle_redeploy_streaming(
     // Create progress sender
     let progress = progress::ProgressSender::new(progress_tx);
 
+    let secrets = match params.get("secrets") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(secrets) => Some(secrets),
+            Err(_) => {
+                send_rpc_error(
+                    connection,
+                    id,
+                    RpcErrorCode::InvalidParams,
+                    "Invalid secrets field".to_string(),
+                    None,
+                )
+                .await;
+                return;
+            }
+        },
+    };
+
     let request = data::RedeployRequest {
         lab_id,
         node_name: node_name.clone(),
         manifest,
+        secrets,
     };
 
     // Call service with progress sender
@@ -1877,6 +1972,24 @@ async fn handle_up(
     // Create progress sender
     let progress = progress::ProgressSender::new(progress_tx);
 
+    let node_secrets = match params.get("node_secrets") {
+        None | Some(serde_json::Value::Null) => BTreeMap::new(),
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(secrets) => secrets,
+            Err(_) => {
+                send_rpc_error(
+                    connection,
+                    id,
+                    RpcErrorCode::InvalidParams,
+                    "Invalid node secrets field".to_string(),
+                    None,
+                )
+                .await;
+                return;
+            }
+        },
+    };
+
     // Create UpRequest - use authenticated username
     let request = data::UpRequest {
         lab_id,
@@ -1898,6 +2011,7 @@ async fn handle_up(
                 }
             },
         },
+        node_secrets,
     };
 
     // Call the up service

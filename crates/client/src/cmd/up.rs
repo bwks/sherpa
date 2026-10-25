@@ -19,7 +19,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
-use crate::provision::provision_lab;
+use crate::provision::{container_results, container_secrets, provision_lab};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 use shared::validators::validate_tailscale_key;
@@ -93,6 +93,10 @@ pub async fn up(
     // Read ztp_config, text_files and scripts relative to the manifest, and $VAR values.
     resolve_manifest_files(&mut manifest, manifest_path)?;
 
+    // Container secret files go outside the manifest, so the server never stores them.
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    let node_secrets = container_secrets(&manifest, manifest_dir)?;
+
     // Serialize manifest to JSON for transmission
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -121,6 +125,7 @@ pub async fn up(
             "lab_id": lab_id,
             "manifest": manifest_value,
             "tailscale_auth_key": tailscale_auth_key,
+            "node_secrets": node_secrets,
             "token": token,
         }),
     );
@@ -339,10 +344,16 @@ pub async fn up(
     // Display results
     display_up_results(&up_data)?;
 
-    // Provisioners run from the client, so their files never pass through the server.
-    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    // ssh provisioners run from the client, so their files never pass through the server.
     let ready_nodes = ssh_ready_nodes(&up_data.nodes);
-    provision_lab(&manifest, manifest_dir, lab_id, Some(&ready_nodes), None)?;
+    provision_lab(
+        &manifest,
+        manifest_dir,
+        lab_id,
+        Some(&ready_nodes),
+        None,
+        container_results(&node_secrets),
+    )?;
 
     Ok(())
 }

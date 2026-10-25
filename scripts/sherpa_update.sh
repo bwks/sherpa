@@ -352,6 +352,30 @@ secure_lab_storage() {
     print_success "Lab storage restricted"
 }
 
+# Units installed before container secrets lack /run/sherpa, so add it with a drop-in.
+ensure_runtime_directory() {
+    local unit="/etc/systemd/system/sherpad.service"
+    local dropin_dir="/etc/systemd/system/sherpad.service.d"
+
+    if [ ! -f "${unit}" ] || grep -q '^RuntimeDirectory=' "${unit}"; then
+        return 0
+    fi
+
+    print_info "Adding /run/sherpa to the sherpad service..."
+    install -d -m 755 "${dropin_dir}"
+    cat > "${dropin_dir}/runtime-directory.conf" << 'UNIT'
+[Service]
+# RAM-backed /run/sherpa (0700 sherpa) for container secret files. Kept when sherpad
+# stops or restarts, so running containers keep their secrets; gone after a reboot.
+RuntimeDirectory=sherpa
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+UNIT
+    chmod 644 "${dropin_dir}/runtime-directory.conf"
+    systemctl daemon-reload
+    print_success "sherpad service uses /run/sherpa"
+}
+
 ################################################################################
 # Verification
 ################################################################################
@@ -442,6 +466,7 @@ main() {
     update_binaries
     ensure_symlinks
     secure_lab_storage
+    ensure_runtime_directory
     start_sherpad
     verify_update
 

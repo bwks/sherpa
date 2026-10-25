@@ -21,6 +21,7 @@ mod provider;
 mod provision;
 mod record_id;
 mod redeploy;
+mod secret;
 mod ssh;
 mod up;
 mod user;
@@ -77,6 +78,7 @@ pub use provider::VmProviders;
 pub use provision::{ProvisionResult, ProvisionStatus};
 pub use record_id::{RecordId, RecordIdKey};
 pub use redeploy::{RedeployRequest, RedeployResponse};
+pub use secret::{NodeSecretsRequest, NodeSecretsResponse, SecretContent, SecretFile};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
     ClusterInfo, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse,

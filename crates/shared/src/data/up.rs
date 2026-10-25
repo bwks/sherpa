@@ -1,9 +1,11 @@
+use std::collections::BTreeMap;
+
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::lab::LabInfo;
 use super::node::{NodeModel, NodeState};
-use super::{TailnetAuthKey, TailnetStatus};
+use super::{SecretFile, TailnetAuthKey, TailnetStatus};
 
 /// Request type for starting a lab
 /// Note: manifest is passed as JSON Value to avoid cyclic dependencies
@@ -13,6 +15,10 @@ pub struct UpRequest {
     pub tailscale_auth_key: Option<TailnetAuthKey>,
     pub lab_id: String,
     pub manifest: serde_json::Value,
+    /// Secret files for container nodes, by node name. Sent only by the CLI, outside the
+    /// manifest, and never stored.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub node_secrets: BTreeMap<String, Vec<SecretFile>>,
 }
 
 /// Response type for lab startup operation

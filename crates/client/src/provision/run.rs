@@ -13,25 +13,27 @@ use topology::{Manifest, Node, Provisioner};
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
 
-/// Run the provisioners of the lab's nodes, or of `only_node`, from the lab folder
+/// Run the ssh provisioners of the lab's nodes, or of `only_node`, from the lab folder
 /// `manifest_dir`. With `ready_nodes`, nodes missing from it are skipped as not ready.
-/// Prints a table of results and fails if any node was not provisioned. Returns how many nodes
-/// were provisioned.
+/// `results` holds nodes already provisioned another way, such as container nodes, whose
+/// provisioners the server applies. Prints a table of all results and fails if any node was not
+/// provisioned. Returns how many nodes were provisioned.
 pub fn provision_lab(
     manifest: &Manifest,
     manifest_dir: &Path,
     lab_id: &str,
     ready_nodes: Option<&[String]>,
     only_node: Option<&str>,
+    mut results: Vec<ProvisionResult>,
 ) -> Result<usize> {
     let nodes = nodes_to_provision(manifest, only_node)?;
-    if nodes.is_empty() {
+    if nodes.is_empty() && results.is_empty() {
         return Ok(0);
     }
     validate_provisioners(manifest)?;
 
     let config = manifest_dir.join(SHERPA_SSH_CONFIG_FILE);
-    if !config.is_file() {
+    if !nodes.is_empty() && !config.is_file() {
         bail!(
             "{} not found: run `sherpa up` or `sherpa download` in the lab folder first",
             config.display()
@@ -39,7 +41,7 @@ pub fn provision_lab(
     }
     let timeout = Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT));
 
-    let mut results = Vec::with_capacity(nodes.len());
+    results.reserve(nodes.len());
     for node in nodes {
         if let Some(reason) = skip_reason(&node.name, ready_nodes) {
             results.push(ProvisionResult {
@@ -93,12 +95,25 @@ fn provision_node(
     for provisioner in node.provisioners.as_deref().unwrap_or_default() {
         match provisioner {
             Provisioner::Ssh(ssh) => provision(target, ssh, manifest_dir)?,
+            Provisioner::Container(_) => {
+                tracing::debug!(node = %node.name, "Container provisioner is applied by the server");
+            }
         }
     }
     Ok(())
 }
 
-/// The nodes with provisioners, or just `only_node`, which must be in the manifest.
+/// Whether a node has an ssh provisioner.
+fn has_ssh_provisioner(node: &Node) -> bool {
+    for provisioner in node.provisioners.as_deref().unwrap_or_default() {
+        if matches!(provisioner, Provisioner::Ssh(_)) {
+            return true;
+        }
+    }
+    false
+}
+
+/// The nodes with ssh provisioners, or just `only_node`, which must be in the manifest.
 fn nodes_to_provision<'a>(
     manifest: &'a Manifest,
     only_node: Option<&str>,
@@ -112,7 +127,7 @@ fn nodes_to_provision<'a>(
             }
             found = true;
         }
-        if !node.provisioners.as_deref().unwrap_or_default().is_empty() {
+        if has_ssh_provisioner(node) {
             nodes.push(node);
         }
     }
@@ -162,6 +177,17 @@ model = "free_bsd"
 [[nodes.provisioners]]
 type = "ssh"
 scripts = ["a.sh"]
+
+[[nodes]]
+name = "db01"
+model = "mongo_db"
+
+[[nodes.provisioners]]
+type = "container"
+
+[[nodes.provisioners.files]]
+src = "password"
+name = "password"
 "#,
         )
         .unwrap()
@@ -191,6 +217,46 @@ scripts = ["a.sh"]
                 .unwrap()
                 .is_empty()
         );
+        // The server applies container provisioners.
+        assert!(
+            nodes_to_provision(&manifest, Some("db01"))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    fn result(node: &str, status: ProvisionStatus) -> ProvisionResult {
+        ProvisionResult {
+            node: node.to_string(),
+            status,
+            detail: String::new(),
+        }
+    }
+
+    #[test]
+    fn earlier_results_are_reported_without_ssh_nodes() {
+        let manifest = manifest();
+        let provisioned = provision_lab(
+            &manifest,
+            Path::new("/nonexistent"),
+            "abcd1234",
+            None,
+            Some("db01"),
+            vec![result("db01", ProvisionStatus::Provisioned)],
+        )
+        .unwrap();
+        assert_eq!(provisioned, 1);
+
+        let error = provision_lab(
+            &manifest,
+            Path::new("/nonexistent"),
+            "abcd1234",
+            None,
+            Some("db01"),
+            vec![result("db01", ProvisionStatus::Failed)],
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("1 of 1"), "{error}");
     }
 
     #[test]
@@ -213,8 +279,15 @@ scripts = ["a.sh"]
         let manifest: Manifest =
             toml::from_str("name = \"lab\"\n[[nodes]]\nname = \"r1\"\nmodel = \"cisco_iosv\"\n")
                 .unwrap();
-        let provisioned =
-            provision_lab(&manifest, Path::new("/nonexistent"), "abcd1234", None, None).unwrap();
+        let provisioned = provision_lab(
+            &manifest,
+            Path::new("/nonexistent"),
+            "abcd1234",
+            None,
+            None,
+            vec![],
+        )
+        .unwrap();
         assert_eq!(provisioned, 0);
     }
 }

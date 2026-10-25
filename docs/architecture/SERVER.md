@@ -220,6 +220,19 @@ calls `restrict_dir` on:
   and update scripts set the same owner and modes as root, and `scripts/fix-permissions.sh` keeps
   them.
 
+### Container secret files
+
+Container secret files (see [`PROVISIONERS.md`](PROVISIONERS.md)) are kept in RAM, under
+`/run/sherpa`, the daemon's systemd `RuntimeDirectory` (`0700 sherpa`, a tmpfs).
+`RuntimeDirectoryPreserve=yes` keeps it when `sherpad` stops or restarts, so running containers
+keep their secrets; a reboot clears it. The install script writes these settings into the unit,
+and the update script and `dev/rebuild` add them to older units as the drop-in
+`sherpad.service.d/runtime-directory.conf`.
+
+`services::node_secrets` writes `konst::SHERPA_SECRETS_DIR/<lab>/<node>/`: the lab directory is
+`0700`, and the node directory, the bind mount's root, is `0755`. Nothing under `/run/sherpa` is
+readable by other server users or the `sherpa` group.
+
 ## Runtime state: `AppState`
 
 `AppState` is the dependency graph passed into Axum handlers and cloned into async tasks. It is defined in `crates/server/src/daemon/state.rs`.
@@ -378,6 +391,9 @@ Streaming RPC methods currently include:
 - `image.import`
 - `image.pull`
 - `image.download`
+
+`node.secrets` (a regular method) rewrites a container node's secret files; its params are never
+logged, and a parse error is not echoed back.
 
 Regular RPC methods return one `ServerMessage::RpcResponse`. Streaming methods send zero or more `ServerMessage::Status` values, followed by one final `ServerMessage::RpcResponse`.
 
@@ -1016,6 +1032,8 @@ Lab {lab_id}
   |   +- link records
   |   `- image records
   |
+  +- RAM: /run/sherpa/secrets/{lab_id}/{node} (container secret files)
+  |
   +- Filesystem: /opt/sherpa/labs/{lab_id}
   |   +- lab info file
   |   +- saved manifest
@@ -1043,6 +1061,21 @@ Lab {lab_id}
 ```
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
+
+### Container data interfaces
+
+Each container data interface is a Docker network attachment (`ContainerNetworkAttachment`),
+connected in index order after the container starts (`container::run_container`). Nothing runs in
+the image for most interfaces, so images without `ip` (such as `mongo`) work:
+
+- Docker names the interface in the container through the endpoint driver option
+  `konst::DOCKER_ENDPOINT_IFNAME_OPT` when `linux_interface_name` is set.
+- A disabled interface is a macvlan on the node's isolated bridge. The server sets that bridge
+  down from the host (`network::set_link_down`, phase 11c and the container redeploy), as for
+  VMs, so the interface has no carrier.
+- A linked, renamed interface (SR Linux) is still set promiscuous and up with `ip` in the
+  container. P2p links also run `ip` in the container, after moving the veth into its namespace:
+  a link moved into another namespace comes up down, and `sherpad` cannot enter the namespace.
 
 ### Lab management addressing
 
@@ -1080,7 +1113,7 @@ destroy_lab(&AuthContext, lab_id)
 +-----------------------------------------------------+
 | best-effort cleanup sequence                         |
 |                                                     |
-| 1. Docker containers                                |
+| 1. Docker containers, then their secret files       |
 | 2. libvirt domains and disks                         |
 | 3. Docker networks                                  |
 | 4. libvirt networks                                 |

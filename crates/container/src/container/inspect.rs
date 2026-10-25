@@ -29,3 +29,23 @@ pub async fn get_container_pid(docker: &Docker, container_name: &str) -> Result<
 
     Ok(pid as u32)
 }
+
+/// The host path mounted at `destination` in a container, if one is.
+#[instrument(skip(docker), fields(%container_name, %destination), level = "debug")]
+pub async fn get_container_mount_source(
+    docker: &Docker,
+    container_name: &str,
+    destination: &str,
+) -> Result<Option<String>> {
+    let options = Some(InspectContainerOptions { size: false });
+    let details = docker
+        .inspect_container(container_name, options)
+        .await
+        .with_context(|| format!("failed to inspect container {container_name}"))?;
+    for mount in details.mounts.unwrap_or_default() {
+        if mount.destination.as_deref() == Some(destination) {
+            return Ok(mount.source);
+        }
+    }
+    Ok(None)
+}

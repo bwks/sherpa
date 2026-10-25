@@ -93,7 +93,7 @@ fn test_cloud_init_user_without_groups_omits_the_key() {
             homedir: None,
             lock_passwd: true,
             ssh_authorized_keys: vec![],
-            sudo: "ALL=(ALL) NOPASSWD:ALL".to_string(),
+            sudo: Some("ALL=(ALL) NOPASSWD:ALL".to_string()),
             groups: vec![],
             shell: "/bin/bash".to_string(),
         }],
@@ -101,6 +101,29 @@ fn test_cloud_init_user_without_groups_omits_the_key() {
     };
     let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
     assert_eq!(output["users"][0].get("groups"), None);
+}
+
+#[test]
+fn test_cloud_init_user_groups_are_a_comma_separated_string() {
+    // cloud-init's BSD add_user drops a groups list and only passes a string to `pw`/`useradd`.
+    let config = CloudInitConfig {
+        users: vec![CloudInitUser {
+            name: "alice".to_string(),
+            plain_text_passwd: None,
+            hashed_passwd: None,
+            homedir: None,
+            lock_passwd: true,
+            ssh_authorized_keys: vec![],
+            sudo: None,
+            groups: vec!["wheel".to_string(), "video".to_string()],
+            shell: "/bin/sh".to_string(),
+        }],
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(output["users"][0]["groups"], json!("wheel,video"));
+    // No sudo rule where sudo is not the native tool.
+    assert_eq!(output["users"][0].get("sudo"), None);
 }
 
 #[test]
@@ -202,7 +225,7 @@ fn test_yaml_boolean_words_stay_strings() {
             homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![],
-            sudo: "ALL=(ALL) NOPASSWD:ALL".to_string(),
+            sudo: Some("ALL=(ALL) NOPASSWD:ALL".to_string()),
             groups: vec![],
             shell: "/bin/bash".to_string(),
         }],

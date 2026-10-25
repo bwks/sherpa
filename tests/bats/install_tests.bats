@@ -666,6 +666,16 @@ _require_container() {
     [ "$status" -eq 0 ]
 }
 
+@test "integration: sherpad service keeps a private /run/sherpa for container secrets" {
+    _require_install
+    run grep -q "^RuntimeDirectory=sherpa$" /etc/systemd/system/sherpad.service
+    [ "$status" -eq 0 ]
+    run grep -q "^RuntimeDirectoryMode=0700$" /etc/systemd/system/sherpad.service
+    [ "$status" -eq 0 ]
+    run grep -q "^RuntimeDirectoryPreserve=yes$" /etc/systemd/system/sherpad.service
+    [ "$status" -eq 0 ]
+}
+
 @test "integration: sherpad service is enabled (starts on boot)" {
     _require_install
     run systemctl is-enabled sherpad
