@@ -1,5 +1,6 @@
 use std::fs;
 use std::future::Future;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
@@ -14,8 +15,8 @@ use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
 use shared::data::{DestroyError, DestroyResponse, DestroySummary, StatusKind};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH, SHERPA_STORAGE_POOL, TAP_PREFIX,
-    VETH_PREFIX,
+    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR,
+    SHERPA_STORAGE_POOL, TAP_PREFIX, VETH_PREFIX,
 };
 use shared::util::dir_exists;
 
@@ -25,6 +26,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::lab_operations::{self, StopReason};
+use crate::services::node_secrets::remove_lab_secrets;
 use crate::services::progress::ProgressSender;
 
 /// Destroy a lab and all its resources
@@ -95,6 +97,7 @@ pub async fn destroy_lab(
     tracing::info!(lab_id = %lab_id, "Destroying containers");
     let _ = progress.send_status("Destroying containers...".to_string(), StatusKind::Progress);
     destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
+    destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
     let containers_duration = containers_timer.elapsed().as_secs();
     if summary.containers_destroyed.is_empty() && summary.containers_failed.is_empty() {
         let _ = progress.send_status("No containers to destroy".to_string(), StatusKind::Info);
@@ -350,6 +353,15 @@ pub(crate) async fn cleanup_lab_metadata(
         summary.lab_directory_deleted = true;
         send_status("Lab directory deleted".to_string(), StatusKind::Done);
         tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, "Lab directory already removed");
+    }
+}
+
+/// Remove a lab's container secret files from `root`, recording a failure as a destroy error.
+#[instrument(skip(errors), level = "debug")]
+pub(crate) fn destroy_lab_secrets(lab_id: &str, root: &Path, errors: &mut Vec<DestroyError>) {
+    if let Err(error) = remove_lab_secrets(root, lab_id) {
+        tracing::error!(lab_id = %lab_id, error = %format!("{error:#}"), "Failed to remove lab secret files");
+        errors.push(DestroyError::new("secrets", lab_id, format!("{error:#}")));
     }
 }
 
@@ -733,7 +745,25 @@ mod tests {
     use tokio::task::JoinHandle;
 
     use super::*;
+    use shared::data::{SecretContent, SecretFile};
     use shared::konst::LAB_FILE_NAME;
+
+    use crate::services::node_secrets::write_node_secrets;
+
+    #[test]
+    fn lab_secrets_are_removed_with_the_lab() {
+        let root = tempdir().unwrap();
+        let file = SecretFile {
+            name: "password".to_string(),
+            mode: 444,
+            content: SecretContent::from_bytes(b"pw"),
+        };
+        write_node_secrets(root.path(), "test1234", "db01", &[file]).unwrap();
+        let mut errors = Vec::new();
+        destroy_lab_secrets("test1234", root.path(), &mut errors);
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(!root.path().join("test1234").exists());
+    }
 
     struct DockerMock {
         docker: Docker,

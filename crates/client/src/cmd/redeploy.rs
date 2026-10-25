@@ -1,15 +1,17 @@
 use anyhow::{Context, Result, bail};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse, StatusKind, StatusMessage};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
+use topology::validate::validate_provisioners;
 
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
-use crate::provision::provision_lab;
+use crate::provision::{container_results, node_secrets, provision_lab};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -42,7 +44,17 @@ pub async fn redeploy(
 
     // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
+    validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     resolve_manifest_files(&mut manifest, manifest_path)?;
+
+    // Always sent, so a node whose container provisioner was removed loses its secret files.
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    let mut secrets = Vec::new();
+    for node in &manifest.nodes {
+        if node.name == node_name {
+            secrets = node_secrets(node, manifest_dir)?;
+        }
+    }
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -68,6 +80,7 @@ pub async fn redeploy(
             "lab_id": lab_id,
             "node_name": node_name,
             "manifest": manifest_value,
+            "secrets": secrets,
             "token": token,
         }),
     );
@@ -143,8 +156,18 @@ pub async fn redeploy(
         .await
         .with_context(|| format!("Node redeployed, but local SSH configuration refresh failed; run sherpa download {lab_id} --force"))?;
 
-    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
-    provision_lab(&manifest, manifest_dir, lab_id, None, Some(node_name))?;
+    let mut mounted = BTreeMap::new();
+    if !secrets.is_empty() {
+        mounted.insert(node_name.to_string(), secrets);
+    }
+    provision_lab(
+        &manifest,
+        manifest_dir,
+        lab_id,
+        None,
+        Some(node_name),
+        container_results(&mounted),
+    )?;
 
     Ok(())
 }

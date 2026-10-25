@@ -1,8 +1,10 @@
+use std::path::Path;
+
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
 use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo};
-use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH};
+use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR};
 use shared::util::load_file;
 
 use tracing::instrument;
@@ -12,7 +14,7 @@ use crate::auth::policy::require_admin;
 use crate::daemon::state::AppState;
 use crate::services::destroy::{
     cleanup_database, cleanup_lab_metadata, destroy_containers, destroy_docker_networks,
-    destroy_interfaces, destroy_libvirt_networks, destroy_vms_and_disks,
+    destroy_interfaces, destroy_lab_secrets, destroy_libvirt_networks, destroy_vms_and_disks,
 };
 use crate::services::lab_operations::{self, StopReason};
 
@@ -67,6 +69,7 @@ pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Resul
     let containers_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Cleaning containers");
     destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
+    destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
     tracing::info!(
         lab_id = %lab_id,
         destroyed = summary.containers_destroyed.len(),

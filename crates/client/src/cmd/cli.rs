@@ -213,7 +213,7 @@ enum Commands {
         #[arg(short, long)]
         node: String,
     },
-    /// Run node provisioners again (copy files and run scripts over SSH)
+    /// Run node provisioners again (resend container secret files; copy files and run scripts over SSH)
     Provision {
         /// Target a specific node (omit for all nodes with provisioners)
         #[arg(short, long)]
@@ -392,7 +392,10 @@ impl Cli {
                 .await?;
             }
             Commands::Provision { node } => {
-                provision(node.as_deref())?;
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                provision(node.as_deref(), &server_url, &config).await?;
             }
             Commands::Destroy { yes } => {
                 let lab = resolve_lab_identity()?;

@@ -324,6 +324,8 @@ class Guest:
         unit = Path("/etc/systemd/system/sherpad.service").read_text()
         require("ExecStart=/opt/sherpa/bin/sherpad start --foreground" in unit, "Incorrect service command")
         require("Requires=docker.service libvirtd.service" in unit, "Missing service dependencies")
+        require("RuntimeDirectory=sherpa\nRuntimeDirectoryMode=0700\nRuntimeDirectoryPreserve=yes" in unit,
+                "Missing private /run/sherpa for container secrets")
         require(Path("/etc/logrotate.d/sherpad").is_file(), "Missing logrotate configuration")
         _, image = self.command(["docker", "inspect", "--format",
                                 "{{.Config.Image}} {{.State.Running}} {{.HostConfig.RestartPolicy.Name}}",

@@ -12,6 +12,7 @@ pub mod import;
 pub mod inspect;
 pub mod list_labs;
 pub mod node_ops;
+pub mod node_secrets;
 pub mod progress;
 pub mod redeploy;
 pub mod resume;

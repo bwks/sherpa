@@ -28,22 +28,25 @@ use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
+use crate::services::node_secrets::write_node_secrets;
 use crate::validate::{
     reject_provisioners, validate_and_resolve_node_versions, validate_environment_variables,
+    validate_node_secrets,
 };
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
-    CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI,
-    LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME,
-    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
-    NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
-    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
+    DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS,
+    LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET,
+    MANAGEMENT_NODE_HOST_OFFSETS, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT,
+    SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
     SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_PATH,
-    SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
+    ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -444,6 +447,8 @@ pub async fn up_lab(
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
+    validate_node_secrets(&manifest, &request.node_secrets)
+        .context("Manifest validation failed: container secret files")?;
 
     let tailnet_enabled = tailscale::validate_enrollment(
         &manifest,
@@ -2738,6 +2743,25 @@ pub async fn up_lab(
             "Starting node readiness polling"
         );
 
+        // Secret files are written once, to RAM, and mounted when each container starts.
+        let mut secret_mounts = HashMap::new();
+        for (node_name, files) in &request.node_secrets {
+            let dir =
+                write_node_secrets(Path::new(SHERPA_SECRETS_DIR), lab_id, node_name, files)
+                    .with_context(|| format!("Cannot write secret files for node '{node_name}'"))?;
+            let _ = progress.send_status(
+                format!(
+                    "Wrote {} secret files for container: {node_name}",
+                    files.len()
+                ),
+                StatusKind::Progress,
+            );
+            secret_mounts.insert(
+                node_name.as_str(),
+                format!("{}:{CONTAINER_SECRETS_DIR}:ro", dir.display()),
+            );
+        }
+
         while start_time_readiness.elapsed() < timeout && connected_nodes.len() < total_lab_nodes {
             // Start containers
             for container in &container_nodes {
@@ -2763,7 +2787,7 @@ pub async fn up_lab(
                 let env_vars = container.environment_variables.clone().unwrap_or_default();
                 let commands = container.commands.clone().unwrap_or_default();
                 let user = container.user.clone();
-                let volumes = if let Some(volumes) = container.volumes.clone() {
+                let mut volumes: Vec<String> = if let Some(volumes) = container.volumes.clone() {
                     volumes
                         .iter()
                         .map(|v| format!("{}:{}", v.src, v.dst))
@@ -2771,6 +2795,9 @@ pub async fn up_lab(
                 } else {
                     vec![]
                 };
+                if let Some(mount) = secret_mounts.get(container.name.as_str()) {
+                    volumes.push(mount.clone());
+                }
 
                 let management_network_attachment = data::ContainerNetworkAttachment {
                     name: format!("{SHERPA_MANAGEMENT_NETWORK_NAME}-{lab_id}"),

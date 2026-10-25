@@ -5,12 +5,13 @@ use anyhow::{Context, Result, ensure};
 use tracing::instrument;
 
 use shared::data::{NodeConfig, NodeKind, OsVariant};
-use shared::konst::NODE_USER_ENV_DIR;
+use shared::konst::{CONTAINER_SECRETS_DIR, NODE_USER_ENV_DIR};
+use shared::validators::{valid_octal_mode, validate_secret_file};
 
-use crate::{Manifest, Provisioner, SshProvisioner};
+use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
 
-/// Check node provisioners: they run only on Linux and BSD VMs, and their paths and modes must
-/// be usable on the node.
+/// Check node provisioners: ssh provisioners run only on Linux and BSD VMs and container
+/// provisioners only on containers, and their paths, names and modes must be usable.
 #[instrument(skip(manifest), level = "debug")]
 pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
     for node in &manifest.nodes {
@@ -19,19 +20,56 @@ pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
             continue;
         }
         let config = NodeConfig::get_model(node.model);
-        ensure!(
-            config.kind == NodeKind::VirtualMachine
-                && matches!(config.os_variant, OsVariant::Linux | OsVariant::Bsd),
-            "Node '{}' has provisioners, which run only on Linux and BSD VMs",
-            node.name
-        );
-        // Env files from every provisioner on a node share the node's env directory.
+        // Env files and secret files from every provisioner on a node share one directory.
         let mut env_names = HashSet::new();
+        let mut secret_names = HashSet::new();
         for provisioner in provisioners {
             match provisioner {
-                Provisioner::Ssh(ssh) => validate_ssh(&node.name, ssh, &mut env_names)?,
+                Provisioner::Ssh(ssh) => {
+                    ensure!(
+                        config.kind == NodeKind::VirtualMachine
+                            && matches!(config.os_variant, OsVariant::Linux | OsVariant::Bsd),
+                        "Node '{}' has an ssh provisioner, which runs only on Linux and BSD VMs",
+                        node.name
+                    );
+                    validate_ssh(&node.name, ssh, &mut env_names)?;
+                }
+                Provisioner::Container(container) => {
+                    ensure!(
+                        config.kind == NodeKind::Container,
+                        "Node '{}' has a container provisioner, which runs only on containers",
+                        node.name
+                    );
+                    validate_container(&node.name, container, &mut secret_names)?;
+                }
             }
         }
+    }
+    Ok(())
+}
+
+fn validate_container(
+    node: &str,
+    container: &ContainerProvisioner,
+    secret_names: &mut HashSet<String>,
+) -> Result<()> {
+    ensure!(
+        !container.files.is_empty(),
+        "Node '{node}': a container provisioner has nothing to do; add files"
+    );
+    for file in &container.files {
+        ensure!(
+            !file.src.trim().is_empty(),
+            "Node '{node}': a container secret file has an empty src"
+        );
+        validate_secret_file(&file.name, file.mode).with_context(|| format!("Node '{node}'"))?;
+        ensure!(
+            secret_names.insert(file.name.clone()),
+            "Node '{node}': two secret files are named '{}', and both would be mounted at \
+             {CONTAINER_SECRETS_DIR}/{}",
+            file.name,
+            file.name
+        );
     }
     Ok(())
 }
@@ -54,7 +92,7 @@ fn validate_ssh(node: &str, ssh: &SshProvisioner, env_names: &mut HashSet<String
             file.dst
         );
         ensure!(
-            valid_mode(file.mode),
+            valid_octal_mode(file.mode),
             "Node '{node}': provisioner file mode {} for '{}' must be octal digits up to 777",
             file.mode,
             file.dst
@@ -106,21 +144,6 @@ fn safe_name(part: &str) -> bool {
     true
 }
 
-/// A mode written as octal digits, such as `600`.
-fn valid_mode(mode: u32) -> bool {
-    if mode > 777 {
-        return false;
-    }
-    let mut rest = mode;
-    while rest > 0 {
-        if rest % 10 > 7 {
-            return false;
-        }
-        rest /= 10;
-    }
-    true
-}
-
 /// The name an env file gets in the node's env directory: its file name on the client.
 fn env_file_name(env_file: &str) -> Option<&str> {
     if env_file.ends_with('/') || env_file.ends_with('\\') {
@@ -156,6 +179,73 @@ type = "ssh"
             "{:#}",
             validate_provisioners(&manifest(model, provisioner)).unwrap_err()
         )
+    }
+
+    fn container(model: &str, files: &str) -> Manifest {
+        toml::from_str(&format!(
+            "name = \"lab\"\n[[nodes]]\nname = \"db01\"\nmodel = \"{model}\"\n\
+             [[nodes.provisioners]]\ntype = \"container\"\n{files}"
+        ))
+        .unwrap()
+    }
+
+    fn secret(name: &str, mode: u32) -> String {
+        format!("[[nodes.provisioners.files]]\nsrc = \"a.txt\"\nname = \"{name}\"\nmode = {mode}\n")
+    }
+
+    #[test]
+    fn container_nodes_accept_valid_secret_files() {
+        let files = format!(
+            "{}{}",
+            secret("mongo_password", 444),
+            secret("tls.key", 400)
+        );
+        for model in ["mongo_db", "nats_bus", "arista_ceos"] {
+            validate_provisioners(&container(model, &files)).unwrap();
+        }
+    }
+
+    #[test]
+    fn container_provisioners_are_rejected_on_other_nodes() {
+        for model in ["ubuntu_linux", "free_bsd", "cisco_iosv"] {
+            let error = format!(
+                "{:#}",
+                validate_provisioners(&container(model, &secret("token", 444))).unwrap_err()
+            );
+            assert!(
+                error.contains("db01") && error.contains("containers"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn container_secret_files_are_checked() {
+        for (files, expected) in [
+            (String::new(), "nothing to do"),
+            (secret("../token", 444), "../token"),
+            (secret("token", 448), "448"),
+            (
+                format!("{}{}", secret("token", 444), secret("token", 400)),
+                "two secret files",
+            ),
+            (
+                "[[nodes.provisioners.files]]\nsrc = \" \"\nname = \"token\"\n".to_string(),
+                "empty src",
+            ),
+        ] {
+            let error = format!(
+                "{:#}",
+                validate_provisioners(&container("mongo_db", &files)).unwrap_err()
+            );
+            assert!(error.contains(expected), "{expected}: {error}");
+        }
+    }
+
+    #[test]
+    fn ssh_provisioners_are_still_rejected_on_containers() {
+        let error = rejection("mongo_db", "scripts = [\"./setup.sh\"]");
+        assert!(error.contains("Linux and BSD VMs"), "{error}");
     }
 
     fn file(dst: &str, mode: u32) -> String {

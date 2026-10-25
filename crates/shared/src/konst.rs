@@ -317,8 +317,16 @@ pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
 pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
 /// Seconds between attempts to log in to a node that is not accepting the login yet.
 pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
+/// Default mode of container secret files, as octal digits: readable by any user in the
+/// container, which may not run as root.
+pub const CONTAINER_SECRET_DEFAULT_MODE: u32 = 444;
 /// Docker endpoint driver option naming a network's interface in the container.
 pub const DOCKER_ENDPOINT_IFNAME_OPT: &str = "com.docker.network.endpoint.ifname";
+/// Directory in a container where its secret files are mounted, read-only.
+pub const CONTAINER_SECRETS_DIR: &str = "/run/secrets";
+/// RAM-backed server directory holding container secret files, under the daemon's
+/// systemd `RuntimeDirectory` (`/run/sherpa`, mode 0700).
+pub const SHERPA_SECRETS_DIR: &str = "/run/sherpa/secrets";
 /// Root-only directory where cloud-init stages files until their owners exist.
 pub const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
 /// Guest account database, read at boot to find a user's home directory.
@@ -507,6 +515,7 @@ pub const RPC_MSG_LAB_UP_FAILED: &str = "Up operation failed";
 pub const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
 pub const RPC_MSG_LAB_CANCEL_FAILED: &str = "Stopping the lab's operations failed";
 pub const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
+pub const RPC_MSG_NODE_SECRETS_FAILED: &str = "Writing the node's secret files failed";
 
 // Admin-only operations
 pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
@@ -564,6 +573,8 @@ pub const RPC_MSG_INVALID_PARAMS_REDEPLOY: &str =
 
 // Invalid params messages
 pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
+pub const RPC_MSG_INVALID_PARAMS_NODE_SECRETS: &str =
+    "Invalid params: expected lab_id, node_name, files, and token";
 pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";
 pub const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
     "Invalid params: expected {username: string, password: string}";

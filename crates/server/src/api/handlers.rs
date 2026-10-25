@@ -7,7 +7,7 @@ use axum::{Form, Json};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -1240,10 +1240,12 @@ pub async fn node_redeploy_handler(
         ApiError::internal("Unable to load saved lab manifest")
     })?;
 
+    // The web UI cannot send secret files, so the node keeps its current ones.
     let request = RedeployRequest {
         lab_id,
         node_name: node_name.clone(),
         manifest,
+        secrets: None,
     };
 
     let progress = ProgressSender::new(tokio::sync::mpsc::unbounded_channel().0);
@@ -2961,11 +2963,19 @@ pub async fn redeploy_node_json(
         .get("manifest")
         .cloned()
         .ok_or_else(|| ApiError::bad_request("Missing 'manifest' field in request body"))?;
+    let secrets = match payload.get("secrets") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(value) => Some(
+            serde_json::from_value(value.clone())
+                .map_err(|_| ApiError::bad_request("Invalid 'secrets' field in request body"))?,
+        ),
+    };
 
     let request = RedeployRequest {
         lab_id,
         node_name,
         manifest,
+        secrets,
     };
 
     let (progress_tx, progress_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -3744,6 +3754,7 @@ pub async fn lab_create_post_handler(
         lab_id,
         manifest: manifest_value,
         tailscale_auth_key: None,
+        node_secrets: BTreeMap::new(),
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();

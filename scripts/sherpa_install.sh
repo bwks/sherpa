@@ -823,6 +823,12 @@ RestartSec=5
 # Environment configuration (optional file)
 EnvironmentFile=-/opt/sherpa/env/sherpa.env
 
+# RAM-backed /run/sherpa (0700 sherpa) for container secret files. Kept when sherpad
+# stops or restarts, so running containers keep their secrets; gone after a reboot.
+RuntimeDirectory=sherpa
+RuntimeDirectoryMode=0700
+RuntimeDirectoryPreserve=yes
+
 # Security hardening (keep basic options that are compatible with caps)
 # NOTE: PrivateTmp is intentionally disabled because the server needs
 # to access user-provided file paths (e.g. image imports from /tmp).

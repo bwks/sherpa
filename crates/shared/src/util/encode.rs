@@ -21,6 +21,13 @@ pub fn base64_decode(input: &str) -> Result<String> {
     String::from_utf8(bytes).context("Base64 decoded content is not valid UTF-8")
 }
 
+/// Base64-decode to raw bytes, for content that need not be text.
+pub fn base64_decode_bytes(input: &str) -> Result<Vec<u8>> {
+    general_purpose::STANDARD
+        .decode(input)
+        .context("Failed to base64 decode")
+}
+
 pub fn base64_encode_file(filename: &str) -> Result<String> {
     let file_content =
         load_file(filename).with_context(|| format!("Failed to base64 encode: {filename}"))?;

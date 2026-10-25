@@ -41,6 +41,17 @@ bash scripts/tailwind-build.sh
 echo "Building Sherpa workspace (${mode})..."
 cargo "${cargo_args[@]}"
 sudo systemctl stop sherpad
+# Units installed before container secrets lack /run/sherpa; scripts/sherpa_update.sh adds the
+# same drop-in.
+if ! grep -q '^RuntimeDirectory=' /etc/systemd/system/sherpad.service \
+    && [ ! -f /etc/systemd/system/sherpad.service.d/runtime-directory.conf ]; then
+    echo "Adding /run/sherpa to the sherpad service..."
+    sudo install -d -m 755 /etc/systemd/system/sherpad.service.d
+    printf '%s\n' '[Service]' 'RuntimeDirectory=sherpa' 'RuntimeDirectoryMode=0700' \
+        'RuntimeDirectoryPreserve=yes' \
+        | sudo tee /etc/systemd/system/sherpad.service.d/runtime-directory.conf >/dev/null
+    sudo systemctl daemon-reload
+fi
 sudo cp "target/${target_dir}/sherpad" /opt/sherpa/bin/
 sudo cp "target/${target_dir}/sherpa" /opt/sherpa/bin/
 sudo systemctl restart sherpad

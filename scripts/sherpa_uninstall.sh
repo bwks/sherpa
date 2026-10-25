@@ -224,6 +224,13 @@ remove_systemd_service() {
             return 1
         fi
     fi
+    if [ -d /etc/systemd/system/sherpad.service.d ]; then
+        if rm -rf /etc/systemd/system/sherpad.service.d; then
+            print_success "Service drop-ins removed"
+        else
+            print_warning "Failed to remove service drop-ins"
+        fi
+    fi
     
     # Remove logrotate config
     print_info "Removing logrotate configuration..."
