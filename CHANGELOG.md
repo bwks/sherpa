@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.99] - 2026-10-25
+
+### Bug Fixes
+
+- Give redeploy owner test users SSH keys by @bwks ([3cbaae8](https://github.com/bwks/sherpa/commit/3cbaae8e91d7824f4a6ca21ba0755449f3a4c4f8))
+
+### Features
+
+- Store node CPU, memory and a fixed VNC port in the database by @bwks ([67002bf](https://github.com/bwks/sherpa/commit/67002bfea36e4e3fbe2062a3ac3657dbcd35412f))
+
+### Miscellaneous
+
+- Merge pull request #358 from bwks/fix/test-env-resources-and-web-node-specs
+
+v0.3.99: store node CPU, memory and fixed VNC ports by @bwks in [#358](https://github.com/bwks/sherpa/pull/358) ([2c04648](https://github.com/bwks/sherpa/commit/2c0464822a20483c278466f16c6263e8b8121c60))
+- Bump version to 0.3.99 by @bwks ([d5a70cf](https://github.com/bwks/sherpa/commit/d5a70cf267e7aff5f87128d4eeb728eec5653f88))
+- Merge pull request #357 from bwks/changelog/v0.3.98
+
+chore(release): update changelog for v0.3.98 by @github-actions[bot] in [#357](https://github.com/bwks/sherpa/pull/357) ([1d46ef1](https://github.com/bwks/sherpa/commit/1d46ef1ff0d5cfb51dd33735333ec6b611c3d6f3))
+
+### Testing
+
+- Run test environment VMs with 16 vCPUs and 32 GB by @bwks ([880f2ba](https://github.com/bwks/sherpa/commit/880f2ba967eec1c44ed0024cec846a1841b2a429))
 ## [0.3.98] - 2026-10-25
 
 ### Bug Fixes
