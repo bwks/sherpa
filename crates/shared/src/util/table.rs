@@ -9,8 +9,8 @@ use tabled::{
 
 use super::ssh::{SshConfigInspectionEntry, ssh_key_fingerprint};
 use crate::data::{
-    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ScannedImage,
-    TailnetStatus,
+    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ProvisionResult,
+    ScannedImage, TailnetStatus,
 };
 
 /// Represents a row in the SSH config inspection table
@@ -254,6 +254,37 @@ pub fn render_bridges_table(bridges: &[BridgeInfo]) -> String {
     Table::new(rows)
         .with(Style::modern())
         .with(Panel::header("Bridges"))
+        .with(Modify::new(Rows::first()).with(Alignment::center()))
+        .with(BorderCorrection::span())
+        .to_string()
+}
+
+#[derive(Tabled)]
+struct ProvisionTableRow {
+    #[tabled(rename = "Node")]
+    node: String,
+
+    #[tabled(rename = "Status")]
+    status: String,
+
+    #[tabled(rename = "Detail")]
+    detail: String,
+}
+
+/// Renders the result of running provisioners on a lab's nodes
+pub fn render_provision_table(results: &[ProvisionResult], lab_id: &str) -> String {
+    let mut rows = Vec::with_capacity(results.len());
+    for result in results {
+        rows.push(ProvisionTableRow {
+            node: format!("{}.{lab_id}", result.node),
+            status: result.status.to_string(),
+            detail: result.detail.clone(),
+        });
+    }
+
+    Table::new(rows)
+        .with(Style::modern())
+        .with(Panel::header("Provisioning"))
         .with(Modify::new(Rows::first()).with(Alignment::center()))
         .with(BorderCorrection::span())
         .to_string()
@@ -629,7 +660,29 @@ pub fn render_tailnet_table(status: &TailnetStatus) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{NodeKind, NodeModel, NodeState};
+    use crate::data::{NodeKind, NodeModel, NodeState, ProvisionStatus};
+
+    #[test]
+    fn provision_table_shows_each_node_with_its_status() {
+        let results = vec![
+            ProvisionResult {
+                node: "dev01".to_string(),
+                status: ProvisionStatus::Provisioned,
+                detail: String::new(),
+            },
+            ProvisionResult {
+                node: "dev02".to_string(),
+                status: ProvisionStatus::Failed,
+                detail: "exit status 3 on dev02.abcd1234".to_string(),
+            },
+        ];
+        let table = render_provision_table(&results, "abcd1234");
+        assert!(table.contains("Provisioning"), "{table}");
+        assert!(table.contains("dev01.abcd1234"), "{table}");
+        assert!(table.contains("provisioned"), "{table}");
+        assert!(table.contains("failed"), "{table}");
+        assert!(table.contains("exit status 3"), "{table}");
+    }
 
     #[test]
     fn tailnet_table_wraps_pending_route_warning() {

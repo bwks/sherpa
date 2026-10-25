@@ -14,6 +14,7 @@ use super::init::init;
 use super::inspect::inspect;
 use super::login::{login, logout, whoami};
 use super::new::new;
+use super::provision::provision;
 use super::redeploy::redeploy;
 use super::resume::resume;
 use super::server::{OutputFormat, ServerCommands, run_server};
@@ -212,6 +213,12 @@ enum Commands {
         #[arg(short, long)]
         node: String,
     },
+    /// Run node provisioners again (copy files and run scripts over SSH)
+    Provision {
+        /// Target a specific node (omit for all nodes with provisioners)
+        #[arg(short, long)]
+        node: Option<String>,
+    },
     /// Destroy environment
     Destroy {
         /// Skip confirmation prompt
@@ -383,6 +390,9 @@ impl Cli {
                     &config,
                 )
                 .await?;
+            }
+            Commands::Provision { node } => {
+                provision(node.as_deref())?;
             }
             Commands::Destroy { yes } => {
                 let lab = resolve_lab_identity()?;

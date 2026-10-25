@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use std::path::Path;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse, StatusKind, StatusMessage};
@@ -8,14 +9,12 @@ use shared::util::{Emoji, term_msg_surround};
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
+use crate::provision::provision_lab;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 use super::download::download;
-use super::up::{
-    resolve_environment_variables, resolve_startup_scripts, resolve_user_scripts,
-    resolve_ztp_configs,
-};
+use super::up::resolve_manifest_files;
 
 /// Redeploy a single node: destroy and recreate with fresh ZTP
 pub async fn redeploy(
@@ -41,12 +40,9 @@ pub async fn redeploy(
         }
     };
 
-    // Load and process manifest (resolve ZTP configs)
+    // Load the manifest and resolve its client files, as `up` does.
     let mut manifest = topology::Manifest::load_file(manifest_path)?;
-    resolve_ztp_configs(&mut manifest, manifest_path)?;
-    resolve_startup_scripts(&mut manifest, manifest_path)?;
-    resolve_user_scripts(&mut manifest, manifest_path)?;
-    resolve_environment_variables(&mut manifest)?;
+    resolve_manifest_files(&mut manifest, manifest_path)?;
 
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -146,6 +142,9 @@ pub async fn redeploy(
     download(lab_id, true, server_url, config)
         .await
         .with_context(|| format!("Node redeployed, but local SSH configuration refresh failed; run sherpa download {lab_id} --force"))?;
+
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    provision_lab(&manifest, manifest_dir, lab_id, None, Some(node_name))?;
 
     Ok(())
 }

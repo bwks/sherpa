@@ -18,6 +18,7 @@ mod mapping;
 mod network;
 mod node;
 mod provider;
+mod provision;
 mod record_id;
 mod redeploy;
 mod ssh;
@@ -73,6 +74,7 @@ pub use node::{
     NodeState, OsVariant, UnikernelBootMode, ZtpMethod,
 };
 pub use provider::VmProviders;
+pub use provision::{ProvisionResult, ProvisionStatus};
 pub use record_id::{RecordId, RecordIdKey};
 pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};

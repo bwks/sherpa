@@ -5,6 +5,7 @@ mod bridge;
 mod link;
 mod manifest;
 mod node;
+mod provisioner;
 mod talos_cluster;
 pub mod validate;
 
@@ -15,4 +16,5 @@ pub use bridge::{
 pub use link::{Link, Link2, LinkDetailed, LinkExpanded};
 pub use manifest::Manifest;
 pub use node::{Node, NodeExpanded, StartupScript, TextFile, TextFileData, VolumeMount};
+pub use provisioner::{Provisioner, ProvisionerFile, SshProvisioner};
 pub use talos_cluster::{TalosCluster, find_talos_cluster};

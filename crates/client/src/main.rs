@@ -4,6 +4,7 @@
 mod cluster_credentials;
 mod cmd;
 mod private_key;
+mod provision;
 mod token;
 mod ws_client;
 

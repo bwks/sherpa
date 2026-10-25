@@ -17,7 +17,9 @@ machine config; see [`TALOS.md`](TALOS.md).
 
 The generated files stay in the lab directory on the server, and the ISO is copied into the
 storage pool, so everything below is readable there by `sherpa`, the `sherpa` group and QEMU
-(see "Lab storage permissions" in [`SERVER.md`](SERVER.md)). None of it is for secrets.
+(see "Lab storage permissions" in [`SERVER.md`](SERVER.md)). None of it is for secrets: secrets
+go through the client-side provisioners in [`PROVISIONERS.md`](PROVISIONERS.md), which the
+server never sees.
 
 Alpine has its own branch in `generate_cloud_init_ztp`; every other cloud-init model shares the
 main branch. Both build `runcmd` in the same order: staged file moves, the environment loader,
