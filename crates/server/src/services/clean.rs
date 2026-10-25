@@ -68,7 +68,14 @@ pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Resul
     // 1. Destroy containers
     let containers_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Cleaning containers");
-    destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
+    destroy_containers(
+        lab_id,
+        &state.docker,
+        &state.config.tailscale,
+        &mut summary,
+        &mut errors,
+    )
+    .await;
     destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
     tracing::info!(
         lab_id = %lab_id,

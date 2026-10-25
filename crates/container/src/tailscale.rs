@@ -268,7 +268,7 @@ async fn wait_for_socket(
     .context("Tailscale daemon did not become ready")?
 }
 
-fn enrollment_command(config: &GatewayConfig, settings: &TailscaleGatewaySettings) -> Vec<String> {
+fn enrollment_command(routes: &[String], settings: &TailscaleGatewaySettings) -> Vec<String> {
     let script = "umask 077; trap 'rm -f /run/enrollment-key' EXIT; cat > /run/enrollment-key; tailscale \"$1\" up --auth-key=file:/run/enrollment-key --timeout=\"$3\" --accept-dns=false --accept-routes=false --snat-subnet-routes=true --stateful-filtering=true --advertise-routes=\"$2\"";
     vec![
         "sh".into(),
@@ -276,20 +276,22 @@ fn enrollment_command(config: &GatewayConfig, settings: &TailscaleGatewaySetting
         script.into(),
         "enroll".into(),
         format!("--socket={}", settings.socket_path),
-        config.routes.join(","),
+        routes.join(","),
         format!("{}s", settings.enrollment_timeout_secs),
     ]
 }
 
-#[instrument(skip(docker, key), fields(lab_id = %config.lab_id))]
+/// Start the gateway and log it in with `key`. Also used on resume, as stopping logs out.
+#[instrument(skip(docker, key, settings))]
 pub async fn enroll_gateway(
     docker: &Docker,
     id: &str,
-    config: &GatewayConfig,
+    lab_id: &str,
+    routes: &[String],
     key: &TailnetAuthKey,
     settings: &TailscaleGatewaySettings,
 ) -> Result<TailnetStatus> {
-    inspect_owned(docker, id, &config.lab_id).await?;
+    inspect_owned(docker, id, lab_id).await?;
     docker
         .start_container(id, None::<StartContainerOptions>)
         .await
@@ -306,13 +308,13 @@ pub async fn enroll_gateway(
     exec(
         docker,
         id,
-        enrollment_command(config, settings),
+        enrollment_command(routes, settings),
         Some(key.expose()),
         settings,
     )
     .await
     .context("Tailscale enrollment failed")?;
-    wait_connected(docker, id, &config.lab_id, config.routes.clone(), settings).await
+    wait_connected(docker, id, lab_id, routes.to_vec(), settings).await
 }
 
 async fn wait_connected(
@@ -370,29 +372,26 @@ pub async fn gateway_status(
     TailnetStatus::from_daemon(&raw, routes)
 }
 
-#[instrument(skip(docker))]
-pub async fn resume_gateway(
-    docker: &Docker,
-    id: &str,
-    lab_id: &str,
-    routes: Vec<String>,
-    settings: &TailscaleGatewaySettings,
-) -> Result<TailnetStatus> {
-    let details = inspect_owned(docker, id, lab_id).await?;
-    if !details
-        .state
-        .as_ref()
-        .is_some_and(|s| s.running == Some(true))
-    {
-        docker
-            .start_container(id, None::<StartContainerOptions>)
-            .await
-            .context("Unable to resume Tailscale gateway")?;
-        wait_for_socket(docker, id, settings).await?;
-    }
-    wait_connected(docker, id, lab_id, routes, settings).await
+fn logout_command(settings: &TailscaleGatewaySettings) -> Vec<String> {
+    vec![
+        "tailscale".into(),
+        format!("--socket={}", settings.socket_path),
+        "logout".into(),
+    ]
 }
 
+/// Log a running gateway out, which removes an ephemeral device from the tailnet at once.
+/// A failure is only logged: Tailscale removes an offline ephemeral device by itself later.
+async fn logout(docker: &Docker, id: &str, settings: &TailscaleGatewaySettings) {
+    match exec(docker, id, logout_command(settings), None, settings).await {
+        Ok(_) => tracing::info!("Logged Tailscale gateway out"),
+        Err(error) => {
+            tracing::warn!(error = ?error, "Unable to log Tailscale gateway out; continuing")
+        }
+    }
+}
+
+/// Log a running gateway out, then stop it. The next resume enrolls it again.
 #[instrument(skip(docker))]
 pub async fn stop_gateway(
     docker: &Docker,
@@ -406,6 +405,7 @@ pub async fn stop_gateway(
         .as_ref()
         .is_some_and(|s| s.running == Some(true))
     {
+        logout(docker, id, settings).await;
         match docker
             .stop_container(
                 id,
@@ -430,8 +430,12 @@ pub async fn stop_gateway(
 }
 
 /// Cleanup uses exact names plus ownership labels, including partially created labs.
-#[instrument(skip(docker))]
-pub async fn remove_gateway(docker: &Docker, lab_id: &str) -> Result<()> {
+#[instrument(skip(docker, settings))]
+pub async fn remove_gateway(
+    docker: &Docker,
+    lab_id: &str,
+    settings: &TailscaleGatewaySettings,
+) -> Result<()> {
     let name = gateway_name(lab_id);
     match docker
         .inspect_container(&name, None::<InspectContainerOptions>)
@@ -449,6 +453,13 @@ pub async fn remove_gateway(docker: &Docker, lab_id: &str) -> Result<()> {
             let id = details
                 .id
                 .context("Tailscale gateway missing container ID")?;
+            if details
+                .state
+                .as_ref()
+                .is_some_and(|s| s.running == Some(true))
+            {
+                logout(docker, &id, settings).await;
+            }
             match docker
                 .remove_container(
                     &id,
@@ -532,7 +543,7 @@ mod tests {
         assert_eq!(command[2], settings.socket_path);
         assert_eq!(command[3], config.routes[0]);
         assert!(!command[0].contains(&settings.socket_path));
-        let enrollment = enrollment_command(&config, &settings);
+        let enrollment = enrollment_command(&config.routes, &settings);
         assert_eq!(enrollment[4], format!("--socket={}", settings.socket_path));
         assert_eq!(enrollment[5], config.routes.join(","));
         assert_eq!(enrollment[6], "120s");
@@ -590,6 +601,11 @@ mod tests {
                 "200 OK",
                 r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
             ),
+            (
+                "/containers/exact-id/exec",
+                "500 Internal Server Error",
+                r#"{"message":"exec unavailable"}"#,
+            ),
             ("/containers/exact-id/stop?t=17", "204 No Content", ""),
         ]);
         let settings = TailscaleGatewaySettings {
@@ -599,6 +615,44 @@ mod tests {
         let result = stop_gateway(&docker, "exact-id", "test1234", &settings).await;
         mock.join().unwrap();
         result.unwrap();
+    }
+
+    #[test]
+    fn logout_uses_operator_socket() {
+        let settings = TailscaleGatewaySettings {
+            socket_path: "/run/custom/daemon.sock".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            logout_command(&settings),
+            vec!["tailscale", "--socket=/run/custom/daemon.sock", "logout"]
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_logs_out_a_running_gateway_and_removes_it_when_logout_fails() {
+        let (docker, mock) = mock_docker(vec![
+            (
+                "/containers/sherpa-tailnet-test1234/json",
+                "200 OK",
+                r#"{"Id":"exact-id","State":{"Running":true},"Config":{"Labels":{"sh.erpa.tailscale.lab":"test1234","sh.erpa.role":"tailnet-gateway"}}}"#,
+            ),
+            (
+                "/containers/exact-id/exec",
+                "500 Internal Server Error",
+                r#"{"message":"exec unavailable"}"#,
+            ),
+            ("/containers/exact-id?", "204 No Content", ""),
+            (
+                "/volumes/sherpa-tailnet-state-test1234",
+                "404 Not Found",
+                r#"{"message":"missing"}"#,
+            ),
+        ]);
+        remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
+            .await
+            .unwrap();
+        mock.join().unwrap();
     }
 
     fn mock_docker(
@@ -649,7 +703,9 @@ mod tests {
                 r#"{"message":"missing"}"#,
             ),
         ]);
-        remove_gateway(&docker, "test1234").await.unwrap();
+        remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
+            .await
+            .unwrap();
         mock.join().unwrap();
     }
 
@@ -661,7 +717,7 @@ mod tests {
             r#"{"Id":"foreign","Config":{"Labels":{"sh.erpa.tailscale.lab":"another","sh.erpa.role":"tailnet-gateway"}}}"#,
         )]);
         assert!(
-            remove_gateway(&docker, "test1234")
+            remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
                 .await
                 .unwrap_err()
                 .to_string()
@@ -702,7 +758,11 @@ mod tests {
                 r#"{"message":"daemon failure"}"#,
             ),
         ]);
-        assert!(remove_gateway(&docker, "test1234").await.is_err());
+        assert!(
+            remove_gateway(&docker, "test1234", &TailscaleGatewaySettings::default())
+                .await
+                .is_err()
+        );
         mock.join().unwrap();
     }
 
@@ -829,14 +889,22 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a disposable Docker network, Linux TUN, and a test tailnet auth key"]
-    async fn live_tailnet_enrollment_stop_resume_cleanup() -> Result<()> {
+    async fn live_tailnet_enrollment_stop_reenroll_cleanup() -> Result<()> {
         let config = live_config();
         let settings = test_settings()?;
         let docker = Docker::connect_with_local_defaults()?;
         let key = TailnetAuthKey::new(std::env::var("SHERPA_TEST_TAILSCALE_AUTH_KEY")?);
         let result: Result<()> = async {
             let id = create_gateway(&docker, &config, &settings).await?;
-            let joined = enroll_gateway(&docker, &id, &config, &key, &settings).await?;
+            let joined = enroll_gateway(
+                &docker,
+                &id,
+                &config.lab_id,
+                &config.routes,
+                &key,
+                &settings,
+            )
+            .await?;
             ensure!(
                 joined.state == TailnetState::Connected,
                 "gateway did not connect"
@@ -855,25 +923,27 @@ mod tests {
                 stopped.state == TailnetState::Stopped,
                 "gateway did not stop"
             );
-            let resumed = resume_gateway(
+            // Stopping logged the gateway out, so resuming enrolls it again.
+            let resumed = enroll_gateway(
                 &docker,
                 &id,
                 &config.lab_id,
-                config.routes.clone(),
+                &config.routes,
+                &key,
                 &settings,
             )
             .await?;
             ensure!(
-                joined.tailscale_ips == resumed.tailscale_ips,
-                "gateway identity changed"
+                resumed.state == TailnetState::Connected,
+                "gateway did not reconnect"
             );
             Ok(())
         }
         .await;
-        let cleanup = remove_gateway(&docker, &config.lab_id).await;
+        let cleanup = remove_gateway(&docker, &config.lab_id, &settings).await;
         result?;
         cleanup?;
-        remove_gateway(&docker, &config.lab_id).await?;
+        remove_gateway(&docker, &config.lab_id, &settings).await?;
         Ok(())
     }
 
@@ -1031,7 +1101,7 @@ mod tests {
             Ok(())
         }
         .await;
-        let cleanup = remove_gateway(&docker, &lab_id).await;
+        let cleanup = remove_gateway(&docker, &lab_id, &settings).await;
         let network_cleanup = docker.remove_network(&created.id).await;
         result?;
         cleanup?;

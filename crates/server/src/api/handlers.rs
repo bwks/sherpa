@@ -51,7 +51,7 @@ use shared::data::{
     ImportRequest, InspectResponse, InterfaceType, LabNodeActionResponse, ListImagesRequest,
     ListLabsResponse, ListUsersResponse, LoginRequest, LoginResponse, MachineType, NodeConfig,
     NodeModel, OsVariant, RedeployRequest, RemoveSshKeyRequest, ScanImagesRequest,
-    SetDefaultImageRequest, ShowImageRequest, UpRequest, UpdateImpairmentRequest,
+    SetDefaultImageRequest, ShowImageRequest, TailnetAuthKey, UpRequest, UpdateImpairmentRequest,
     UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ZtpMethod,
 };
 use shared::konst::{
@@ -1172,12 +1172,11 @@ pub async fn lab_start_handler(
     Path(lab_id): Path<String>,
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
-    let response =
-        run_detached(
-            async move { resume::start_lab_nodes(&auth, &lab_id, None, &state, None).await },
-        )
-        .await
-        .map_err(ApiError::from)?;
+    let response = run_detached(async move {
+        resume::start_lab_nodes(&auth, &lab_id, None, None, &state, None).await
+    })
+    .await
+    .map_err(ApiError::from)?;
 
     Ok(Json(response))
 }
@@ -1212,7 +1211,7 @@ pub async fn node_start_handler(
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
-        resume::start_lab_nodes(&auth, &lab_id, Some(&node_name), &state, None).await
+        resume::start_lab_nodes(&auth, &lab_id, Some(&node_name), None, &state, None).await
     })
     .await
     .map_err(ApiError::from)?;
@@ -2833,6 +2832,8 @@ pub async fn admin_image_upload_handler(
 #[derive(Deserialize, Default)]
 pub struct NodeActionPayload {
     pub node_name: Option<String>,
+    /// Resume only: re-enrolls the lab's Tailscale gateway. Requires server TLS.
+    pub tailscale_auth_key: Option<TailnetAuthKey>,
 }
 
 /// Helper to require admin privileges
@@ -2938,7 +2939,15 @@ pub async fn resume_lab_json(
 ) -> Result<Json<LabNodeActionResponse>, ApiError> {
     let auth = auth.into_context();
     let response = run_detached(async move {
-        resume::start_lab_nodes(&auth, &lab_id, payload.node_name.as_deref(), &state, None).await
+        resume::start_lab_nodes(
+            &auth,
+            &lab_id,
+            payload.node_name.as_deref(),
+            payload.tailscale_auth_key.as_ref(),
+            &state,
+            None,
+        )
+        .await
     })
     .await
     .map_err(ApiError::from)?;

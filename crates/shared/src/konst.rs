@@ -584,6 +584,7 @@ pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (o
 pub const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
     "Invalid params: expected {username: string, password: string}";
 pub const RPC_MSG_INVALID_PARAMS_TOKEN: &str = "Invalid params: expected {token: string}";
+pub const RPC_MSG_INVALID_TAILSCALE_KEY: &str = "Invalid Tailscale credential field";
 pub const RPC_MSG_INVALID_PARAMS_CREATE_USER: &str = "Invalid params: expected CreateUserRequest";
 pub const RPC_MSG_INVALID_PARAMS_DELETE_USER: &str = "Invalid params: expected DeleteUserRequest";
 pub const RPC_MSG_INVALID_PARAMS_CHANGE_PASSWORD: &str =

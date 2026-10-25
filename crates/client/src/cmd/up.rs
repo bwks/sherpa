@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, NodeInfo, StatusKind, StatusMessage, TailnetAuthKey, UpResponse};
+use shared::data::{ClientConfig, NodeInfo, StatusKind, StatusMessage, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -18,12 +18,12 @@ use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials}
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
+use crate::cmd::tailscale_key::resolve_tailscale_key;
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::provision::{container_results, container_secrets, provision_lab};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
-use shared::validators::validate_tailscale_key;
-use topology::validate::{validate_provisioners, validate_tailscale};
+use topology::validate::validate_provisioners;
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -367,45 +367,6 @@ fn ssh_ready_nodes(nodes: &[NodeInfo]) -> Vec<String> {
         }
     }
     ready
-}
-
-/// Resolve the enrollment key separately so the manifest never contains it.
-#[tracing::instrument(skip(manifest, config), level = "debug")]
-fn resolve_tailscale_key(
-    manifest: &topology::Manifest,
-    server_url: &str,
-    config: &ClientConfig,
-) -> Result<Option<TailnetAuthKey>> {
-    resolve_tailscale_key_using(manifest, server_url, config, |name| {
-        std::env::var(name).ok()
-    })
-}
-
-fn resolve_tailscale_key_using(
-    manifest: &topology::Manifest,
-    server_url: &str,
-    config: &ClientConfig,
-    lookup: impl FnOnce(&str) -> Option<String>,
-) -> Result<Option<TailnetAuthKey>> {
-    validate_tailscale(manifest)?;
-    let Some(tailscale) = manifest.tailscale.as_ref().filter(|c| c.enabled) else {
-        return Ok(None);
-    };
-    // WebSocketClient always validates its custom CA or TOFU trust store unless insecure.
-    if !server_url.starts_with("wss://") || config.server_connection.insecure {
-        bail!("Tailscale enrollment requires WSS with certificate validation enabled");
-    }
-    let name = tailscale
-        .auth_key_env
-        .as_deref()
-        .context("Missing tailscale.auth_key_env")?;
-    let key = lookup(name).with_context(|| {
-        format!(
-            "Tailscale auth-key environment variable '{name}' is not set or is not valid Unicode"
-        )
-    })?;
-    validate_tailscale_key(&key)?;
-    Ok(Some(TailnetAuthKey::new(key)))
 }
 
 /// Resolve `ztp_config` file paths in manifest nodes.
@@ -1123,46 +1084,5 @@ Host 172.31.1.12 dev02.abc123
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
         assert!(err_msg.contains("KEY=VALUE"));
-    }
-    #[test]
-    fn tailnet_key_resolution_requires_secure_transport_and_never_changes_manifest() {
-        let manifest: topology::Manifest =
-            toml::from_str("name='test'\nnodes=[]\n[tailscale]\nenabled=true\nauth_key_env='KEY'")
-                .unwrap();
-        let mut config = ClientConfig::default();
-        let key = "tskey-auth-testfixture";
-        let resolved =
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| {
-                Some(key.into())
-            })
-            .unwrap()
-            .unwrap();
-        assert_eq!(resolved.expose(), key);
-        assert!(!serde_json::to_string(&manifest).unwrap().contains(key));
-        assert!(
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| None)
-                .is_err()
-        );
-        assert!(
-            resolve_tailscale_key_using(&manifest, "ws://example.invalid", &config, |_| Some(
-                key.into()
-            ))
-            .is_err()
-        );
-        config.server_connection.insecure = true;
-        assert!(
-            resolve_tailscale_key_using(&manifest, "wss://example.invalid", &config, |_| Some(
-                key.into()
-            ))
-            .is_err()
-        );
-        let disabled = topology::Manifest::default();
-        assert!(
-            resolve_tailscale_key_using(&disabled, "ws://example.invalid", &config, |_| panic!(
-                "disabled tailnet must not resolve secrets"
-            ))
-            .unwrap()
-            .is_none()
-        );
     }
 }

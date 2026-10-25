@@ -13,7 +13,9 @@ use container::{
 };
 use libvirt::delete_disk;
 use network::{delete_interface, find_interfaces_fuzzy};
-use shared::data::{DestroyError, DestroyResponse, DestroySummary, StatusKind};
+use shared::data::{
+    DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
+};
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR,
     SHERPA_STORAGE_POOL, TAP_PREFIX, VETH_PREFIX,
@@ -96,7 +98,14 @@ pub async fn destroy_lab(
     let containers_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Destroying containers");
     let _ = progress.send_status("Destroying containers...".to_string(), StatusKind::Progress);
-    destroy_containers(lab_id, &state.docker, &mut summary, &mut errors).await;
+    destroy_containers(
+        lab_id,
+        &state.docker,
+        &state.config.tailscale,
+        &mut summary,
+        &mut errors,
+    )
+    .await;
     destroy_lab_secrets(lab_id, Path::new(SHERPA_SECRETS_DIR), &mut errors);
     let containers_duration = containers_timer.elapsed().as_secs();
     if summary.containers_destroyed.is_empty() && summary.containers_failed.is_empty() {
@@ -366,10 +375,11 @@ pub(crate) fn destroy_lab_secrets(lab_id: &str, root: &Path, errors: &mut Vec<De
 }
 
 /// Destroy all containers for a lab
-#[instrument(skip(docker, summary, errors), fields(%lab_id), level = "debug")]
+#[instrument(skip(docker, settings, summary, errors), fields(%lab_id), level = "debug")]
 pub(crate) async fn destroy_containers(
     lab_id: &str,
     docker: &Docker,
+    settings: &TailscaleGatewaySettings,
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
 ) {
@@ -459,7 +469,7 @@ pub(crate) async fn destroy_containers(
 
     // Remove ordinary nodes first, including nodes named like the gateway.
     // Gateway cleanup still runs if listing or removing ordinary nodes fails.
-    if let Err(error) = remove_gateway(docker, lab_id).await {
+    if let Err(error) = remove_gateway(docker, lab_id, settings).await {
         errors.push(DestroyError::new(
             "tailscale",
             lab_id,
@@ -862,7 +872,14 @@ mod tests {
         .await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
-        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        destroy_containers(
+            "test1234",
+            &mock.docker,
+            &TailscaleGatewaySettings::default(),
+            &mut summary,
+            &mut errors,
+        )
+        .await;
         assert_eq!(
             summary.containers_destroyed,
             vec!["sherpa-tailnet-app-test1234", "sherpa-tailnet-test1234"]
@@ -896,7 +913,14 @@ mod tests {
         .await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
-        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        destroy_containers(
+            "test1234",
+            &mock.docker,
+            &TailscaleGatewaySettings::default(),
+            &mut summary,
+            &mut errors,
+        )
+        .await;
         assert!(summary.containers_destroyed.is_empty());
         assert!(errors.is_empty());
         assert!(
@@ -920,7 +944,14 @@ mod tests {
         let mock = DockerMock::new(json!([]), gateway_failure, volume_failure).await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
-        destroy_containers("test1234", &mock.docker, &mut summary, &mut errors).await;
+        destroy_containers(
+            "test1234",
+            &mock.docker,
+            &TailscaleGatewaySettings::default(),
+            &mut summary,
+            &mut errors,
+        )
+        .await;
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].resource_type, "tailscale");
         let failed_resource = if gateway_failure {
@@ -959,7 +990,14 @@ mod tests {
         let retry = DockerMock::new(json!([]), false, false).await;
         let mut summary = DestroySummary::default();
         let mut errors = Vec::new();
-        destroy_containers("test1234", &retry.docker, &mut summary, &mut errors).await;
+        destroy_containers(
+            "test1234",
+            &retry.docker,
+            &TailscaleGatewaySettings::default(),
+            &mut summary,
+            &mut errors,
+        )
+        .await;
         cleanup_lab_metadata(
             "test1234",
             lab_dir.to_str().unwrap(),
