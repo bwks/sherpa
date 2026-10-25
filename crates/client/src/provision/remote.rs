@@ -80,7 +80,9 @@ pub fn cloud_init_wait_command() -> String {
         .to_string()
 }
 
+// The commands run on Linux and BSD nodes; the tests run them with the local `sh`.
 #[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::fs;

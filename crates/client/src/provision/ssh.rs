@@ -164,6 +164,7 @@ fn copy_file(target: &SshTarget, file: &FileCopy) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
     use topology::ProvisionerFile;
 
     use tempfile::tempdir;
@@ -175,7 +176,11 @@ mod tests {
             resolve_client_path(dir, "secrets/a.env"),
             Path::new("/labs/dev/secrets/a.env")
         );
-        assert_eq!(resolve_client_path(dir, "/etc/a"), Path::new("/etc/a"));
+        let absolute = env::temp_dir().join("a");
+        assert_eq!(
+            resolve_client_path(dir, absolute.to_str().unwrap()),
+            absolute
+        );
         let home = expand_path("~");
         assert_eq!(
             resolve_client_path(dir, "~/a.env"),
