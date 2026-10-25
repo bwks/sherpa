@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-10-25
+
+### Features
+
+- Log the gateway out on down and destroy, enroll it again on resume by @bwks ([1657206](https://github.com/bwks/sherpa/commit/1657206b8ce3dd3db9eb852568aedaafa7ea2b61))
+
+### Miscellaneous
+
+- Merge pull request #360 from bwks/feat/tailscale-ephemeral-keys
+
+v0.4.0: Tailscale logout on down and destroy, re-enrollment on resume by @bwks in [#360](https://github.com/bwks/sherpa/pull/360) ([74c4593](https://github.com/bwks/sherpa/commit/74c459347554794d48407cb56ae268355fb1df79))
+- Bump version to 0.4.0 by @bwks ([04f5d57](https://github.com/bwks/sherpa/commit/04f5d579f5bacbd0503531d3fdbcc1d6dcd344b0))
+- Merge pull request #359 from bwks/changelog/v0.3.99
+
+chore(release): update changelog for v0.3.99 by @github-actions[bot] in [#359](https://github.com/bwks/sherpa/pull/359) ([d2ff051](https://github.com/bwks/sherpa/commit/d2ff051b98ed954d320b6ef5d207d0d732dc7ae9))
 ## [0.3.99] - 2026-10-25
 
 ### Bug Fixes
