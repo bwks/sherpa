@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.98] - 2026-10-25
+
+### Bug Fixes
+
+- Start containers whose image has no ip command by @bwks ([3c504bb](https://github.com/bwks/sherpa/commit/3c504bb829d25d9fb7aca15b7668e70cabc01abe))
+
+### Features
+
+- Container provisioner for secret files by @bwks ([497a88c](https://github.com/bwks/sherpa/commit/497a88c8b16679cdced500a5afcc82fdd73af6c2))
+- Personal accounts on FreeBSD and OpenBSD, with each OS's admin tools by @bwks ([b83d8a6](https://github.com/bwks/sherpa/commit/b83d8a6660e59f2298988f69b01f5776b6a2850c))
+
+### Miscellaneous
+
+- Merge pull request #356 from bwks/v-0.3.98
+
+v0.3.98: BSD personal accounts, container secret files, containers without ip by @bwks in [#356](https://github.com/bwks/sherpa/pull/356) ([2276088](https://github.com/bwks/sherpa/commit/227608809aa594d32d8bec268f20fdcc1f8ad251))
+- Bump version to 0.3.98 by @bwks ([0c7f186](https://github.com/bwks/sherpa/commit/0c7f186ab164b16f48c8867921c81d96fcac3a0a))
+- Merge pull request #354 from bwks/changelog/v0.3.97
+
+chore(release): update changelog for v0.3.97 by @github-actions[bot] in [#354](https://github.com/bwks/sherpa/pull/354) ([9c10df0](https://github.com/bwks/sherpa/commit/9c10df0abecd86f536e4886be4b82b273c39af85))
 ## [0.3.97] - 2026-10-25
 
 ### Bug Fixes
