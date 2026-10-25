@@ -171,6 +171,7 @@ run_server(foreground)
     |     +- connect SurrealDB
     |     +- apply DB schema
     |     +- optionally seed admin user
+    |     +- restrict lab storage directories (daemon::storage::secure_lab_storage)
     |     +- initialize Qemu wrapper
     |     +- connect Docker client
     |     `- create WebSocket registry and pending-job map
@@ -191,6 +192,33 @@ run_server(foreground)
 ```
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
+
+### Lab storage permissions
+
+Lab data is kept from other server users by directory modes, not file modes, so files written by
+older releases are covered too. `daemon::storage::secure_lab_storage` runs on every start and
+calls `restrict_dir` on:
+
+| Directory | Mode and group | Constants |
+|---|---|---|
+| `/opt/sherpa/labs` | `2750`, the `sherpa` group | `SHERPA_LABS_DIR_MODE` |
+| `/opt/sherpa/libvirt/images` (storage pool) | `2750`, `kvm` | `SHERPA_STORAGE_POOL_DIR_MODE`, `SHERPA_STORAGE_POOL_GROUP` |
+
+- QEMU runs as `libvirt-qemu` in `kvm`, so it can reach the pool. Nothing reads `/opt/sherpa/labs`
+  through the directory except `sherpad`: the dnsmasq router and container nodes get lab files
+  through Docker bind mounts.
+- File modes inside lab directories are left as they are. dnsmasq runs as root and serves only
+  world-readable TFTP files, and container nodes may read their bind-mounted configs as a
+  non-root user, so a restrictive umask would break ZTP.
+- New pool volumes are created `0600` (`konst::STORAGE_VOLUME_MODE`, in
+  `crates/libvirt/templates/copy.xml` and `overlay.xml`); libvirt hands them to the QEMU user
+  while a VM runs. Flatcar's `.ign` file is `0644` (`STORAGE_VOLUME_QEMU_ARG_MODE`), because QEMU
+  opens it from a raw `-fw_cfg` argument that libvirt does not relabel
+  (`libvirt::vm::volume_format_and_mode`).
+- A failure is logged, not fatal. `sherpad init` runs as the installing administrator, so it
+  does not create these directories: one it created would not be owned by `sherpa`. The install
+  and update scripts set the same owner and modes as root, and `scripts/fix-permissions.sh` keeps
+  them.
 
 ## Runtime state: `AppState`
 

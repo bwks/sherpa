@@ -24,6 +24,8 @@ set -e  # Exit on error
 # Configuration
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_BIN_DIR="${SHERPA_BASE_DIR}/bin"
+SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
+SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 
 # GitHub release configuration
 GITHUB_REPO="bwks/sherpa"
@@ -334,6 +336,22 @@ ensure_symlinks() {
     print_success "Symlinks up to date"
 }
 
+# Restrict lab data to sherpa, its group and QEMU (kvm). Directory modes also cover files
+# created by older releases. sherpad enforces the same modes at startup.
+secure_lab_storage() {
+    print_info "Restricting lab storage..."
+
+    install -d -o sherpa -g sherpa -m 2750 "${SHERPA_LABS_DIR}"
+    if getent group kvm >/dev/null 2>&1; then
+        install -d -o sherpa -g kvm -m 2750 "${SHERPA_POOL_DIR}"
+    else
+        print_warning "Group kvm not found: ${SHERPA_POOL_DIR} left readable by sherpa only"
+        install -d -o sherpa -g sherpa -m 2750 "${SHERPA_POOL_DIR}"
+    fi
+
+    print_success "Lab storage restricted"
+}
+
 ################################################################################
 # Verification
 ################################################################################
@@ -414,6 +432,7 @@ main() {
 
     if [ "$needs_update" = false ]; then
         ensure_symlinks
+        secure_lab_storage
         print_success "All binaries already at ${SHERPA_VERSION} — nothing to do"
         exit 0
     fi
@@ -422,6 +441,7 @@ main() {
     stop_sherpad
     update_binaries
     ensure_symlinks
+    secure_lab_storage
     start_sherpad
     verify_update
 

@@ -5,6 +5,6 @@
   <target>
     <path>{{ destination }}</path>
     <format type='{{ format }}'/>
-    <permissions><mode>0644</mode></permissions>
+    <permissions><mode>{{ mode }}</mode></permissions>
   </target>
 </volume>

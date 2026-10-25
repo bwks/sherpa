@@ -5,7 +5,7 @@
   <target>
     <path>{{ destination }}</path>
     <format type='qcow2'/>
-    <permissions><mode>0644</mode></permissions>
+    <permissions><mode>0600</mode></permissions>
   </target>
   <backingStore>
     <path>{{ backing }}</path>

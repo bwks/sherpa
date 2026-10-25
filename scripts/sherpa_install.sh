@@ -38,6 +38,8 @@ SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
+SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
+SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 MIN_PASSWORD_LENGTH=8
 
 # GitHub release configuration
@@ -499,6 +501,16 @@ setup_directories() {
     chmod 775 "${SHERPA_DB_DIR}"
     chmod 775 "${SHERPA_CONFIG_DIR}"
     chmod 750 "${SHERPA_ENV_DIR}"
+
+    # Lab data (node configs, user data, ZTP media, VM disks) is readable only by sherpa, its
+    # group and QEMU, which runs in the kvm group. sherpad enforces the same modes at startup.
+    install -d -o sherpa -g sherpa -m 2750 "${SHERPA_LABS_DIR}"
+    if getent group kvm >/dev/null 2>&1; then
+        install -d -o sherpa -g kvm -m 2750 "${SHERPA_POOL_DIR}"
+    else
+        print_warning "Group kvm not found: ${SHERPA_POOL_DIR} left readable by sherpa only"
+        install -d -o sherpa -g sherpa -m 2750 "${SHERPA_POOL_DIR}"
+    fi
 
     print_success "Directory permissions configured"
 }

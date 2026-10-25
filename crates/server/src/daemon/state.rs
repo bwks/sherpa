@@ -15,6 +15,7 @@ use crate::api::websocket::connection::ConnectionRegistry;
 use crate::auth::context::AuthContext;
 use crate::auth::jwt;
 use crate::daemon::metrics::Metrics;
+use crate::daemon::storage::secure_lab_storage;
 use crate::validate::validate_tailscale_gateway_settings;
 
 /// The type of operation a job represents.
@@ -111,6 +112,8 @@ impl AppState {
 
         let admin_password = env::var(SHERPA_ADMIN_PASSWORD_ENV).ok();
         ensure_admin_account(&db, admin_password.as_deref()).await?;
+
+        secure_lab_storage();
 
         // Initialize libvirt client
         let qemu = Qemu::default();

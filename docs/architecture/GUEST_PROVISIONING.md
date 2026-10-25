@@ -15,8 +15,9 @@ machine config; see [`TALOS.md`](TALOS.md).
 | Ignition | Flatcar | Ignition JSON copied to the storage pool |
 | cloudbase-init | Windows | NoCloud ISO with cloudbase-init `user-data` |
 
-The generated files stay in the lab directory on the server, so everything below is readable
-there by anyone who can read that directory.
+The generated files stay in the lab directory on the server, and the ISO is copied into the
+storage pool, so everything below is readable there by `sherpa`, the `sherpa` group and QEMU
+(see "Lab storage permissions" in [`SERVER.md`](SERVER.md)). None of it is for secrets.
 
 Alpine has its own branch in `generate_cloud_init_ztp`; every other cloud-init model shares the
 main branch. Both build `runcmd` in the same order: staged file moves, the environment loader,
