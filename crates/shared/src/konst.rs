@@ -45,6 +45,8 @@ pub const SHERPA_IMAGES_PATH: &str = "/opt/sherpa/images";
 pub const SHERPA_CONTAINERS_PATH: &str = "/opt/sherpa/containers";
 pub const SHERPA_BINS_PATH: &str = "/opt/sherpa/bins";
 pub const SHERPA_LABS_PATH: &str = "/opt/sherpa/labs";
+/// Lab directories hold node configs and user data: the `sherpa` user and group only.
+pub const SHERPA_LABS_DIR_MODE: u32 = 0o2750;
 pub const SHERPA_RUN_PATH: &str = "/opt/sherpa/run";
 pub const SHERPA_LOG_PATH: &str = "/opt/sherpa/logs";
 pub const SHERPA_CERTS_PATH: &str = "/opt/sherpa/.certs";
@@ -64,6 +66,15 @@ pub const SHERPA_SERVER_KEY_PATH: &str = "/opt/sherpa/.certs/server.key";
 
 pub const SHERPA_STORAGE_POOL: &str = "sherpa-pool";
 pub const SHERPA_STORAGE_POOL_PATH: &str = "/opt/sherpa/libvirt/images";
+/// The storage pool holds VM disks and ZTP media: `sherpa` and the QEMU group only.
+pub const SHERPA_STORAGE_POOL_DIR_MODE: u32 = 0o2750;
+/// Group the libvirt QEMU process runs in, which must reach the storage pool.
+pub const SHERPA_STORAGE_POOL_GROUP: &str = "kvm";
+/// Mode of storage pool volumes. libvirt hands them to the QEMU user while a VM runs.
+pub const STORAGE_VOLUME_MODE: &str = "0600";
+/// Mode of volumes QEMU opens itself from a raw argument (Flatcar's Ignition `-fw_cfg`),
+/// which libvirt does not hand over. The storage pool directory keeps them private.
+pub const STORAGE_VOLUME_QEMU_ARG_MODE: &str = "0644";
 pub const SHERPA_MANAGEMENT_NETWORK_NAME: &str = "sherpa-management";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE: &str = "sherpa-br0";
 pub const SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX: &str = "brm";

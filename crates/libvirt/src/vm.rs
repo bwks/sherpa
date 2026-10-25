@@ -13,7 +13,7 @@ use virt::storage_pool::StoragePool;
 use virt::storage_vol::StorageVol;
 use virt::stream::Stream;
 
-use shared::konst::SHERPA_STORAGE_POOL;
+use shared::konst::{SHERPA_STORAGE_POOL, STORAGE_VOLUME_MODE, STORAGE_VOLUME_QEMU_ARG_MODE};
 
 use crate::storage::refresh_pool;
 
@@ -23,6 +23,33 @@ struct CopyVolume<'a> {
     name: &'a str,
     destination: &'a str,
     format: &'a str,
+    mode: &'a str,
+}
+
+/// The libvirt volume format and file mode for a file copied into the storage pool.
+fn volume_format_and_mode(file_extension: &str) -> Result<(&'static str, &'static str)> {
+    let format = match file_extension.to_lowercase().as_str() {
+        "raw" => "raw",
+        "iso" => "raw",
+        "json" => "raw",
+        "ign" => "raw",
+        "img" => "raw",
+        "elf" => "raw",
+        "qcow2" => "qcow2",
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported file extension: {}",
+                file_extension
+            ));
+        }
+    };
+    // QEMU opens Flatcar's Ignition file itself, from a raw `-fw_cfg` argument.
+    let mode = if file_extension.eq_ignore_ascii_case("ign") {
+        STORAGE_VOLUME_QEMU_ARG_MODE
+    } else {
+        STORAGE_VOLUME_MODE
+    };
+    Ok((format, mode))
 }
 
 /// Clone a disk image.
@@ -51,26 +78,13 @@ pub fn clone_disk(conn: &Connect, src_path: &str, dst_path: &str) -> Result<()> 
         .and_then(|ext| ext.to_str())
         .ok_or_else(|| anyhow::anyhow!("Invalid file extension"))?;
 
-    let format_type = match file_extension.to_lowercase().as_str() {
-        "raw" => "raw",
-        "iso" => "raw",
-        "json" => "raw",
-        "ign" => "raw",
-        "img" => "raw",
-        "elf" => "raw",
-        "qcow2" => "qcow2",
-        _ => {
-            return Err(anyhow::anyhow!(
-                "Unsupported file extension: {}",
-                file_extension
-            ));
-        }
-    };
+    let (format_type, mode) = volume_format_and_mode(file_extension)?;
 
     let vol_xml = CopyVolume {
         name: file_name,
         destination: dst_path,
         format: format_type,
+        mode,
     }
     .render()?;
 
@@ -193,10 +207,35 @@ pub fn get_mgmt_ip(conn: &Connect, vm_name: &str) -> Result<Option<String>> {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_resize_disk_size_gb_to_bytes_conversion() {
         let size_gb: u16 = 100;
         let capacity_bytes = u64::from(size_gb) * 1024 * 1024 * 1024;
         assert_eq!(capacity_bytes, 107_374_182_400);
+    }
+
+    #[test]
+    fn copied_volumes_are_private_except_raw_qemu_arguments() {
+        assert_eq!(volume_format_and_mode("qcow2").unwrap(), ("qcow2", "0600"));
+        assert_eq!(volume_format_and_mode("ISO").unwrap(), ("raw", "0600"));
+        assert_eq!(volume_format_and_mode("elf").unwrap(), ("raw", "0600"));
+        // QEMU opens Flatcar's Ignition file itself, so libvirt never hands it over.
+        assert_eq!(volume_format_and_mode("ign").unwrap(), ("raw", "0644"));
+        assert!(volume_format_and_mode("exe").is_err());
+    }
+
+    #[test]
+    fn copied_volume_xml_carries_the_mode() {
+        let xml = CopyVolume {
+            name: "dev-lab.iso",
+            destination: "/pool/dev-lab.iso",
+            format: "raw",
+            mode: "0600",
+        }
+        .render()
+        .unwrap();
+        assert!(xml.contains("<permissions><mode>0600</mode></permissions>"));
     }
 }

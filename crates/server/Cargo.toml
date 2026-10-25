@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.95"
+version = "0.3.96"
 edition = "2024"
 
 [dependencies]
@@ -22,7 +22,7 @@ db = { path = "../db" }
 anyhow = { workspace = true }
 
 # Process/Signal management
-nix = { version = "0.30.1", features = ["signal", "process"] }
+nix = { version = "0.30.1", features = ["signal", "process", "user", "fs"] }
 
 # CLI
 clap = { workspace = true, features = ["env"] }
