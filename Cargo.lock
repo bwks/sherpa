@@ -4803,7 +4803,6 @@ dependencies = [
  "opentelemetry_sdk",
  "rand 0.8.5",
  "rcgen",
- "regex",
  "reqwest",
  "rpassword",
  "rust-embed",

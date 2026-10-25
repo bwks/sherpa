@@ -12,12 +12,17 @@
 //! - `lab`: Foreign key reference to owning lab
 //! - `mgmt_ipv4`: Management IPv4 address (optional, set during lab setup)
 //! - `mgmt_mac`: Management MAC address (optional, set during lab setup)
+//! - `cpu_count`, `memory`: vCPUs and memory (MB) the node was given (optional; none for
+//!   containers, which Sherpa does not limit)
+//! - `vnc_port`: The VM's VNC console port on the server (optional, fixed for the node's life)
 //!
 //! ## Constraints
 //! - Node name must be unique per lab
 //! - Node index must be unique per lab
 //! - Index must be between 0 and 65535 (inclusive)
 //! - Index must be an integer (no decimals)
+//! - A VNC port belongs to at most one node across all labs; nodes without one do not
+//!   conflict, as absent values are not indexed
 //!
 //! ## Computed Fields
 //! - `links`: Reverse reference to all links connected to this node (`array::union(<~(link FIELD node_a), <~(link FIELD node_b))`)
@@ -61,6 +66,7 @@ use super::helpers::vec_to_str;
 /// - **Indexes**:
 ///   - `unique_node_name_per_lab`: Ensures node names are unique within each lab
 ///   - `unique_node_index_per_lab`: Ensures node indexes are unique within each lab
+///   - `unique_node_vnc_port`: Ensures a VNC port belongs to one node across all labs
 ///
 /// # Referential Integrity
 ///
@@ -86,6 +92,12 @@ DEFINE FIELD OVERWRITE mgmt_mac ON TABLE node TYPE option<string>;
 DEFINE FIELD OVERWRITE state ON TABLE node TYPE string
     ASSERT $value IN [{node_states}]
     DEFAULT "unknown";
+DEFINE FIELD OVERWRITE cpu_count ON TABLE node TYPE option<number>
+    ASSERT $value == NONE OR ($value >= 1 AND $value <= 255 AND $value == math::floor($value));
+DEFINE FIELD OVERWRITE memory ON TABLE node TYPE option<number>
+    ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
+DEFINE FIELD OVERWRITE vnc_port ON TABLE node TYPE option<number>
+    ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
 
 DEFINE FIELD OVERWRITE links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
 DEFINE FIELD OVERWRITE bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);
@@ -95,6 +107,9 @@ DEFINE INDEX OVERWRITE unique_node_name_per_lab
 
 DEFINE INDEX OVERWRITE unique_node_index_per_lab
   ON TABLE node FIELDS lab, index UNIQUE;
+
+DEFINE INDEX OVERWRITE unique_node_vnc_port
+  ON TABLE node FIELDS vnc_port UNIQUE;
 "#
     )
 }

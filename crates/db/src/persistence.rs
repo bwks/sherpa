@@ -46,6 +46,9 @@ pub(crate) struct NodeRow {
     pub mgmt_ipv6: Option<String>,
     pub mgmt_mac: Option<String>,
     pub state: serde_json::Value,
+    pub cpu_count: Option<u8>,
+    pub memory: Option<u16>,
+    pub vnc_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Deserialize, SurrealValue)]
@@ -255,6 +258,9 @@ impl TryFrom<&DbNode> for NodeRow {
             mgmt_ipv6: value.mgmt_ipv6.clone(),
             mgmt_mac: value.mgmt_mac.clone(),
             state: encode(value.state, "state")?,
+            cpu_count: value.cpu_count,
+            memory: value.memory,
+            vnc_port: value.vnc_port,
         })
     }
 }
@@ -273,6 +279,9 @@ impl TryFrom<NodeRow> for DbNode {
             mgmt_ipv6: value.mgmt_ipv6,
             mgmt_mac: value.mgmt_mac,
             state: decode(value.state, "state")?,
+            cpu_count: value.cpu_count,
+            memory: value.memory,
+            vnc_port: value.vnc_port,
         })
     }
 }

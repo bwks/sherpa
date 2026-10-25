@@ -1062,6 +1062,22 @@ Lab {lab_id}
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
 
+### Node resources and VNC ports
+
+What a node is given is stored on its database record (`DbNode`), not read back from the
+hypervisor, by `services::node_resources`:
+
+- `planned_resources`: VMs and unikernels get the manifest's `cpu_count` and `memory`, else the
+  image's. Containers get none, as Sherpa does not limit them.
+- `reserve_node_resources` (`up`, right after each node record is created, and `redeploy`): a
+  VM also gets a VNC port, the lowest in `konst::VNC_PORT_FIRST..=VNC_PORT_LAST` that no node
+  holds and nothing on the server listens on. `unique_node_vnc_port` settles a race with a
+  concurrent lab, which is retried, as lab subnets are. A redeployed VM keeps its port.
+- `node_ops::build_domain_template` takes the stored values, so the domain and the database
+  agree. The domain has `port='N' autoport='no'`, so libvirt never moves the console, also
+  across down/resume.
+- `inspect` and the web UI node page read them from the record, with no domain lookup.
+
 ### Container data interfaces
 
 Each container data interface is a Docker network attachment (`ContainerNetworkAttachment`),

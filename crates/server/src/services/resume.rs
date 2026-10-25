@@ -578,6 +578,9 @@ mod tests {
             mgmt_ipv6: None,
             mgmt_mac: None,
             state: NodeState::Running,
+            cpu_count: None,
+            memory: None,
+            vnc_port: None,
         }
     }
 

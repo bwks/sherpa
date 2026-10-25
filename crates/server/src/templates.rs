@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use shared::data::{
     BridgeInfo, DbUser, DestroyError, DeviceInfo, LabInfo, LabState, LabSummary, LinkInfo,
-    NodeConfig,
+    NodeConfig, NodeKind,
 };
 
 use crate::api::handlers::{ImageSummary, UserSummary};
@@ -334,6 +334,26 @@ pub struct NodeDetailTemplate {
     pub device: DeviceInfo,
     pub node_config: NodeConfig,
     pub mgmt_mac: Option<String>,
+}
+
+impl NodeDetailTemplate {
+    /// The node's vCPUs. Sherpa does not limit containers.
+    pub fn cpu_display(&self) -> String {
+        resource_display(self.device.cpu_count.map(u16::from), &self.device.kind)
+    }
+
+    /// The node's memory in MB.
+    pub fn memory_display(&self) -> String {
+        resource_display(self.device.memory, &self.device.kind)
+    }
+}
+
+fn resource_display(value: Option<u16>, kind: &NodeKind) -> String {
+    match (value, kind) {
+        (Some(value), _) => value.to_string(),
+        (None, NodeKind::Container) => "Not limited".to_string(),
+        (None, _) => "Unknown".to_string(),
+    }
 }
 
 impl IntoResponse for NodeDetailTemplate {
@@ -1039,6 +1059,8 @@ mod tests {
             mgmt_ipv6: None,
             vnc_port: None,
             disks: vec![],
+            cpu_count: None,
+            memory: None,
         }
     }
 
@@ -1070,6 +1092,53 @@ mod tests {
         assert!(
             html.contains(r#"<h1 class="text-2xl font-semibold text-heading">dev01.a1b2c3d4</h1>"#)
         );
+    }
+
+    fn node_detail(device: DeviceInfo, model: NodeModel) -> String {
+        NodeDetailTemplate {
+            username: "testuser".to_string(),
+            is_admin: false,
+            active_page: "labs".to_string(),
+            lab_id: "a1b2c3d4".to_string(),
+            lab_name: "test-lab".to_string(),
+            device,
+            node_config: NodeConfig::get_model(model),
+            mgmt_mac: None,
+        }
+        .render()
+        .expect("template should render")
+    }
+
+    fn compute_value(html: &str, label: &str) -> String {
+        let after = &html[html.find(label).expect(label)..];
+        let start = after.find("font-mono\">").expect("value") + "font-mono\">".len();
+        after[start..start + after[start..].find('<').expect("end")]
+            .trim()
+            .to_string()
+    }
+
+    #[test]
+    fn test_node_detail_shows_the_nodes_cpu_and_memory_not_the_image_defaults() {
+        let device = DeviceInfo {
+            cpu_count: Some(16),
+            memory: Some(32768),
+            ..test_device()
+        };
+        let html = node_detail(device, NodeModel::UbuntuLinux);
+        assert_eq!(compute_value(&html, "CPU Count"), "16");
+        assert_eq!(compute_value(&html, "Memory (MB)"), "32768");
+    }
+
+    #[test]
+    fn test_node_detail_shows_containers_as_not_limited() {
+        let device = DeviceInfo {
+            model: NodeModel::MongoDb,
+            kind: NodeKind::Container,
+            ..test_device()
+        };
+        let html = node_detail(device, NodeModel::MongoDb);
+        assert_eq!(compute_value(&html, "CPU Count"), "Not limited");
+        assert_eq!(compute_value(&html, "Memory (MB)"), "Not limited");
     }
 
     #[test]

@@ -32,8 +32,15 @@ pub struct DeviceInfo {
     pub state: NodeState,
     pub mgmt_ipv4: String,
     pub mgmt_ipv6: Option<String>,
-    pub vnc_port: Option<i32>,
+    /// The VM's VNC console port on the server.
+    pub vnc_port: Option<u16>,
     pub disks: Vec<String>,
+    /// vCPUs the node was given. `None` for containers, which Sherpa does not limit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cpu_count: Option<u8>,
+    /// Memory in MB the node was given; `None` as for `cpu_count`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory: Option<u16>,
 }
 
 /// Display-ready information about a point-to-point link between two nodes

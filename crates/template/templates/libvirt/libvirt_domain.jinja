@@ -128,7 +128,7 @@
       <alias name='usb'/>
     </controller>
 
-    <graphics type='vnc' port='-1' autoport='yes'/>
+    <graphics type='vnc' port='{{ vnc_port }}' autoport='no'/>
     <video>
       <model type='{{ video_model }}'{% match video_vram %}{% when Some with (vram) %} vram='{{ vram }}'{% when None %}{% endmatch %} heads='1'/>
     </video>

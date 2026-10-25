@@ -127,6 +127,12 @@ struct DeviceTableRow {
     #[tabled(rename = "Mgmt IPv6")]
     mgmt_ipv6: String,
 
+    #[tabled(rename = "CPU")]
+    cpu_count: String,
+
+    #[tabled(rename = "Memory (MB)")]
+    memory: String,
+
     #[tabled(rename = "VNC Port")]
     vnc_port: String,
 
@@ -134,7 +140,8 @@ struct DeviceTableRow {
     disks: String,
 }
 
-/// Renders a table of devices with their model, kind, active status, and management IP
+/// Renders a table of devices with their model, kind, state, management IPs, vCPUs, memory,
+/// VNC port and disks
 ///
 /// # Arguments
 /// * `devices` - Slice of DeviceInfo structs to display in the table
@@ -166,6 +173,16 @@ pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
 
             let mgmt_ipv6 = device.mgmt_ipv6.as_deref().unwrap_or("-").to_string();
 
+            // Containers have no limits, so they show "-".
+            let cpu_count = match device.cpu_count {
+                Some(count) => count.to_string(),
+                None => "-".to_string(),
+            };
+            let memory = match device.memory {
+                Some(memory) => memory.to_string(),
+                None => "-".to_string(),
+            };
+
             DeviceTableRow {
                 device: format!("{}.{lab_id}", device.name),
                 model: device.model.to_string(),
@@ -173,6 +190,8 @@ pub fn render_devices_table(devices: &[DeviceInfo], lab_id: &str) -> String {
                 state: device.state.to_string(),
                 mgmt_ip,
                 mgmt_ipv6,
+                cpu_count,
+                memory,
                 vnc_port,
                 disks,
             }
@@ -849,6 +868,8 @@ mod tests {
             mgmt_ipv6: None,
             vnc_port: None,
             disks: vec!["/var/lib/sherpa/labs/test/router01.qcow2".to_string()],
+            cpu_count: None,
+            memory: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");
@@ -880,6 +901,8 @@ mod tests {
                     "/var/lib/sherpa/labs/test/router01.qcow2".to_string(),
                     "/var/lib/sherpa/labs/test/router01-disk2.qcow2".to_string(),
                 ],
+                cpu_count: None,
+                memory: None,
             },
             DeviceInfo {
                 name: "switch01".to_string(),
@@ -890,6 +913,8 @@ mod tests {
                 mgmt_ipv6: None,
                 vnc_port: None,
                 disks: vec!["/var/lib/sherpa/labs/test/switch01.qcow2".to_string()],
+                cpu_count: None,
+                memory: None,
             },
         ];
 
@@ -908,6 +933,48 @@ mod tests {
     }
 
     #[test]
+    fn test_render_device_cpu_and_memory() {
+        let devices = vec![
+            DeviceInfo {
+                name: "dev01".to_string(),
+                model: NodeModel::UbuntuLinux,
+                kind: NodeKind::VirtualMachine,
+                state: NodeState::Running,
+                mgmt_ipv4: "172.31.0.21".to_string(),
+                mgmt_ipv6: None,
+                vnc_port: Some(5901),
+                disks: vec![],
+                cpu_count: Some(16),
+                memory: Some(32768),
+            },
+            DeviceInfo {
+                name: "db01".to_string(),
+                model: NodeModel::MongoDb,
+                kind: NodeKind::Container,
+                state: NodeState::Running,
+                mgmt_ipv4: "172.31.0.22".to_string(),
+                mgmt_ipv6: None,
+                vnc_port: None,
+                disks: vec![],
+                cpu_count: None,
+                memory: None,
+            },
+        ];
+
+        let table = render_devices_table(&devices, "a1b2c3d4");
+        assert!(table.contains("CPU"), "{table}");
+        assert!(table.contains("Memory (MB)"), "{table}");
+        let vm = table.lines().find(|line| line.contains("dev01")).unwrap();
+        assert!(
+            vm.contains("│ 16 ") && vm.contains("│ 32768 ") && vm.contains("│ 5901 "),
+            "{vm}"
+        );
+        // Containers are not limited.
+        let container = table.lines().find(|line| line.contains("db01")).unwrap();
+        assert_eq!(container.matches("│ - ").count(), 5, "{container}");
+    }
+
+    #[test]
     fn test_render_device_missing_ip() {
         let devices = vec![DeviceInfo {
             name: "container01".to_string(),
@@ -918,6 +985,8 @@ mod tests {
             mgmt_ipv6: None,
             vnc_port: None,
             disks: vec![],
+            cpu_count: None,
+            memory: None,
         }];
 
         let table = render_devices_table(&devices, "a1b2c3d4");

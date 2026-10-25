@@ -82,9 +82,6 @@ virt = { workspace = true }
 # Docker
 bollard = { workspace = true }
 
-# Regex
-regex = { workspace = true }
-
 # Generate SSH keys
 ssh-key = { workspace = true }
 

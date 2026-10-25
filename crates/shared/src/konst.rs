@@ -224,6 +224,11 @@ pub const TALOS_VIP_HOST_OFFSETS: RangeInclusive<u32> = 11..=12;
 /// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
 pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
 pub const TELNET_PORT: u16 = 2323;
+/// Server ports reserved for VM VNC consoles, one per VM for its life.
+pub const VNC_PORT_FIRST: u16 = 5900;
+pub const VNC_PORT_LAST: u16 = 6999;
+/// Attempts to reserve a VNC port when concurrent labs take the same one.
+pub const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
 pub const BASE_PORT: u16 = 10000;
 pub const HTTP_PORT: u16 = 8080;
 pub const TFTP_PORT: u16 = 69;

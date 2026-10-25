@@ -51,12 +51,24 @@ fn base_domain_template() -> DomainTemplate {
         video_model: "cirrus".to_owned(),
         video_vram: Some(16384),
         cpu_features: vec![],
+        vnc_port: 5905,
     }
 }
 
 // ============================================================================
 // Tests
 // ============================================================================
+
+#[test]
+fn test_domain_vnc_console_has_a_fixed_port() {
+    let xml = base_domain_template().render().expect("renders domain XML");
+    // The node's port is reserved in the database, so libvirt must not pick another.
+    assert!(
+        xml.contains("<graphics type='vnc' port='5905' autoport='no'/>"),
+        "{xml}"
+    );
+    assert!(!xml.contains("autoport='yes'"), "{xml}");
+}
 
 #[test]
 fn test_domain_renders_without_isolated_network() {
