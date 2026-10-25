@@ -120,6 +120,8 @@ pub struct CloudInitWriteFile {
     pub path: String,
     pub content: String,
     pub permissions: String,
+    /// `None` uses the distro's default owner, `root:root`, or `root:wheel` on BSD, which has
+    /// no `root` group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -144,6 +146,18 @@ pub struct CloudInitConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runcmd: Option<Vec<String>>,
 }
+impl CloudInitResolvConf {
+    /// Points `/etc/resolv.conf` at the lab DNS, for distros whose network renderer does not
+    /// write it.
+    pub fn lab_dns(nameserver: Ipv4Addr) -> Self {
+        Self {
+            domain: SHERPA_DOMAIN_NAME.to_string(),
+            searchdomains: vec![SHERPA_DOMAIN_NAME.to_string()],
+            nameservers: vec![nameserver],
+        }
+    }
+}
+
 impl CloudInitConfig {
     pub fn to_string(&self) -> Result<String> {
         to_cloud_config(self)
@@ -155,10 +169,14 @@ pub struct CloudInitUser {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plain_text_passwd: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub hashed_passwd: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub homedir: Option<String>,
     pub lock_passwd: bool,
     pub ssh_authorized_keys: Vec<String>,
     pub sudo: String,
+    /// Omitted when empty: cloud-init's schema rejects an empty `groups` list.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub groups: Vec<String>,
     pub shell: String,
 }
@@ -168,6 +186,7 @@ impl CloudInitUser {
         Ok(Self {
             name: SHERPA_USERNAME.to_owned(),
             plain_text_passwd: Some(SHERPA_PASSWORD.to_owned()),
+            hashed_passwd: None,
             homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key.to_owned())],

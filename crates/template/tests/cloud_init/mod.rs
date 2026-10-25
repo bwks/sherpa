@@ -1,7 +1,9 @@
 use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
-use template::{CloudInitConfig, CloudInitNetwork, CloudInitUser, MetaDataConfig};
+use template::{
+    CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, MetaDataConfig,
+};
 
 use crate::helpers;
 
@@ -60,6 +62,45 @@ fn test_cloud_init_config() {
             "runcmd": ["echo hello"],
         })
     );
+}
+
+#[test]
+fn test_cloud_init_resolv_conf_points_at_the_lab_dns() {
+    let config = CloudInitConfig {
+        manage_resolv_conf: Some(true),
+        resolv_conf: Some(CloudInitResolvConf::lab_dns(Ipv4Addr::new(172, 20, 0, 2))),
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(output["manage_resolv_conf"], json!(true));
+    assert_eq!(
+        output["resolv_conf"],
+        json!({
+            "domain": "sherpa.lab.local",
+            "searchdomains": ["sherpa.lab.local"],
+            "nameservers": ["172.20.0.2"],
+        })
+    );
+}
+
+#[test]
+fn test_cloud_init_user_without_groups_omits_the_key() {
+    let config = CloudInitConfig {
+        users: vec![CloudInitUser {
+            name: "alice".to_string(),
+            plain_text_passwd: None,
+            hashed_passwd: None,
+            homedir: None,
+            lock_passwd: true,
+            ssh_authorized_keys: vec![],
+            sudo: "ALL=(ALL) NOPASSWD:ALL".to_string(),
+            groups: vec![],
+            shell: "/bin/bash".to_string(),
+        }],
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert_eq!(output["users"][0].get("groups"), None);
 }
 
 #[test]
@@ -157,6 +198,7 @@ fn test_yaml_boolean_words_stay_strings() {
         users: vec![CloudInitUser {
             name: "off".to_string(),
             plain_text_passwd: Some("yes".to_string()),
+            hashed_passwd: None,
             homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![],

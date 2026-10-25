@@ -35,6 +35,7 @@ database in use is SurrealDB.
   code works, user docs describe how to use it.
 
 ## Git and Pull Requests
+- Prefer local branches rather than worktrees.
 - Do not include Claude session links or "Generated with Claude Code" footers in commit messages
   or pull request descriptions.
 - Add `[skip ci]` to the commit message of changes that contain no code, such as documentation-only

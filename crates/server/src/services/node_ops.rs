@@ -32,6 +32,7 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
     KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
+    NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE,
     NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
     PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
     SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
@@ -75,6 +76,23 @@ pub struct NodeCertPaths {
     pub ca_cert: String,
     pub node_cert: String,
     pub node_key: String,
+}
+
+/// A file cloud-init writes as root to the staging directory, then moves into place from
+/// `runcmd` once its owner exists. This avoids `write_files` `defer`, which some images'
+/// cloud-init configs never run.
+#[derive(Debug)]
+struct StagedFile {
+    /// Absolute path, or `~/`-relative to the user's home, which is looked up at boot because
+    /// it differs by OS (`/usr/home` on FreeBSD).
+    dst: String,
+    content: String,
+    encoding: Option<String>,
+    user: String,
+    /// `None` uses the user's primary group, which differs between distributions.
+    group: Option<String>,
+    /// Octal mode for `chmod`, such as `600`.
+    permissions: String,
 }
 
 // ============================================================================
@@ -989,21 +1007,21 @@ fn build_cloud_init_cert_files(
             path: format!("{target_dir}/ca.crt"),
             content: ca_cert_content,
             permissions: "0644".to_string(),
-            owner: Some("root:root".to_string()),
+            owner: None,
             encoding: None,
         },
         template::CloudInitWriteFile {
             path: format!("{target_dir}/node.crt"),
             content: node_cert_content,
             permissions: "0644".to_string(),
-            owner: Some("root:root".to_string()),
+            owner: None,
             encoding: None,
         },
         template::CloudInitWriteFile {
             path: format!("{target_dir}/node.key"),
             content: node_key_content,
             permissions: "0600".to_string(),
-            owner: Some("root:root".to_string()),
+            owner: None,
             encoding: None,
         },
     ])
@@ -1040,19 +1058,20 @@ fn build_cloudbase_cert_files(
     ])
 }
 
-/// Build cloud-init write_files entries from pre-encoded text_files
+/// Build staged files from pre-encoded text_files
 fn build_cloud_init_text_files(
     text_files: &Option<Vec<topology::TextFileData>>,
-) -> Vec<template::CloudInitWriteFile> {
+) -> Vec<StagedFile> {
     text_files
         .iter()
         .flatten()
-        .map(|file| template::CloudInitWriteFile {
-            path: file.dst.clone(),
+        .map(|file| StagedFile {
+            dst: file.dst.clone(),
             content: file.content.clone(),
-            permissions: format!("0{}", file.permissions),
-            owner: Some(format!("{}:{}", file.user, file.group)),
             encoding: Some("b64".to_string()),
+            user: file.user.clone(),
+            group: Some(file.group.clone()),
+            permissions: file.permissions.to_string(),
         })
         .collect()
 }
@@ -1091,20 +1110,26 @@ fn build_ignition_cert_files(
     Ok(vec![
         template::IgnitionFile {
             path: format!("{target_dir}/ca.crt"),
-            mode: 0o644,
-            contents: template::IgnitionFileContents::new(&format!("data:;base64,{ca_b64}")),
+            mode: 644,
+            contents: Some(template::IgnitionFileContents::new(&format!(
+                "data:;base64,{ca_b64}"
+            ))),
             ..Default::default()
         },
         template::IgnitionFile {
             path: format!("{target_dir}/node.crt"),
-            mode: 0o644,
-            contents: template::IgnitionFileContents::new(&format!("data:;base64,{cert_b64}")),
+            mode: 644,
+            contents: Some(template::IgnitionFileContents::new(&format!(
+                "data:;base64,{cert_b64}"
+            ))),
             ..Default::default()
         },
         template::IgnitionFile {
             path: format!("{target_dir}/node.key"),
-            mode: 0o600,
-            contents: template::IgnitionFileContents::new(&format!("data:;base64,{key_b64}")),
+            mode: 600,
+            contents: Some(template::IgnitionFileContents::new(&format!(
+                "data:;base64,{key_b64}"
+            ))),
             ..Default::default()
         },
     ])
@@ -1114,8 +1139,7 @@ fn build_ignition_cert_files(
 // Environment variable helpers
 // ============================================================================
 
-/// Build a shell script for `/etc/profile.d/sherpa-env.sh` that exports
-/// environment variables for login shells.
+/// Build a shell script that exports environment variables when sourced.
 fn build_env_profile_script(env_vars: &[String]) -> String {
     let mut script = "#!/bin/sh\n".to_string();
     for entry in env_vars {
@@ -1128,25 +1152,242 @@ fn build_env_profile_script(env_vars: &[String]) -> String {
     script
 }
 
-/// Build entries for `/etc/environment` (KEY=VALUE format, no `export`).
-/// Values containing spaces or special characters are double-quoted.
-fn build_etc_environment_entries(env_vars: &[String]) -> String {
-    let mut entries = String::new();
-    for entry in env_vars {
-        if let Some((key, value)) = entry.split_once('=') {
-            if value.contains(' ')
-                || value.contains('\'')
-                || value.contains('"')
-                || value.contains('\\')
-            {
-                let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
-                entries.push_str(&format!("{}=\"{}\"\n", key, escaped));
-            } else {
-                entries.push_str(&format!("{}={}\n", key, value));
-            }
+/// Line added to a login file to source the user's environment file.
+fn user_env_loader() -> String {
+    format!(r#"if [ -r "$HOME/{NODE_USER_ENV_FILE}" ]; then . "$HOME/{NODE_USER_ENV_FILE}"; fi"#)
+}
+
+/// Build the guest login's private environment file.
+fn build_user_env_file(env_vars: &[String], username: &str) -> StagedFile {
+    StagedFile {
+        dst: format!("~/{NODE_USER_ENV_FILE}"),
+        content: build_env_profile_script(env_vars),
+        encoding: None,
+        user: username.to_owned(),
+        group: None,
+        permissions: "600".to_string(),
+    }
+}
+
+/// Shell snippet that sets `h` to the home directory of the user in `u`, from `passwd_file`.
+fn passwd_home_lookup(passwd_file: &str) -> String {
+    format!(
+        r#"h=$(awk -F: -v u="$u" '$1 == u {{ print $6 }}' {})"#,
+        shell_quote(passwd_file)
+    )
+}
+
+/// Build the runcmd that sources the environment file from the login file bash reads:
+/// `~/.bash_profile` when present, otherwise `~/.profile`. The home directory comes from
+/// `passwd_file`, and nothing is done when the user does not exist.
+fn user_env_loader_runcmd(username: &str, passwd_file: &str) -> String {
+    format!(
+        r#"u={}; {}; [ -n "$h" ] && {{ f="$h/.bash_profile"; [ -f "$f" ] || f="$h/.profile"; printf '%s\n' '{}' >> "$f"; chown "$u:$(id -gn "$u")" "$f"; }}"#,
+        shell_quote(username),
+        passwd_home_lookup(passwd_file),
+        user_env_loader()
+    )
+}
+
+/// Quote a value as one POSIX shell word.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+/// cloud-init files and runcmd lines for a node's scripts: `startup_scripts` run as root, then
+/// `user_scripts` run as `user` in a login shell. Each script is run directly, so its shebang
+/// picks the interpreter and nodes without `bash` can run them.
+fn build_cloud_init_scripts(
+    node_name: &str,
+    startup_scripts: Option<&[topology::StartupScript]>,
+    user_scripts: Option<&[topology::StartupScript]>,
+    user: &str,
+) -> Result<(Vec<template::CloudInitWriteFile>, Vec<String>)> {
+    let mut write_files = vec![];
+    let mut runcmd = vec![];
+
+    for script in startup_scripts.unwrap_or_default() {
+        let contents = util::base64_decode(&script.content).with_context(|| {
+            format!(
+                "Failed to decode startup_script '{}' for node '{}'",
+                script.filename, node_name
+            )
+        })?;
+        let target_path = format!("{}/{}", NODE_STARTUP_SCRIPTS_DIR, script.filename);
+        write_files.push(template::CloudInitWriteFile {
+            path: target_path.clone(),
+            content: contents,
+            permissions: "0755".to_string(),
+            owner: None,
+            encoding: None,
+        });
+        runcmd.push(shell_quote(&target_path));
+    }
+
+    // Files are written as root (write_files runs before users are created), then chowned
+    // once the user exists.
+    let user_scripts = user_scripts.unwrap_or_default();
+    for script in user_scripts {
+        let contents = util::base64_decode(&script.content).with_context(|| {
+            format!(
+                "Failed to decode user_script '{}' for node '{}'",
+                script.filename, node_name
+            )
+        })?;
+        write_files.push(template::CloudInitWriteFile {
+            path: format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename),
+            content: contents,
+            permissions: "0755".to_string(),
+            owner: None,
+            encoding: None,
+        });
+    }
+    if !user_scripts.is_empty() {
+        // The user's primary group: SUSE has no group named after the user.
+        let quoted_user = shell_quote(user);
+        runcmd.push(format!(
+            "chown -R {quoted_user}:\"$(id -gn {quoted_user})\" {}",
+            shell_quote(NODE_USER_SCRIPTS_DIR)
+        ));
+        for script in user_scripts {
+            let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
+            runcmd.push(format!(
+                "su - {quoted_user} -c {}",
+                shell_quote(&shell_quote(&target_path))
+            ));
         }
     }
-    entries
+
+    Ok((write_files, runcmd))
+}
+
+/// Write staged files as root-only files in `staging_dir`, and build the runcmd that moves
+/// each into place. Missing parent directories inside the user's home are created owned by
+/// the user, and others stay root-owned. Files for users missing from `passwd_file` are
+/// skipped. The staging directory is removed once every file has been handled.
+fn stage_cloud_init_files(
+    files: &[StagedFile],
+    staging_dir: &str,
+    passwd_file: &str,
+) -> (Vec<template::CloudInitWriteFile>, Vec<String>) {
+    let mut writes = Vec::new();
+    let mut runcmd = Vec::new();
+    for (index, file) in files.iter().enumerate() {
+        let src = format!("{staging_dir}/{index}");
+        let group = match &file.group {
+            Some(group) => shell_quote(group),
+            None => r#""$(id -gn "$u")""#.to_string(),
+        };
+        let dst = match file.dst.strip_prefix("~/") {
+            Some(relative) => format!(r#""$h"/{}"#, shell_quote(relative)),
+            None => shell_quote(&file.dst),
+        };
+        writes.push(template::CloudInitWriteFile {
+            path: src.clone(),
+            content: file.content.clone(),
+            permissions: "0600".to_string(),
+            owner: None,
+            encoding: file.encoding.clone(),
+        });
+        runcmd.push(format!(
+            r#"u={}; {}; g={group}; src={}; [ -n "$h" ] && dst={dst} && dir=$(dirname "$dst") && p=$dir && top= && while [ ! -d "$p" ]; do top=$p; p=$(dirname "$p"); done && mkdir -p "$dir" && {{ [ -z "$top" ] || case "$top" in "$h"|"$h"/*) chown -R "$u:$g" "$top";; esac; }} && mv "$src" "$dst" && chown "$u:$g" "$dst" && chmod {} "$dst""#,
+            shell_quote(&file.user),
+            passwd_home_lookup(passwd_file),
+            shell_quote(&src),
+            file.permissions,
+        ));
+    }
+    if !files.is_empty() {
+        runcmd.push(format!("rm -rf {}", shell_quote(staging_dir)));
+    }
+    (writes, runcmd)
+}
+
+/// Build Ignition directories for the missing parents of `text_files` under their owner's
+/// home, owned by that user. Ignition otherwise creates them as root, which leaves the user
+/// unable to write inside, for example, their own `~/.config`.
+fn build_ignition_home_directories(
+    text_files: &Option<Vec<topology::TextFileData>>,
+) -> Vec<template::IgnitionDirectory> {
+    let mut directories: Vec<template::IgnitionDirectory> = Vec::new();
+    for file in text_files.iter().flatten() {
+        if file.user == "root" {
+            continue;
+        }
+        let home = format!("/home/{}", file.user);
+        let Some(parent) = Path::new(&file.dst).parent() else {
+            continue;
+        };
+        let mut parents = Vec::new();
+        for ancestor in parent.ancestors() {
+            if !ancestor.starts_with(&home) || ancestor == Path::new(&home) {
+                break;
+            }
+            parents.push(ancestor.to_string_lossy().into_owned());
+        }
+        for path in parents.into_iter().rev() {
+            let mut seen = false;
+            for directory in &directories {
+                if directory.path == path {
+                    seen = true;
+                }
+            }
+            if seen {
+                continue;
+            }
+            directories.push(template::IgnitionDirectory {
+                path,
+                mode: 755,
+                overwrite: false,
+                user: Some(template::IgnitionFileParams {
+                    name: file.user.clone(),
+                }),
+                group: Some(template::IgnitionFileParams {
+                    name: file.group.clone(),
+                }),
+            });
+        }
+    }
+    directories
+}
+
+/// Build Ignition files for the guest login's private environment file, and append its
+/// loader to `~/.bash_profile`, which Flatcar copies from the skeleton for every user.
+fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template::IgnitionFile> {
+    let home = format!("/home/{username}");
+    let env_b64 = util::base64_encode(&build_env_profile_script(env_vars));
+    let loader_b64 = util::base64_encode(&format!("\n{}\n", user_env_loader()));
+    vec![
+        template::IgnitionFile {
+            path: format!("{home}/{NODE_USER_ENV_FILE}"),
+            mode: 600,
+            overwrite: Some(true),
+            contents: Some(template::IgnitionFileContents::new(&format!(
+                "data:;base64,{env_b64}"
+            ))),
+            user: Some(template::IgnitionFileParams {
+                name: username.to_owned(),
+            }),
+            group: Some(template::IgnitionFileParams {
+                name: username.to_owned(),
+            }),
+            ..Default::default()
+        },
+        template::IgnitionFile {
+            path: format!("{home}/.bash_profile"),
+            mode: 644,
+            append: vec![template::IgnitionFileContents::new(&format!(
+                "data:;base64,{loader_b64}"
+            ))],
+            user: Some(template::IgnitionFileParams {
+                name: username.to_owned(),
+            }),
+            group: Some(template::IgnitionFileParams {
+                name: username.to_owned(),
+            }),
+            ..Default::default()
+        },
+    ]
 }
 
 /// Build PowerShell commands to set machine-level environment variables on Windows.
@@ -1168,6 +1409,25 @@ fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
 // ============================================================================
 // VM ZTP sub-methods
 // ============================================================================
+
+/// The IPv6 address to put in a node's cloud-init `network-config`.
+///
+/// OpenBSD gets none: cloud-init's OpenBSD renderer never writes IPv6 addresses, and it
+/// crashes on the IPv6 default route, which leaves the node with no network at all.
+fn cloud_init_ipv6_address(model: &data::NodeModel, address: Option<Ipv6Addr>) -> Option<Ipv6Addr> {
+    match model {
+        data::NodeModel::OpenBsd => None,
+        _ => address,
+    }
+}
+
+/// Whether cloud-init should manage a node's `/etc/hosts`.
+///
+/// OpenBSD does not: cloud-init ships no hosts template for it, so the module fails and
+/// cloud-init reports an error. The node's name resolves through the lab DNS instead.
+fn cloud_init_manage_etc_hosts(model: &data::NodeModel) -> bool {
+    !matches!(model, data::NodeModel::OpenBsd)
+}
 
 #[instrument(level = "debug")]
 fn cloud_init_user_settings(
@@ -1231,87 +1491,34 @@ fn generate_cloud_init_ztp(
                 None => vec![],
             };
 
-            // Inject text_files into write_files
-            write_files.extend(build_cloud_init_text_files(&node.text_files));
+            // Stage text_files and the guest login's environment file, and move them into
+            // place first in runcmd, once their owners exist.
+            let guest_username = guest_account::guest_username(guest_account);
+            let mut staged_files = build_cloud_init_text_files(&node.text_files);
+            let env_vars = match node.environment_variables.as_deref() {
+                Some(env_vars) if !env_vars.is_empty() => Some(env_vars),
+                _ => None,
+            };
+            if let Some(env_vars) = env_vars {
+                staged_files.push(build_user_env_file(env_vars, guest_username));
+            }
+            let (staged_writes, mut runcmd) =
+                stage_cloud_init_files(&staged_files, NODE_STAGING_DIR, NODE_PASSWD_FILE);
+            write_files.extend(staged_writes);
 
-            let mut runcmd: Vec<String> = vec![];
-
-            // Inject startup_scripts into write_files and runcmd
-            if let Some(ref scripts) = node.startup_scripts {
-                for script in scripts {
-                    let contents = util::base64_decode(&script.content).with_context(|| {
-                        format!(
-                            "Failed to decode startup_script '{}' for node '{}'",
-                            script.filename, node.name
-                        )
-                    })?;
-
-                    let target_path = format!("/opt/sherpa/startup_scripts/{}", script.filename);
-
-                    write_files.push(template::CloudInitWriteFile {
-                        path: target_path.clone(),
-                        content: contents,
-                        permissions: "0755".to_string(),
-                        owner: Some("root:root".to_string()),
-                        encoding: None,
-                    });
-
-                    runcmd.push(format!("bash {}", target_path));
-                }
+            // Load the environment file from the login shell, which user_scripts also use.
+            if env_vars.is_some() {
+                runcmd.push(user_env_loader_runcmd(guest_username, NODE_PASSWD_FILE));
             }
 
-            // Inject user_scripts into write_files and runcmd (run as sherpa user).
-            // Files are written as root (write_files runs before users are created)
-            // then chowned via runcmd after the user exists.
-            if let Some(ref scripts) = node.user_scripts {
-                let user = SHERPA_USERNAME;
-                for script in scripts {
-                    let contents = util::base64_decode(&script.content).with_context(|| {
-                        format!(
-                            "Failed to decode user_script '{}' for node '{}'",
-                            script.filename, node.name
-                        )
-                    })?;
-
-                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
-
-                    write_files.push(template::CloudInitWriteFile {
-                        path: target_path.clone(),
-                        content: contents,
-                        permissions: "0755".to_string(),
-                        owner: None,
-                        encoding: None,
-                    });
-                }
-
-                runcmd.push(format!(
-                    "chown -R {}:{} {}",
-                    user, user, NODE_USER_SCRIPTS_DIR
-                ));
-                for script in scripts {
-                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
-                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
-                }
-            }
-
-            // Inject environment_variables into profile.d and /etc/environment
-            if let Some(ref env_vars) = node.environment_variables
-                && !env_vars.is_empty()
-            {
-                write_files.push(template::CloudInitWriteFile {
-                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
-                    content: build_env_profile_script(env_vars),
-                    permissions: "0644".to_string(),
-                    owner: Some("root:root".to_string()),
-                    encoding: None,
-                });
-
-                let etc_env_content = build_etc_environment_entries(env_vars);
-                runcmd.push(format!(
-                    "printf '{}' >> /etc/environment",
-                    etc_env_content.replace('\'', "'\\''")
-                ));
-            }
+            let (script_files, script_runcmd) = build_cloud_init_scripts(
+                &node.name,
+                node.startup_scripts.as_deref(),
+                node.user_scripts.as_deref(),
+                guest_username,
+            )?;
+            write_files.extend(script_files);
+            runcmd.extend(script_runcmd);
 
             let cloud_init_write_files = if write_files.is_empty() {
                 None
@@ -1328,7 +1535,7 @@ fn generate_cloud_init_ztp(
             let cloud_init_config = template::CloudInitConfig {
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-                manage_etc_hosts: true,
+                manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
                 ssh_pwauth: true,
                 users: {
                     let mut users = vec![cloud_init_user];
@@ -1362,7 +1569,7 @@ fn generate_cloud_init_ztp(
                 node_ipv4_address,
                 mac_address.to_string(),
                 mgmt_net.v4.clone(),
-                node.ipv6_address,
+                cloud_init_ipv6_address(&node.model, node.ipv6_address),
                 mgmt_net.v6.as_ref(),
             );
             let cloud_network_config = ztp_interface.to_string()?;
@@ -1479,86 +1686,36 @@ fn generate_cloud_init_ztp(
                 None => vec![],
             };
 
-            // Inject text_files into write_files
-            write_files.extend(build_cloud_init_text_files(&node.text_files));
+            // Stage text_files and the guest login's environment file, and move them into
+            // place first in runcmd, once their owners exist.
+            let guest_username = guest_account::guest_username(guest_account);
+            let mut staged_files = build_cloud_init_text_files(&node.text_files);
+            let env_vars = match node.environment_variables.as_deref() {
+                Some(env_vars) if !env_vars.is_empty() => Some(env_vars),
+                _ => None,
+            };
+            if let Some(env_vars) = env_vars {
+                staged_files.push(build_user_env_file(env_vars, guest_username));
+            }
+            let (staged_writes, mut runcmd) =
+                stage_cloud_init_files(&staged_files, NODE_STAGING_DIR, NODE_PASSWD_FILE);
+            write_files.extend(staged_writes);
 
-            let mut runcmd: Vec<String> = vec![];
-
-            // Inject startup_scripts into write_files and runcmd
-            if let Some(ref scripts) = node.startup_scripts {
-                for script in scripts {
-                    let contents = util::base64_decode(&script.content).with_context(|| {
-                        format!(
-                            "Failed to decode startup_script '{}' for node '{}'",
-                            script.filename, node.name
-                        )
-                    })?;
-
-                    let target_path = format!("/opt/sherpa/startup_scripts/{}", script.filename);
-
-                    write_files.push(template::CloudInitWriteFile {
-                        path: target_path.clone(),
-                        content: contents,
-                        permissions: "0755".to_string(),
-                        owner: Some("root:root".to_string()),
-                        encoding: None,
-                    });
-
-                    runcmd.push(format!("bash {}", target_path));
-                }
+            // Load the environment file from the login shell, which user_scripts also use.
+            if env_vars.is_some() {
+                runcmd.push(user_env_loader_runcmd(guest_username, NODE_PASSWD_FILE));
             }
 
-            // Inject user_scripts into write_files and runcmd (run as sherpa user).
-            // Files are written as root (write_files runs before users are created)
-            // then chowned via runcmd after the user exists.
-            if let Some(ref scripts) = node.user_scripts {
-                let user = SHERPA_USERNAME;
-                for script in scripts {
-                    let contents = util::base64_decode(&script.content).with_context(|| {
-                        format!(
-                            "Failed to decode user_script '{}' for node '{}'",
-                            script.filename, node.name
-                        )
-                    })?;
-
-                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
-
-                    write_files.push(template::CloudInitWriteFile {
-                        path: target_path.clone(),
-                        content: contents,
-                        permissions: "0755".to_string(),
-                        owner: None,
-                        encoding: None,
-                    });
-                }
-
-                runcmd.push(format!(
-                    "chown -R {}:{} {}",
-                    user, user, NODE_USER_SCRIPTS_DIR
-                ));
-                for script in scripts {
-                    let target_path = format!("{}/{}", NODE_USER_SCRIPTS_DIR, script.filename);
-                    runcmd.push(format!("su - {} -c 'bash {}'", user, target_path));
-                }
-            }
-
-            // Inject environment_variables into profile.d and /etc/environment
-            if let Some(ref env_vars) = node.environment_variables
-                && !env_vars.is_empty()
-            {
-                write_files.push(template::CloudInitWriteFile {
-                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
-                    content: build_env_profile_script(env_vars),
-                    permissions: "0644".to_string(),
-                    owner: Some("root:root".to_string()),
-                    encoding: None,
-                });
-
-                let etc_env_content = build_etc_environment_entries(env_vars);
-                runcmd.push(format!(
-                    "printf '{}' >> /etc/environment",
-                    etc_env_content.replace('\'', "'\\''")
-                ));
+            let (script_files, script_runcmd) = build_cloud_init_scripts(
+                &node.name,
+                node.startup_scripts.as_deref(),
+                node.user_scripts.as_deref(),
+                guest_username,
+            )?;
+            write_files.extend(script_files);
+            runcmd.extend(script_runcmd);
+            if let Some(account) = guest_account {
+                write_files.push(guest_account::doas_file(account));
             }
 
             let cloud_init_write_files = if write_files.is_empty() {
@@ -1576,19 +1733,23 @@ fn generate_cloud_init_ztp(
             let cloud_init_config = template::CloudInitConfig {
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
-                manage_etc_hosts: true,
+                manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
                 ssh_pwauth: true,
-                packages: guest_account.map(|_| vec!["bash".to_owned(), "sudo".to_owned()]),
+                // Alpine's network renderer leaves DNS to a resolvconf tool the image lacks.
+                manage_resolv_conf: Some(true),
+                resolv_conf: Some(template::CloudInitResolvConf::lab_dns(
+                    mgmt_net.v4.boot_server,
+                )),
+                packages: None,
                 users: {
                     let mut users = vec![cloud_init_user];
                     if let Some(account) = guest_account {
-                        users.push(guest_account::cloud_init_user(account));
+                        users.push(guest_account::alpine_cloud_init_user(account));
                     }
                     users
                 },
                 write_files: cloud_init_write_files,
                 runcmd: cloud_init_runcmd,
-                ..Default::default()
             };
             let meta_data_config = meta_data.to_string()?;
             let user_data_config = cloud_init_config.to_string()?;
@@ -2280,7 +2441,9 @@ fn generate_ignition_ztp(
     let hostname_file = template::IgnitionFile {
         path: "/etc/hostname".to_owned(),
         mode: 644,
-        contents: template::IgnitionFileContents::new(&format!("data:,{dev_name}")),
+        contents: Some(template::IgnitionFileContents::new(&format!(
+            "data:,{dev_name}"
+        ))),
         ..Default::default()
     };
 
@@ -2290,9 +2453,9 @@ fn generate_ignition_ztp(
     let sudo_config_file = template::IgnitionFile {
         path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
         mode: 440,
-        contents: template::IgnitionFileContents::new(&format!(
+        contents: Some(template::IgnitionFileContents::new(&format!(
             "data:;base64,{sudo_config_base64}"
-        )),
+        ))),
         ..Default::default()
     };
 
@@ -2304,16 +2467,17 @@ fn generate_ignition_ztp(
             path: file.dst.clone(),
             mode: file.permissions,
             overwrite: None,
-            contents: template::IgnitionFileContents::new(&format!(
+            contents: Some(template::IgnitionFileContents::new(&format!(
                 "data:;base64,{}",
                 file.content
-            )),
+            ))),
             user: Some(template::IgnitionFileParams {
                 name: file.user.clone(),
             }),
             group: Some(template::IgnitionFileParams {
                 name: file.group.clone(),
             }),
+            append: vec![],
         })
         .collect();
 
@@ -2357,32 +2521,14 @@ fn generate_ignition_ztp(
                 files.extend(build_ignition_cert_files(certs, NODE_CERTS_DIR)?);
             }
 
-            // Inject environment_variables via profile.d and /etc/environment
+            // Inject environment_variables into the guest login's environment
             if let Some(ref env_vars) = node.environment_variables
                 && !env_vars.is_empty()
             {
-                let profile_script = build_env_profile_script(env_vars);
-                let profile_b64 = util::base64_encode(&profile_script);
-                files.push(template::IgnitionFile {
-                    path: "/etc/profile.d/sherpa-env.sh".to_string(),
-                    mode: 0o644,
-                    contents: template::IgnitionFileContents::new(&format!(
-                        "data:;base64,{profile_b64}"
-                    )),
-                    ..Default::default()
-                });
-
-                let etc_env = build_etc_environment_entries(env_vars);
-                let etc_env_b64 = util::base64_encode(&etc_env);
-                files.push(template::IgnitionFile {
-                    path: "/etc/environment".to_string(),
-                    mode: 0o644,
-                    overwrite: Some(true),
-                    contents: template::IgnitionFileContents::new(&format!(
-                        "data:;base64,{etc_env_b64}"
-                    )),
-                    ..Default::default()
-                });
+                files.extend(build_ignition_user_env(
+                    env_vars,
+                    guest_account::guest_username(guest_account),
+                ));
             }
 
             let mut users = vec![ignition_user];
@@ -2390,7 +2536,7 @@ fn generate_ignition_ztp(
                 users.push(guest_account::ignition_user(account));
                 files.push(guest_account::sudoers_file(account));
             }
-            let ignition_config = template::IgnitionConfig::new(
+            let mut ignition_config = template::IgnitionConfig::new(
                 users,
                 files,
                 vec![],
@@ -2398,6 +2544,10 @@ fn generate_ignition_ztp(
                 vec![],
                 vec![container_disk],
             );
+            ignition_config
+                .storage
+                .directories
+                .extend(build_ignition_home_directories(&node.text_files));
             let flatcar_config = ignition_config.to_json_pretty()?;
             let src_ztp_file = format!("{dir}/{ZTP_JSON}");
             let dst_ztp_file = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.ign");
@@ -3181,6 +3331,7 @@ pub async fn destroy_container_node(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
     use tokio::sync::mpsc;
 
@@ -3216,31 +3367,316 @@ mod tests {
     }
 
     #[test]
-    fn test_build_etc_environment_entries_simple() {
-        let env_vars = vec!["EDITOR=vim".to_string(), "TOKEN=abc123".to_string()];
-        let entries = build_etc_environment_entries(&env_vars);
-        assert_eq!(entries, "EDITOR=vim\nTOKEN=abc123\n");
+    fn test_user_env_file_is_private_to_the_user() {
+        let file = build_user_env_file(&["GH_TOKEN=abc123".to_string()], "alice");
+        assert_eq!(
+            file.dst, "~/.sherpa_env",
+            "home differs by OS, /usr/home on FreeBSD"
+        );
+        assert_eq!(file.user, "alice");
+        assert_eq!(
+            file.group, None,
+            "uses the primary group, which varies by distro"
+        );
+        assert_eq!(file.permissions, "600");
+        assert_eq!(file.encoding, None);
+        assert!(file.content.contains("export GH_TOKEN='abc123'"));
+    }
+
+    /// A fake passwd file listing the current user with `home`, so generated commands can run
+    /// without touching the real home directory.
+    fn fake_passwd(root: &std::path::Path, home: &std::path::Path) -> (String, String) {
+        let output = std::process::Command::new("id")
+            .arg("-un")
+            .output()
+            .unwrap();
+        let user = String::from_utf8(output.stdout).unwrap().trim().to_string();
+        let passwd = root.join("passwd");
+        std::fs::write(
+            &passwd,
+            format!("{user}:x:1000:1000::{}:/bin/sh\n", home.display()),
+        )
+        .unwrap();
+        (user, passwd.to_string_lossy().into_owned())
+    }
+
+    fn run_sh(commands: &[String]) -> bool {
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(commands.join("\n"))
+            .status()
+            .unwrap()
+            .success()
     }
 
     #[test]
-    fn test_build_etc_environment_entries_with_spaces() {
-        let env_vars = vec!["MSG=hello world".to_string()];
-        let entries = build_etc_environment_entries(&env_vars);
-        assert_eq!(entries, "MSG=\"hello world\"\n");
+    fn test_user_env_loader_hooks_the_login_file_in_the_passwd_home() {
+        let root = tempdir().unwrap();
+        let home = root.path().join("usr/home/alice");
+        std::fs::create_dir_all(&home).unwrap();
+        let (user, passwd) = fake_passwd(root.path(), &home);
+
+        assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
+        let profile = std::fs::read_to_string(home.join(".profile")).unwrap();
+        assert!(profile.contains(r#". "$HOME/.sherpa_env""#));
+
+        std::fs::write(home.join(".bash_profile"), "").unwrap();
+        assert!(run_sh(&[user_env_loader_runcmd(&user, &passwd)]));
+        let bash_profile = std::fs::read_to_string(home.join(".bash_profile")).unwrap();
+        assert!(bash_profile.contains(r#". "$HOME/.sherpa_env""#));
     }
 
     #[test]
-    fn test_build_etc_environment_entries_with_quotes() {
-        let env_vars = vec!["MSG=say \"hi\"".to_string()];
-        let entries = build_etc_environment_entries(&env_vars);
-        assert_eq!(entries, "MSG=\"say \\\"hi\\\"\"\n");
+    fn test_user_env_loader_does_nothing_for_an_unknown_user() {
+        let root = tempdir().unwrap();
+        let (_, passwd) = fake_passwd(root.path(), root.path());
+        let runcmd = user_env_loader_runcmd("nosuchuser", &passwd);
+        assert!(runcmd.contains(r#"[ -n "$h" ] &&"#));
+    }
+
+    fn staged(dst: &str, user: &str, group: Option<&str>) -> StagedFile {
+        StagedFile {
+            dst: dst.to_string(),
+            content: "secret123".to_string(),
+            encoding: None,
+            user: user.to_string(),
+            group: group.map(str::to_string),
+            permissions: "600".to_string(),
+        }
     }
 
     #[test]
-    fn test_build_etc_environment_entries_empty() {
-        let env_vars: Vec<String> = vec![];
-        let entries = build_etc_environment_entries(&env_vars);
-        assert_eq!(entries, "");
+    fn test_staged_files_are_written_root_only_to_the_staging_dir() {
+        let files = vec![staged("/home/alice/.sherpa_env", "alice", None)];
+        let (writes, runcmd) = stage_cloud_init_files(&files, "/opt/sherpa/staging", "/etc/passwd");
+        assert_eq!(writes.len(), 1);
+        assert_eq!(writes[0].path, "/opt/sherpa/staging/0");
+        assert_eq!(
+            writes[0].owner, None,
+            "the distro default owner, root:wheel on BSD"
+        );
+        assert_eq!(writes[0].permissions, "0600");
+        assert_eq!(writes[0].content, "secret123");
+        assert_eq!(runcmd.len(), 2);
+        assert!(
+            !runcmd.concat().contains("secret123"),
+            "values stay out of runcmd"
+        );
+        assert_eq!(runcmd[1], "rm -rf '/opt/sherpa/staging'");
+    }
+
+    #[test]
+    fn test_no_staged_files_means_no_writes_or_runcmd() {
+        let (writes, runcmd) = stage_cloud_init_files(&[], "/opt/sherpa/staging", "/etc/passwd");
+        assert!(writes.is_empty());
+        assert!(runcmd.is_empty());
+    }
+
+    /// Runs the generated commands under `sh` to check quoting, home lookup, parent directories,
+    /// mode, and removal of the staged copies.
+    #[test]
+    fn test_staged_files_runcmd_moves_files_into_place_and_removes_staging() {
+        let root = tempdir().unwrap();
+        let staging = root.path().join("staging");
+        let home = root.path().join("usr/home/alice");
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::create_dir_all(&home).unwrap();
+        let (user, passwd) = fake_passwd(root.path(), &home);
+
+        let nested = home.join("it's dir/.claude/.credentials.json");
+        let outside = root.path().join("opt/app/config.toml");
+        let files = vec![
+            staged(nested.to_str().unwrap(), &user, None),
+            staged("~/.sherpa_env", &user, None),
+            staged(outside.to_str().unwrap(), &user, None),
+        ];
+        let (writes, runcmd) = stage_cloud_init_files(&files, staging.to_str().unwrap(), &passwd);
+        for write in &writes {
+            std::fs::write(&write.path, &write.content).unwrap();
+        }
+
+        assert!(run_sh(&runcmd));
+        assert_eq!(std::fs::read_to_string(&nested).unwrap(), "secret123");
+        assert_eq!(
+            std::fs::read_to_string(home.join(".sherpa_env")).unwrap(),
+            "secret123",
+            "~/ resolves to the passwd home"
+        );
+        assert_eq!(std::fs::read_to_string(&outside).unwrap(), "secret123");
+        let mode = std::fs::metadata(&nested).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert!(!staging.exists(), "staging directory is removed");
+    }
+
+    #[test]
+    fn test_staged_files_only_give_the_user_directories_inside_their_home() {
+        let files = vec![staged("/home/alice/.config/app.toml", "alice", None)];
+        let (_, runcmd) = stage_cloud_init_files(&files, "/opt/sherpa/staging", "/etc/passwd");
+        assert!(
+            runcmd[0].contains(r#"case "$top" in "$h"|"$h"/*) chown -R "$u:$g" "$top";; esac"#)
+        );
+        assert!(
+            runcmd[0].contains(r#"[ -n "$h" ] &&"#),
+            "skipped when the user does not exist"
+        );
+    }
+
+    #[test]
+    fn test_ignition_user_env_is_private_and_appended_to_bash_profile() {
+        let files = build_ignition_user_env(&["GH_TOKEN=abc123".to_string()], "alice");
+        assert_eq!(files.len(), 2);
+
+        let env_file = &files[0];
+        assert_eq!(env_file.path, "/home/alice/.sherpa_env");
+        assert_eq!(env_file.mode, 600);
+        assert_eq!(env_file.user.as_ref().unwrap().name, "alice");
+        assert_eq!(env_file.group.as_ref().unwrap().name, "alice");
+        let source = &env_file.contents.as_ref().unwrap().source;
+        let encoded = source.strip_prefix("data:;base64,").unwrap();
+        assert!(
+            util::base64_decode(encoded)
+                .unwrap()
+                .contains("export GH_TOKEN='abc123'")
+        );
+
+        let profile = &files[1];
+        assert_eq!(profile.path, "/home/alice/.bash_profile");
+        assert!(profile.contents.is_none(), "append keeps the skeleton file");
+        assert_eq!(profile.user.as_ref().unwrap().name, "alice");
+        let encoded = profile.append[0]
+            .source
+            .strip_prefix("data:;base64,")
+            .unwrap();
+        assert!(
+            util::base64_decode(encoded)
+                .unwrap()
+                .contains(r#". "$HOME/.sherpa_env""#)
+        );
+    }
+
+    #[test]
+    fn test_ignition_cert_files_get_0644_and_0600_modes() {
+        let dir = tempdir().unwrap();
+        let mut paths = Vec::new();
+        for name in ["ca.crt", "node.crt", "node.key"] {
+            let file = dir.path().join(name);
+            std::fs::write(&file, "pem").unwrap();
+            paths.push(file.to_string_lossy().into_owned());
+        }
+        let certs = NodeCertPaths {
+            ca_cert: paths[0].clone(),
+            node_cert: paths[1].clone(),
+            node_key: paths[2].clone(),
+        };
+        let mut modes = Vec::new();
+        for file in build_ignition_cert_files(&certs, NODE_CERTS_DIR).unwrap() {
+            modes.push(serde_json::to_value(&file).unwrap()["mode"].clone());
+        }
+        assert_eq!(modes, vec![0o644, 0o644, 0o600]);
+    }
+
+    #[test]
+    fn test_openbsd_gets_no_ipv6_in_cloud_init_network_config() {
+        let address: Ipv6Addr = "fd00::16".parse().unwrap();
+        assert_eq!(
+            cloud_init_ipv6_address(&data::NodeModel::OpenBsd, Some(address)),
+            None
+        );
+        assert_eq!(
+            cloud_init_ipv6_address(&data::NodeModel::FreeBsd, Some(address)),
+            Some(address)
+        );
+        assert_eq!(
+            cloud_init_ipv6_address(&data::NodeModel::UbuntuLinux, Some(address)),
+            Some(address)
+        );
+    }
+
+    #[test]
+    fn test_openbsd_cloud_init_does_not_manage_etc_hosts() {
+        assert!(!cloud_init_manage_etc_hosts(&data::NodeModel::OpenBsd));
+        assert!(cloud_init_manage_etc_hosts(&data::NodeModel::FreeBsd));
+        assert!(cloud_init_manage_etc_hosts(&data::NodeModel::UbuntuLinux));
+    }
+
+    fn script(filename: &str) -> topology::StartupScript {
+        topology::StartupScript {
+            filename: filename.to_string(),
+            content: "IyEvYmluL3NoCmVjaG8gaGk=".to_string(),
+        }
+    }
+
+    #[test]
+    fn test_cloud_init_scripts_run_through_their_shebang() {
+        let (files, runcmd) = build_cloud_init_scripts(
+            "node1",
+            Some(&[script("boot.sh")]),
+            Some(&[script("user.sh")]),
+            "alice",
+        )
+        .unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(files[0].path, "/opt/sherpa/startup_scripts/boot.sh");
+        assert_eq!(files[0].content, "#!/bin/sh\necho hi");
+        assert_eq!(files[0].permissions, "0755");
+        assert_eq!(files[1].path, "/opt/sherpa/user_scripts/user.sh");
+        assert_eq!(
+            runcmd,
+            vec![
+                r#"'/opt/sherpa/startup_scripts/boot.sh'"#.to_string(),
+                r#"chown -R 'alice':"$(id -gn 'alice')" '/opt/sherpa/user_scripts'"#.to_string(),
+                r#"su - 'alice' -c ''\''/opt/sherpa/user_scripts/user.sh'\'''"#.to_string(),
+            ]
+        );
+        assert!(runcmd.iter().all(|line| !line.contains("bash")));
+    }
+
+    #[test]
+    fn test_cloud_init_scripts_without_user_scripts_skip_the_chown() {
+        let (files, runcmd) =
+            build_cloud_init_scripts("node1", Some(&[script("boot.sh")]), None, "alice").unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(
+            runcmd,
+            vec![r#"'/opt/sherpa/startup_scripts/boot.sh'"#.to_string()]
+        );
+    }
+
+    fn text_file(dst: &str, user: &str) -> topology::TextFileData {
+        topology::TextFileData {
+            content: "aGVsbG8=".to_string(),
+            dst: dst.to_string(),
+            user: user.to_string(),
+            group: user.to_string(),
+            permissions: 600,
+        }
+    }
+
+    #[test]
+    fn test_ignition_text_file_parents_in_home_are_owned_by_the_user() {
+        let text_files = Some(vec![
+            text_file("/home/alice/.config/probe/nested/a.txt", "alice"),
+            text_file("/home/alice/.config/probe/b.txt", "alice"),
+            text_file("/home/alice/top.txt", "alice"),
+            text_file("/etc/app/config.toml", "root"),
+            text_file("/opt/app/config.toml", "alice"),
+        ]);
+        let dirs = build_ignition_home_directories(&text_files);
+        let mut paths = Vec::new();
+        for dir in &dirs {
+            assert_eq!(dir.user.as_ref().unwrap().name, "alice");
+            assert_eq!(dir.group.as_ref().unwrap().name, "alice");
+            assert_eq!(dir.mode, 755);
+            paths.push(dir.path.as_str());
+        }
+        assert_eq!(
+            paths,
+            vec![
+                "/home/alice/.config",
+                "/home/alice/.config/probe",
+                "/home/alice/.config/probe/nested",
+            ]
+        );
     }
 
     #[test]
@@ -3281,10 +3717,11 @@ mod tests {
 
         let result = build_cloud_init_text_files(&text_files);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].path, "/etc/app/config.json");
+        assert_eq!(result[0].dst, "/etc/app/config.json");
         assert_eq!(result[0].content, "aGVsbG8=");
-        assert_eq!(result[0].permissions, "0644");
-        assert_eq!(result[0].owner, Some("root:root".to_string()));
+        assert_eq!(result[0].permissions, "644");
+        assert_eq!(result[0].user, "root");
+        assert_eq!(result[0].group, Some("root".to_string()));
         assert_eq!(result[0].encoding, Some("b64".to_string()));
     }
 
@@ -3315,11 +3752,11 @@ mod tests {
 
         let result = build_cloud_init_text_files(&text_files);
         assert_eq!(result.len(), 2);
-        assert_eq!(result[0].path, "/etc/file1");
-        assert_eq!(result[0].owner, Some("root:root".to_string()));
-        assert_eq!(result[1].path, "/opt/file2");
-        assert_eq!(result[1].permissions, "0755");
-        assert_eq!(result[1].owner, Some("sherpa:sherpa".to_string()));
+        assert_eq!(result[0].dst, "/etc/file1");
+        assert_eq!(result[1].dst, "/opt/file2");
+        assert_eq!(result[1].permissions, "755");
+        assert_eq!(result[1].user, "sherpa");
+        assert_eq!(result[1].group, Some("sherpa".to_string()));
     }
 
     #[test]
