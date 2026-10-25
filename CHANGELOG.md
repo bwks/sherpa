@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.96] - 2026-10-25
+
+### Bug Fixes
+
+- Keep lab data readable only by sherpa, admins and QEMU by @bwks ([cba2e48](https://github.com/bwks/sherpa/commit/cba2e48595e2206906022f18968ca8125681f60d))
+
+### Documentation
+
+- Document guest provisioning in its own architecture doc [skip ci] by @bwks ([76a453d](https://github.com/bwks/sherpa/commit/76a453d313f8d04e46fdae8d8e39134e31a937bb))
+
+### Miscellaneous
+
+- Merge pull request #351 from bwks/feat/lab-data-protection
+
+fix: keep lab data readable only by sherpa, admins and QEMU by @bwks in [#351](https://github.com/bwks/sherpa/pull/351) ([151d432](https://github.com/bwks/sherpa/commit/151d432949328e6f317a7483157b7c807b74f19b))
+- Bump version to 0.3.96 by @bwks ([f268f2c](https://github.com/bwks/sherpa/commit/f268f2cd82f3c659f2e51f3b5db2b2331c56c8d4))
+- Merge pull request #350 from bwks/changelog/v0.3.95
+
+chore(release): update changelog for v0.3.95 by @github-actions[bot] in [#350](https://github.com/bwks/sherpa/pull/350) ([76f71b9](https://github.com/bwks/sherpa/commit/76f71b97f98182678c0b9b0be5ce45d988e650fb))
 ## [0.3.95] - 2026-10-25
 
 ### Bug Fixes
