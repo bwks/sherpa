@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.95] - 2026-10-25
+
+### Bug Fixes
+
+- Stage guest files and use each OS's native tools by @bwks ([ef56b96](https://github.com/bwks/sherpa/commit/ef56b9671d3d39d5a3624f767f8a5601de764d9c))
+- Defer text files and run user scripts as the guest account by @bwks ([b305ca8](https://github.com/bwks/sherpa/commit/b305ca8c28384b1ac67ed1e215e8021f241b9301))
+
+### Documentation
+
+- Prefer local branches over worktrees [skip ci] by @bwks ([515e0c5](https://github.com/bwks/sherpa/commit/515e0c58c6e301324da0c89fa2a3da72bc82ea60))
+
+### Features
+
+- Show node names as <name>.<lab-id> in node tables by @bwks ([622bb07](https://github.com/bwks/sherpa/commit/622bb07c76b6b4aec396031e72a2ad088efd9485))
+
+### Miscellaneous
+
+- Merge pull request #349 from bwks/feat/user-account-setup
+
+fix: stage guest files and use each OS's native tools by @bwks in [#349](https://github.com/bwks/sherpa/pull/349) ([cb6f9bb](https://github.com/bwks/sherpa/commit/cb6f9bb37afac3fa01b7fc7b7170a5805d3fef46))
+- Bump version to 0.3.95 by @bwks ([52476ff](https://github.com/bwks/sherpa/commit/52476ff1742211d90fc6efa304f942896da8bd97))
+- Merge pull request #344 from bwks/changelog/v0.3.94
+
+chore(release): update changelog for v0.3.94 by @github-actions[bot] in [#344](https://github.com/bwks/sherpa/pull/344) ([579071e](https://github.com/bwks/sherpa/commit/579071e04c9c40a56dcf2d81005f357c7ece0609))
 ## [0.3.94] - 2026-10-18
 
 ### Features
