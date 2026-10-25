@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.97] - 2026-10-25
+
+### Bug Fixes
+
+- Build the client tests on Windows by @bwks ([636448c](https://github.com/bwks/sherpa/commit/636448c9ab5ed681845cbbf2bfb8f9198f777a24))
+- Resolve text_files when redeploying a node by @bwks ([dc6fc74](https://github.com/bwks/sherpa/commit/dc6fc743636d2f5874f085a9b956767f88635881))
+
+### Features
+
+- Add client-side SSH provisioners for node secrets by @bwks ([333bb2f](https://github.com/bwks/sherpa/commit/333bb2fb797fbb0bb5397df5309e944e35c80627))
+
+### Miscellaneous
+
+- Merge pull request #353 from bwks/feat/provisioners
+
+feat: client-side SSH provisioners for node secrets by @bwks in [#353](https://github.com/bwks/sherpa/pull/353) ([0ce6ff0](https://github.com/bwks/sherpa/commit/0ce6ff0c5f128b12bb206048f7d0fa94f7716458))
+- Bump version to 0.3.97 by @bwks ([dd45e42](https://github.com/bwks/sherpa/commit/dd45e421bec65995c2461201c72db2819b940d07))
+- Merge pull request #352 from bwks/changelog/v0.3.96
+
+chore(release): update changelog for v0.3.96 by @github-actions[bot] in [#352](https://github.com/bwks/sherpa/pull/352) ([e501cb9](https://github.com/bwks/sherpa/commit/e501cb9797847087d6a4d4cece15f141324ff290))
 ## [0.3.96] - 2026-10-25
 
 ### Bug Fixes
