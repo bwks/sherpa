@@ -53,6 +53,9 @@ pub async fn create_node(
         mgmt_ipv6: None,
         mgmt_mac: None,
         state: NodeState::Unknown,
+        cpu_count: None,
+        memory: None,
+        vnc_port: None,
     };
     let node: Option<NodeRow> = db
         .create("node")

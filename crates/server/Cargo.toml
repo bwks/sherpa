@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.3.98"
+version = "0.3.99"
 edition = "2024"
 
 [dependencies]
@@ -81,9 +81,6 @@ virt = { workspace = true }
 
 # Docker
 bollard = { workspace = true }
-
-# Regex
-regex = { workspace = true }
 
 # Generate SSH keys
 ssh-key = { workspace = true }

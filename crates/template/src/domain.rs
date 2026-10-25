@@ -33,6 +33,8 @@ pub struct DomainTemplate {
     pub video_model: String,
     pub video_vram: Option<u32>,
     pub cpu_features: Vec<CpuFeature>,
+    /// The VNC console port on the server, reserved for the node in the database.
+    pub vnc_port: u16,
 }
 
 pub struct BootServer {

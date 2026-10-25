@@ -172,3 +172,16 @@ pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
     let count: Option<usize> = response.take("count")?;
     Ok(count.unwrap_or(0))
 }
+
+/// The VNC ports held by nodes, in ascending order.
+#[instrument(skip(db), level = "debug")]
+pub async fn list_vnc_ports(db: &Arc<Surreal<Client>>) -> Result<Vec<u16>> {
+    let mut response = db
+        .query("SELECT VALUE vnc_port FROM node WHERE vnc_port != NONE")
+        .await
+        .context("Failed to list node VNC ports")?;
+
+    let mut ports: Vec<u16> = response.take(0)?;
+    ports.sort_unstable();
+    Ok(ports)
+}

@@ -44,6 +44,24 @@ pub struct DbNode {
     pub mgmt_ipv6: Option<String>,
     pub mgmt_mac: Option<String>,
     pub state: NodeState,
+    /// vCPUs the node was given. `None` for containers, which Sherpa does not limit.
+    #[serde(default)]
+    pub cpu_count: Option<u8>,
+    /// Memory in MB the node was given; `None` as for `cpu_count`.
+    #[serde(default)]
+    pub memory: Option<u16>,
+    /// The VM's VNC console port on the server, fixed for the node's life. `None` for nodes
+    /// without a console.
+    #[serde(default)]
+    pub vnc_port: Option<u16>,
+}
+
+/// What a node was given when it was created or redeployed.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeResources {
+    pub cpu_count: Option<u8>,
+    pub memory: Option<u16>,
+    pub vnc_port: Option<u16>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

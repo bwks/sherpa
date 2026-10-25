@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow};
-use regex::Regex;
 use shared::data::{
     BridgeInfo, DbNode, DeviceInfo, InspectResponse, LabInfo, LinkInfo, NodeConfig, RecordId,
 };
@@ -102,11 +101,6 @@ async fn inspect_lab_inner(
         .connect()
         .context("Failed to connect to libvirt")?;
 
-    // List all domains
-    let domains = qemu_conn
-        .list_all_domains(0)
-        .context("Failed to list libvirt domains")?;
-
     // Get storage pool
     let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(format!(
         "Failed to find storage pool '{}'",
@@ -120,7 +114,7 @@ async fn inspect_lab_inner(
     ))?;
 
     tracing::debug!(
-        "inspect_lab: libvirt connect+domains+pool+volumes took {:?}",
+        "inspect_lab: libvirt connect+pool+volumes took {:?}",
         t4.elapsed()
     );
     tracing::debug!("inspect_lab: total elapsed {:?}", t0.elapsed());
@@ -156,43 +150,11 @@ async fn inspect_lab_inner(
     let mut devices = Vec::new();
 
     for node in &db_nodes {
-        let node_name = node.name.clone();
-        let device_name = format!("{}-{}", node_name, lab_id);
-
         // Look up node image from pre-fetched list
         let node_image = find_node_image(&node_images, &node.image)
-            .ok_or_else(|| anyhow!("Node image not found for node '{}'", node_name))?;
+            .ok_or_else(|| anyhow!("Node image not found for node '{}'", node.name))?;
 
-        let mut device_info = DeviceInfo {
-            name: node_name.clone(),
-            model: node_image.model,
-            kind: node_image.kind.clone(),
-            state: node.state,
-            mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
-            mgmt_ipv6: node.mgmt_ipv6.clone(),
-            vnc_port: None,
-            disks: Vec::new(),
-        };
-
-        // Check if device exists in libvirt
-        let domain_found = domains
-            .iter()
-            .find(|d| d.get_name().unwrap_or_default() == device_name);
-
-        if let Some(domain) = domain_found {
-            // Extract VNC port from domain XML
-            device_info.vnc_port = extract_vnc_port(domain);
-
-            // Filter pre-fetched volumes for this device
-            for volume in &volumes {
-                if volume.contains(&device_name) {
-                    device_info.disks.push(volume.clone());
-                }
-            }
-        }
-
-        // Always add device info, regardless of whether it's active or not
-        devices.push(device_info);
+        devices.push(device_info(node, node_image, &volumes, lab_id));
     }
 
     Ok(InspectResponse {
@@ -206,19 +168,28 @@ async fn inspect_lab_inner(
     })
 }
 
-/// Extract the VNC port from a libvirt domain's XML definition.
-fn extract_vnc_port(domain: &virt::domain::Domain) -> Option<i32> {
-    static RE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
-        Regex::new(
-            r#"<graphics[^>]*type=['"]\s*vnc\s*['"][^>]*port=['"]\s*(\d+)\s*['"]([\s\S]*?)/>"#,
-        )
-        .unwrap_or_else(|e| panic!("invalid VNC port regex: {e}"))
-    });
-
-    let xml = domain.get_xml_desc(0).ok()?;
-    let caps = RE.captures(&xml)?;
-    let port: i32 = caps.get(1)?.as_str().parse().ok()?;
-    if port > 0 { Some(port) } else { None }
+/// A node's details: its state, addresses and resources from the database, and its disks
+/// from the storage pool.
+fn device_info(node: &DbNode, image: &NodeConfig, volumes: &[String], lab_id: &str) -> DeviceInfo {
+    let device_name = format!("{}-{}", node.name, lab_id);
+    let mut disks = Vec::new();
+    for volume in volumes {
+        if volume.contains(&device_name) {
+            disks.push(volume.clone());
+        }
+    }
+    DeviceInfo {
+        name: node.name.clone(),
+        model: image.model,
+        kind: image.kind.clone(),
+        state: node.state,
+        mgmt_ipv4: node.mgmt_ipv4.clone().unwrap_or_default(),
+        mgmt_ipv6: node.mgmt_ipv6.clone(),
+        vnc_port: node.vnc_port,
+        disks,
+        cpu_count: node.cpu_count,
+        memory: node.memory,
+    }
 }
 
 /// Find a node image by RecordId in the pre-fetched list.
@@ -233,4 +204,43 @@ fn node_name_from_id(nodes: &[DbNode], rid: &RecordId) -> String {
         .find(|n| n.id.as_ref() == Some(rid))
         .map(|n| n.name.clone())
         .unwrap_or_else(|| format!("{:?}", rid))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::{NodeModel, NodeState};
+
+    fn db_node(name: &str) -> DbNode {
+        DbNode {
+            id: None,
+            name: name.to_string(),
+            image: RecordId::new("node_image", "ubuntu"),
+            index: 1,
+            lab: RecordId::new("lab", "lab1"),
+            mgmt_ipv4: Some("172.31.0.21".to_string()),
+            mgmt_ipv6: None,
+            mgmt_mac: None,
+            state: NodeState::Running,
+            cpu_count: Some(16),
+            memory: Some(32768),
+            vnc_port: Some(5903),
+        }
+    }
+
+    #[test]
+    fn device_details_come_from_the_database_and_pool() {
+        let image = NodeConfig::get_model(NodeModel::UbuntuLinux);
+        let volumes = vec![
+            "dev01-a1b2c3d4-hdd.qcow2".to_string(),
+            "dev02-a1b2c3d4-hdd.qcow2".to_string(),
+        ];
+        let device = device_info(&db_node("dev01"), &image, &volumes, "a1b2c3d4");
+        assert_eq!(device.name, "dev01");
+        assert_eq!(device.mgmt_ipv4, "172.31.0.21");
+        assert_eq!(device.vnc_port, Some(5903));
+        assert_eq!(device.cpu_count, Some(16));
+        assert_eq!(device.memory, Some(32768));
+        assert_eq!(device.disks, vec!["dev01-a1b2c3d4-hdd.qcow2"]);
+    }
 }

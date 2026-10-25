@@ -2640,21 +2640,32 @@ pub fn build_domain_template(
     management_network: String,
     isolated_network_name: String,
     reserved_network: String,
-) -> template::DomainTemplate {
+    resources: &data::NodeResources,
+) -> Result<template::DomainTemplate> {
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let (video_model, video_vram) = match node_image.model {
         data::NodeModel::OmarchyLinux => ("virtio", None),
         _ => ("cirrus", Some(16384)),
     };
+    // The resources stored on the node, so the domain and the database agree.
+    let memory = resources
+        .memory
+        .with_context(|| format!("Node '{}' has no memory recorded", node.name))?;
+    let cpu_count = resources
+        .cpu_count
+        .with_context(|| format!("Node '{}' has no vCPUs recorded", node.name))?;
+    let vnc_port = resources
+        .vnc_port
+        .with_context(|| format!("Node '{}' has no VNC port reserved", node.name))?;
 
-    template::DomainTemplate {
+    Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
-        memory: node.memory.unwrap_or(node_image.memory),
+        memory,
         cpu_architecture: node_image.cpu_architecture.clone(),
         cpu_model: node_image.cpu_model.clone(),
         machine_type: node_image.machine_type.clone(),
-        cpu_count: node.cpu_count.unwrap_or(node_image.cpu_count),
+        cpu_count,
         vmx_enabled: node_image.vmx_enabled,
         bios: node_image.bios.clone(),
         disks,
@@ -2682,7 +2693,8 @@ pub fn build_domain_template(
         cpu_features: cpu_features_for_model(&node_image.model),
         video_model: video_model.to_owned(),
         video_vram,
-    }
+        vnc_port,
+    })
 }
 
 /// Return the management interface type for a node model.
@@ -3903,7 +3915,13 @@ mod tests {
             "mgmt".to_owned(),
             String::new(),
             String::new(),
-        );
+            &data::NodeResources {
+                cpu_count: Some(2),
+                memory: Some(4096),
+                vnc_port: Some(5900),
+            },
+        )
+        .unwrap();
         let xml = domain.render().unwrap();
         assert_eq!(domain.video_model, "virtio");
         assert!(domain.video_vram.is_none());

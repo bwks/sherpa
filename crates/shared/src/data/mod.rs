@@ -39,7 +39,7 @@ pub use config::{
 };
 pub use container::{ContainerImage, ContainerModel, ContainerNetworkAttachment};
 pub use cpu::{CpuFeature, CpuFeaturePolicy, CpuModels};
-pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser};
+pub use db::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeResources};
 pub use destroy::{DestroyError, DestroyRequest, DestroyResponse, DestroySummary};
 pub use dhcp::DhcpLease;
 pub use disk::{

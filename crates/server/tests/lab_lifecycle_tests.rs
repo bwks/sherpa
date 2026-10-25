@@ -10,7 +10,7 @@ use std::net::{SocketAddr, TcpStream};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
-use helpers::test_server::{TEST_ADMIN_PASSWORD, TestServer};
+use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer};
 use helpers::ws_client::TestWsClient;
 
 /// Helper to create a minimal container-only manifest
@@ -682,7 +682,8 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
         "dana".to_owned(),
         TEST_ADMIN_PASSWORD,
         true,
-        vec![],
+        // Redeploy requires the owner to have an SSH key.
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
     )
     .await?;
     let admin_token = ws.login("dana", TEST_ADMIN_PASSWORD).await?;
@@ -691,7 +692,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
         "alice".to_owned(),
         TEST_ADMIN_PASSWORD,
         false,
-        vec![],
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
     )
     .await?;
     let bob = db::create_user(
@@ -699,7 +700,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
         "bob".to_owned(),
         TEST_ADMIN_PASSWORD,
         false,
-        vec![],
+        vec![TEST_SSH_PUBLIC_KEY.to_owned()],
     )
     .await?;
     let alice_token = ws.login("alice", TEST_ADMIN_PASSWORD).await?;

@@ -21,6 +21,7 @@ use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations;
 use crate::services::node_ops;
+use crate::services::node_resources;
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
@@ -392,6 +393,15 @@ pub async fn redeploy_node(
     );
 
     let config = state.config.clone();
+
+    // The node keeps its VNC port; its vCPUs and memory follow the manifest.
+    let db_node = node_resources::reserve_node_resources(
+        &db,
+        &db_node,
+        &node_image.kind,
+        node_resources::planned_resources(&target_node, &node_image),
+    )
+    .await?;
 
     match node_image.kind {
         data::NodeKind::Container => {
@@ -988,7 +998,8 @@ pub async fn redeploy_node(
                 management_network.clone(),
                 isolated_net.network_name,
                 reserved_network,
-            );
+                &node_resources::resources_of(&db_node),
+            )?;
 
             let _ =
                 progress.send_status(format!("Creating VM: {}", node_name), StatusKind::Progress);
@@ -1217,6 +1228,9 @@ mod tests {
             mgmt_ipv6: mgmt_ipv6.map(str::to_string),
             mgmt_mac: None,
             state: NodeState::Running,
+            cpu_count: None,
+            memory: None,
+            vnc_port: None,
         }
     }
 

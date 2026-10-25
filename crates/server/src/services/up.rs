@@ -28,6 +28,7 @@ use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
+use crate::services::node_resources;
 use crate::services::node_secrets::write_node_secrets;
 use crate::validate::{
     reject_provisioners, validate_and_resolve_node_versions, validate_environment_variables,
@@ -840,6 +841,14 @@ pub async fn up_lab(
                 node.index,
                 db::get_image_id(&node_image)?,
                 lab_record_id.clone(),
+            )
+            .await?;
+            // Record its vCPUs, memory and, for a VM, its VNC console port.
+            let lab_node = node_resources::reserve_node_resources(
+                &db,
+                &lab_node,
+                &node_image.kind,
+                node_resources::planned_resources(node, &node_image),
             )
             .await?;
 
@@ -1910,7 +1919,12 @@ pub async fn up_lab(
                 .map(|net| net.network_name.clone())
                 .unwrap_or_default();
 
-            // Build domain template
+            // Build domain template from the resources stored on the node
+            let record = lab_node_data
+                .iter()
+                .find(|n| n.name == node.name)
+                .map(|n| &n.record)
+                .with_context(|| format!("Node '{}' has no database record", node.name))?;
             let domain = node_ops::build_domain_template(
                 node,
                 &node_image,
@@ -1923,7 +1937,8 @@ pub async fn up_lab(
                 management_network,
                 isolated_network_name,
                 reserved_network,
-            );
+                &node_resources::resources_of(record),
+            )?;
             domains.push(domain);
         }
 

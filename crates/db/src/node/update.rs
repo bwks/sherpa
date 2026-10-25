@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, anyhow};
-use shared::data::{DbNode, NodeState, RecordId};
+use shared::data::{DbNode, NodeResources, NodeState, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -214,4 +214,37 @@ pub async fn update_node_state(
         .map(DbNode::try_from)
         .transpose()?
         .ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
+}
+
+/// Record what a node was given: its vCPUs, memory and VNC port.
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If another node already has the VNC port
+/// - If the database update fails
+#[instrument(skip(db), level = "debug")]
+pub async fn update_node_resources(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    resources: &NodeResources,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.cpu_count = resources.cpu_count;
+    node.memory = resources.memory;
+    node.vnc_port = resources.vnc_port;
+
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
+        .await
+        .context(format!(
+            "Failed to update resources for node: {}",
+            node.name
+        ))?;
+
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node resources update failed: {}", node.name))
 }
