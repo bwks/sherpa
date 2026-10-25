@@ -88,20 +88,8 @@ pub async fn up(
 
     let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
 
-    // Read per-node ztp_config file paths and base64 encode their contents
-    resolve_ztp_configs(&mut manifest, manifest_path)?;
-
-    // Resolve text_files paths relative to manifest directory
-    resolve_text_files(&mut manifest, manifest_path)?;
-
-    // Resolve startup_scripts paths relative to manifest directory
-    resolve_startup_scripts(&mut manifest, manifest_path)?;
-
-    // Resolve user_scripts paths relative to manifest directory
-    resolve_user_scripts(&mut manifest, manifest_path)?;
-
-    // Resolve $ENV_VAR references in environment_variables
-    resolve_environment_variables(&mut manifest)?;
+    // Read ztp_config, text_files and scripts relative to the manifest, and $VAR values.
+    resolve_manifest_files(&mut manifest, manifest_path)?;
 
     // Serialize manifest to JSON for transmission
     let manifest_value =
@@ -551,6 +539,18 @@ pub(crate) fn resolve_user_scripts(
     Ok(())
 }
 
+/// Resolve every client file and `$VAR` value the server needs, for `up` and `redeploy`.
+pub(crate) fn resolve_manifest_files(
+    manifest: &mut topology::Manifest,
+    manifest_path: &str,
+) -> Result<()> {
+    resolve_ztp_configs(manifest, manifest_path)?;
+    resolve_text_files(manifest, manifest_path)?;
+    resolve_startup_scripts(manifest, manifest_path)?;
+    resolve_user_scripts(manifest, manifest_path)?;
+    resolve_environment_variables(manifest)
+}
+
 /// Resolve text_files file paths relative to the manifest directory.
 /// Reads each file, base64-encodes the contents, and populates
 /// `text_files_data` for transmission to the server.
@@ -965,6 +965,39 @@ Host 172.31.1.12 dev02.abc123
 
         let decoded = base64_decode(&data[0].content).expect("should decode");
         assert_eq!(decoded, r#"{"key": "value"}"#);
+    }
+
+    #[test]
+    fn test_resolve_manifest_files_resolves_text_files_and_scripts() {
+        let dir = tempfile::tempdir().expect("Failed to create temp dir");
+        std::fs::write(dir.path().join("my_file.txt"), "hello world").expect("write file");
+        std::fs::write(dir.path().join("setup.sh"), "#!/bin/sh\n").expect("write script");
+        let manifest_path = dir.path().join("manifest.toml");
+
+        let mut manifest = test_manifest(vec![topology::Node {
+            name: "dev01".to_string(),
+            model: NodeModel::UbuntuLinux,
+            text_files: Some(vec![topology::TextFile {
+                src: "my_file.txt".to_string(),
+                dst: "/opt/data/my_file.txt".to_string(),
+                user: "sherpa".to_string(),
+                group: "sherpa".to_string(),
+                permissions: 644,
+            }]),
+            user_scripts: Some(vec!["setup.sh".to_string()]),
+            ..Default::default()
+        }]);
+
+        resolve_manifest_files(&mut manifest, manifest_path.to_str().expect("path"))
+            .expect("resolve should succeed");
+
+        let node = &manifest.nodes[0];
+        let text_files = node.text_files_data.as_ref().expect("text_files_data");
+        assert_eq!(
+            base64_decode(&text_files[0].content).expect("decode"),
+            "hello world"
+        );
+        assert!(node.user_scripts_data.is_some());
     }
 
     #[test]
