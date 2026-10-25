@@ -299,6 +299,10 @@ pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
 /// Drop-in directory for per-user doas rules (Alpine).
 pub const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
+/// doas configuration file (OpenBSD, whose doas has no drop-in directory).
+pub const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
+/// cloud-init `sudo` rule for admin logins: every command as any user, without a password.
+pub const NODE_CLOUD_INIT_SUDO_RULE: &str = "ALL=(ALL) NOPASSWD:ALL";
 /// Shadow password value that matches no password but, unlike `!`, does not lock the
 /// account, so sshd builds without PAM still accept key logins.
 pub const NODE_NO_PASSWORD_HASH: &str = "*";

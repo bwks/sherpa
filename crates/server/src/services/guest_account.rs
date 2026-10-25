@@ -7,8 +7,8 @@ use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
 use shared::konst::{
-    NODE_DOAS_CONF_DIR, NODE_NO_PASSWORD_HASH, RESERVED_USERNAMES, SHERPA_USERNAME,
-    SSH_KEYS_DOCS_URL,
+    NODE_CLOUD_INIT_SUDO_RULE, NODE_DOAS_CONF_DIR, NODE_NO_PASSWORD_HASH, RESERVED_USERNAMES,
+    SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
 };
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
@@ -23,12 +23,12 @@ pub(crate) struct GuestAccount {
     pub ssh_keys: Vec<String>,
 }
 
-/// Keep this list aligned with the Linux branches in the VM ZTP generators.
+/// Keep this list aligned with the Linux and BSD branches in the VM ZTP generators.
 #[instrument(level = "debug", skip(image))]
 pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
     image.kind == NodeKind::VirtualMachine
         && image.ztp_enable
-        && image.os_variant == OsVariant::Linux
+        && matches!(image.os_variant, OsVariant::Linux | OsVariant::Bsd)
         && match image.ztp_method {
             ZtpMethod::CloudInit => matches!(
                 image.model,
@@ -50,6 +50,8 @@ pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
                     | NodeModel::SignozServer
                     | NodeModel::VirtServer
                     | NodeModel::AlpineLinux
+                    | NodeModel::FreeBsd
+                    | NodeModel::OpenBsd
             ),
             ZtpMethod::Ignition => image.model == NodeModel::FlatcarLinux,
             _ => false,
@@ -147,7 +149,7 @@ pub(crate) fn cloud_init_user(account: &GuestAccount) -> CloudInitUser {
         lock_passwd: true,
         homedir: Some(format!("/home/{}", account.username)),
         ssh_authorized_keys: account.ssh_keys.clone(),
-        sudo: "ALL=(ALL) NOPASSWD:ALL".to_owned(),
+        sudo: Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
         groups: vec![],
         shell: "/bin/bash".to_owned(),
     }
@@ -160,6 +162,22 @@ pub(crate) fn cloud_init_user(account: &GuestAccount) -> CloudInitUser {
 #[instrument(level = "debug", skip(account))]
 pub(crate) fn alpine_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
     CloudInitUser {
+        hashed_passwd: Some(NODE_NO_PASSWORD_HASH.to_owned()),
+        lock_passwd: false,
+        groups: vec!["wheel".to_owned()],
+        shell: "/bin/sh".to_owned(),
+        ..cloud_init_user(account)
+    }
+}
+
+/// The personal account on FreeBSD and OpenBSD, which keeps their native tools: `sh` as the
+/// shell and `wheel`, with `doas` on OpenBSD. The OS picks the home, which is under `/usr/home`
+/// on FreeBSD. Its password is unusable rather than locked, because OpenSSH refuses locked
+/// accounts on FreeBSD, even for key logins.
+#[instrument(level = "debug", skip(account))]
+pub(crate) fn bsd_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
+    CloudInitUser {
+        homedir: None,
         hashed_passwd: Some(NODE_NO_PASSWORD_HASH.to_owned()),
         lock_passwd: false,
         groups: vec!["wheel".to_owned()],
@@ -289,12 +307,14 @@ mod tests {
     }
 
     #[test]
-    fn only_supported_linux_vm_generators_receive_accounts() {
+    fn only_supported_linux_and_bsd_vm_generators_receive_accounts() {
         for model in [
             NodeModel::UbuntuLinux,
             NodeModel::OmarchyLinux,
             NodeModel::AlpineLinux,
             NodeModel::FlatcarLinux,
+            NodeModel::FreeBsd,
+            NodeModel::OpenBsd,
         ] {
             let mut image = NodeConfig::get_model(model);
             assert!(supports_guest_account(&image), "{model}");
@@ -302,8 +322,6 @@ mod tests {
             assert!(!supports_guest_account(&image));
         }
         for model in [
-            NodeModel::FreeBsd,
-            NodeModel::OpenBsd,
             NodeModel::WindowsServer,
             NodeModel::NokiaSrlinux,
             NodeModel::CiscoIosv,
@@ -380,6 +398,24 @@ mod tests {
         assert_eq!(user.groups, vec!["wheel"]);
         assert_eq!(user.ssh_authorized_keys, vec![KEY]);
         // Alpine's sshd has no PAM and refuses locked (`!`) accounts, even for key logins.
+        assert!(!user.lock_passwd);
+        assert_eq!(user.hashed_passwd.as_deref(), Some("*"));
+        assert_eq!(user.plain_text_passwd, None);
+    }
+
+    #[test]
+    fn personal_bsd_user_uses_sh_wheel_and_the_os_home() {
+        let account = from_user(&owner("alice", vec![KEY.to_owned()]))
+            .unwrap()
+            .unwrap();
+        let user = bsd_cloud_init_user(&account);
+        assert_eq!(user.name, "alice");
+        assert_eq!(user.shell, "/bin/sh");
+        assert_eq!(user.groups, vec!["wheel"]);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY]);
+        // FreeBSD homes are under /usr/home, so the OS picks the home.
+        assert_eq!(user.homedir, None);
+        // OpenSSH refuses locked accounts on FreeBSD, even for key logins.
         assert!(!user.lock_passwd);
         assert_eq!(user.hashed_passwd.as_deref(), Some("*"));
         assert_eq!(user.plain_text_passwd, None);

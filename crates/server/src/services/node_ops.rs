@@ -31,14 +31,14 @@ use shared::konst::{
     CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
-    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CONFIGS_DIR,
-    NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE,
-    NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG,
-    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS,
+    NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_PASSWD_FILE,
+    NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
+    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT,
     VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
@@ -1429,6 +1429,30 @@ fn cloud_init_manage_etc_hosts(model: &data::NodeModel) -> bool {
     !matches!(model, data::NodeModel::OpenBsd)
 }
 
+/// The doas rule giving `wheel` admin rights on OpenBSD, where doas is the native tool: the
+/// stock `/etc/examples/doas.conf` rule, without a password, since the logins have none. The
+/// image has no `/etc/doas.conf`.
+fn cloud_init_doas_file(model: &data::NodeModel) -> Option<template::CloudInitWriteFile> {
+    if *model != data::NodeModel::OpenBsd {
+        return None;
+    }
+    Some(template::CloudInitWriteFile {
+        path: NODE_DOAS_CONF_FILE.to_owned(),
+        content: "permit nopass keepenv :wheel\n".to_owned(),
+        permissions: "0400".to_owned(),
+        owner: None,
+        encoding: None,
+    })
+}
+
+/// The cloud-init `sudo` rule for admin logins, except on OpenBSD, which uses doas.
+fn cloud_init_sudo_rule(model: &data::NodeModel) -> Option<String> {
+    match model {
+        data::NodeModel::OpenBsd => None,
+        _ => Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
+    }
+}
+
 #[instrument(level = "debug")]
 fn cloud_init_user_settings(
     model: &data::NodeModel,
@@ -1485,6 +1509,7 @@ fn generate_cloud_init_ztp(
                 cloud_init_user_settings(&node.model, &node_image.os_variant);
             cloud_init_user.groups = vec![admin_group.to_owned()];
             cloud_init_user.shell = shell.to_owned();
+            cloud_init_user.sudo = cloud_init_sudo_rule(&node.model);
 
             let mut write_files = match cert_paths {
                 Some(certs) => build_cloud_init_cert_files(certs, NODE_CERTS_DIR)?,
@@ -1519,6 +1544,9 @@ fn generate_cloud_init_ztp(
             )?;
             write_files.extend(script_files);
             runcmd.extend(script_runcmd);
+            if let Some(doas_file) = cloud_init_doas_file(&node.model) {
+                write_files.push(doas_file);
+            }
 
             let cloud_init_write_files = if write_files.is_empty() {
                 None
@@ -1540,7 +1568,12 @@ fn generate_cloud_init_ztp(
                 users: {
                     let mut users = vec![cloud_init_user];
                     if let Some(account) = guest_account {
-                        users.push(guest_account::cloud_init_user(account));
+                        let mut user = match node_image.os_variant {
+                            data::OsVariant::Bsd => guest_account::bsd_cloud_init_user(account),
+                            _ => guest_account::cloud_init_user(account),
+                        };
+                        user.sudo = cloud_init_sudo_rule(&node.model);
+                        users.push(user);
                     }
                     users
                 },
@@ -3590,6 +3623,30 @@ mod tests {
             cloud_init_ipv6_address(&data::NodeModel::UbuntuLinux, Some(address)),
             Some(address)
         );
+    }
+
+    #[test]
+    fn test_openbsd_wheel_gets_passwordless_doas() {
+        let file = cloud_init_doas_file(&data::NodeModel::OpenBsd).unwrap();
+        assert_eq!(file.path, "/etc/doas.conf");
+        assert_eq!(file.content, "permit nopass keepenv :wheel\n");
+        assert_eq!(file.permissions, "0400");
+        // Root-owned files leave the owner out, so BSD uses root:wheel.
+        assert_eq!(file.owner, None);
+        assert!(cloud_init_doas_file(&data::NodeModel::FreeBsd).is_none());
+        assert!(cloud_init_doas_file(&data::NodeModel::UbuntuLinux).is_none());
+    }
+
+    #[test]
+    fn test_openbsd_logins_get_no_sudo_rule() {
+        assert_eq!(cloud_init_sudo_rule(&data::NodeModel::OpenBsd), None);
+        for model in [data::NodeModel::FreeBsd, data::NodeModel::UbuntuLinux] {
+            assert_eq!(
+                cloud_init_sudo_rule(&model).as_deref(),
+                Some("ALL=(ALL) NOPASSWD:ALL"),
+                "{model}"
+            );
+        }
     }
 
     #[test]

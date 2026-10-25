@@ -2,11 +2,13 @@ use anyhow::Result;
 use std::collections::HashMap;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use serde::Serializer;
 use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{NetworkV4, NetworkV6};
 use shared::konst::{
-    SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_USERNAME,
+    NODE_CLOUD_INIT_SUDO_RULE, SHERPA_DOMAIN_NAME, SHERPA_PASSWORD, SHERPA_SSH_PUBLIC_KEY_PATH,
+    SHERPA_USERNAME,
 };
 use shared::util::get_ssh_public_key;
 
@@ -174,9 +176,15 @@ pub struct CloudInitUser {
     pub homedir: Option<String>,
     pub lock_passwd: bool,
     pub ssh_authorized_keys: Vec<String>,
-    pub sudo: String,
-    /// Omitted when empty: cloud-init's schema rejects an empty `groups` list.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// Omitted where sudo is not the native admin tool.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sudo: Option<String>,
+    /// Written as a comma-separated string, which every distro accepts: cloud-init's BSD
+    /// `add_user` drops a list. Omitted when empty, which cloud-init's schema rejects.
+    #[serde(
+        skip_serializing_if = "Vec::is_empty",
+        serialize_with = "serialize_comma_separated"
+    )]
     pub groups: Vec<String>,
     pub shell: String,
 }
@@ -190,9 +198,16 @@ impl CloudInitUser {
             homedir: None,
             lock_passwd: false,
             ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key.to_owned())],
-            sudo: "ALL=(ALL) NOPASSWD:ALL".to_owned(),
+            sudo: Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
             groups: vec!["sudo".to_owned()],
             shell: "/bin/bash".to_owned(),
         })
     }
+}
+
+fn serialize_comma_separated<S>(values: &[String], serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&values.join(","))
 }
