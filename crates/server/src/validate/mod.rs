@@ -5,10 +5,12 @@
 
 mod environment;
 mod node_image;
+mod provisioner;
 mod tailscale_gateway;
 mod version;
 
 pub use environment::validate_environment_variables;
 pub use node_image::validate_node_image_update;
+pub use provisioner::reject_provisioners;
 pub use tailscale_gateway::validate_tailscale_gateway_settings;
 pub use version::validate_and_resolve_node_versions;

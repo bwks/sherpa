@@ -304,6 +304,15 @@ pub const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
 pub const NODE_NO_PASSWORD_HASH: &str = "*";
 /// Per-user file in the guest login's home holding manifest environment variables.
 pub const NODE_USER_ENV_FILE: &str = ".sherpa_env";
+/// Directory in the guest login's home for env files copied by provisioners; login shells
+/// load every file in it.
+pub const NODE_USER_ENV_DIR: &str = ".env.d";
+/// Default mode of files copied by a provisioner, as octal digits.
+pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
+/// Seconds an SSH provisioner waits for each connection to a node to open.
+pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
+/// Seconds between attempts to log in to a node that is not accepting the login yet.
+pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
 /// Root-only directory where cloud-init stages files until their owners exist.
 pub const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
 /// Guest account database, read at boot to find a user's home directory.

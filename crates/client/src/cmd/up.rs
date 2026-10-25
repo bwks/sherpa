@@ -4,7 +4,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
-use shared::data::{ClientConfig, StatusKind, StatusMessage, TailnetAuthKey, UpResponse};
+use shared::data::{ClientConfig, NodeInfo, StatusKind, StatusMessage, TailnetAuthKey, UpResponse};
 use shared::error::RpcErrorCode;
 use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
@@ -19,10 +19,11 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
+use crate::provision::provision_lab;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 use shared::validators::validate_tailscale_key;
-use topology::validate::validate_tailscale;
+use topology::validate::{validate_provisioners, validate_tailscale};
 
 /// Helper struct for deserializing log messages
 #[derive(Deserialize)]
@@ -85,6 +86,7 @@ pub async fn up(
 
     let mut manifest = topology::Manifest::load_file(manifest_path)
         .with_context(|| format!("Failed to parse manifest: {}", manifest_path))?;
+    validate_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
 
     let tailscale_auth_key = resolve_tailscale_key(&manifest, server_url, config)?;
 
@@ -337,7 +339,23 @@ pub async fn up(
     // Display results
     display_up_results(&up_data)?;
 
+    // Provisioners run from the client, so their files never pass through the server.
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    let ready_nodes = ssh_ready_nodes(&up_data.nodes);
+    provision_lab(&manifest, manifest_dir, lab_id, Some(&ready_nodes), None)?;
+
     Ok(())
+}
+
+/// The nodes that came up with SSH available.
+fn ssh_ready_nodes(nodes: &[NodeInfo]) -> Vec<String> {
+    let mut ready = Vec::new();
+    for node in nodes {
+        if node.ssh_port.is_some() {
+            ready.push(node.name.clone());
+        }
+    }
+    ready
 }
 
 /// Resolve the enrollment key separately so the manifest never contains it.
@@ -683,7 +701,7 @@ fn display_up_results(response: &UpResponse) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::NodeModel;
+    use shared::data::{NodeModel, NodeState};
     use shared::util::base64_decode;
     use std::io::Write;
     use tempfile::NamedTempFile;
@@ -965,6 +983,23 @@ Host 172.31.1.12 dev02.abc123
 
         let decoded = base64_decode(&data[0].content).expect("should decode");
         assert_eq!(decoded, r#"{"key": "value"}"#);
+    }
+
+    fn node_info(name: &str, ssh_port: Option<u16>) -> NodeInfo {
+        NodeInfo {
+            name: name.to_string(),
+            kind: "virtual_machine".to_string(),
+            model: NodeModel::UbuntuLinux,
+            status: NodeState::Running,
+            ip_address: None,
+            ssh_port,
+        }
+    }
+
+    #[test]
+    fn provisioners_run_on_nodes_that_came_up_with_ssh() {
+        let nodes = vec![node_info("dev01", Some(22)), node_info("dev02", None)];
+        assert_eq!(ssh_ready_nodes(&nodes), vec!["dev01"]);
     }
 
     #[test]

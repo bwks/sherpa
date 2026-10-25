@@ -6,6 +6,7 @@
 
 mod device;
 mod link;
+mod provisioner;
 mod tailscale;
 mod talos_cluster;
 
@@ -14,5 +15,6 @@ pub use link::{
     check_bridge_device, check_duplicate_interface_link, check_interface_bounds, check_link_device,
     check_mgmt_usage,
 };
+pub use provisioner::validate_provisioners;
 pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;

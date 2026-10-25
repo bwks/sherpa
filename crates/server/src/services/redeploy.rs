@@ -23,6 +23,7 @@ use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
+use crate::validate::reject_provisioners;
 
 use shared::data;
 use shared::data::{DbNode, NodeState, RedeployRequest, RedeployResponse, StatusKind};
@@ -103,6 +104,7 @@ pub async fn redeploy_node(
     // Parse manifest
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
 
     let manifest_nodes = process_manifest_nodes(&manifest.nodes);
 

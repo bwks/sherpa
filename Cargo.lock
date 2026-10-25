@@ -5725,6 +5725,7 @@ dependencies = [
  "anyhow",
  "serde",
  "serde_derive",
+ "serde_json",
  "shared",
  "toml",
  "tracing",

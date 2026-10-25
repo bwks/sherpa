@@ -4,6 +4,8 @@ use serde_derive::{Deserialize, Serialize};
 
 use shared::data::{DiskImageCloneMethod, NodeModel};
 
+use crate::provisioner::Provisioner;
+
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Node {
@@ -40,6 +42,10 @@ pub struct Node {
     pub text_files_data: Option<Vec<TextFileData>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
+    /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
+    /// the client never sends them to the server and the server never stores them.
+    #[serde(default, skip_serializing)]
+    pub provisioners: Option<Vec<Provisioner>>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

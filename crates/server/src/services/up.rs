@@ -28,7 +28,9 @@ use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
 use crate::tls;
 
-use crate::validate::{validate_and_resolve_node_versions, validate_environment_variables};
+use crate::validate::{
+    reject_provisioners, validate_and_resolve_node_versions, validate_environment_variables,
+};
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
@@ -441,6 +443,7 @@ pub async fn up_lab(
     // Deserialize manifest from JSON Value
     let manifest: topology::Manifest =
         serde_json::from_value(request.manifest).context("Failed to deserialize manifest")?;
+    reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
 
     let tailnet_enabled = tailscale::validate_enrollment(
         &manifest,

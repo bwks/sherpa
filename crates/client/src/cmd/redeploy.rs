@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use std::path::Path;
 use std::time::Duration;
 
 use shared::data::{ClientConfig, RedeployResponse, StatusKind, StatusMessage};
@@ -8,6 +9,7 @@ use shared::util::{Emoji, term_msg_surround};
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
+use crate::provision::provision_lab;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -140,6 +142,9 @@ pub async fn redeploy(
     download(lab_id, true, server_url, config)
         .await
         .with_context(|| format!("Node redeployed, but local SSH configuration refresh failed; run sherpa download {lab_id} --force"))?;
+
+    let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
+    provision_lab(&manifest, manifest_dir, lab_id, None, Some(node_name))?;
 
     Ok(())
 }
