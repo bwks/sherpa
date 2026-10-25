@@ -317,6 +317,8 @@ pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
 pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
 /// Seconds between attempts to log in to a node that is not accepting the login yet.
 pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
+/// Docker endpoint driver option naming a network's interface in the container.
+pub const DOCKER_ENDPOINT_IFNAME_OPT: &str = "com.docker.network.endpoint.ifname";
 /// Root-only directory where cloud-init stages files until their owners exist.
 pub const NODE_STAGING_DIR: &str = "/opt/sherpa/staging";
 /// Guest account database, read at boot to find a user's home directory.

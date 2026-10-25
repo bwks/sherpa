@@ -600,6 +600,7 @@ pub async fn redeploy_node(
                 admin_down: false,
             };
 
+            let has_disabled = additional_networks.iter().any(|n| n.admin_down);
             let is_running = node_ops::start_container_node(
                 &docker_conn,
                 &container_name,
@@ -623,6 +624,12 @@ pub async fn redeploy_node(
                     "Container {} is not in running state after redeploy",
                     container_name
                 );
+            }
+
+            // Take the carrier from disabled interfaces, as for VMs.
+            if has_disabled {
+                let isolated = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
+                network::set_link_down(&isolated.bridge_name).await?;
             }
 
             // P2p post-start: move veths into container netns and attach eBPF

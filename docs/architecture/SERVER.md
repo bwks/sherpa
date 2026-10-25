@@ -1044,6 +1044,21 @@ Lab {lab_id}
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
 
+### Container data interfaces
+
+Each container data interface is a Docker network attachment (`ContainerNetworkAttachment`),
+connected in index order after the container starts (`container::run_container`). Nothing runs in
+the image for most interfaces, so images without `ip` (such as `mongo`) work:
+
+- Docker names the interface in the container through the endpoint driver option
+  `konst::DOCKER_ENDPOINT_IFNAME_OPT` when `linux_interface_name` is set.
+- A disabled interface is a macvlan on the node's isolated bridge. The server sets that bridge
+  down from the host (`network::set_link_down`, phase 11c and the container redeploy), as for
+  VMs, so the interface has no carrier.
+- A linked, renamed interface (SR Linux) is still set promiscuous and up with `ip` in the
+  container. P2p links also run `ip` in the container, after moving the veth into its namespace:
+  a link moved into another namespace comes up down, and `sherpad` cannot enter the namespace.
+
 ### Lab management addressing
 
 Each lab gets a management `/24` (IPv4) and `/64` (IPv6). Host offsets are split into fixed

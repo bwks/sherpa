@@ -12,6 +12,7 @@ use bollard::query_parameters::{
 use tracing::instrument;
 
 use shared::data::ContainerNetworkAttachment;
+use shared::konst::DOCKER_ENDPOINT_IFNAME_OPT;
 
 use super::exec::exec_container_with_retry;
 
@@ -103,17 +104,10 @@ pub async fn run_container(
 
     // Attach remaining networks sequentially to preserve interface order
     // Skip the first network since it was attached during container creation
-    for (i, attachment) in additional_networks.iter().enumerate() {
+    for attachment in &additional_networks {
         let connect_request = NetworkConnectRequest {
             container: Some(id.clone()),
-            endpoint_config: Some(EndpointSettings {
-                ipam_config: Some(EndpointIpamConfig {
-                    ipv4_address: attachment.ipv4_address.clone(),
-                    ipv6_address: attachment.ipv6_address.clone(),
-                    link_local_ips: None,
-                }),
-                ..Default::default()
-            }),
+            endpoint_config: Some(data_endpoint_settings(attachment)),
         };
 
         docker
@@ -128,39 +122,21 @@ pub async fn run_container(
 
         tracing::debug!(container_name = %name, network = %attachment.name, "Connected network to container");
 
-        // Rename the interface inside the container if requested.
-        // Docker assigns data interfaces as eth1, eth2, ... (eth0 is management).
-        if let Some(target_name) = &attachment.linux_interface_name {
-            let eth_name = format!("eth{}", i + 1);
-            let rename_cmd = if attachment.admin_down {
-                // Disabled interface: rename but leave admin-down
-                format!("ip link set {eth_name} down && ip link set {eth_name} name {target_name}")
-            } else {
-                // Active interface: rename, enable promisc, bring up
-                format!(
-                    "ip link set {eth_name} down && ip link set {eth_name} name {target_name} && ip link set {target_name} promisc on && ip link set {target_name} up"
-                )
-            };
+        if let Some(command) = data_interface_command(attachment) {
             exec_container_with_retry(
                 docker,
                 name,
-                vec!["sh", "-c", &rename_cmd],
+                vec!["sh", "-c", &command],
                 3,
                 std::time::Duration::from_secs(2),
             )
             .await
             .with_context(|| {
                 format!(
-                    "Failed to rename interface {eth_name} to {target_name} in container {name}"
+                    "Failed to set up interface {} in container {name}",
+                    attachment.name
                 )
             })?;
-            tracing::info!(
-                container_name = %name,
-                from = %eth_name,
-                to = %target_name,
-                admin_down = %attachment.admin_down,
-                "Renamed interface in container"
-            );
         }
     }
 
@@ -188,4 +164,91 @@ pub async fn run_container(
     };
 
     Ok(is_running)
+}
+
+/// Docker endpoint settings for a data network. Docker names the interface in the container, so
+/// no command has to run in the image to rename it.
+fn data_endpoint_settings(attachment: &ContainerNetworkAttachment) -> EndpointSettings {
+    let mut driver_opts = None;
+    if let Some(name) = &attachment.linux_interface_name {
+        driver_opts = Some(HashMap::from([(
+            DOCKER_ENDPOINT_IFNAME_OPT.to_string(),
+            name.clone(),
+        )]));
+    }
+    EndpointSettings {
+        ipam_config: Some(EndpointIpamConfig {
+            ipv4_address: attachment.ipv4_address.clone(),
+            ipv6_address: attachment.ipv6_address.clone(),
+            link_local_ips: None,
+        }),
+        driver_opts,
+        ..Default::default()
+    }
+}
+
+/// The command to run in the container once a data interface is attached, if any: an active,
+/// renamed interface is set promiscuous and up. Disabled interfaces need none: the server takes
+/// the carrier away from the host, so images without `ip` work.
+fn data_interface_command(attachment: &ContainerNetworkAttachment) -> Option<String> {
+    if attachment.admin_down {
+        return None;
+    }
+    let name = attachment.linux_interface_name.as_ref()?;
+    Some(format!(
+        "ip link set {name} promisc on && ip link set {name} up"
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn attachment(
+        linux_interface_name: Option<&str>,
+        admin_down: bool,
+    ) -> ContainerNetworkAttachment {
+        ContainerNetworkAttachment {
+            name: "net".to_string(),
+            ipv4_address: Some("172.31.0.5".to_string()),
+            ipv6_address: None,
+            linux_interface_name: linux_interface_name.map(str::to_string),
+            admin_down,
+        }
+    }
+
+    #[test]
+    fn docker_names_renamed_interfaces() {
+        let settings = data_endpoint_settings(&attachment(Some("e1-1"), false));
+        assert_eq!(
+            settings
+                .driver_opts
+                .unwrap()
+                .get("com.docker.network.endpoint.ifname"),
+            Some(&"e1-1".to_string())
+        );
+        assert_eq!(
+            settings.ipam_config.unwrap().ipv4_address.as_deref(),
+            Some("172.31.0.5")
+        );
+        assert!(
+            data_endpoint_settings(&attachment(None, false))
+                .driver_opts
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn only_active_renamed_interfaces_run_a_command() {
+        assert_eq!(
+            data_interface_command(&attachment(Some("e1-1"), false)).as_deref(),
+            Some("ip link set e1-1 promisc on && ip link set e1-1 up")
+        );
+        // Disabled interfaces run nothing, so images without `ip` start.
+        assert_eq!(
+            data_interface_command(&attachment(Some("eth1"), true)),
+            None
+        );
+        assert_eq!(data_interface_command(&attachment(None, false)), None);
+    }
 }

@@ -2427,12 +2427,16 @@ pub async fn up_lab(
         phases_completed.push("P2pEbpfAttach".to_string());
 
         // ========================================================================
-        // PHASE 11c: Set VM isolated bridges DOWN
+        // PHASE 11c: Set isolated bridges DOWN
         // ========================================================================
-        // After VM creation, set isolated network bridges DOWN to remove carrier
-        // from disabled VM interfaces. This ensures disabled interfaces show as
-        // "not connected" on the VM side.
-        for node in vm_nodes.iter().chain(unikernel_nodes.iter()) {
+        // Set isolated network bridges DOWN to remove carrier from disabled
+        // interfaces, so they show as "not connected" on the node. Containers
+        // attach to their bridge later, without running anything in the image.
+        for node in vm_nodes
+            .iter()
+            .chain(unikernel_nodes.iter())
+            .chain(container_nodes.iter())
+        {
             let nsd = node_setup_data.iter().find(|n| n.name == node.name);
             if let Some(nsd) = nsd
                 && let Some(ref iso_net) = nsd.isolated_network
