@@ -1,9 +1,10 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::Command;
+use std::process;
 
 use anyhow::{Context, Result, bail, ensure};
+use jato::{ConnectOptions, SshConfig};
 use topology::Manifest;
 
 use shared::data::LabInfo;
@@ -14,6 +15,7 @@ use shared::konst::{
 use shared::util::term_msg_surround;
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
+use crate::remote_shell;
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -29,22 +31,26 @@ fn qualify_device_name(name: &str, lab_id: &str) -> String {
     }
 }
 
+/// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
+/// configuration says. A non-zero exit code from the node's shell ends the process with it.
 #[tracing::instrument(fields(%name, %lab_id))]
 pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
     let qualified_name = load_ssh_connection(name, lab_id, Path::new("."))?;
+    let config = SshConfig::load_file(SHERPA_SSH_CONFIG_FILE)
+        .context("Failed to read the lab SSH config")?;
+    let route = config
+        .route(&qualified_name)
+        .with_context(|| format!("Failed to resolve '{qualified_name}' in the lab SSH config"))?;
     term_msg_surround(&format!("Connecting to: {qualified_name}"));
 
-    let status = Command::new("ssh")
-        .arg(&qualified_name)
-        .arg("-F")
-        .arg(SHERPA_SSH_CONFIG_FILE)
-        .status()?;
-
-    if !status.success() {
-        eprintln!("SSH connection failed");
-        if let Some(code) = status.code() {
-            eprintln!("Exit code: {}", code);
-        }
+    let session = remote_shell::connect(&route, &ConnectOptions::default()).await?;
+    let code = remote_shell::run_shell(&session).await?;
+    if let Err(error) = session.close().await {
+        tracing::debug!(%error, "Failed to close the SSH session cleanly");
+    }
+    eprintln!("Connection to {qualified_name} closed.");
+    if code != 0 {
+        process::exit(code);
     }
     Ok(())
 }

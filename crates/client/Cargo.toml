@@ -66,11 +66,16 @@ rustls-native-certs = "0.8"
 # Home directory detection
 dirs = { workspace = true }
 
+# SSH client and local terminal for `sherpa ssh`
+jato = { workspace = true }
+crossterm = { workspace = true }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
   "Win32_Security",
   "Win32_Security_Authorization",
+  "Win32_System_Console",
   "Win32_System_Threading",
 ] }
 
