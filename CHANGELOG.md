@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.3] - 2026-10-27
+
+### Bug Fixes
+
+- Fail at once for a node missing from the lab SSH config by @bwks ([da2ab3f](https://github.com/bwks/sherpa/commit/da2ab3f01147e42727faf85a75ef6229977eca62))
+- Run commands on a thread with an 8 MiB stack by @bwks ([421a4f2](https://github.com/bwks/sherpa/commit/421a4f27f3a13dec581db4ce3b3fa08c802c100a))
+
+### Features
+
+- Run SSH provisioners through Jato instead of ssh and scp by @bwks ([241bfb0](https://github.com/bwks/sherpa/commit/241bfb0af0643d7c5857cebcc58206e152f66a90))
+- Ask for a key passphrase or password as ssh does by @bwks ([8da91d9](https://github.com/bwks/sherpa/commit/8da91d9bfbf918dd46632a746479fa10cf39aa24))
+- Run sherpa ssh through Jato instead of the system ssh by @bwks ([7f3511e](https://github.com/bwks/sherpa/commit/7f3511ed59b5325265df25e14cb20a8862246a75))
+
+### Miscellaneous
+
+- Merge pull request #366 from bwks/feat/jato-ssh-command
+
+feat(ssh): run sherpa ssh through Jato instead of the system ssh by @bwks in [#366](https://github.com/bwks/sherpa/pull/366) ([875ac0b](https://github.com/bwks/sherpa/commit/875ac0b194d16af18ccddca8f4610f5eaad9722f))
+- Bump version to 0.4.3 by @bwks ([8581ff3](https://github.com/bwks/sherpa/commit/8581ff39c97f70721c20613193befd53e0f5b662))
+- Pin Jato to its v0.4.0 release by @bwks ([548480b](https://github.com/bwks/sherpa/commit/548480b3a45298d797c6bc00172813d0b6c6e5a1))
+- Update Jato to its release-v0.4.0 branch head by @bwks ([7148dfc](https://github.com/bwks/sherpa/commit/7148dfc4281f4a377618578b94da96e7e25a2998))
+- Merge pull request #365 from bwks/changelog/v0.4.2
+
+chore(release): update changelog for v0.4.2 by @github-actions[bot] in [#365](https://github.com/bwks/sherpa/pull/365) ([770a12d](https://github.com/bwks/sherpa/commit/770a12db281e12db3ef983d4a0f7756b98c1f0a8))
+
+### Refactor
+
+- Use Jato's terminal prompts and interactive shell by @bwks ([8d62fb4](https://github.com/bwks/sherpa/commit/8d62fb47b3a304f431c90b03c8d5a7a0f9546af0))
+
+### Testing
+
+- Log in to VM guests with Jato instead of the system ssh by @bwks ([be47218](https://github.com/bwks/sherpa/commit/be47218b161d522782ae8d5e219243f56753187a))
 ## [0.4.2] - 2026-10-27
 
 ### Features
