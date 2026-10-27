@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-10-27
+
+### Bug Fixes
+
+- Make node.key and private text files readable only by admins by @bwks ([e2f3ae9](https://github.com/bwks/sherpa/commit/e2f3ae99ffb11c04ae4ee4b401c8b6e166947b08))
+
+### Miscellaneous
+
+- Merge pull request #362 from bwks/fix/windows-private-file-acls
+
+fix(windows): make node.key and private text files readable only by admins by @bwks in [#362](https://github.com/bwks/sherpa/pull/362) ([38a6f09](https://github.com/bwks/sherpa/commit/38a6f09d4978aea581b04236ad8bf6944239522d))
+- Bump version to 0.4.1 by @bwks ([01a0b02](https://github.com/bwks/sherpa/commit/01a0b02663f6e5e9e077ebd9bd7cf267844e35ba))
+- Merge pull request #361 from bwks/changelog/v0.4.0
+
+chore(release): update changelog for v0.4.0 by @github-actions[bot] in [#361](https://github.com/bwks/sherpa/pull/361) ([3d47bf7](https://github.com/bwks/sherpa/commit/3d47bf78863e8695c49001ad074bfb672d5ebee0))
 ## [0.4.0] - 2026-10-25
 
 ### Features
