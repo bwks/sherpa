@@ -64,6 +64,11 @@ so nothing is lost by not serializing it.
   but only failures at the node itself (`ssh_client::retryable`): refused connections, and the
   login refused because cloud-init has not created the account yet. A host key problem or the
   Sherpa server refusing the login fails at once. All steps then share the connection.
+- **Unknown nodes fail at once.** A `<node>.<lab-id>` alias with no `Host` block in
+  `sherpa_ssh_config`, such as a node added to the manifest after the lab was created, would
+  resolve as in `ssh` to a direct connection to the alias as a hostname and fail its DNS
+  lookup until the ready timeout. `SshTarget::new` refuses a route with no jump host instead,
+  as every lab node is reached through the server.
 - **Prompts.** Only the jump to the Sherpa server may ask for a key passphrase or password
   (`PromptScope::JumpHostsOnly`); a node is never asked about, as its login fails while it
   boots. One `PromptCache` serves the whole run, so provisioning many nodes asks once. An

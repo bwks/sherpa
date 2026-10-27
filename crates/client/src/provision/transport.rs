@@ -38,10 +38,20 @@ pub struct NodeSession {
 impl SshTarget {
     /// The node `host`, a `<node>.<lab-id>` alias in `config`. Answers to prompts are kept in
     /// `prompts`, shared by every node of a run.
+    ///
+    /// Every node in a lab SSH config is reached through the Sherpa server. An alias with no
+    /// `Host` block resolves, as in `ssh`, to a direct connection to the alias as a hostname,
+    /// which would only fail its DNS lookup until the ready timeout, so it fails here.
     pub fn new(config: &SshConfig, host: &str, prompts: &PromptCache) -> Result<Self> {
         let route = config
             .route(host)
-            .with_context(|| format!("Cannot find {host} in the lab SSH config"))?;
+            .with_context(|| format!("Cannot read {host} from the lab SSH config"))?;
+        if route.jumps.is_empty() {
+            bail!(
+                "{host} is not in the lab SSH config; was the node added to the manifest after \
+                 the lab was created?"
+            );
+        }
         Ok(Self {
             host: host.to_owned(),
             route,
@@ -203,6 +213,36 @@ fn exit_description(exit: Option<&Exit>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const LAB_SSH_CONFIG: &str = "Host web01.ab12cd34\n    HostName 172.31.0.11\n    \
+                                  User sherpa\n    ProxyJump admin@sherpa.example:22\n";
+
+    fn lab_ssh_config() -> SshConfig {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("sherpa_ssh_config");
+        fs::write(&path, LAB_SSH_CONFIG).unwrap();
+        SshConfig::load_file(&path).unwrap()
+    }
+
+    #[test]
+    fn a_node_in_the_lab_ssh_config_is_reached_through_the_server() {
+        let target =
+            SshTarget::new(&lab_ssh_config(), "web01.ab12cd34", &PromptCache::new()).unwrap();
+        assert_eq!(target.host(), "web01.ab12cd34");
+        assert_eq!(target.node().host(), "172.31.0.11");
+    }
+
+    #[test]
+    fn a_node_missing_from_the_lab_ssh_config_fails_at_once() {
+        let error = SshTarget::new(&lab_ssh_config(), "web02.ab12cd34", &PromptCache::new())
+            .err()
+            .unwrap();
+        assert_eq!(
+            error.to_string(),
+            "web02.ab12cd34 is not in the lab SSH config; was the node added to the manifest \
+             after the lab was created?"
+        );
+    }
 
     #[test]
     fn exit_codes_and_signals_are_described() {
