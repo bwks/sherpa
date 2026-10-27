@@ -167,7 +167,8 @@ pub async fn redeploy(
         None,
         Some(node_name),
         container_results(&mounted),
-    )?;
+    )
+    .await?;
 
     Ok(())
 }

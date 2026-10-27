@@ -1,17 +1,21 @@
 mod helpers;
 
 use anyhow::{Context, Result, bail, ensure};
+use jato::{Auth, ConnectOptions, Exit, Hop, HostKeyPolicy, Node, Session};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
 use shared::error::RpcErrorCode;
+use shared::konst::SSH_PORT;
 use sherpad::auth::cookies::AUTH_COOKIE_NAME;
 use std::fs;
 use std::net::{SocketAddr, TcpStream};
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use helpers::test_server::{TEST_ADMIN_PASSWORD, TEST_SSH_PUBLIC_KEY, TestServer};
 use helpers::ws_client::TestWsClient;
+
+/// Checks a personal account's user, home, shell and passwordless sudo.
+const ACCOUNT_CHECK: &str = "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true";
 
 /// Helper to create a minimal container-only manifest
 fn container_manifest(lab_name: &str) -> serde_json::Value {
@@ -143,24 +147,40 @@ async fn wait_for_ssh(address: &str, timeout: Duration) -> Result<()> {
 }
 
 /// Log in with one key and check the personal account's shell, home and passwordless sudo.
-fn ssh_login(destination: &str, key: &str) -> Result<bool> {
-    let status = Command::new("ssh")
-        .args([
-            "-F", "/dev/null", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o",
-            "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null", "-i", key, destination,
-            "test \"$(id -un)\" = \"${USER}\" && test \"$HOME\" = \"/home/${USER}\" && test \"$SHELL\" = /bin/bash && test -d \"$HOME\" && sudo -n true",
-        ])
-        .status()
+/// A connection or login that fails counts as `false`, as the guest may still be provisioning.
+async fn ssh_login(destination: &str, key: &str) -> Result<bool> {
+    let Some((user, host)) = destination.split_once('@') else {
+        bail!("SSH destination '{destination}' is not user@host");
+    };
+    let hop = Hop::new(
+        Node::new(host, SSH_PORT),
+        Auth::new(user).key_file(key, None),
+        HostKeyPolicy::Insecure,
+    );
+    let mut options = ConnectOptions::default();
+    options.connect_timeout = Duration::from_secs(10);
+    let session = match Session::connect(&hop, &options).await {
+        Ok(session) => session,
+        Err(error) => {
+            eprintln!("SSH login to {destination} failed: {error}");
+            return Ok(false);
+        }
+    };
+    let output = session
+        .run(ACCOUNT_CHECK, b"", Duration::from_secs(30))
+        .await
         .context("Failed to run SSH acceptance check")?;
-    Ok(status.success())
+    if let Err(error) = session.close().await {
+        eprintln!("SSH session to {destination} did not close cleanly: {error}");
+    }
+    Ok(output.exit == Exit::Code(0))
 }
 
 /// Retry a login that should succeed until the guest has finished provisioning it.
 async fn wait_for_login(destination: &str, key: &str, timeout: Duration) -> Result<bool> {
     let start = Instant::now();
     loop {
-        if ssh_login(destination, key)? {
+        if ssh_login(destination, key).await? {
             return Ok(true);
         }
         if start.elapsed() >= timeout {
@@ -633,13 +653,13 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         ensure!(wait_for_login(&destination, &private_key, timeout).await?, "Personal login/home/Bash/passwordless sudo failed");
         let (_, admin_rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": admin_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest, "username": username }), timeout).await?;
         ensure!(admin_rejected["error"]["code"] == json!(RpcErrorCode::AccessDenied), "Non-owner admin was allowed to redeploy");
-        ensure!(ssh_login(&destination, &private_key)?, "Denied admin redeploy affected the running guest");
+        ensure!(ssh_login(&destination, &private_key).await?, "Denied admin redeploy affected the running guest");
         let mut no_keys = owner.clone();
         no_keys.ssh_keys.clear();
         db::update_user(&server.db, no_keys).await?;
         let (_, rejected) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
         ensure!(rejected.get("error").is_some(), "Missing keys were accepted during redeploy");
-        ensure!(ssh_login(&destination, &private_key)?, "Rejected redeploy tore down existing guest");
+        ensure!(ssh_login(&destination, &private_key).await?, "Rejected redeploy tore down existing guest");
 
         owner.ssh_keys = vec![rotated_public_key.trim().to_owned()];
         db::update_user(&server.db, owner.clone()).await?;
@@ -652,13 +672,13 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
         ensure!(!statuses.is_empty(), "Resume streamed no readiness progress");
         // Distinguish an unbooted guest from a key change before checking logins.
         wait_for_ssh(&ip, timeout).await.context("Resumed VM did not accept SSH")?;
-        ensure!(ssh_login(&destination, &private_key)?, "Resume replaced existing guest keys");
-        ensure!(!ssh_login(&destination, &rotated_key)?, "Profile key was synchronized during resume");
+        ensure!(ssh_login(&destination, &private_key).await?, "Resume replaced existing guest keys");
+        ensure!(!ssh_login(&destination, &rotated_key).await?, "Profile key was synchronized during resume");
 
         let (_, redeployed) = ws.rpc_call_streaming("redeploy", json!({ "token": owner_token, "lab_id": lab_id, "node_name": "vm", "manifest": manifest }), timeout).await?;
         ensure!(redeployed.get("error").is_none(), "Owner redeploy failed: {redeployed}");
         ensure!(wait_for_login(&destination, &rotated_key, timeout).await?, "Redeploy did not provision owner's current keys");
-        ensure!(!ssh_login(&destination, &private_key)?, "Redeploy retained removed owner key");
+        ensure!(!ssh_login(&destination, &private_key).await?, "Redeploy retained removed owner key");
         let downloaded = ws.rpc_call("download", json!({ "token": admin_token, "lab_id": lab_id })).await?;
         ensure!(downloaded.get("error").is_none(), "Admin configuration refresh failed: {downloaded}");
         ensure!(downloaded["result"]["lab_info"]["ssh_usernames"][0] == json!({"node_name": "vm", "username": username}), "Refreshed configuration selected administrator");

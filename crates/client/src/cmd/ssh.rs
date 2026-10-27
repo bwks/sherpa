@@ -1,19 +1,22 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::process::Command;
+use std::process;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
+use jato::{ConnectOptions, PromptCache, SshConfig};
 use topology::Manifest;
 
 use shared::data::LabInfo;
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SSH_PROMPT_AUTH_TIMEOUT,
 };
 use shared::util::term_msg_surround;
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
+use crate::ssh_client::{self, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -29,22 +32,33 @@ fn qualify_device_name(name: &str, lab_id: &str) -> String {
     }
 }
 
+/// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
+/// configuration says. A non-zero exit code from the node's shell ends the process with it.
 #[tracing::instrument(fields(%name, %lab_id))]
 pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
     let qualified_name = load_ssh_connection(name, lab_id, Path::new("."))?;
+    let config = SshConfig::load_file(SHERPA_SSH_CONFIG_FILE)
+        .context("Failed to read the lab SSH config")?;
+    let route = config
+        .route(&qualified_name)
+        .with_context(|| format!("Failed to resolve '{qualified_name}' in the lab SSH config"))?;
     term_msg_surround(&format!("Connecting to: {qualified_name}"));
 
-    let status = Command::new("ssh")
-        .arg(&qualified_name)
-        .arg("-F")
-        .arg(SHERPA_SSH_CONFIG_FILE)
-        .status()?;
-
-    if !status.success() {
-        eprintln!("SSH connection failed");
-        if let Some(code) = status.code() {
-            eprintln!("Exit code: {}", code);
-        }
+    let mut options = ConnectOptions::default();
+    options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
+    let session =
+        ssh_client::connect(&route, &options, PromptScope::AllHops, &PromptCache::new()).await?;
+    let code = session
+        .interactive_shell()
+        .await
+        .context("The shell failed")?
+        .exit_code();
+    if let Err(error) = session.close().await {
+        tracing::debug!(%error, "Failed to close the SSH session cleanly");
+    }
+    eprintln!("Connection to {qualified_name} closed.");
+    if code != 0 {
+        process::exit(code);
     }
     Ok(())
 }

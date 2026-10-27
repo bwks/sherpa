@@ -1066,7 +1066,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1196,6 +1196,29 @@ name = "crossbeam-utils"
 version = "0.8.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+
+[[package]]
+name = "crossterm"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
+dependencies = [
+ "bitflags",
+ "crossterm_winapi",
+ "document-features",
+ "parking_lot",
+ "rustix",
+ "winapi",
+]
+
+[[package]]
+name = "crossterm_winapi"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "acdd7c62a3665c7f6830a51635d9ac9b23ed385797f70a83bb8bafe9c572ab2b"
+dependencies = [
+ "winapi",
+]
 
 [[package]]
 name = "crunchy"
@@ -1371,7 +1394,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2879,11 +2902,14 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jato"
-version = "0.1.0"
-source = "git+https://github.com/bwks/jato-lib?tag=v0.1.0#205b410505de94b1c0b6a3de00e458890a7cf75f"
+version = "0.4.0"
+source = "git+https://github.com/bwks/jato-lib?tag=v0.4.0#d13ef5641cbd371074853401e2061f6973269e8b"
 dependencies = [
+ "crossterm",
+ "crossterm_winapi",
  "hmac 0.13.0",
  "regex",
+ "rpassword",
  "russh",
  "sha1 0.11.0",
  "thiserror 2.0.18",
@@ -3066,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -3367,7 +3393,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "aya",
@@ -5656,7 +5682,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -5708,7 +5734,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -5718,6 +5744,7 @@ dependencies = [
  "dirs",
  "futures",
  "futures-util",
+ "jato",
  "jiff",
  "rand 0.8.5",
  "rpassword",
@@ -5742,7 +5769,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -6410,7 +6437,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -6770,7 +6797,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.4.2"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "serde",

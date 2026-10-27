@@ -1,6 +1,6 @@
 [package]
 name = "sherpa"
-version = "0.4.2"
+version = "0.4.3"
 edition = "2024"
 
 [dependencies]
@@ -65,6 +65,9 @@ rustls-native-certs = "0.8"
 
 # Home directory detection
 dirs = { workspace = true }
+
+# SSH client and local terminal for `sherpa ssh`
+jato = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [

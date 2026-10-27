@@ -84,7 +84,7 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
         rpc_client.close().await.ok();
     }
 
-    let provisioned = provision_lab(&manifest, manifest_dir, &lab_id, None, node, results)?;
+    let provisioned = provision_lab(&manifest, manifest_dir, &lab_id, None, node, results).await?;
     if provisioned == 0 {
         println!("No provisioners to run");
     }

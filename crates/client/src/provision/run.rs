@@ -2,7 +2,8 @@
 use std::path::Path;
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
+use jato::{PromptCache, SshConfig};
 
 use shared::data::{ProvisionResult, ProvisionStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE};
@@ -18,7 +19,7 @@ use super::transport::SshTarget;
 /// `results` holds nodes already provisioned another way, such as container nodes, whose
 /// provisioners the server applies. Prints a table of all results and fails if any node was not
 /// provisioned. Returns how many nodes were provisioned.
-pub fn provision_lab(
+pub async fn provision_lab(
     manifest: &Manifest,
     manifest_dir: &Path,
     lab_id: &str,
@@ -32,13 +33,19 @@ pub fn provision_lab(
     }
     validate_provisioners(manifest)?;
 
-    let config = manifest_dir.join(SHERPA_SSH_CONFIG_FILE);
-    if !nodes.is_empty() && !config.is_file() {
-        bail!(
-            "{} not found: run `sherpa up` or `sherpa download` in the lab folder first",
-            config.display()
-        );
-    }
+    let config_path = manifest_dir.join(SHERPA_SSH_CONFIG_FILE);
+    let ssh_config = if nodes.is_empty() {
+        None
+    } else {
+        if !config_path.is_file() {
+            bail!(
+                "{} not found: run `sherpa up` or `sherpa download` in the lab folder first",
+                config_path.display()
+            );
+        }
+        Some(SshConfig::load_file(&config_path).context("Failed to read the lab SSH config")?)
+    };
+    let prompts = PromptCache::new();
     let timeout = Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT));
 
     results.reserve(nodes.len());
@@ -51,9 +58,15 @@ pub fn provision_lab(
             });
             continue;
         }
-        let target = SshTarget::new(&config, &format!("{}.{lab_id}", node.name));
-        println!("Provisioning {}", target.host());
-        let result = match provision_node(&target, node, manifest_dir, timeout) {
+        let host = format!("{}.{lab_id}", node.name);
+        println!("Provisioning {host}");
+        let outcome = match &ssh_config {
+            Some(ssh_config) => {
+                provision_node(ssh_config, &host, &prompts, node, manifest_dir, timeout).await
+            }
+            None => Err(anyhow::anyhow!("The lab SSH config was not loaded")),
+        };
+        let result = match outcome {
             Ok(()) => ProvisionResult {
                 node: node.name.clone(),
                 status: ProvisionStatus::Provisioned,
@@ -85,22 +98,32 @@ pub fn provision_lab(
     Ok(results.len())
 }
 
-fn provision_node(
-    target: &SshTarget,
+async fn provision_node(
+    ssh_config: &SshConfig,
+    host: &str,
+    prompts: &PromptCache,
     node: &Node,
     manifest_dir: &Path,
     timeout: Duration,
 ) -> Result<()> {
-    wait_for_node(target, timeout)?;
+    let target = SshTarget::new(ssh_config, host, prompts)?;
+    let session = wait_for_node(&target, timeout).await?;
+    let mut outcome = Ok(());
     for provisioner in node.provisioners.as_deref().unwrap_or_default() {
         match provisioner {
-            Provisioner::Ssh(ssh) => provision(target, ssh, manifest_dir)?,
+            Provisioner::Ssh(ssh) => {
+                outcome = provision(&session, ssh, manifest_dir).await;
+                if outcome.is_err() {
+                    break;
+                }
+            }
             Provisioner::Container(_) => {
                 tracing::debug!(node = %node.name, "Container provisioner is applied by the server");
             }
         }
     }
-    Ok(())
+    session.close().await;
+    outcome
 }
 
 /// Whether a node has an ssh provisioner.
@@ -233,8 +256,8 @@ name = "password"
         }
     }
 
-    #[test]
-    fn earlier_results_are_reported_without_ssh_nodes() {
+    #[tokio::test]
+    async fn earlier_results_are_reported_without_ssh_nodes() {
         let manifest = manifest();
         let provisioned = provision_lab(
             &manifest,
@@ -244,6 +267,7 @@ name = "password"
             Some("db01"),
             vec![result("db01", ProvisionStatus::Provisioned)],
         )
+        .await
         .unwrap();
         assert_eq!(provisioned, 1);
 
@@ -255,6 +279,7 @@ name = "password"
             Some("db01"),
             vec![result("db01", ProvisionStatus::Failed)],
         )
+        .await
         .unwrap_err();
         assert!(error.to_string().contains("1 of 1"), "{error}");
     }
@@ -274,8 +299,8 @@ name = "password"
         assert_eq!(skip_reason("dev03", None), None);
     }
 
-    #[test]
-    fn a_lab_without_provisioners_needs_no_ssh_config() {
+    #[tokio::test]
+    async fn a_lab_without_provisioners_needs_no_ssh_config() {
         let manifest: Manifest =
             toml::from_str("name = \"lab\"\n[[nodes]]\nname = \"r1\"\nmodel = \"cisco_iosv\"\n")
                 .unwrap();
@@ -287,6 +312,7 @@ name = "password"
             None,
             vec![],
         )
+        .await
         .unwrap();
         assert_eq!(provisioned, 0);
     }
