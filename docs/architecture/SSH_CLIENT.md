@@ -41,6 +41,20 @@ route.connect (strict)
 Recording the exact key from the refusal means the second connection accepts only that key:
 a server that swapped keys in between is refused.
 
+## Passphrases and passwords
+
+`remote_shell::host_key::connect` connects with `Route::connect_with_prompter` and a
+`remote_shell::prompter::TerminalPrompter`, so Jato asks on the terminal, without echo
+(`rpassword`), as `ssh` does:
+
+- `Enter passphrase for key '<path>': ` for an encrypted identity file, asked again after a
+  wrong one, up to three times;
+- `<user>@<host>'s password: ` when no key logged in and the server takes passwords, up to
+  three times.
+
+An empty answer declines. Prompts happen while connecting, before the terminal goes into raw
+mode. The SSH provisioners still run the system `ssh` in batch mode and never prompt.
+
 ## The terminal
 
 `remote_shell::session::run_shell` opens a Jato `Shell` with the local `TERM`
@@ -69,8 +83,6 @@ a server that swapped keys in between is refused.
 
 ## Limits
 
-- No password or passphrase prompts: the server hop must log in with the agent or an
-  unencrypted key, the attempts `SshConfig` builds.
 - No agent, X11 or port forwarding, and no escapes other than `~.` and `~~`.
 - Tested on Linux with Ubuntu, Cisco IOSv and Windows Server nodes. The Windows client is
   checked by CI's Windows clippy job only.

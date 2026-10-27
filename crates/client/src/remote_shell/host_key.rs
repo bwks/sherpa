@@ -6,18 +6,26 @@
 //! file and a second strict connection accepts exactly that key and no other.
 
 use std::io::{self, Write};
+use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use jato::{ConnectOptions, Error, KnownHosts, Node, Route, Session};
+use jato::{ConnectOptions, Error, KnownHosts, Node, Prompter, Route, Session};
 use tokio::task;
+
+use super::prompter::TerminalPrompter;
 
 const YES: &str = "yes";
 
-/// Connect along `route`, asking before recording a server's unknown host key. A changed or
-/// revoked key is refused.
+/// Connect along `route`, asking before recording a server's unknown host key, and asking on
+/// the terminal for any key passphrase or password a hop needs. A changed or revoked key is
+/// refused.
 #[tracing::instrument(skip_all, level = "debug")]
 pub async fn connect(route: &Route, options: &ConnectOptions) -> Result<Session> {
-    let (node, fingerprint, key, known_hosts) = match route.connect(options).await {
+    let prompter: Arc<dyn Prompter> = Arc::new(TerminalPrompter);
+    let first = route
+        .connect_with_prompter(options, Arc::clone(&prompter))
+        .await;
+    let (node, fingerprint, key, known_hosts) = match first {
         Ok(session) => return Ok(session),
         Err(Error::HostKeyUnknown {
             node,
@@ -47,7 +55,10 @@ pub async fn connect(route: &Route, options: &ConnectOptions) -> Result<Session>
         "Warning: Permanently added '{node}' to the list of known hosts ({}).",
         file.display()
     );
-    route.connect(options).await.context("Failed to connect")
+    route
+        .connect_with_prompter(options, prompter)
+        .await
+        .context("Failed to connect")
 }
 
 /// The question OpenSSH asks about an unknown server.
