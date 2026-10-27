@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.2] - 2026-10-27
+
+### Features
+
+- Confirm an SSH server answers before a VM counts as ready by @bwks ([97859c2](https://github.com/bwks/sherpa/commit/97859c26c4e309d2b926b3252cbe7938735329cc))
+
+### Miscellaneous
+
+- Merge pull request #364 from bwks/feat/jato-ssh-readiness
+
+feat(readiness): confirm an SSH server answers before a VM counts as ready by @bwks in [#364](https://github.com/bwks/sherpa/pull/364) ([9e0b65d](https://github.com/bwks/sherpa/commit/9e0b65d5f44c88ea91b1473812301d6732f61edb))
+- Bump version to 0.4.2 by @bwks ([e88561c](https://github.com/bwks/sherpa/commit/e88561c4b3b3cbd0f22996751bdd02ac73f4a1ec))
+- Merge pull request #363 from bwks/changelog/v0.4.1
+
+chore(release): update changelog for v0.4.1 by @github-actions[bot] in [#363](https://github.com/bwks/sherpa/pull/363) ([a89f3ee](https://github.com/bwks/sherpa/commit/a89f3eea39d80099a5e22e4b6fb3787beeba4f1e))
 ## [0.4.1] - 2026-10-27
 
 ### Bug Fixes
