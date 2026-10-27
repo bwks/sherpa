@@ -11,13 +11,13 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use jato::{ConnectOptions, Event, Exit, Node, Route, Session, SshConfig};
+use jato::{ConnectOptions, Event, Exit, Node, PromptCache, Route, Session, SshConfig};
 
 use shared::konst::{
     PROVISIONER_COPY_TIMEOUT, PROVISIONER_SSH_CONNECT_TIMEOUT, SSH_PROMPT_AUTH_TIMEOUT,
 };
 
-use crate::ssh_client::{self, PromptCache, PromptScope};
+use crate::ssh_client::{self, PromptScope};
 
 /// The mode a copied file is written with; `finish_file_command` then sets the final mode.
 const COPY_MODE: u32 = 0o600;
@@ -175,19 +175,15 @@ impl NodeSession {
                 other => tracing::debug!(?other, "Command event not shown"),
             }
         }
-        if exit == Some(Exit::Code(0)) {
+        let exit = exit.unwrap_or(Exit::Unknown);
+        if exit == Exit::Code(0) {
             return Ok(());
         }
         let errors = String::from_utf8_lossy(&errors);
         if errors.trim().is_empty() {
-            bail!("{} on {}", exit_description(exit.as_ref()), self.host);
+            bail!("{exit} on {}", self.host);
         }
-        bail!(
-            "{} on {}: {}",
-            exit_description(exit.as_ref()),
-            self.host,
-            errors.trim()
-        )
+        bail!("{exit} on {}: {}", self.host, errors.trim())
     }
 }
 
@@ -195,19 +191,6 @@ fn write_through(out: &mut impl Write, bytes: &[u8]) -> Result<()> {
     out.write_all(bytes)
         .context("Cannot show the command's output")?;
     out.flush().context("Cannot show the command's output")
-}
-
-/// How a command ended, for an error.
-fn exit_description(exit: Option<&Exit>) -> String {
-    match exit {
-        Some(Exit::Code(code)) => format!("exit status {code}"),
-        Some(Exit::Signal { name, .. }) => format!("terminated by signal {name}"),
-        Some(other) => {
-            tracing::debug!(?other, "Command ended without an exit status");
-            "ended without an exit status".to_string()
-        }
-        None => "ended without an exit status".to_string(),
-    }
 }
 
 #[cfg(test)]
@@ -242,19 +225,5 @@ mod tests {
             "web02.ab12cd34 is not in the lab SSH config; was the node added to the manifest \
              after the lab was created?"
         );
-    }
-
-    #[test]
-    fn exit_codes_and_signals_are_described() {
-        assert_eq!(exit_description(Some(&Exit::Code(2))), "exit status 2");
-        assert_eq!(
-            exit_description(Some(&Exit::Signal {
-                name: "TERM".into(),
-                core_dumped: false,
-                message: String::new(),
-            })),
-            "terminated by signal TERM"
-        );
-        assert_eq!(exit_description(None), "ended without an exit status");
     }
 }

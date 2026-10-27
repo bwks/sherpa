@@ -2902,16 +2902,19 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jato"
-version = "0.3.0"
-source = "git+https://github.com/bwks/jato-lib?tag=v0.3.0#37919ef06041d5a29d079552b37088a8b770a7b4"
+version = "0.4.0"
+source = "git+https://github.com/bwks/jato-lib?branch=release-v0.4.0#efd7855ff3ff81d261b228cc36ae9383644c90a4"
 dependencies = [
+ "crossterm",
  "hmac 0.13.0",
  "regex",
+ "rpassword",
  "russh",
  "sha1 0.11.0",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "windows-sys 0.61.2",
  "zeroize",
 ]
 
@@ -5738,7 +5741,6 @@ dependencies = [
  "async-compression",
  "base64",
  "clap",
- "crossterm",
  "dirs",
  "futures",
  "futures-util",

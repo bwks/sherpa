@@ -5,7 +5,6 @@ mod cluster_credentials;
 mod cmd;
 mod private_key;
 mod provision;
-mod remote_shell;
 mod ssh_client;
 mod token;
 mod ws_client;
@@ -13,9 +12,6 @@ mod ws_client;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows_acl;
-#[cfg(windows)]
-#[allow(unsafe_code)]
-mod windows_console;
 
 use std::process::ExitCode;
 use std::thread;

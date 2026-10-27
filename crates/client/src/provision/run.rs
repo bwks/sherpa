@@ -3,7 +3,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use jato::SshConfig;
+use jato::{PromptCache, SshConfig};
 
 use shared::data::{ProvisionResult, ProvisionStatus};
 use shared::konst::{READINESS_TIMEOUT, SHERPA_SSH_CONFIG_FILE};
@@ -13,7 +13,6 @@ use topology::{Manifest, Node, Provisioner};
 
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
-use crate::ssh_client::PromptCache;
 
 /// Run the ssh provisioners of the lab's nodes, or of `only_node`, from the lab folder
 /// `manifest_dir`. With `ready_nodes`, nodes missing from it are skipped as not ready.

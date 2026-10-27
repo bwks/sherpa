@@ -5,7 +5,7 @@ use std::process;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
-use jato::{ConnectOptions, SshConfig};
+use jato::{ConnectOptions, PromptCache, SshConfig};
 use topology::Manifest;
 
 use shared::data::LabInfo;
@@ -16,8 +16,7 @@ use shared::konst::{
 use shared::util::term_msg_surround;
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
-use crate::remote_shell;
-use crate::ssh_client::{self, PromptCache, PromptScope};
+use crate::ssh_client::{self, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -49,7 +48,11 @@ pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
     options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
     let session =
         ssh_client::connect(&route, &options, PromptScope::AllHops, &PromptCache::new()).await?;
-    let code = remote_shell::run_shell(&session).await?;
+    let code = session
+        .interactive_shell()
+        .await
+        .context("The shell failed")?
+        .exit_code();
     if let Err(error) = session.close().await {
         tracing::debug!(%error, "Failed to close the SSH session cleanly");
     }

@@ -1,9 +1,10 @@
 # SSH client
 
 How `sherpa ssh` opens an interactive shell on a lab node. The command is in
-`crates/client/src/cmd/ssh.rs`, connecting and prompting in `crates/client/src/ssh_client/`,
-and the shell in `crates/client/src/remote_shell/`. SSH itself
-is the Jato library (`bwks/jato-lib`), so the client runs no `ssh` program.
+`crates/client/src/cmd/ssh.rs` and Sherpa's connection rules are in
+`crates/client/src/ssh_client/`. SSH itself, the terminal prompts and the interactive shell
+are the Jato library (`bwks/jato-lib`) with its `terminal` feature, so the client runs no
+`ssh` program.
 
 ## Connecting
 
@@ -13,40 +14,31 @@ exist, the alias is in `sherpa_ssh_config`, and the shared key has safe permissi
 1. `jato::SshConfig::load_file("sherpa_ssh_config")` reads the lab's configuration, as
    `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa
    server.
-2. `ssh_client::connect` connects along the route (keepalives every 30 s, 3 missed), with
-   prompts on every hop (`PromptScope::AllHops`).
-3. `remote_shell::run_shell` runs the shell until it ends, and `ssh` exits with its code.
+2. `ssh_client::connect` connects along the route (keepalives every 30 s, 3 missed), with a
+   `jato::TerminalPrompter` wrapped in a `jato::PromptCache` on every hop
+   (`PromptScope::AllHops`).
+3. `Session::interactive_shell` runs the shell until it ends, and `ssh` exits with
+   `ShellEnd::exit_code`.
 
-The server hop has no `StrictHostKeyChecking` in the lab config, so Jato checks it strictly
-against `~/.ssh/known_hosts`. Lab nodes have `StrictHostKeyChecking no`, so their keys are
-not checked.
+`ssh_client` holds only what is Sherpa's to decide: which hops may ask (`PromptScope`) and,
+for provisioners, which failures are worth retrying (`retryable`).
 
-## The server host key prompt
+## The server host key question
 
-`ssh_client::connect` asks as OpenSSH's `StrictHostKeyChecking ask` does, without
-asking inside the SSH handshake:
+The server hop has no `StrictHostKeyChecking` in the lab config, so Jato uses OpenSSH's
+default, `ask` (`HostKeyPolicy::Ask`), against `~/.ssh/known_hosts`. Lab nodes have
+`StrictHostKeyChecking no`, so their keys are not checked.
 
-```text
-route.connect (strict)
-  |
-  +- ok -----------------------------------------------> session
-  +- HostKeyUnknown { node, fingerprint, key, files }
-  |    ask "continue connecting (yes/no/[fingerprint])?"
-  |      no  --> error "Host key verification failed"
-  |      yes --> KnownHosts::record(node, key) in the first file
-  |              route.connect (strict) again ---------> session
-  |              (a different key now is HostKeyChanged)
-  +- any other error (changed, revoked, auth) ---------> error
-```
-
-Recording the exact key from the refusal means the second connection accepts only that key:
-a server that swapped keys in between is refused.
+For an unknown server key, Jato refuses the handshake, asks the prompter
+`continue connecting (yes/no/[fingerprint])?`, records the exact key from the refusal on
+`yes` (or the fingerprint), prints OpenSSH's `Permanently added` warning, and runs the
+handshake again, which accepts only that key. A changed or revoked key is refused without
+asking. Asking happens between handshakes, so the connect time limit does not cut the person
+off. Jato's `docs/architecture/connecting.md` has the details.
 
 ## Passphrases and passwords
 
-`ssh_client::connect` gives each hop it prompts on a `Prompter` from
-`ssh_client::PromptCache::terminal`, so Jato asks on the terminal, without echo
-(`rpassword`), as `ssh` does:
+`TerminalPrompter` asks on the terminal, without echo, as `ssh` does:
 
 - `Enter passphrase for key '<path>': ` for an encrypted identity file, asked again after a
   wrong one, up to three times;
@@ -54,36 +46,26 @@ a server that swapped keys in between is refused.
   three times.
 
 An empty answer declines. Prompts happen while connecting, before the terminal goes into raw
-mode. The connecting and prompting code is `crate::ssh_client`, shared with the SSH
-provisioners (see [`PROVISIONERS.md`](PROVISIONERS.md)), which ask only about the jump to the
-server and keep answers for the run in a `PromptCache`. While a prompt may be shown, the
-authentication limit is `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s), so typing is not cut off.
+mode. The SSH provisioners (see [`PROVISIONERS.md`](PROVISIONERS.md)) use the same
+`ssh_client::connect` but ask only about the jump to the server
+(`PromptScope::JumpHostsOnly`), and keep answers for the run in one `PromptCache`. While a
+prompt may be shown, the authentication limit is `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s), so
+typing is not cut off.
 
 ## The terminal
 
-`remote_shell::session::run_shell` opens a Jato `Shell` with the local `TERM`
-(`xterm-256color` if unset) and window size, then puts the terminal in raw mode
-(`terminal::RawMode`, restored on drop, so every way out restores it) and loops:
+`Session::interactive_shell` (Jato's `docs/architecture/terminal.md`) passes the local
+terminal through, as `ssh` does:
 
-| Source | Action |
-| ------ | ------ |
-| `Shell::next_event` | output to stdout; `Exit` kept for the exit code; `None` ends the loop |
-| typed bytes | through `EscapeFilter`, then `Shell::send_bytes`; `~.` ends the loop |
-| `ResizeWatcher::changed` | `Shell::resize` |
+- the local `TERM` (`xterm-256color` if unset) and window size, and resizes (`SIGWINCH` on
+  Unix, a 250 ms poll on Windows);
+- raw mode, restored however the shell ends, so control keys, arrows and Ctrl+C reach the
+  node unchanged; on Windows the console is also switched to VT input and output;
+- `~.` at the start of a line disconnects, `~~` sends one `~`.
 
-- Typed bytes are read on a thread of their own (`read_keys`), as reading the terminal blocks.
-  A read still waiting when the shell ends is left behind and ends with the process.
-- Raw mode passes every key as the terminal sends it, so control keys, arrows and Ctrl+C reach
-  the node unchanged. On Windows, `windows_console` also turns on the console's
-  virtual-terminal input and output, so keys arrive as the same VT bytes a Unix terminal
-  sends and the node's escape sequences are drawn. There is one input path for every OS.
-- Resizes come from `SIGWINCH` on Unix. Windows has no signal, so the size is polled every
-  250 ms.
-- `EscapeFilter` (`escape.rs`, pure) recognises `~.` and `~~` only at the start of a line, as
-  OpenSSH does, including across reads.
-- The exit code is the shell's if it fits in a byte, else 255, as for `~.` or a shell that
-  reported none. Windows' OpenSSH server does not report PowerShell's exit code for an
-  interactive shell, so it is 0 there, as with the system `ssh`.
+The exit code is the shell's if it fits in a byte, else 255, as for `~.` or a shell that
+reported none. Windows' OpenSSH server does not report PowerShell's exit code for an
+interactive shell, so it is 0 there, as with the system `ssh`.
 
 ## Limits
 

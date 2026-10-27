@@ -1,8 +1,6 @@
 //! Connecting to lab nodes through the Sherpa server with the Jato SSH library, for
-//! `sherpa ssh` and the SSH provisioners: the server host key prompt, and passphrase and
-//! password prompts on the terminal, answered once per run.
+//! `sherpa ssh` and the SSH provisioners: which hops may ask on the terminal, and which
+//! failures are worth retrying.
 mod connect;
-mod prompter;
 
 pub use connect::{PromptScope, connect, retryable};
-pub use prompter::PromptCache;

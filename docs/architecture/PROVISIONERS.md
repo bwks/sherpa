@@ -71,7 +71,7 @@ so nothing is lost by not serializing it.
   as every lab node is reached through the server.
 - **Prompts.** Only the jump to the Sherpa server may ask for a key passphrase or password
   (`PromptScope::JumpHostsOnly`); a node is never asked about, as its login fails while it
-  boots. One `PromptCache` serves the whole run, so provisioning many nodes asks once. An
+  boots. One `jato::PromptCache` serves the whole run, so provisioning many nodes asks once. An
   unknown server host key is asked about as in `sherpa ssh`. The authentication limit is
   `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s) so typing is not cut off.
 - **Commands** run through `Session::exec` with no time limit, as the old `ssh` had none;
