@@ -115,6 +115,19 @@ Modes are written in code as octal digits (`644`) and converted to decimal on se
 (`serialize_mode_as_decimal` in `crates/template/src/ignition.rs`), for files and directories
 alike. Ignition reads modes as decimal numbers, so an unconverted `644` would be octal `1204`.
 
+## Windows (cloudbase-init)
+
+cloudbase-init's `write_files` ignores `permissions`: a file inherits its folder's ACL, and
+under `C:\` that lets `BUILTIN\Users` read it. `build_windows_private_file_acls` turns each
+written file whose mode gives others no access (the node key at `0600`, a `text_files` entry at
+`600` or `640`) into an `icacls` command in `runcmd` that removes inherited access and grants only
+Administrators and SYSTEM. They are named by SID (`konst::WINDOWS_ADMINISTRATORS_SID`,
+`WINDOWS_SYSTEM_SID`), so the command does not depend on the Windows display language, and no
+other account is granted: an unknown name would make `icacls` fail and leave the file open.
+cloudbase-init runs `write_files` before `runcmd`, and these commands come before the startup
+scripts. `runcmd` lines run through cmd, so a path containing `"` or `%` is refused rather
+than quoted. `administrators_authorized_keys` gets its own `icacls` command, which sshd needs.
+
 ## Per-OS cloud-init adjustments
 
 | OS | Problem | Adjustment |

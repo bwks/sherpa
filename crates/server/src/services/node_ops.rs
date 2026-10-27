@@ -41,7 +41,8 @@ use shared::konst::{
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT,
-    VAULT_ZTP_CONFIG_MOUNT, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO,
+    ZTP_JSON,
 };
 use shared::util;
 use virt::error::ErrorNumber;
@@ -1406,6 +1407,35 @@ fn build_windows_env_commands(env_vars: &[String]) -> Vec<String> {
     commands
 }
 
+/// Build `icacls` commands that make Windows files private.
+///
+/// cloudbase-init ignores `permissions`, so a written file inherits its folder's ACL, which
+/// lets every local user read it. A file whose mode gives others no access (such as a node
+/// key at `0600`) is limited to Administrators and SYSTEM instead, named by SID so the
+/// command does not depend on the Windows display language. The commands run from cmd, so
+/// paths with `"` or `%` are refused rather than quoted.
+fn build_windows_private_file_acls(
+    write_files: &[template::CloudbaseWriteFile],
+) -> Result<Vec<String>> {
+    let mut commands = Vec::new();
+    for file in write_files {
+        if !file.permissions.ends_with('0') {
+            continue;
+        }
+        if file.path.contains(['"', '%']) {
+            bail!(
+                "Windows file path '{}' contains '\"' or '%', which cannot be used in a path on a Windows node",
+                file.path
+            );
+        }
+        commands.push(format!(
+            "icacls \"{}\" /inheritance:r /grant {WINDOWS_ADMINISTRATORS_SID}:F /grant {WINDOWS_SYSTEM_SID}:F",
+            file.path
+        ));
+    }
+    Ok(commands)
+}
+
 // ============================================================================
 // VM ZTP sub-methods
 // ============================================================================
@@ -1631,13 +1661,15 @@ fn generate_cloud_init_ztp(
             write_files.extend(build_cloudbase_text_files(&node.text_files));
 
             // Inject startup_scripts for Windows
-            let mut runcmd = vec![
-                format!(
-                    "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
-                    admin_keys_path
-                ),
-                "powershell -Command \"Restart-Service sshd\"".to_string(),
-            ];
+            let mut runcmd = vec![format!(
+                "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
+                admin_keys_path
+            )];
+            runcmd.extend(
+                build_windows_private_file_acls(&write_files)
+                    .with_context(|| format!("Failed to write files for node '{}'", node.name))?,
+            );
+            runcmd.push("powershell -Command \"Restart-Service sshd\"".to_string());
 
             if let Some(ref scripts) = node.startup_scripts {
                 for script in scripts {
@@ -3849,6 +3881,48 @@ mod tests {
     fn test_build_cloudbase_text_files_none() {
         let result = build_cloudbase_text_files(&None);
         assert!(result.is_empty());
+    }
+
+    fn cloudbase_file(path: &str, permissions: &str) -> template::CloudbaseWriteFile {
+        template::CloudbaseWriteFile {
+            path: path.to_string(),
+            content: "content".to_string(),
+            permissions: permissions.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_windows_private_file_acls_lock_down_files_others_cannot_read() {
+        let files = vec![
+            cloudbase_file(r"C:\sherpa\certs\ca.crt", "0644"),
+            cloudbase_file(r"C:\sherpa\certs\node.key", "0600"),
+            cloudbase_file(r"C:\app\shared.txt", "0640"),
+            cloudbase_file(r"C:\sherpa\startup_scripts\run.ps1", "0755"),
+        ];
+
+        let commands = build_windows_private_file_acls(&files).unwrap();
+
+        assert_eq!(
+            commands,
+            vec![
+                r#"icacls "C:\sherpa\certs\node.key" /inheritance:r /grant *S-1-5-32-544:F /grant *S-1-5-18:F"#,
+                r#"icacls "C:\app\shared.txt" /inheritance:r /grant *S-1-5-32-544:F /grant *S-1-5-18:F"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_windows_private_file_acls_none_for_readable_files() {
+        let files = vec![cloudbase_file(r"C:\app\config.json", "0644")];
+        assert!(build_windows_private_file_acls(&files).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_windows_private_file_acls_reject_paths_cmd_would_reinterpret() {
+        for path in [r#"C:\app\a" & del C:\x & ".txt"#, r"C:\app\%TEMP%.txt"] {
+            let files = vec![cloudbase_file(path, "0600")];
+            assert!(build_windows_private_file_acls(&files).is_err(), "{path}");
+        }
     }
 
     // =========================================================================
