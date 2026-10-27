@@ -300,6 +300,10 @@ pub const NODE_CERT_FILE: &str = "node.crt";
 pub const NODE_KEY_FILE: &str = "node.key";
 pub const NODE_CERTS_DIR: &str = "/etc/sherpa/certs";
 pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
+/// The built-in Administrators group, as `icacls` takes a SID.
+pub const WINDOWS_ADMINISTRATORS_SID: &str = "*S-1-5-32-544";
+/// The LocalSystem account, as `icacls` takes a SID.
+pub const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
 pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
 /// Drop-in directory for per-user doas rules (Alpine).
