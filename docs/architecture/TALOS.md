@@ -14,7 +14,8 @@ SATA CD-ROM, `host-model` CPU (Talos needs x86-64-v2).
   when the manifest sets no `boot_disk_size`.
 - **Readiness.** `NodeModel::ready_port()` returns the Talos API port (50000); every other VM
   model returns SSH (22). `node_ops::vm_ready_port` prefers a manifest `ready_port`. `up`,
-  `resume` and `redeploy` all probe this port.
+  `resume` and `redeploy` all probe this port with `node_ops::check_vm_ready`: a TCP connection
+  for the Talos API, an SSH handshake for SSH.
 - **No SSH.** `NodeModel::has_ssh()` is false. `ZtpRecord::ssh_port` is `None` for such nodes,
   so `build_ssh_config` leaves them out, and `NodeInfo::ssh_port` is `None`.
 - **Image.** `resolve_download_url` posts the vanilla schematic (`customization: {}`) to the

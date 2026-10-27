@@ -32,5 +32,5 @@ modified or bypassed entirely by calling the API.
 the default node image when the manifest omits it. Resolution and validation share the lookup of
 the default image per model, so they stay in one function.
 
-Node readiness (`services::node_ops::check_node_port_ready`) is a TCP probe, not a validator, and
-lives with the readiness code.
+Node readiness (`services::node_ops::check_vm_ready`) is a probe, not a validator, and lives with
+the readiness code.

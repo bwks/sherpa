@@ -2946,10 +2946,9 @@ pub async fn up_lab(
                 if let Some(vm_data) = ztp_records.iter().find(|x| x.node_name == vm.name) {
                     let ready_port = node_ops::vm_ready_port(&vm.model, vm.ready_port);
                     let ready_label = node_ops::ready_port_label(ready_port);
-                    match node_ops::check_node_port_ready(
-                        &vm_data.ipv4_address.to_string(),
-                        ready_port,
-                    )? {
+                    match node_ops::check_vm_ready(&vm_data.ipv4_address.to_string(), ready_port)
+                        .await?
+                    {
                         true => {
                             tracing::info!(
                                 lab_id = %lab_id,

@@ -72,6 +72,9 @@ url = "2.5"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 virt = { version = "0.4.1", features = ["qemu"] }
 
+# SSH client (bwks/jato-lib), from its GitHub release; not on crates.io yet
+jato = { git = "https://github.com/bwks/jato-lib", tag = "v0.1.0" }
+
 # HTTP client
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
 
