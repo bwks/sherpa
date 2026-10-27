@@ -1087,7 +1087,7 @@ pub async fn redeploy_node(
             let ready_port = node_ops::vm_ready_port(&target_node.model, target_node.ready_port);
             let ready_label = node_ops::ready_port_label(ready_port);
             while !is_ready && ready_start.elapsed() < ready_timeout {
-                match node_ops::check_node_port_ready(&ip_str, ready_port)? {
+                match node_ops::check_vm_ready(&ip_str, ready_port).await? {
                     true => {
                         is_ready = true;
                         let _ = progress.send_status(

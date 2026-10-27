@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use askama::Template;
+use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tracing::instrument;
 
 use crate::services::guest_account::{self, GuestAccount};
@@ -40,9 +41,9 @@ use shared::konst::{
     SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, TALOS_API_PORT, TELNET_PORT,
-    VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO,
-    ZTP_JSON,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
+    TALOS_API_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID,
+    WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_JSON,
 };
 use shared::util;
 use virt::error::ErrorNumber;
@@ -3029,6 +3030,46 @@ pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
     }
 }
 
+/// Check if a virtual machine is ready on its readiness port. On the SSH port an SSH server
+/// must answer (`check_node_ssh_ready`); any other port, such as the Talos API, needs a TCP
+/// connection.
+pub async fn check_vm_ready(ip: &str, port: u16) -> Result<bool> {
+    if port == SSH_PORT {
+        check_node_ssh_ready(ip, port).await
+    } else {
+        check_node_port_ready(ip, port)
+    }
+}
+
+/// Check if an SSH server answers on a node: the port must accept a TCP connection and then
+/// complete the SSH handshake. A port that is open before the SSH server is, such as a
+/// network device's or a port forward with nothing behind it, is not ready.
+///
+/// No credentials are sent and nothing is trusted from the handshake, so the host key is not
+/// checked. Older algorithms are allowed, as some network devices offer nothing else.
+#[instrument(level = "debug")]
+pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<bool> {
+    if !check_node_port_ready(ip, port)? {
+        return Ok(false);
+    }
+    let hop = Hop::new(
+        Node::new(ip, port),
+        Auth::new(SHERPA_USERNAME),
+        HostKeyPolicy::Insecure,
+    )
+    .allow_legacy_algorithms();
+    let mut options = ConnectOptions::default();
+    options.connect_timeout = Duration::from_secs(SSH_READY_HANDSHAKE_TIMEOUT);
+    options.keepalive_interval = None;
+    match Session::probe(&hop, &options).await {
+        Ok(()) => Ok(true),
+        Err(error) => {
+            tracing::debug!(%error, "SSH server not ready");
+            Ok(false)
+        }
+    }
+}
+
 /// Port that shows a virtual machine is ready: the manifest's `ready_port`, else the model's
 /// own port (SSH for most models, the Talos API for Talos Linux).
 pub fn vm_ready_port(model: &data::NodeModel, ready_port: Option<u16>) -> u16 {
@@ -3410,6 +3451,7 @@ mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
     use tempfile::tempdir;
+    use tokio::io::AsyncWriteExt;
     use tokio::sync::mpsc;
 
     #[test]
@@ -4214,5 +4256,38 @@ mod tests {
         let result = check_node_port_ready("127.0.0.1", 1);
         assert!(result.is_ok());
         assert!(!result.unwrap());
+    }
+
+    /// A listener that answers every connection with `reply` and hangs up, such as a web
+    /// server or a port forward with nothing behind it.
+    async fn listener_replying(reply: &'static [u8]) -> (u16, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let task = tokio::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                let _ = stream.write_all(reply).await;
+            }
+        });
+        (port, task)
+    }
+
+    #[tokio::test]
+    async fn test_check_node_ssh_ready_false_when_the_port_is_not_ssh() {
+        let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
+        assert!(check_node_port_ready("127.0.0.1", port).unwrap());
+        assert!(!check_node_ssh_ready("127.0.0.1", port).await.unwrap());
+        task.abort();
+    }
+
+    #[tokio::test]
+    async fn test_check_node_ssh_ready_false_when_closed() {
+        assert!(!check_node_ssh_ready("127.0.0.1", 1).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_check_vm_ready_uses_tcp_for_other_ports() {
+        let (port, task) = listener_replying(b"not ssh\r\n").await;
+        assert!(check_vm_ready("127.0.0.1", port).await.unwrap());
+        task.abort();
     }
 }

@@ -324,9 +324,9 @@ fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) 
 }
 
 /// Probe one node once. Probe errors count as not ready yet.
-fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
+async fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
     let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
-        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_node_port_ready(ip, *port),
+        (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_vm_ready(ip, *port).await,
         (ReadinessCheck::Port(_), None) => Ok(false),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {
@@ -367,7 +367,7 @@ async fn wait_for_readiness(
     let mut ready = HashSet::new();
     loop {
         for target in targets {
-            if ready.contains(&target.name) || !probe(target, state) {
+            if ready.contains(&target.name) || !probe(target, state).await {
                 continue;
             }
             tracing::info!(lab_id = %lab_id, node_name = %target.name, "Resumed node ready");

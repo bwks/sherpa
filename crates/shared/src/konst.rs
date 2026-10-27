@@ -343,6 +343,8 @@ pub const NODE_PASSWD_FILE: &str = "/etc/passwd";
 pub const LAB_CERT_VALIDITY_DAYS: u32 = 365;
 
 pub const READINESS_TIMEOUT: u64 = 600;
+/// Seconds a readiness check waits for a node's SSH server to finish the SSH handshake.
+pub const SSH_READY_HANDSHAKE_TIMEOUT: u64 = 5;
 /// Seconds `down` waits for a VM to shut down cleanly before powering it off.
 pub const VM_SHUTDOWN_TIMEOUT: u64 = 60;
 /// Seconds between VM power state checks while waiting for a clean shutdown.

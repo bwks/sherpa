@@ -1018,6 +1018,32 @@ The creation path is best understood as a staged compiler pipeline: manifest inp
 
 Progress phases emitted by `up_lab` correspond to these stages. Fail-fast validation happens before resource creation where possible. Once resource creation starts, the service must assume partial success is possible and clean up on failures.
 
+### Node readiness
+
+`up`, `redeploy` and `resume` poll each VM's readiness port (`node_ops::vm_ready_port`: the
+manifest's `ready_port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
+`check_unikernel_ready`, and containers are ready once running.
+
+```text
+check_vm_ready(ip, port)
+  |
+  +- port 22 --> check_node_ssh_ready
+  |                |
+  |                +- TCP connect (100 ms) ---- refused/timeout --> not ready
+  |                +- Jato Session::probe ----- SSH handshake through key exchange,
+  |                     (5 s, no login)          then disconnect --> ready
+  |                                              non-SSH reply or timeout --> not ready
+  |
+  +- other port --> check_node_port_ready: TCP connect (100 ms)
+```
+
+An open port is not enough on SSH: network devices and some guests accept TCP connections
+before their SSH server can answer. The probe uses the Jato library (`bwks/jato-lib`, a
+git dependency pinned to a release tag; it is not on crates.io yet). It sends no credentials, so a
+node logs no failed login. It does not check the host key, because nothing is trusted from
+it. It allows legacy algorithms for older network devices. The TCP connect comes first so
+that nodes that are still booting fail in 100 ms and do not hold up the poll loop.
+
 ### Runtime resource model for a lab
 
 A running lab is spread across several systems. The DB is the desired/known state, not the only state.
