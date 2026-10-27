@@ -34,7 +34,7 @@ so nothing is lost by not serializing it.
   `shared::validators::validate_secret_file` (one path part of `[A-Za-z0-9._+@-]`), unique per
   node. ssh files: `dst` absolute or `~/`,
   with no empty, `.` or `..` parts and only `[A-Za-z0-9._+@-]` in each part, because it is used
-  in `scp` paths and remote shell commands; modes as octal digits up to `777`; env file names
+  in SFTP paths and remote shell commands; modes as octal digits up to `777`; env file names
   unique per node; at least one action.
 - `server::validate::reject_provisioners` (`up::up_lab`, `redeploy::redeploy_node`): any node with
   provisioners is refused. The CLI never sends them, so they only arrive from the web UI or REST,
@@ -52,18 +52,32 @@ so nothing is lost by not serializing it.
 | `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs each node, prints `shared::util::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
 | `container.rs` | `container_secrets`/`node_secrets`: reads container provisioner files into `shared::data::SecretFile`s; `container_results` reports them |
 | `client_files.rs` | Client path rules shared by both types: `~` expanded, relative paths from the manifest's folder |
-| `ssh.rs` | The SSH provisioner: `wait_for_node` (retry the login until the account exists, then `cloud-init status --wait`), then files, env files and scripts. Client files are read before the node is changed |
+| `ssh.rs` | The SSH provisioner: `wait_for_node` (connect, retrying failures at the node until the account exists, then `cloud-init status --wait`), then files, env files and scripts over that one connection. Client files are read before the node is changed |
 | `remote.rs` | Pure builders of the POSIX `sh` commands run on the node |
-| `transport.rs` | `SshTarget`: the only code that spawns `ssh`/`scp`, always with `-F sherpa_ssh_config`, `BatchMode=yes`, `ConnectTimeout` and `LogLevel=ERROR` |
+| `transport.rs` | `SshTarget` (a node's route in `sherpa_ssh_config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
 
-`transport.rs` has two operations, run a command (optionally with stdin) and copy a file, which
-match `lib_sshinto`'s `Session` and `Connection` (github.com/bwks/sshinto). Replacing the system
-binaries with that library changes only this file.
+`transport.rs` connects with the Jato library through `crate::ssh_client`, the same code as
+`sherpa ssh` (see [`SSH_CLIENT.md`](SSH_CLIENT.md)); no `ssh` or `scp` program is run.
+
+- **One connection per node.** `wait_for_node` connects with a 15 s connection limit
+  (`konst::PROVISIONER_SSH_CONNECT_TIMEOUT`) and retries every 5 s until the ready timeout,
+  but only failures at the node itself (`ssh_client::retryable`): refused connections, and the
+  login refused because cloud-init has not created the account yet. A host key problem or the
+  Sherpa server refusing the login fails at once. All steps then share the connection.
+- **Prompts.** Only the jump to the Sherpa server may ask for a key passphrase or password
+  (`PromptScope::JumpHostsOnly`); a node is never asked about, as its login fails while it
+  boots. One `PromptCache` serves the whole run, so provisioning many nodes asks once. An
+  unknown server host key is asked about as in `sherpa ssh`. The authentication limit is
+  `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s) so typing is not cut off.
+- **Commands** run through `Session::exec` with no time limit, as the old `ssh` had none;
+  Jato's keepalives end the command if the node stops answering (about 90 s). Plain commands
+  keep their stderr for the error; scripts, sent on stdin, show their output as it arrives.
 
 Remote steps, as the node's login user:
 
 - **Files:** `prepare_file_command` creates missing parents and an empty destination under
-  `umask 077` and makes an existing file `0600`; `scp` then writes into it, so the contents are
+  `umask 077` and makes an existing file `0600`; Jato's SFTP upload then writes the contents
+  to a new `0600` temporary file beside it and renames it over the destination, so they are
   never readable by others; `finish_file_command` sets the final mode.
 - **Env files:** copied like files to `~/.env.d/<name>` (`konst::NODE_USER_ENV_DIR`), then
   `env_loader_command` appends, once, a line that exports every readable file in `~/.env.d` to

@@ -326,6 +326,11 @@ pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
 pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
 /// Seconds between attempts to log in to a node that is not accepting the login yet.
 pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
+/// Seconds each SFTP request may take while a provisioner copies a file to a node.
+pub const PROVISIONER_COPY_TIMEOUT: u64 = 300;
+/// Seconds an SSH login may take when it can ask for a passphrase or password, so a person
+/// typing is not cut off by the usual 30 s authentication limit.
+pub const SSH_PROMPT_AUTH_TIMEOUT: u64 = 300;
 /// Default mode of container secret files, as octal digits: readable by any user in the
 /// container, which may not run as root.
 pub const CONTAINER_SECRET_DEFAULT_MODE: u32 = 444;

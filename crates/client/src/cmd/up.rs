@@ -353,7 +353,8 @@ pub async fn up(
         Some(&ready_nodes),
         None,
         container_results(&node_secrets),
-    )?;
+    )
+    .await?;
 
     Ok(())
 }

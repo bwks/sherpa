@@ -2,6 +2,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::process;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail, ensure};
 use jato::{ConnectOptions, SshConfig};
@@ -10,12 +11,13 @@ use topology::Manifest;
 use shared::data::LabInfo;
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SSH_PROMPT_AUTH_TIMEOUT,
 };
 use shared::util::term_msg_surround;
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
 use crate::remote_shell;
+use crate::ssh_client::{self, PromptCache, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -43,7 +45,10 @@ pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
         .with_context(|| format!("Failed to resolve '{qualified_name}' in the lab SSH config"))?;
     term_msg_surround(&format!("Connecting to: {qualified_name}"));
 
-    let session = remote_shell::connect(&route, &ConnectOptions::default()).await?;
+    let mut options = ConnectOptions::default();
+    options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
+    let session =
+        ssh_client::connect(&route, &options, PromptScope::AllHops, &PromptCache::new()).await?;
     let code = remote_shell::run_shell(&session).await?;
     if let Err(error) = session.close().await {
         tracing::debug!(%error, "Failed to close the SSH session cleanly");

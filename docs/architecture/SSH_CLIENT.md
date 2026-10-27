@@ -1,7 +1,8 @@
 # SSH client
 
 How `sherpa ssh` opens an interactive shell on a lab node. The command is in
-`crates/client/src/cmd/ssh.rs`; the shell is in `crates/client/src/remote_shell/`. SSH itself
+`crates/client/src/cmd/ssh.rs`, connecting and prompting in `crates/client/src/ssh_client/`,
+and the shell in `crates/client/src/remote_shell/`. SSH itself
 is the Jato library (`bwks/jato-lib`), so the client runs no `ssh` program.
 
 ## Connecting
@@ -12,8 +13,8 @@ exist, the alias is in `sherpa_ssh_config`, and the shared key has safe permissi
 1. `jato::SshConfig::load_file("sherpa_ssh_config")` reads the lab's configuration, as
    `ssh -F` does, and `route(alias)` resolves the node and its `ProxyJump` to the Sherpa
    server.
-2. `remote_shell::connect` connects along the route with `ConnectOptions::default()`
-   (keepalives every 30 s, 3 missed).
+2. `ssh_client::connect` connects along the route (keepalives every 30 s, 3 missed), with
+   prompts on every hop (`PromptScope::AllHops`).
 3. `remote_shell::run_shell` runs the shell until it ends, and `ssh` exits with its code.
 
 The server hop has no `StrictHostKeyChecking` in the lab config, so Jato checks it strictly
@@ -22,7 +23,7 @@ not checked.
 
 ## The server host key prompt
 
-`remote_shell::host_key::connect` asks as OpenSSH's `StrictHostKeyChecking ask` does, without
+`ssh_client::connect` asks as OpenSSH's `StrictHostKeyChecking ask` does, without
 asking inside the SSH handshake:
 
 ```text
@@ -43,8 +44,8 @@ a server that swapped keys in between is refused.
 
 ## Passphrases and passwords
 
-`remote_shell::host_key::connect` connects with `Route::connect_with_prompter` and a
-`remote_shell::prompter::TerminalPrompter`, so Jato asks on the terminal, without echo
+`ssh_client::connect` gives each hop it prompts on a `Prompter` from
+`ssh_client::PromptCache::terminal`, so Jato asks on the terminal, without echo
 (`rpassword`), as `ssh` does:
 
 - `Enter passphrase for key '<path>': ` for an encrypted identity file, asked again after a
@@ -53,7 +54,10 @@ a server that swapped keys in between is refused.
   three times.
 
 An empty answer declines. Prompts happen while connecting, before the terminal goes into raw
-mode. The SSH provisioners still run the system `ssh` in batch mode and never prompt.
+mode. The connecting and prompting code is `crate::ssh_client`, shared with the SSH
+provisioners (see [`PROVISIONERS.md`](PROVISIONERS.md)), which ask only about the jump to the
+server and keep answers for the run in a `PromptCache`. While a prompt may be shown, the
+authentication limit is `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s), so typing is not cut off.
 
 ## The terminal
 
@@ -84,5 +88,12 @@ mode. The SSH provisioners still run the system `ssh` in batch mode and never pr
 ## Limits
 
 - No agent, X11 or port forwarding, and no escapes other than `~.` and `~~`.
-- Tested on Linux with Ubuntu, Cisco IOSv and Windows Server nodes. The Windows client is
-  checked by CI's Windows clippy job only.
+- Tested on Linux with Ubuntu, Cisco IOSv and Windows Server nodes, and from a Windows Server
+  2022 client in a ConPTY console (Windows Terminal and conhost both use it).
+
+## Thread stack
+
+`main` runs the command line on a thread of its own with an 8 MiB stack, and the Tokio
+runtime's threads get the same (`THREAD_STACK_SIZE` in `crates/client/src/main.rs`). Windows
+gives a main thread 1 MiB, and an SSH connection's nested polls (Jato, `russh`, the jump hosts)
+overflowed it in a debug build; Linux's main thread already has 8 MiB.

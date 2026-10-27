@@ -134,7 +134,7 @@ fn valid_destination(dst: &str) -> bool {
     true
 }
 
-/// A path part that needs no quoting in a remote shell or `scp` path.
+/// A path part that needs no quoting in a remote shell command or an SFTP path.
 fn safe_name(part: &str) -> bool {
     for byte in part.bytes() {
         if !(byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b'+' | b'@')) {

@@ -1,7 +1,7 @@
 //! Remote shell commands the SSH provisioner runs on a node, as the node's login user.
 //!
 //! Each command is a POSIX `sh` string. Secret data never appears in one: file contents go
-//! through `scp`, and script contents through the session's stdin.
+//! over SFTP, and script contents through the session's stdin.
 use shared::konst::{NODE_USER_ENV_DIR, NODE_USER_ENV_FILE};
 
 /// Quote a value as one POSIX shell word.
@@ -17,9 +17,9 @@ pub fn remote_path(dst: &str) -> String {
     }
 }
 
-/// A destination as an `scp` path: `~/` paths become relative, which `scp` resolves against the
+/// A destination as an SFTP path: `~/` paths become relative, which SFTP resolves against the
 /// login user's home.
-pub fn scp_path(dst: &str) -> String {
+pub fn sftp_path(dst: &str) -> String {
     dst.strip_prefix("~/").unwrap_or(dst).to_string()
 }
 
@@ -122,8 +122,8 @@ mod tests {
     fn paths_resolve_home_relative_destinations() {
         assert_eq!(remote_path("~/.config/a"), r#""$HOME"/'.config/a'"#);
         assert_eq!(remote_path("/etc/a"), "'/etc/a'");
-        assert_eq!(scp_path("~/.config/a"), ".config/a");
-        assert_eq!(scp_path("/etc/a"), "/etc/a");
+        assert_eq!(sftp_path("~/.config/a"), ".config/a");
+        assert_eq!(sftp_path("/etc/a"), "/etc/a");
     }
 
     #[test]

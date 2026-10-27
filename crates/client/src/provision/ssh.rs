@@ -1,22 +1,23 @@
-//! The SSH provisioner: copies files and env files with `scp`, then runs scripts, as the node's
-//! login user.
+//! The SSH provisioner: copies files and env files, then runs scripts, as the node's login
+//! user, over one SSH connection per node.
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 
 use shared::konst::{PROVISIONER_FILE_DEFAULT_MODE, PROVISIONER_SSH_RETRY_INTERVAL};
+use tokio::time;
 use topology::SshProvisioner;
 
 use super::client_files::{existing_client_file, resolve_client_path};
 use super::remote::{
     cloud_init_wait_command, env_file_destination, env_loader_command, finish_file_command,
-    prepare_file_command, scp_path, script_wrapper_command,
+    prepare_file_command, script_wrapper_command, sftp_path,
 };
-use super::transport::SshTarget;
+use super::transport::{NodeSession, SshTarget};
+use crate::ssh_client::retryable;
 
 /// A client file to copy, read before the node is changed.
 struct FileCopy {
@@ -31,13 +32,16 @@ struct Script {
     content: Vec<u8>,
 }
 
-/// Wait until the node accepts the login user, then until cloud-init has finished first-boot
-/// work. sshd can answer before cloud-init has created the user.
-pub fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<()> {
+/// Connect once the node accepts the login user, then wait until cloud-init has finished
+/// first-boot work. sshd can answer before cloud-init has created the user, so failures at the
+/// node are retried until `timeout`; a failure at the Sherpa server, such as a refused login
+/// or host key, is not.
+pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<NodeSession> {
     let deadline = Instant::now() + timeout;
-    loop {
-        match target.run("true") {
-            Ok(()) => break,
+    let session = loop {
+        match target.connect().await {
+            Ok(session) => break session,
+            Err(error) if !retryable(&error, &target.node()) => return Err(error),
             Err(error) if Instant::now() >= deadline => {
                 return Err(error.context(format!(
                     "{} did not accept the login within {}s",
@@ -47,18 +51,20 @@ pub fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<()> {
             }
             Err(error) => {
                 tracing::debug!(host = %target.host(), error = %format!("{error:#}"), "Node not accepting the login yet");
-                thread::sleep(Duration::from_secs(PROVISIONER_SSH_RETRY_INTERVAL));
+                time::sleep(Duration::from_secs(PROVISIONER_SSH_RETRY_INTERVAL)).await;
             }
         }
-    }
-    target
+    };
+    session
         .run(&cloud_init_wait_command())
-        .with_context(|| format!("Cannot wait for cloud-init on {}", target.host()))
+        .await
+        .with_context(|| format!("Cannot wait for cloud-init on {}", session.host()))?;
+    Ok(session)
 }
 
 /// Run one SSH provisioner on a node: files, then env files, then scripts.
-pub fn provision(
-    target: &SshTarget,
+pub async fn provision(
+    session: &NodeSession,
     provisioner: &SshProvisioner,
     manifest_dir: &Path,
 ) -> Result<()> {
@@ -66,21 +72,23 @@ pub fn provision(
 
     for file in &files {
         println!("  copying {} to {}", file.src.display(), file.dst);
-        copy_file(target, file)?;
+        copy_file(session, file).await?;
     }
     if !env_files.is_empty() {
         for file in &env_files {
             println!("  copying env file {} to {}", file.src.display(), file.dst);
-            copy_file(target, file)?;
+            copy_file(session, file).await?;
         }
-        target
+        session
             .run(&env_loader_command())
+            .await
             .context("Cannot make login shells load env files")?;
     }
     for script in &scripts {
         println!("  running {}", script.path.display());
-        target
+        session
             .run_with_input(&script_wrapper_command(), &script.content)
+            .await
             .with_context(|| format!("Script {} failed", script.path.display()))?;
     }
     Ok(())
@@ -128,13 +136,15 @@ fn read_client_files(
     Ok((files, env_files, scripts))
 }
 
-fn copy_file(target: &SshTarget, file: &FileCopy) -> Result<()> {
-    target
+async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
+    session
         .run(&prepare_file_command(&file.dst))
+        .await
         .with_context(|| format!("Cannot prepare {}", file.dst))?;
-    target.copy_to(&file.src, &scp_path(&file.dst))?;
-    target
+    session.copy_to(&file.src, &sftp_path(&file.dst)).await?;
+    session
         .run(&finish_file_command(&file.dst, file.mode))
+        .await
         .with_context(|| format!("Cannot set the mode of {}", file.dst))
 }
 
@@ -170,18 +180,16 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_client_file_fails_before_connecting() {
+    fn a_missing_client_file_is_reported_by_name() {
         let dir = tempdir().unwrap();
         let provisioner = SshProvisioner {
             env_files: vec!["missing.env".to_string()],
             ..Default::default()
         };
-        let target = SshTarget::new(Path::new("/nonexistent/sherpa_ssh_config"), "dev01.lab");
-        let error = format!(
-            "{:#}",
-            provision(&target, &provisioner, dir.path()).unwrap_err()
-        );
+        let Err(error) = read_client_files(&provisioner, dir.path()) else {
+            panic!("a missing env file was read");
+        };
+        let error = format!("{error:#}");
         assert!(error.contains("missing.env"), "{error}");
-        assert!(!error.contains("ssh"), "{error}");
     }
 }
