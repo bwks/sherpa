@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.5] - 2026-10-28
+
+### Bug Fixes
+
+- Run commands on the main thread again by @bwks ([49abd6e](https://github.com/bwks/sherpa/commit/49abd6e4d613ce6751b9abb8f57f7beed0cbced9))
+
+### Miscellaneous
+
+- Merge pull request #370 from bwks/fix/drop-client-stack-thread
+
+fix(client): run commands on the main thread again (Jato v0.4.2) by @bwks in [#370](https://github.com/bwks/sherpa/pull/370) ([eda61e0](https://github.com/bwks/sherpa/commit/eda61e05da08fa7a479c6d0c3b29be787f339817))
+- Bump version to 0.4.5 by @bwks ([295ecb8](https://github.com/bwks/sherpa/commit/295ecb88679b19d044737b04a1d338546383650b))
+- Merge pull request #369 from bwks/changelog/v0.4.4
+
+chore(release): update changelog for v0.4.4 by @github-actions[bot] in [#369](https://github.com/bwks/sherpa/pull/369) ([5cf18ac](https://github.com/bwks/sherpa/commit/5cf18acfad54c201d0667410c1ed1dba832be123))
 ## [0.4.4] - 2026-10-28
 
 ### Features
