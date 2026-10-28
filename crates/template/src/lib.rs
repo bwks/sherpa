@@ -56,7 +56,7 @@ pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;
 pub use nokia_srlinux::build_srlinux_config;
 pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplate};
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
-pub use ssh::{SshConfigTemplate, SshHostConfig};
+pub use ssh::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
 pub use talos::{
     TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config,
     talosconfig,

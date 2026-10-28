@@ -1,9 +1,9 @@
 use anyhow::Result;
 use db::{
     create_lab, create_node, create_node_image, create_user, get_node, list_vnc_ports,
-    update_node_resources,
+    update_node_host_key, update_node_resources, update_node_state,
 };
-use shared::data::{NodeConfig, NodeModel, NodeResources};
+use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
 use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
@@ -88,6 +88,34 @@ async fn test_vnc_port_belongs_to_one_node() -> Result<()> {
     update_node_resources(&db, nodes[2].id.clone().unwrap(), &vnc(None)).await?;
 
     assert_eq!(list_vnc_ports(&db).await?, vec![5900]);
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
+    let db = setup_db("test_node_host_key").await?;
+    let nodes = lab_with_nodes(&db, 2).await?;
+    let id = nodes[0].id.clone().unwrap();
+    assert_eq!(nodes[0].ssh_host_key, None);
+
+    let key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJdD7y3aLq454yWBdwLWbieU1ebz9/cu7/QEXn9OIeZJ";
+    let updated = update_node_host_key(&db, id.clone(), Some(key)).await?;
+    assert_eq!(updated.ssh_host_key.as_deref(), Some(key));
+
+    // Other updates keep the key.
+    update_node_state(&db, id.clone(), NodeState::Running).await?;
+    assert_eq!(
+        get_node(&db, id.clone()).await?.ssh_host_key.as_deref(),
+        Some(key)
+    );
+    let other = get_node(&db, nodes[1].id.clone().unwrap()).await?;
+    assert_eq!(other.ssh_host_key, None);
+
+    update_node_host_key(&db, id.clone(), None).await?;
+    assert_eq!(get_node(&db, id).await?.ssh_host_key, None);
 
     teardown_db(&db).await?;
     Ok(())

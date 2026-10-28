@@ -26,8 +26,19 @@ for provisioners, which failures are worth retrying (`retryable`).
 ## The server host key question
 
 The server hop has no `StrictHostKeyChecking` in the lab config, so Jato uses OpenSSH's
-default, `ask` (`HostKeyPolicy::Ask`), against `~/.ssh/known_hosts`. Lab nodes have
-`StrictHostKeyChecking no`, so their keys are not checked.
+default, `ask` (`HostKeyPolicy::Ask`), against `~/.ssh/known_hosts`. A lab node whose key the
+server recorded has `StrictHostKeyChecking yes` and the lab's `sherpa_known_hosts` file
+(`HostKeyPolicy::Strict`), so it is never asked about. Other nodes have
+`StrictHostKeyChecking no`, so their keys are not checked. See "Node readiness" in
+[`SERVER.md`](SERVER.md) for how keys are recorded.
+
+When the node's key is unknown or does not match (`HostKeyUnknown` or `HostKeyChanged` for
+the target, not a jump host), `ssh_client::connect` asks the server for the node's current
+key with `HostKeyRefresh` (the `node.host_keys` RPC), which saves the lab's `known_hosts`
+file it returns, and connects once more. A changed key prints a warning; an unknown one a
+note. If the key still does not match, the connection fails. Answers to prompts are kept in
+the `PromptCache`, so the second attempt does not ask again. `sherpa ssh` and the
+provisioners both connect this way.
 
 For an unknown server key, Jato refuses the handshake, asks the prompter
 `continue connecting (yes/no/[fingerprint])?`, records the exact key from the refusal on

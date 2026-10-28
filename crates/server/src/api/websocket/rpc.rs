@@ -13,8 +13,8 @@ use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
-    cancel, clean, container_pull, delete, destroy, down, download, impairment, import, inspect,
-    list_labs, node_secrets, progress, redeploy, resume, up, user_delete, user_ssh_keys,
+    cancel, clean, container_pull, delete, destroy, down, download, host_keys, impairment, import,
+    inspect, list_labs, node_secrets, progress, redeploy, resume, up, user_delete, user_ssh_keys,
 };
 use shared::auth::password;
 use shared::data;
@@ -35,11 +35,12 @@ use shared::konst::{
     RPC_MSG_INVALID_PARAMS_IMAGE_LIST, RPC_MSG_INVALID_PARAMS_IMAGE_SET_DEFAULT,
     RPC_MSG_INVALID_PARAMS_IMAGE_SHOW, RPC_MSG_INVALID_PARAMS_IMPAIRMENT,
     RPC_MSG_INVALID_PARAMS_IMPORT, RPC_MSG_INVALID_PARAMS_LAB_ID, RPC_MSG_INVALID_PARAMS_LOGIN,
-    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_NODE_SECRETS,
-    RPC_MSG_INVALID_PARAMS_REDEPLOY, RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY,
-    RPC_MSG_INVALID_PARAMS_TOKEN, RPC_MSG_INVALID_TAILSCALE_KEY, RPC_MSG_LAB_CANCEL_FAILED,
-    RPC_MSG_LAB_CLEAN_FAILED, RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED,
-    RPC_MSG_LAB_INSPECT_FAILED, RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED,
+    RPC_MSG_INVALID_PARAMS_MANIFEST, RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS,
+    RPC_MSG_INVALID_PARAMS_NODE_SECRETS, RPC_MSG_INVALID_PARAMS_REDEPLOY,
+    RPC_MSG_INVALID_PARAMS_REMOVE_SSH_KEY, RPC_MSG_INVALID_PARAMS_TOKEN,
+    RPC_MSG_INVALID_TAILSCALE_KEY, RPC_MSG_LAB_CANCEL_FAILED, RPC_MSG_LAB_CLEAN_FAILED,
+    RPC_MSG_LAB_DESTROY_FAILED, RPC_MSG_LAB_DOWN_FAILED, RPC_MSG_LAB_INSPECT_FAILED,
+    RPC_MSG_LAB_RESUME_FAILED, RPC_MSG_LAB_UP_FAILED, RPC_MSG_NODE_HOST_KEYS_FAILED,
     RPC_MSG_NODE_SECRETS_FAILED, RPC_MSG_PASSWORD_VALIDATION_FAILED, RPC_MSG_REDEPLOY_FAILED,
     RPC_MSG_SERIALIZE_FAILED, RPC_MSG_SSH_KEY_ADD_FAILED, RPC_MSG_SSH_KEY_REMOVE_FAILED,
     RPC_MSG_TOKEN_CREATE_FAILED, RPC_MSG_USER_ADMIN_ONLY_CREATE, RPC_MSG_USER_ADMIN_ONLY_DELETE,
@@ -221,6 +222,7 @@ pub async fn handle_rpc_request(
         "labs.list" => handle_labs_list(id, params, state).await,
         "down" => handle_down(id, params, state).await,
         "node.secrets" => handle_node_secrets(id, params, state).await,
+        "node.host_keys" => handle_node_host_keys(id, params, state).await,
         "cancel" => handle_cancel(id, params, state).await,
         "link.update_impairment" => handle_link_update_impairment(id, params, state).await,
         // Note: "resume" is handled separately via handle_streaming_rpc_request
@@ -706,6 +708,80 @@ async fn handle_node_secrets(
             id,
             result: None,
             error: Some(service_error(&e, RPC_MSG_NODE_SECRETS_FAILED)),
+        },
+    }
+}
+
+/// Handle "node.host_keys" RPC call — read a lab node's SSH host key again and return the
+/// lab's `known_hosts` file
+///
+/// Expected params: NodeHostKeysRequest and "token".
+async fn handle_node_host_keys(
+    id: String,
+    params: serde_json::Value,
+    state: &AppState,
+) -> ServerMessage {
+    let auth_ctx = match middleware::authenticate_request(&params, state).await {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            tracing::warn!("Authentication failed for node.host_keys: {}", e);
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::AuthRequired,
+                    message: RPC_MSG_AUTH_REQUIRED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            };
+        }
+    };
+
+    let request: data::NodeHostKeysRequest = match serde_json::from_value(params) {
+        Ok(request) => request,
+        Err(e) => {
+            return ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InvalidParams,
+                    message: RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS.to_string(),
+                    context: Some(e.to_string()),
+                }),
+            };
+        }
+    };
+
+    match host_keys::refresh_node_host_key(&auth_ctx, &request, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "User '{}' refreshed the host key of node '{}' in lab '{}' (changed: {})",
+                    auth_ctx.username,
+                    request.node_name,
+                    request.lab_id,
+                    response.changed
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_NODE_HOST_KEYS_FAILED)),
         },
     }
 }

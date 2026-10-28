@@ -56,6 +56,7 @@ pub async fn create_node(
         cpu_count: None,
         memory: None,
         vnc_port: None,
+        ssh_host_key: None,
     };
     let node: Option<NodeRow> = db
         .create("node")

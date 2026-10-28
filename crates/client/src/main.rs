@@ -3,6 +3,7 @@
 
 mod cluster_credentials;
 mod cmd;
+mod lab_files;
 mod private_key;
 mod provision;
 mod ssh_client;

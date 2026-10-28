@@ -54,6 +54,10 @@ pub struct DbNode {
     /// without a console.
     #[serde(default)]
     pub vnc_port: Option<u16>,
+    /// The SSH host key the server recorded when the node last became ready, in OpenSSH
+    /// public key form (`ssh-ed25519 AAAA...`). `None` for nodes without SSH, or before then.
+    #[serde(default)]
+    pub ssh_host_key: Option<String>,
 }
 
 /// What a node was given when it was created or redeployed.

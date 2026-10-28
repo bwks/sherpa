@@ -49,6 +49,7 @@ pub(crate) struct NodeRow {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub vnc_port: Option<u16>,
+    pub ssh_host_key: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, SurrealValue)]
@@ -261,6 +262,7 @@ impl TryFrom<&DbNode> for NodeRow {
             cpu_count: value.cpu_count,
             memory: value.memory,
             vnc_port: value.vnc_port,
+            ssh_host_key: value.ssh_host_key.clone(),
         })
     }
 }
@@ -282,6 +284,7 @@ impl TryFrom<NodeRow> for DbNode {
             cpu_count: value.cpu_count,
             memory: value.memory,
             vnc_port: value.vnc_port,
+            ssh_host_key: value.ssh_host_key,
         })
     }
 }

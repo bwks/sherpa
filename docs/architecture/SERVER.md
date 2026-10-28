@@ -875,10 +875,20 @@ run_scanner
         |     +- batch load node images for NodeKind
         |     +- map runtime state to NodeState
         |     +- db::update_node_state when changed
+        |     +- read SSH host keys (wants_host_key): running VMs with SSH that started,
+        |     |   or still await a key since they started, or have none recorded
+        |     |   +- node_ops::check_vm_ready on port 22 --> record_node_host_key
+        |     |   `- refresh_lab_ssh_files when a key was recorded
         |     +- derive LabState from node states
         |     `- db::update_lab_state when changed
         `- log but do not kill server on scan failure
 ```
+
+A VM that changes to Running joins `awaiting_host_key`, an in-memory set kept across cycles,
+because libvirt reports it running before its SSH server answers. Its key is read every
+cycle until it answers or stops. A running VM with a key is not read again, so the scanner
+makes no SSH connections to settled nodes; a key that changes without a state change, as on a
+reboot from inside the guest, is read when a client finds it does not match.
 
 The scanner is reconciliation, not orchestration. It should not create or destroy resources. It observes runtime state and updates the database so UI/API consumers see reality when resources are externally stopped, started, removed, or crash.
 
@@ -1030,8 +1040,8 @@ check_vm_ready(ip, port)
   +- port 22 --> check_node_ssh_ready
   |                |
   |                +- TCP connect (100 ms) ---- refused/timeout --> not ready
-  |                +- Jato Session::probe ----- SSH handshake through key exchange,
-  |                     (5 s, no login)          then disconnect --> ready
+  |                +- Jato Session::host_key -- SSH handshake through key exchange,
+  |                     (5 s, no login)          then disconnect --> ready, with host key
   |                                              non-SSH reply or timeout --> not ready
   |
   +- other port --> check_node_port_ready: TCP connect (100 ms)
@@ -1040,9 +1050,36 @@ check_vm_ready(ip, port)
 An open port is not enough on SSH: network devices and some guests accept TCP connections
 before their SSH server can answer. The probe uses the Jato library (`bwks/jato-lib`, a
 git dependency pinned to a release tag; it is not on crates.io yet). It sends no credentials, so a
-node logs no failed login. It does not check the host key, because nothing is trusted from
-it. It allows legacy algorithms for older network devices. The TCP connect comes first so
-that nodes that are still booting fail in 100 ms and do not hold up the poll loop.
+node logs no failed login. It allows legacy algorithms for older network devices. The TCP
+connect comes first so that nodes that are still booting fail in 100 ms and do not hold up
+the poll loop.
+
+The probe returns the host key the node offered (`VmReadiness::Ready { host_key }`), accepted
+without checking: the server is on the lab's management network and sees the node first, so
+it is the party users already trust to vouch for it. Labs are short-lived, and nodes'
+keys were accepted unchecked before. The key is kept on the node's database record
+(`node.ssh_host_key`, `db::update_node_host_key`):
+
+- `up` records each VM's key as it becomes ready.
+- `redeploy` clears the node's key before teardown and records the new one when it is ready.
+- `resume` records the keys of the nodes it cold-booted, as some network operating systems
+  (Cisco IOSv, IOSvL2, IOS-XE) make a new RSA key on every boot.
+- The scanner records the key of a VM that started outside these, such as from the web UI,
+  and of a running VM with no key (see the scanner section).
+- The `node.host_keys` RPC (`services::host_keys`) reads one node's key on request, for a
+  client whose recorded key did not match.
+
+`ssh_config::record_node_host_key` writes a key only when it differs, and logs a warning when
+it replaces another. `ssh_config::refresh_lab_ssh_files` then renders the lab's SSH files
+from the database (nodes' addresses, whether their image has SSH, and their keys) and saves
+them with `lab-info.toml`: `sherpa_ssh_config`, in which a node with a recorded key gets
+`StrictHostKeyChecking yes` and `UserKnownHostsFile sherpa_known_hosts` (others keep `no` and
+`/dev/null`), and `sherpa_known_hosts` (template `ssh/known_hosts.jinja`), one line per key under
+the name OpenSSH looks up: the address on port 22, else `[address]:port`. `up`'s response, the
+download service and `node.host_keys` carry the known_hosts file, and the client rewrites the
+relative `UserKnownHostsFile` path to an absolute one, as it does for `IdentityFile`
+(`client::lab_files`). When a node's key is unknown or changed, the client fetches the lab's
+keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_CLIENT.md`).
 
 ### Runtime resource model for a lab
 

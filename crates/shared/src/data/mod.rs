@@ -9,6 +9,7 @@ mod dhcp;
 mod disk;
 mod dns;
 mod download;
+mod host_key;
 mod impairment;
 mod import;
 mod inspect;
@@ -47,6 +48,7 @@ pub use disk::{
 };
 pub use dns::{Dns, NameServer};
 pub use download::DownloadLabResponse;
+pub use host_key::{NodeHostKey, NodeHostKeysRequest, NodeHostKeysResponse};
 pub use impairment::{UpdateImpairmentRequest, UpdateImpairmentResponse};
 pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,

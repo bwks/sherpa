@@ -1,21 +1,26 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use bollard::secret::ContainerSummaryStateEnum;
-use shared::data::{DbLab, LabState, NodeKind, NodeState, RecordId};
+use shared::data::{DbLab, DbNode, LabState, NodeKind, NodeState, RecordId};
+use shared::konst::{SHERPA_LABS_PATH, SSH_PORT};
 use tokio_util::sync::CancellationToken;
 use tracing::instrument;
 use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_RUNNING, VIR_DOMAIN_SHUTOFF};
 
 use crate::daemon::state::AppState;
+use crate::services::node_ops::{self, VmReadiness};
+use crate::services::ssh_config;
 
 /// Run the background scanner service.
 ///
 /// Periodically queries libvirt and Docker for actual runtime state of all
-/// nodes, then reconciles the database to match. Exits cleanly when the
-/// cancellation token is triggered.
+/// nodes, then reconciles the database to match. Virtual machines that started, as from the
+/// web UI, and running ones without a recorded SSH host key, get their host key read and
+/// recorded, so the lab's `known_hosts` file follows nodes that make a new key when they
+/// boot. Exits cleanly when the cancellation token is triggered.
 #[instrument(skip_all)]
 pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     let interval_secs = state.config.scanner.interval_secs;
@@ -25,11 +30,14 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
     // The first tick completes immediately; skip it so we don't scan at startup
     // before everything is fully initialized.
     interval.tick().await;
+    // Started nodes whose host key is read every cycle until their SSH server answers, by
+    // runtime name.
+    let mut awaiting_host_key = HashSet::new();
 
     loop {
         tokio::select! {
             _ = interval.tick() => {
-                if let Err(e) = scan_cycle(&state).await {
+                if let Err(e) = scan_cycle(&state, &mut awaiting_host_key).await {
                     tracing::error!(error = %e, "Scanner cycle failed");
                 }
             }
@@ -43,7 +51,7 @@ pub async fn run_scanner(state: AppState, cancel: CancellationToken) {
 
 /// Execute a single scan cycle: query runtimes, reconcile with DB.
 #[instrument(skip_all, level = "debug")]
-async fn scan_cycle(state: &AppState) -> Result<()> {
+async fn scan_cycle(state: &AppState, awaiting_host_key: &mut HashSet<String>) -> Result<()> {
     // Query both runtimes concurrently
     let qemu = state.qemu.clone();
     let docker = state.docker.clone();
@@ -78,7 +86,8 @@ async fn scan_cycle(state: &AppState) -> Result<()> {
     }
 
     for lab in &labs {
-        if let Err(e) = scan_lab(state, lab, &vm_states, &container_states).await {
+        if let Err(e) = scan_lab(state, lab, &vm_states, &container_states, awaiting_host_key).await
+        {
             tracing::warn!(
                 lab_id = %lab.lab_id,
                 error = %e,
@@ -97,6 +106,7 @@ async fn scan_lab(
     lab: &DbLab,
     vm_states: &HashMap<String, u32>,
     container_states: &HashMap<String, ContainerSummaryStateEnum>,
+    awaiting_host_key: &mut HashSet<String>,
 ) -> Result<()> {
     let lab_record_id = lab.id.as_ref().context("Lab missing record ID")?;
 
@@ -117,6 +127,7 @@ async fn scan_lab(
         .context("Failed to batch fetch node images")?;
 
     let mut current_node_states = Vec::with_capacity(nodes.len());
+    let mut host_key_reads = Vec::new();
 
     for node in &nodes {
         let node_id = match &node.id {
@@ -129,11 +140,13 @@ async fn scan_lab(
         };
 
         // Determine NodeKind from image
-        let kind = node_images
+        let image = node_images
             .iter()
-            .find(|img| img.id.as_ref() == Some(&node.image))
+            .find(|img| img.id.as_ref() == Some(&node.image));
+        let kind = image
             .map(|img| img.kind.clone())
             .unwrap_or(NodeKind::VirtualMachine);
+        let has_ssh = image.is_some_and(|img| img.model.has_ssh());
 
         let runtime_name = format!("{}-{}", node.name, lab.lab_id);
         let detected_state = detect_node_state(&runtime_name, &kind, vm_states, container_states);
@@ -156,7 +169,50 @@ async fn scan_lab(
             }
         }
 
+        if detected_state != NodeState::Running {
+            awaiting_host_key.remove(&runtime_name);
+        } else if node.state != NodeState::Running {
+            awaiting_host_key.insert(runtime_name.clone());
+        }
+        if wants_host_key(
+            &kind,
+            has_ssh,
+            detected_state,
+            awaiting_host_key.contains(&runtime_name),
+            node.ssh_host_key.is_some(),
+        ) {
+            host_key_reads.push((node, runtime_name));
+        }
+
         current_node_states.push(detected_state);
+    }
+
+    let mut recorded = false;
+    for (node, runtime_name) in host_key_reads {
+        match read_host_key(state, node).await {
+            Ok(true) => {
+                awaiting_host_key.remove(&runtime_name);
+                recorded = true;
+            }
+            Ok(false) => {
+                tracing::debug!(node = %node.name, "SSH server not answering yet");
+            }
+            Err(e) => {
+                tracing::warn!(node = %node.name, error = %e, "Failed to record node host key");
+            }
+        }
+    }
+    if recorded {
+        let lab_dir = format!("{SHERPA_LABS_PATH}/{}", lab.lab_id);
+        let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
+        ssh_config::refresh_lab_ssh_files(
+            &state.db,
+            &lab_dir,
+            lab_record_id,
+            &lab_info,
+            state.config.server_ipv4,
+        )
+        .await?;
     }
 
     // Derive and persist lab state from current node states
@@ -180,6 +236,40 @@ async fn scan_lab(
     }
 
     Ok(())
+}
+
+/// Whether to read a node's SSH host key this cycle: a running virtual machine with SSH that
+/// has just started, or is still awaited since it started, or has no key recorded.
+fn wants_host_key(
+    kind: &NodeKind,
+    has_ssh: bool,
+    detected_state: NodeState,
+    started: bool,
+    has_key: bool,
+) -> bool {
+    *kind == NodeKind::VirtualMachine
+        && has_ssh
+        && detected_state == NodeState::Running
+        && (started || !has_key)
+}
+
+/// Read the host key a running node offers on SSH and record it. Returns `false` when its
+/// SSH server does not answer yet.
+#[instrument(skip_all, fields(node = %node.name), level = "debug")]
+async fn read_host_key(state: &AppState, node: &DbNode) -> Result<bool> {
+    let Some(ip) = &node.mgmt_ipv4 else {
+        tracing::debug!("Node has no management address");
+        return Ok(false);
+    };
+    match node_ops::check_vm_ready(ip, SSH_PORT).await? {
+        VmReadiness::Ready {
+            host_key: Some(host_key),
+        } => {
+            ssh_config::record_node_host_key(&state.db, node, &host_key).await?;
+            Ok(true)
+        }
+        VmReadiness::Ready { host_key: None } | VmReadiness::NotReady => Ok(false),
+    }
 }
 
 /// Determine the actual node state from runtime data.
@@ -274,6 +364,38 @@ async fn query_docker_states(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn started_and_keyless_running_vms_have_their_host_key_read() {
+        let vm = NodeKind::VirtualMachine;
+        // Just started, or awaited since it started.
+        assert!(wants_host_key(&vm, true, NodeState::Running, true, true));
+        // Running without a key.
+        assert!(wants_host_key(&vm, true, NodeState::Running, false, false));
+        // Running with a key, and nothing new.
+        assert!(!wants_host_key(&vm, true, NodeState::Running, false, true));
+    }
+
+    #[test]
+    fn stopped_containers_and_nodes_without_ssh_are_not_read() {
+        let vm = NodeKind::VirtualMachine;
+        assert!(!wants_host_key(&vm, true, NodeState::Stopped, true, false));
+        assert!(!wants_host_key(&vm, false, NodeState::Running, true, false));
+        assert!(!wants_host_key(
+            &NodeKind::Container,
+            true,
+            NodeState::Running,
+            true,
+            false
+        ));
+        assert!(!wants_host_key(
+            &NodeKind::Unikernel,
+            true,
+            NodeState::Running,
+            true,
+            false
+        ));
+    }
 
     #[test]
     fn test_detect_vm_running() {

@@ -7,6 +7,7 @@ pub mod down;
 pub mod download;
 pub mod error;
 pub(crate) mod guest_account;
+pub mod host_keys;
 pub mod impairment;
 pub mod import;
 pub mod inspect;

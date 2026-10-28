@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail, ensure};
 use jato::{ConnectOptions, PromptCache, SshConfig};
 use topology::Manifest;
 
-use shared::data::LabInfo;
+use shared::data::{ClientConfig, LabInfo};
 use shared::konst::{
     LAB_FILE_NAME, SHERPA_DOMAIN_NAME, SHERPA_MANIFEST_FILE, SHERPA_SSH_CONFIG_FILE,
     SHERPA_SSH_PRIVATE_KEY_FILE, SSH_PROMPT_AUTH_TIMEOUT,
@@ -16,7 +16,7 @@ use shared::konst::{
 use shared::util::term_msg_surround;
 
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, restrict_secret_permissions};
-use crate::ssh_client::{self, PromptScope};
+use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
 /// Qualify a device name with the lab ID suffix if not already present.
 ///
@@ -32,10 +32,25 @@ fn qualify_device_name(name: &str, lab_id: &str) -> String {
     }
 }
 
+/// The node name in `name`, a node name or its alias in the lab SSH config.
+fn node_name<'a>(name: &'a str, lab_id: &str) -> &'a str {
+    let fully_qualified = format!(".{lab_id}.{SHERPA_DOMAIN_NAME}");
+    let qualified = format!(".{lab_id}");
+    match name.strip_suffix(&fully_qualified) {
+        Some(node) => node,
+        None => name.strip_suffix(&qualified).unwrap_or(name),
+    }
+}
+
 /// Open an interactive shell on a lab node, through the Sherpa server as the lab's SSH
 /// configuration says. A non-zero exit code from the node's shell ends the process with it.
-#[tracing::instrument(fields(%name, %lab_id))]
-pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
+#[tracing::instrument(skip(client_config), fields(%name, %lab_id))]
+pub async fn ssh(
+    name: &str,
+    lab_id: &str,
+    server_url: &str,
+    client_config: &ClientConfig,
+) -> Result<()> {
     let qualified_name = load_ssh_connection(name, lab_id, Path::new("."))?;
     let config = SshConfig::load_file(SHERPA_SSH_CONFIG_FILE)
         .context("Failed to read the lab SSH config")?;
@@ -46,8 +61,16 @@ pub async fn ssh(name: &str, lab_id: &str) -> Result<()> {
 
     let mut options = ConnectOptions::default();
     options.auth_timeout = Duration::from_secs(SSH_PROMPT_AUTH_TIMEOUT);
-    let session =
-        ssh_client::connect(&route, &options, PromptScope::AllHops, &PromptCache::new()).await?;
+    let refresh = HostKeyRefresh::new(lab_id, server_url, client_config, Path::new("."));
+    let session = ssh_client::connect(
+        &route,
+        &options,
+        PromptScope::AllHops,
+        &PromptCache::new(),
+        node_name(name, lab_id),
+        &refresh,
+    )
+    .await?;
     let code = session
         .interactive_shell()
         .await
@@ -371,6 +394,17 @@ mod tests {
             qualify_device_name("vm.abcd1234.sherpa.lab.local", "abcd1234"),
             "vm.abcd1234.sherpa.lab.local"
         );
+    }
+
+    #[test]
+    fn the_node_name_is_the_name_without_the_lab_suffix() {
+        assert_eq!(node_name("dev01", "a10736e8"), "dev01");
+        assert_eq!(node_name("dev01.a10736e8", "a10736e8"), "dev01");
+        assert_eq!(
+            node_name("dev01.a10736e8.sherpa.lab.local", "a10736e8"),
+            "dev01"
+        );
+        assert_eq!(node_name("dev01.deadbeef", "a10736e8"), "dev01.deadbeef");
     }
 
     #[test]

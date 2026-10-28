@@ -10,29 +10,10 @@ use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KE
 use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
 
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
+use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
-
-/// Rewrite server-generated SSH config for client-side use.
-///
-/// Replaces relative `IdentityFile sherpa_ssh_key` with absolute path using the working directory.
-fn rewrite_ssh_config_for_client(ssh_config: &str, cwd: &str) -> String {
-    let abs_key_path = Path::new(cwd)
-        .join(SHERPA_SSH_PRIVATE_KEY_FILE)
-        .to_string_lossy()
-        .to_string();
-
-    let result = ssh_config.replace(
-        &format!("IdentityFile {}", SHERPA_SSH_PRIVATE_KEY_FILE),
-        &format!("IdentityFile {}", abs_key_path),
-    );
-
-    #[cfg(windows)]
-    let result = result.replace("UserKnownHostsFile /dev/null", "UserKnownHostsFile NUL");
-
-    result
-}
 
 /// Download lab files from server and write to the current directory.
 pub async fn download(
@@ -131,6 +112,14 @@ pub async fn download(
                 e
             );
         }
+    }
+
+    if let Some(known_hosts_path) = write_known_hosts(&cwd, &data.known_hosts)? {
+        println!(
+            "{} Node host keys saved: {}",
+            Emoji::Success,
+            known_hosts_path.display()
+        );
     }
 
     if !data.ssh_private_key.is_empty() {

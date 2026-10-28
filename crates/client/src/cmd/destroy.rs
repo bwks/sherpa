@@ -8,7 +8,7 @@ use shared::data::{
     ClientConfig, DestroyResponse, InspectResponse, NodeInfo, StatusKind, StatusMessage,
 };
 use shared::error::RpcErrorCode;
-use shared::konst::{SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::konst::{SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 use shared::util::{
     Emoji, display_destroy_results, file_exists, get_cwd, get_username, remove_lab_ssh_include,
     render_lab_info_table, render_nodes_table, term_msg_surround,
@@ -255,6 +255,42 @@ pub async fn destroy(
                     Err(e) => {
                         println!(
                             "\n{} Warning: Failed to delete local SSH private key: {}",
+                            Emoji::Warning,
+                            e
+                        );
+                    }
+                }
+            }
+            // Silent success if file doesn't exist - idempotent
+        }
+        Err(e) => {
+            println!(
+                "\n{} Warning: Could not determine working directory: {}",
+                Emoji::Warning,
+                e
+            );
+        }
+    }
+
+    // Clean up the local known_hosts file
+    match get_cwd() {
+        Ok(cwd) => {
+            let local_known_hosts_path = Path::new(&cwd)
+                .join(SHERPA_KNOWN_HOSTS_FILE)
+                .to_string_lossy()
+                .to_string();
+            if file_exists(&local_known_hosts_path) {
+                match fs::remove_file(&local_known_hosts_path) {
+                    Ok(_) => {
+                        println!(
+                            "{} Local node host keys deleted: {}",
+                            Emoji::Success,
+                            local_known_hosts_path
+                        );
+                    }
+                    Err(e) => {
+                        println!(
+                            "\n{} Warning: Failed to delete local node host keys: {}",
                             Emoji::Warning,
                             e
                         );

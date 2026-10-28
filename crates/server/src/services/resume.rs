@@ -7,7 +7,7 @@ use shared::data::{
 };
 use shared::konst::{READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SSH_PORT};
 use shared::util::load_saved_manifest;
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 use topology::Manifest;
@@ -16,8 +16,9 @@ use virt::sys::{VIR_DOMAIN_PAUSED, VIR_DOMAIN_SHUTOFF};
 use tracing::instrument;
 
 use super::lab_operations::{self, LabOperation};
-use super::node_ops;
+use super::node_ops::{self, VmReadiness};
 use super::progress::ProgressSender;
+use super::ssh_config;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_access, require_lab_starter};
 use crate::daemon::state::AppState;
@@ -208,8 +209,14 @@ pub async fn start_lab_nodes(
             wait_for_readiness(lab_id, &targets, timeout, state, progress, &operation).await?;
         for result in results.iter_mut() {
             if targets.iter().any(|target| target.name == result.name) {
-                result.message = readiness_message(ready.contains(&result.name), timeout);
+                result.message = readiness_message(ready.contains_key(&result.name), timeout);
             }
+        }
+        // A node may make a new host key when it boots, so record the keys again.
+        if let Err(error) =
+            save_host_keys(lab_id, &lab_record_id, &ready, &target_nodes, state).await
+        {
+            tracing::warn!(lab_id = %lab_id, error = ?error, "Failed to save resumed nodes' host keys");
         }
     }
 
@@ -324,24 +331,64 @@ fn report(progress: Option<&ProgressSender>, message: String, kind: StatusKind) 
 }
 
 /// Probe one node once. Probe errors count as not ready yet.
-async fn probe(target: &ReadinessTarget, state: &AppState) -> bool {
+async fn probe(target: &ReadinessTarget, state: &AppState) -> VmReadiness {
     let outcome = match (&target.check, target.mgmt_ipv4.as_deref()) {
         (ReadinessCheck::Port(port), Some(ip)) => node_ops::check_vm_ready(ip, *port).await,
-        (ReadinessCheck::Port(_), None) => Ok(false),
+        (ReadinessCheck::Port(_), None) => Ok(VmReadiness::NotReady),
         (ReadinessCheck::Unikernel { ready_port }, ip) => match state.qemu.connect() {
             Ok(conn) => {
-                node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip)
+                match node_ops::check_unikernel_ready(&conn, &target.device_name, *ready_port, ip) {
+                    Ok(true) => Ok(VmReadiness::Ready { host_key: None }),
+                    Ok(false) => Ok(VmReadiness::NotReady),
+                    Err(error) => Err(error),
+                }
             }
             Err(error) => Err(error),
         },
     };
     match outcome {
-        Ok(ready) => ready,
+        Ok(readiness) => readiness,
         Err(error) => {
             tracing::debug!(node_name = %target.name, error = ?error, "Readiness probe failed");
-            false
+            VmReadiness::NotReady
         }
     }
+}
+
+/// Record the host keys that resumed nodes offered, and save the lab's SSH files with them.
+/// Nodes ready without an SSH handshake keep their recorded keys.
+#[instrument(skip(lab_record_id, ready, nodes, state), level = "debug")]
+async fn save_host_keys(
+    lab_id: &str,
+    lab_record_id: &RecordId,
+    ready: &HashMap<String, Option<String>>,
+    nodes: &[data::DbNode],
+    state: &AppState,
+) -> Result<()> {
+    let mut recorded = false;
+    for node in nodes {
+        let Some(Some(host_key)) = ready.get(&node.name) else {
+            tracing::trace!(node_name = %node.name, "No host key offered");
+            continue;
+        };
+        ssh_config::record_node_host_key(&state.db, node, host_key).await?;
+        recorded = true;
+    }
+    if !recorded {
+        tracing::debug!("No host keys to record");
+        return Ok(());
+    }
+    let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
+    let lab_info = ssh_config::load_lab_info(&lab_dir).await?;
+    ssh_config::refresh_lab_ssh_files(
+        &state.db,
+        &lab_dir,
+        lab_record_id,
+        &lab_info,
+        state.config.server_ipv4,
+    )
+    .await?;
+    Ok(())
 }
 
 /// Fails if the lab is destroyed meanwhile.
@@ -353,7 +400,7 @@ async fn wait_for_readiness(
     state: &AppState,
     progress: Option<&ProgressSender>,
     operation: &LabOperation,
-) -> Result<HashSet<String>> {
+) -> Result<HashMap<String, Option<String>>> {
     report(
         progress,
         format!(
@@ -364,19 +411,22 @@ async fn wait_for_readiness(
         StatusKind::Waiting,
     );
     let start = Instant::now();
-    let mut ready = HashSet::new();
+    let mut ready = HashMap::new();
     loop {
         for target in targets {
-            if ready.contains(&target.name) || !probe(target, state).await {
+            if ready.contains_key(&target.name) {
                 continue;
             }
+            let VmReadiness::Ready { host_key } = probe(target, state).await else {
+                continue;
+            };
             tracing::info!(lab_id = %lab_id, node_name = %target.name, "Resumed node ready");
             report(
                 progress,
                 format!("Node {} - Ready", target.name),
                 StatusKind::Done,
             );
-            ready.insert(target.name.clone());
+            ready.insert(target.name.clone(), host_key);
         }
         if ready.len() == targets.len() || start.elapsed() >= timeout {
             break;
@@ -386,7 +436,7 @@ async fn wait_for_readiness(
             .await?;
     }
     for target in targets {
-        if !ready.contains(&target.name) {
+        if !ready.contains_key(&target.name) {
             tracing::warn!(lab_id = %lab_id, node_name = %target.name, timeout_secs = timeout.as_secs(), "Resumed node not ready within timeout");
             report(
                 progress,
@@ -599,6 +649,7 @@ mod tests {
             cpu_count: None,
             memory: None,
             vnc_port: None,
+            ssh_host_key: None,
         }
     }
 

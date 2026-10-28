@@ -13,6 +13,7 @@ use topology::{Manifest, Node, Provisioner};
 
 use super::ssh::{provision, wait_for_node};
 use super::transport::SshTarget;
+use crate::ssh_client::HostKeyRefresh;
 
 /// Run the ssh provisioners of the lab's nodes, or of `only_node`, from the lab folder
 /// `manifest_dir`. With `ready_nodes`, nodes missing from it are skipped as not ready.
@@ -26,6 +27,7 @@ pub async fn provision_lab(
     ready_nodes: Option<&[String]>,
     only_node: Option<&str>,
     mut results: Vec<ProvisionResult>,
+    refresh: &HostKeyRefresh,
 ) -> Result<usize> {
     let nodes = nodes_to_provision(manifest, only_node)?;
     if nodes.is_empty() && results.is_empty() {
@@ -62,7 +64,11 @@ pub async fn provision_lab(
         println!("Provisioning {host}");
         let outcome = match &ssh_config {
             Some(ssh_config) => {
-                provision_node(ssh_config, &host, &prompts, node, manifest_dir, timeout).await
+                let target = SshTarget::new(ssh_config, &node.name, lab_id, &prompts, refresh);
+                match target {
+                    Ok(target) => provision_node(&target, node, manifest_dir, timeout).await,
+                    Err(error) => Err(error),
+                }
             }
             None => Err(anyhow::anyhow!("The lab SSH config was not loaded")),
         };
@@ -99,15 +105,12 @@ pub async fn provision_lab(
 }
 
 async fn provision_node(
-    ssh_config: &SshConfig,
-    host: &str,
-    prompts: &PromptCache,
+    target: &SshTarget,
     node: &Node,
     manifest_dir: &Path,
     timeout: Duration,
 ) -> Result<()> {
-    let target = SshTarget::new(ssh_config, host, prompts)?;
-    let session = wait_for_node(&target, timeout).await?;
+    let session = wait_for_node(target, timeout).await?;
     let mut outcome = Ok(());
     for provisioner in node.provisioners.as_deref().unwrap_or_default() {
         match provisioner {
@@ -175,6 +178,7 @@ fn skip_reason(node: &str, ready_nodes: Option<&[String]>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ClientConfig;
 
     fn manifest() -> Manifest {
         toml::from_str(
@@ -248,6 +252,15 @@ name = "password"
         );
     }
 
+    fn refresh() -> HostKeyRefresh {
+        HostKeyRefresh::new(
+            "abcd1234",
+            "wss://sherpa.example:3030/ws",
+            &ClientConfig::default(),
+            Path::new("/nonexistent"),
+        )
+    }
+
     fn result(node: &str, status: ProvisionStatus) -> ProvisionResult {
         ProvisionResult {
             node: node.to_string(),
@@ -266,6 +279,7 @@ name = "password"
             None,
             Some("db01"),
             vec![result("db01", ProvisionStatus::Provisioned)],
+            &refresh(),
         )
         .await
         .unwrap();
@@ -278,6 +292,7 @@ name = "password"
             None,
             Some("db01"),
             vec![result("db01", ProvisionStatus::Failed)],
+            &refresh(),
         )
         .await
         .unwrap_err();
@@ -311,6 +326,7 @@ name = "password"
             None,
             None,
             vec![],
+            &refresh(),
         )
         .await
         .unwrap();

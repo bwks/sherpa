@@ -7,7 +7,6 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow, bail, ensure};
-use askama::Template;
 use dashmap::DashMap;
 use opentelemetry::KeyValue;
 
@@ -20,7 +19,7 @@ use crate::daemon::state::AppState;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations;
-use crate::services::node_ops;
+use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_resources;
 use crate::services::node_secrets::secrets_for_redeploy;
 use crate::services::progress::ProgressSender;
@@ -34,7 +33,7 @@ use shared::data::{DbNode, NodeState, RedeployRequest, RedeployResponse, StatusK
 use shared::konst::{
     BRIDGE_PREFIX, CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME,
     READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_SECRETS_DIR, SHERPA_SSH_CONFIG_FILE, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    SHERPA_SECRETS_DIR, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -263,39 +262,8 @@ pub async fn redeploy_node(
             .as_ref()
             .map(|account| account.username.as_str()),
     );
-    let ssh_nodes = db::list_nodes_by_lab(&db, lab_record_id.clone())
-        .await
-        .context("Failed to load nodes for SSH configuration")?;
-    let mut ssh_records = Vec::new();
-    for node in ssh_nodes {
-        // Nodes missing from the manifest keep SSH, as before.
-        let has_ssh = match manifest.nodes.iter().find(|entry| entry.name == node.name) {
-            Some(entry) => entry.model.has_ssh(),
-            None => true,
-        };
-        if let Some(ip) = node.mgmt_ipv4 {
-            ssh_records.push(data::ZtpRecord {
-                node_name: node.name,
-                ipv4_address: ip
-                    .parse()
-                    .context("Invalid saved node management address")?,
-                ipv6_address: None,
-                mac_address: String::new(),
-                config_file: String::new(),
-                ztp_method: data::ZtpMethod::None,
-                ssh_port: has_ssh.then_some(SSH_PORT),
-            });
-        }
-    }
-    let ssh_config = ssh_config::build_ssh_config(
-        &ssh_records,
-        &lab_info.ssh_usernames,
-        lab_id,
-        &lab_info.user,
-        state.config.server_ipv4,
-    )
-    .render()
-    .context("Failed to regenerate SSH configuration")?;
+    // The rebuilt node gets a new host key, recorded again once it is ready.
+    db::update_node_host_key(&db, node_record_id.clone(), None).await?;
 
     // Update node state to Starting
     db::update_node_state(&db, node_record_id.clone(), NodeState::Starting).await?;
@@ -1088,14 +1056,22 @@ pub async fn redeploy_node(
             let ready_label = node_ops::ready_port_label(ready_port);
             while !is_ready && ready_start.elapsed() < ready_timeout {
                 match node_ops::check_vm_ready(&ip_str, ready_port).await? {
-                    true => {
+                    VmReadiness::Ready { host_key } => {
+                        if host_key.is_some() {
+                            db::update_node_host_key(
+                                &db,
+                                node_record_id.clone(),
+                                host_key.as_deref(),
+                            )
+                            .await?;
+                        }
                         is_ready = true;
                         let _ = progress.send_status(
                             format!("Node {} - Ready ({ready_label} reachable)", node_name),
                             StatusKind::Done,
                         );
                     }
-                    false => {
+                    VmReadiness::NotReady => {
                         let _ = progress.send_status(
                             format!("Node {} - Waiting for {ready_label}", node_name),
                             StatusKind::Waiting,
@@ -1122,10 +1098,15 @@ pub async fn redeploy_node(
     }
 
     operation.ensure_active()?;
-    util::create_file(&format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}"), ssh_config)
-        .context("Node redeployed, but failed to save SSH configuration")?;
-    util::create_file(&format!("{lab_dir}/{LAB_FILE_NAME}"), lab_info.to_string())
-        .context("Node redeployed, but failed to save SSH account metadata")?;
+    ssh_config::refresh_lab_ssh_files(
+        &db,
+        &lab_dir,
+        &lab_record_id,
+        &lab_info,
+        state.config.server_ipv4,
+    )
+    .await
+    .context("Node redeployed, but failed to save the lab SSH files")?;
 
     let total_time = start_time.elapsed().as_secs();
 
@@ -1231,6 +1212,7 @@ mod tests {
             cpu_count: None,
             memory: None,
             vnc_port: None,
+            ssh_host_key: None,
         }
     }
 

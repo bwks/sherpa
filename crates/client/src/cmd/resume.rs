@@ -8,6 +8,7 @@ use shared::konst::SHERPA_MANIFEST_FILE;
 use shared::util::{Emoji, file_exists, term_msg_surround};
 use topology::Manifest;
 
+use crate::cmd::download::download;
 use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
@@ -164,6 +165,17 @@ pub async fn resume(
                 node_result.message
             );
         }
+    }
+
+    // A booted node may offer a new host key, which the server recorded; refresh the lab
+    // files so its known_hosts file matches.
+    if action_response.results.iter().any(|result| result.success)
+        && let Err(error) = download(lab_id, true, server_url, config).await
+    {
+        eprintln!(
+            "{} Nodes started, but refreshing the lab files failed: {error:#}\n   Run: sherpa download {lab_id} --force",
+            Emoji::Warning
+        );
     }
 
     Ok(())

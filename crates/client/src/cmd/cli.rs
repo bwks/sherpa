@@ -431,7 +431,9 @@ impl Cli {
             }
             Commands::Ssh { name } => {
                 let lab = resolve_lab_identity()?;
-                ssh(name, &lab.id).await?;
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+                let server_url = resolve_server_url(cli.server_url, &config);
+                ssh(name, &lab.id, &server_url, &config).await?;
             }
             Commands::SshConfig { command } => match command {
                 SshConfigCommands::Inspect => {

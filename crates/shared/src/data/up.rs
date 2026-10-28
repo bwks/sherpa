@@ -34,6 +34,10 @@ pub struct UpResponse {
     pub nodes: Vec<NodeInfo>,
     pub errors: Vec<UpError>,
     pub ssh_config: String,
+    /// The lab's `known_hosts` file: node host keys the server recorded. Empty when none
+    /// were, or from an older server.
+    #[serde(default)]
+    pub known_hosts: String,
     pub ssh_private_key: String,
     /// Kubernetes clusters built in the lab, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
