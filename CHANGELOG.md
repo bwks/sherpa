@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.4] - 2026-10-28
+
+### Features
+
+- Record lab node host keys and check them strictly by @bwks ([8b7edda](https://github.com/bwks/sherpa/commit/8b7edda9e004e0d6bfc7b7c43701934b2fd6b311))
+
+### Miscellaneous
+
+- Merge pull request #368 from bwks/feat/lab-known-hosts
+
+feat: record lab node host keys and check them strictly by @bwks in [#368](https://github.com/bwks/sherpa/pull/368) ([803e44b](https://github.com/bwks/sherpa/commit/803e44bfba1ae6fbce38043fde064d9d30d0747c))
+- Bump version to 0.4.4 by @bwks ([338771b](https://github.com/bwks/sherpa/commit/338771b9b75ded4393b47c6ba56ae0da846e4f9f))
+- Merge pull request #367 from bwks/changelog/v0.4.3
+
+chore(release): update changelog for v0.4.3 by @github-actions[bot] in [#367](https://github.com/bwks/sherpa/pull/367) ([e207bbb](https://github.com/bwks/sherpa/commit/e207bbba2527c868bd6ac99ae4ffbd797ceaa28b))
 ## [0.4.3] - 2026-10-27
 
 ### Bug Fixes
