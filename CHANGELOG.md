@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.7] - 2026-10-28
+
+### Bug Fixes
+
+- Run ssh provisioner scripts in a login shell by @bwks ([ae5c296](https://github.com/bwks/sherpa/commit/ae5c296c98f9ac2e3b22c8dcbc5131ec3dfe40ba))
+
+### Miscellaneous
+
+- Merge pull request #374 from bwks/fix/provisioner-login-shell
+
+fix(provision): run ssh provisioner scripts in a login shell by @bwks in [#374](https://github.com/bwks/sherpa/pull/374) ([e0ebe3e](https://github.com/bwks/sherpa/commit/e0ebe3ef799190331daaf735f96c535c2498477f))
+- Bump version to 0.4.7 by @bwks ([3e168bf](https://github.com/bwks/sherpa/commit/3e168bf453371dc05ca2b140e5045fe045fa0cc9))
+- Merge pull request #373 from bwks/changelog/v0.4.6
+
+chore(release): update changelog for v0.4.6 by @github-actions[bot] in [#373](https://github.com/bwks/sherpa/pull/373) ([0e40b6c](https://github.com/bwks/sherpa/commit/0e40b6cdcd2dcbf86e182464d96ce26135e1a3fe))
 ## [0.4.6] - 2026-10-28
 
 ### Bug Fixes
