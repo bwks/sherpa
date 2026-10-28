@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.6] - 2026-10-28
+
+### Bug Fixes
+
+- Resolve $NAME values in env files from the client by @bwks ([7ce899b](https://github.com/bwks/sherpa/commit/7ce899bcbde12f39979b682166d7da752c2eaffe))
+
+### Miscellaneous
+
+- Merge pull request #371 from bwks/fix/env-file-variables
+
+fix(provision): resolve $NAME values in env files from the client by @bwks in [#371](https://github.com/bwks/sherpa/pull/371) ([03a0291](https://github.com/bwks/sherpa/commit/03a0291f8d5cadaef38b509035330324df8fc129))
+- Bump version to 0.4.6 by @bwks ([cc9a02d](https://github.com/bwks/sherpa/commit/cc9a02ddea97ca4d7db83ee4ef98b32699f726bb))
+- Merge pull request #372 from bwks/changelog/v0.4.5
+
+chore(release): update changelog for v0.4.5 by @github-actions[bot] in [#372](https://github.com/bwks/sherpa/pull/372) ([7db628d](https://github.com/bwks/sherpa/commit/7db628d0566219fbe737efddaa1824c5d6f806ba))
 ## [0.4.5] - 2026-10-28
 
 ### Bug Fixes
