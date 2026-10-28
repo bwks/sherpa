@@ -61,15 +61,19 @@ pub fn env_loader_command() -> String {
     )
 }
 
-/// Run a script read from stdin, through its shebang, with the variables from the manifest's
-/// `environment_variables` and the env directory exported. The script is written to a private
-/// temporary file, which is removed afterwards; the command exits with the script's status.
+/// Run a script read from stdin, through its shebang, as from a login: in the user's login
+/// shell (`$SHELL -l`), so `/etc/profile`, `/etc/profile.d` and the user's login file set up
+/// `PATH` and tools as they do for a login, then with the variables from the manifest's
+/// `environment_variables` and the env directory exported, so those win. The script is
+/// written to a private temporary file, which is removed afterwards; the command exits with
+/// the script's status.
 pub fn script_wrapper_command() -> String {
     let env = source_env_files(&format!(
         r#""$HOME"/{NODE_USER_ENV_FILE} "$HOME"/{NODE_USER_ENV_DIR}/*"#
     ));
+    let login = shell_quote(&format!(r#"{env}; exec "$1""#));
     format!(
-        r#"t=$(mktemp "${{TMPDIR:-/tmp}}/sherpa-script.XXXXXXXX") || exit 1; trap 'rm -f "$t"' EXIT; cat > "$t" && chmod 700 "$t" || exit 1; {env}; "$t" < /dev/null"#
+        r#"t=$(mktemp "${{TMPDIR:-/tmp}}/sherpa-script.XXXXXXXX") || exit 1; trap 'rm -f "$t"' EXIT; cat > "$t" && chmod 700 "$t" || exit 1; "${{SHELL:-/bin/sh}}" -l -c {login} sherpa-script "$t" < /dev/null"#
     )
 }
 
@@ -93,13 +97,15 @@ mod tests {
 
     use tempfile::tempdir;
 
-    /// Run `command` with `sh -c` as a remote login shell would, with `home` as `$HOME`.
+    /// Run `command` with `sh -c`, as sshd runs a command with the user's shell, with `home`
+    /// as `$HOME` and `sh` as the login shell in `$SHELL`.
     fn run(home: &Path, command: &str, stdin: &str) -> Output {
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(command)
             .env("HOME", home)
             .env("TMPDIR", home)
+            .env("SHELL", "/bin/sh")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -215,6 +221,47 @@ mod tests {
                 "temporary script left behind: {name:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_script_runs_in_a_login_shell_with_the_paths_login_files_add() {
+        let home = tempdir().unwrap();
+        let tools = home.path().join("tools");
+        fs::create_dir(&tools).unwrap();
+        let tool = tools.join("sherpa-test-tool");
+        fs::write(&tool, "#!/bin/sh\nprintf found\n").unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(
+            home.path().join(".profile"),
+            format!("PATH=\"{}:$PATH\"; export PATH\n", tools.display()),
+        )
+        .unwrap();
+        let output = run(
+            home.path(),
+            &script_wrapper_command(),
+            "#!/bin/sh\nsherpa-test-tool\n",
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "found",
+            "{output:?}"
+        );
+        assert!(output.status.success());
+    }
+
+    #[test]
+    fn env_files_override_what_login_files_set() {
+        let home = tempdir().unwrap();
+        fs::write(home.path().join(".profile"), "export TOKEN=from-profile\n").unwrap();
+        let env_dir = home.path().join(NODE_USER_ENV_DIR);
+        fs::create_dir(&env_dir).unwrap();
+        fs::write(env_dir.join("dev.env"), "TOKEN=from-env-file\n").unwrap();
+        let output = run(
+            home.path(),
+            &script_wrapper_command(),
+            "#!/bin/sh\nprintf %s \"$TOKEN\"\n",
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "from-env-file");
     }
 
     #[test]
