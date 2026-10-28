@@ -12,6 +12,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::provision::{container_results, node_secrets, provision_lab};
+use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -167,6 +168,7 @@ pub async fn redeploy(
         None,
         Some(node_name),
         container_results(&mounted),
+        &HostKeyRefresh::new(lab_id, server_url, config, manifest_dir),
     )
     .await?;
 

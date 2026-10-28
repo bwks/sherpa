@@ -216,6 +216,33 @@ pub async fn update_node_state(
         .ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
 }
 
+/// Record the SSH host key a node offered, or clear it with `None`.
+///
+/// # Errors
+/// - If the node doesn't exist
+/// - If the database update fails
+#[instrument(skip(db, key), level = "debug")]
+pub async fn update_node_host_key(
+    db: &Arc<Surreal<Client>>,
+    node_id: RecordId,
+    key: Option<&str>,
+) -> Result<DbNode> {
+    let mut node = get_node(db, node_id.clone()).await?;
+    node.ssh_host_key = key.map(str::to_owned);
+
+    let row = NodeRow::try_from(&node)?;
+    let updated: Option<NodeRow> = db
+        .update(to_surreal_id(&node_id))
+        .content(row)
+        .await
+        .context(format!("Failed to update host key for node: {}", node.name))?;
+
+    updated
+        .map(DbNode::try_from)
+        .transpose()?
+        .ok_or_else(|| anyhow!("Node host key update failed: {}", node.name))
+}
+
 /// Record what a node was given: its vCPUs, memory and VNC port.
 ///
 /// # Errors

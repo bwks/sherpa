@@ -98,6 +98,7 @@ DEFINE FIELD OVERWRITE memory ON TABLE node TYPE option<number>
     ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
 DEFINE FIELD OVERWRITE vnc_port ON TABLE node TYPE option<number>
     ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
+DEFINE FIELD OVERWRITE ssh_host_key ON TABLE node TYPE option<string>;
 
 DEFINE FIELD OVERWRITE links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
 DEFINE FIELD OVERWRITE bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);

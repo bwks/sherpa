@@ -17,16 +17,18 @@ use shared::konst::{
     PROVISIONER_COPY_TIMEOUT, PROVISIONER_SSH_CONNECT_TIMEOUT, SSH_PROMPT_AUTH_TIMEOUT,
 };
 
-use crate::ssh_client::{self, PromptScope};
+use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
 /// The mode a copied file is written with; `finish_file_command` then sets the final mode.
 const COPY_MODE: u32 = 0o600;
 
 /// A node reached through the lab's SSH config.
 pub struct SshTarget {
+    node_name: String,
     host: String,
     route: Route,
     prompts: PromptCache,
+    refresh: HostKeyRefresh,
 }
 
 /// An open connection to a node.
@@ -36,15 +38,23 @@ pub struct NodeSession {
 }
 
 impl SshTarget {
-    /// The node `host`, a `<node>.<lab-id>` alias in `config`. Answers to prompts are kept in
-    /// `prompts`, shared by every node of a run.
+    /// The node `node_name`, by its `<node>.<lab-id>` alias in `config`. Answers to prompts
+    /// are kept in `prompts`, shared by every node of a run, and a node host key that does not
+    /// match is fetched again with `refresh`.
     ///
     /// Every node in a lab SSH config is reached through the Sherpa server. An alias with no
     /// `Host` block resolves, as in `ssh`, to a direct connection to the alias as a hostname,
     /// which would only fail its DNS lookup until the ready timeout, so it fails here.
-    pub fn new(config: &SshConfig, host: &str, prompts: &PromptCache) -> Result<Self> {
+    pub fn new(
+        config: &SshConfig,
+        node_name: &str,
+        lab_id: &str,
+        prompts: &PromptCache,
+        refresh: &HostKeyRefresh,
+    ) -> Result<Self> {
+        let host = format!("{node_name}.{lab_id}");
         let route = config
-            .route(host)
+            .route(&host)
             .with_context(|| format!("Cannot read {host} from the lab SSH config"))?;
         if route.jumps.is_empty() {
             bail!(
@@ -53,9 +63,11 @@ impl SshTarget {
             );
         }
         Ok(Self {
-            host: host.to_owned(),
+            node_name: node_name.to_owned(),
+            host,
             route,
             prompts: prompts.clone(),
+            refresh: refresh.clone(),
         })
     }
 
@@ -79,6 +91,8 @@ impl SshTarget {
             &options,
             PromptScope::JumpHostsOnly,
             &self.prompts,
+            &self.node_name,
+            &self.refresh,
         )
         .await
         .with_context(|| format!("Cannot connect to {}", self.host))?;
@@ -196,6 +210,7 @@ fn write_through(out: &mut impl Write, bytes: &[u8]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use shared::data::ClientConfig;
 
     const LAB_SSH_CONFIG: &str = "Host web01.ab12cd34\n    HostName 172.31.0.11\n    \
                                   User sherpa\n    ProxyJump admin@sherpa.example:22\n";
@@ -207,19 +222,40 @@ mod tests {
         SshConfig::load_file(&path).unwrap()
     }
 
+    fn refresh() -> HostKeyRefresh {
+        HostKeyRefresh::new(
+            "ab12cd34",
+            "wss://sherpa.example:3030/ws",
+            &ClientConfig::default(),
+            Path::new("/nonexistent"),
+        )
+    }
+
     #[test]
     fn a_node_in_the_lab_ssh_config_is_reached_through_the_server() {
-        let target =
-            SshTarget::new(&lab_ssh_config(), "web01.ab12cd34", &PromptCache::new()).unwrap();
+        let target = SshTarget::new(
+            &lab_ssh_config(),
+            "web01",
+            "ab12cd34",
+            &PromptCache::new(),
+            &refresh(),
+        )
+        .unwrap();
         assert_eq!(target.host(), "web01.ab12cd34");
         assert_eq!(target.node().host(), "172.31.0.11");
     }
 
     #[test]
     fn a_node_missing_from_the_lab_ssh_config_fails_at_once() {
-        let error = SshTarget::new(&lab_ssh_config(), "web02.ab12cd34", &PromptCache::new())
-            .err()
-            .unwrap();
+        let error = SshTarget::new(
+            &lab_ssh_config(),
+            "web02",
+            "ab12cd34",
+            &PromptCache::new(),
+            &refresh(),
+        )
+        .err()
+        .unwrap();
         assert_eq!(
             error.to_string(),
             "web02.ab12cd34 is not in the lab SSH config; was the node added to the manifest \

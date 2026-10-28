@@ -55,8 +55,9 @@ use shared::data::{
     UpdateImpairmentResponse, UserInfo, UserSshKeysResponse, ZtpMethod,
 };
 use shared::konst::{
-    ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME, SHERPA_LABS_PATH,
-    SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE,
+    ADMIN_USER_DELETE_ERROR_TARGET, JWT_TOKEN_EXPIRY_SECONDS, LAB_FILE_NAME,
+    SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SERVER_CERT_PATH, SHERPA_SSH_CONFIG_FILE,
+    SHERPA_SSH_PRIVATE_KEY_FILE,
 };
 use shared::util::{generate_lab_name, get_id_for_user, load_saved_manifest, normalize_username};
 use shared::validators::{validate_password_strength, validate_ssh_key, validate_username};
@@ -3443,8 +3444,9 @@ pub async fn lab_nodes_handler(
 ///
 /// GET /labs/{lab_id}/download
 ///
-/// Returns a zip containing lab-info.toml and sherpa_ssh_config, plus sherpa_ssh_key when the
-/// lab's SSH config uses the server key. These files allow CLI tools (sherpa ssh,
+/// Returns a zip containing lab-info.toml and sherpa_ssh_config, plus sherpa_known_hosts when
+/// node host keys were recorded and sherpa_ssh_key when the lab's SSH config uses the server
+/// key. These files allow CLI tools (sherpa ssh,
 /// sherpa console) to work with the lab. Uses the same download service as the RPC API.
 #[tracing::instrument(skip(state), fields(%lab_id))]
 pub async fn lab_download_handler(
@@ -3462,6 +3464,9 @@ pub async fn lab_download_handler(
         (LAB_FILE_NAME, files.lab_info.to_string()),
         (SHERPA_SSH_CONFIG_FILE, files.ssh_config),
     ];
+    if !files.known_hosts.is_empty() {
+        entries.push((SHERPA_KNOWN_HOSTS_FILE, files.known_hosts));
+    }
     if !files.ssh_private_key.is_empty() {
         entries.push((SHERPA_SSH_PRIVATE_KEY_FILE, files.ssh_private_key));
     }

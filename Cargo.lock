@@ -1066,7 +1066,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1394,7 +1394,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2902,8 +2902,8 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jato"
-version = "0.4.0"
-source = "git+https://github.com/bwks/jato-lib?tag=v0.4.0#d13ef5641cbd371074853401e2061f6973269e8b"
+version = "0.4.1"
+source = "git+https://github.com/bwks/jato-lib?tag=v0.4.1#0d5568b532eee1e1a4c700434a0cc3b326fba276"
 dependencies = [
  "crossterm",
  "crossterm_winapi",
@@ -3092,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "askama",
@@ -3393,7 +3393,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "aya",
@@ -5682,7 +5682,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -5734,7 +5734,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "askama",
@@ -5769,7 +5769,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "askama",
@@ -6437,7 +6437,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "askama",
@@ -6797,7 +6797,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "serde",

@@ -17,6 +17,6 @@ pub use read::{
     list_nodes, list_nodes_by_lab, list_vnc_ports,
 };
 pub use update::{
-    update_node, update_node_mgmt_ipv4, update_node_mgmt_ipv6, update_node_mgmt_mac,
-    update_node_resources, update_node_state,
+    update_node, update_node_host_key, update_node_mgmt_ipv4, update_node_mgmt_ipv6,
+    update_node_mgmt_mac, update_node_resources, update_node_state,
 };

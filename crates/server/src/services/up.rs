@@ -22,7 +22,7 @@ use crate::services::clean;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations::{self, StopReason};
-use crate::services::node_ops;
+use crate::services::node_ops::{self, VmReadiness};
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
 use crate::services::{ssh_config, tailscale};
@@ -45,9 +45,8 @@ use shared::konst::{
     SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
     SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
     SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
-    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
-    ZTP_DIR,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_PRIVATE_KEY_PATH,
+    SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -2488,40 +2487,26 @@ pub async fn up_lab(
         let config: data::Config =
             toml::from_str(&config_contents).context("Failed to parse sherpa.toml config")?;
 
-        // Use client's username for ProxyJump (same user that initiated the lab creation)
-        let proxy_user = current_user;
-
         tracing::debug!(
             lab_id = %lab_id,
-            proxy_user = %proxy_user,
+            proxy_user = %lab_info.user,
             server_ip = %config.server_ipv4,
             "SSH config parameters"
         );
 
-        // Generate SSH config file with ProxyJump
-        let ssh_config_template = ssh_config::build_ssh_config(
+        // Generate the SSH config with ProxyJump. Node host keys are added once nodes are
+        // ready, and the files saved again.
+        let ssh_files = ssh_config::save_lab_ssh_files(
+            &lab_dir,
             &ztp_records,
-            &ssh_usernames,
-            lab_id,
-            proxy_user,
+            &lab_info,
+            &[],
             config.server_ipv4,
-        );
-        let ssh_config_content = ssh_config_template.render()?;
-        let ssh_config_path = format!("{lab_dir}/{SHERPA_SSH_CONFIG_FILE}");
-        util::create_file(&ssh_config_path, ssh_config_content.clone())?;
-        tracing::info!(
-            lab_id = %lab_id,
-            config_path = %ssh_config_path,
-            "Created SSH config file"
-        );
+        )?;
         let _ = progress.send_status("SSH config file created".to_string(), StatusKind::Done);
 
         // Read SSH private key for transfer to client
-        let ssh_private_key = if ssh_config_template
-            .hosts
-            .iter()
-            .any(|host| host.identity_file.is_some())
-        {
+        let ssh_private_key = if ssh_files.uses_lab_key {
             util::load_file(SHERPA_SSH_PRIVATE_KEY_PATH)
                 .context("Failed to read SSH private key")?
         } else {
@@ -2949,7 +2934,7 @@ pub async fn up_lab(
                     match node_ops::check_vm_ready(&vm_data.ipv4_address.to_string(), ready_port)
                         .await?
                     {
-                        true => {
+                        VmReadiness::Ready { host_key } => {
                             tracing::info!(
                                 lab_id = %lab_id,
                                 node_name = %vm.name,
@@ -2964,11 +2949,19 @@ pub async fn up_lab(
                             );
                             connected_nodes.insert(vm.name.clone());
 
-                            // Update node state in DB to Running
+                            // Update node state in DB to Running, with the host key it offered
                             if let Some(node_data) =
                                 lab_node_data.iter().find(|n| n.name == vm.name)
                             {
                                 let record_id = db::get_node_id(&node_data.record)?;
+                                if host_key.is_some() {
+                                    db::update_node_host_key(
+                                        &db,
+                                        record_id.clone(),
+                                        host_key.as_deref(),
+                                    )
+                                    .await?;
+                                }
                                 db::update_node_state(&db, record_id, NodeState::Running).await?;
                             }
 
@@ -2981,7 +2974,7 @@ pub async fn up_lab(
                                 ssh_port: vm.model.has_ssh().then_some(SSH_PORT),
                             });
                         }
-                        false => {
+                        VmReadiness::NotReady => {
                             tracing::debug!(
                                 lab_id = %lab_id,
                                 node_name = %vm.name,
@@ -3106,6 +3099,16 @@ pub async fn up_lab(
             }
         }
 
+        // Save the SSH files again with the host keys recorded as nodes became ready.
+        let ssh_files = ssh_config::refresh_lab_ssh_files(
+            &db,
+            &lab_dir,
+            &lab_record_id,
+            &lab_info,
+            config.server_ipv4,
+        )
+        .await?;
+
         // Bootstrap Kubernetes clusters once their nodes answer.
         let clusters = if lab_clusters.is_empty() {
             Vec::new()
@@ -3157,7 +3160,8 @@ pub async fn up_lab(
             summary: summary.clone(),
             nodes: node_info_list,
             errors: errors.clone(),
-            ssh_config: ssh_config_content,
+            ssh_config: ssh_files.ssh_config,
+            known_hosts: ssh_files.known_hosts,
             ssh_private_key,
             clusters,
         };

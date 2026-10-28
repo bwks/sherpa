@@ -73,6 +73,16 @@ pub struct VmZtpResult {
     pub qemu_commands: Vec<data::QemuCommand>,
 }
 
+/// What a virtual machine's readiness check found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VmReadiness {
+    NotReady,
+    /// Ready, with the host key the node offered when readiness was an SSH handshake.
+    Ready {
+        host_key: Option<String>,
+    },
+}
+
 /// Paths to TLS certificate files for a node
 pub struct NodeCertPaths {
     pub ca_cert: String,
@@ -3031,13 +3041,20 @@ pub fn check_node_port_ready(ip: &str, port: u16) -> Result<bool> {
 }
 
 /// Check if a virtual machine is ready on its readiness port. On the SSH port an SSH server
-/// must answer (`check_node_ssh_ready`); any other port, such as the Talos API, needs a TCP
-/// connection.
-pub async fn check_vm_ready(ip: &str, port: u16) -> Result<bool> {
+/// must answer (`check_node_ssh_ready`), and its host key is returned; any other port, such
+/// as the Talos API, needs a TCP connection.
+pub async fn check_vm_ready(ip: &str, port: u16) -> Result<VmReadiness> {
     if port == SSH_PORT {
-        check_node_ssh_ready(ip, port).await
+        match check_node_ssh_ready(ip, port).await? {
+            Some(host_key) => Ok(VmReadiness::Ready {
+                host_key: Some(host_key),
+            }),
+            None => Ok(VmReadiness::NotReady),
+        }
+    } else if check_node_port_ready(ip, port)? {
+        Ok(VmReadiness::Ready { host_key: None })
     } else {
-        check_node_port_ready(ip, port)
+        Ok(VmReadiness::NotReady)
     }
 }
 
@@ -3045,12 +3062,14 @@ pub async fn check_vm_ready(ip: &str, port: u16) -> Result<bool> {
 /// complete the SSH handshake. A port that is open before the SSH server is, such as a
 /// network device's or a port forward with nothing behind it, is not ready.
 ///
-/// No credentials are sent and nothing is trusted from the handshake, so the host key is not
-/// checked. Older algorithms are allowed, as some network devices offer nothing else.
+/// Returns the host key the node offered, in OpenSSH form, once it answers. No credentials
+/// are sent. The key is accepted without checking, as this is the first time the server
+/// sees the node, and it is recorded for the lab's `known_hosts` file. Older algorithms are
+/// allowed, as some network devices offer nothing else.
 #[instrument(level = "debug")]
-pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<bool> {
+pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<Option<String>> {
     if !check_node_port_ready(ip, port)? {
-        return Ok(false);
+        return Ok(None);
     }
     let hop = Hop::new(
         Node::new(ip, port),
@@ -3061,11 +3080,11 @@ pub async fn check_node_ssh_ready(ip: &str, port: u16) -> Result<bool> {
     let mut options = ConnectOptions::default();
     options.connect_timeout = Duration::from_secs(SSH_READY_HANDSHAKE_TIMEOUT);
     options.keepalive_interval = None;
-    match Session::probe(&hop, &options).await {
-        Ok(()) => Ok(true),
+    match Session::host_key(&hop, &options).await {
+        Ok(host_key) => Ok(Some(host_key)),
         Err(error) => {
             tracing::debug!(%error, "SSH server not ready");
-            Ok(false)
+            Ok(None)
         }
     }
 }
@@ -4275,19 +4294,32 @@ mod tests {
     async fn test_check_node_ssh_ready_false_when_the_port_is_not_ssh() {
         let (port, task) = listener_replying(b"HTTP/1.0 400 Bad Request\r\n\r\n").await;
         assert!(check_node_port_ready("127.0.0.1", port).unwrap());
-        assert!(!check_node_ssh_ready("127.0.0.1", port).await.unwrap());
+        assert!(
+            check_node_ssh_ready("127.0.0.1", port)
+                .await
+                .unwrap()
+                .is_none()
+        );
         task.abort();
     }
 
     #[tokio::test]
     async fn test_check_node_ssh_ready_false_when_closed() {
-        assert!(!check_node_ssh_ready("127.0.0.1", 1).await.unwrap());
+        assert!(
+            check_node_ssh_ready("127.0.0.1", 1)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[tokio::test]
     async fn test_check_vm_ready_uses_tcp_for_other_ports() {
         let (port, task) = listener_replying(b"not ssh\r\n").await;
-        assert!(check_vm_ready("127.0.0.1", port).await.unwrap());
+        assert_eq!(
+            check_vm_ready("127.0.0.1", port).await.unwrap(),
+            VmReadiness::Ready { host_key: None }
+        );
         task.abort();
     }
 }

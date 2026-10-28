@@ -179,6 +179,7 @@ pub const SHERPA_PASSWORD_HASH_SHA256: &str =
 pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
+pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
 pub const SHERPA_SSH_INDEX_FILE: &str = "sherpa_lab_hosts";
 pub const SHERPA_SSH_INDEX_HEADER: &str = "# Sherpa lab SSH configs - managed by sherpa CLI";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
@@ -532,6 +533,7 @@ pub const RPC_MSG_LAB_DOWN_FAILED: &str = "Down operation failed";
 pub const RPC_MSG_LAB_CANCEL_FAILED: &str = "Stopping the lab's operations failed";
 pub const RPC_MSG_LAB_RESUME_FAILED: &str = "Resume operation failed";
 pub const RPC_MSG_NODE_SECRETS_FAILED: &str = "Writing the node's secret files failed";
+pub const RPC_MSG_NODE_HOST_KEYS_FAILED: &str = "Reading the node's SSH host key failed";
 
 // Admin-only operations
 pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
@@ -591,6 +593,8 @@ pub const RPC_MSG_INVALID_PARAMS_REDEPLOY: &str =
 pub const RPC_MSG_INVALID_PARAMS_LAB_ID: &str = "Invalid params: 'lab_id' (string) is required";
 pub const RPC_MSG_INVALID_PARAMS_NODE_SECRETS: &str =
     "Invalid params: expected lab_id, node_name, files, and token";
+pub const RPC_MSG_INVALID_PARAMS_NODE_HOST_KEYS: &str =
+    "Invalid params: expected lab_id, node_name, and token";
 pub const RPC_MSG_INVALID_PARAMS_MANIFEST: &str = "Invalid params: 'manifest' (object) is required";
 pub const RPC_MSG_INVALID_PARAMS_LOGIN: &str =
     "Invalid params: expected {username: string, password: string}";

@@ -11,6 +11,7 @@ use topology::Manifest;
 use topology::validate::validate_provisioners;
 
 use crate::provision::{container_secrets, provision_lab};
+use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -84,7 +85,17 @@ pub async fn provision(node: Option<&str>, server_url: &str, config: &ClientConf
         rpc_client.close().await.ok();
     }
 
-    let provisioned = provision_lab(&manifest, manifest_dir, &lab_id, None, node, results).await?;
+    let refresh = HostKeyRefresh::new(&lab_id, server_url, config, manifest_dir);
+    let provisioned = provision_lab(
+        &manifest,
+        manifest_dir,
+        &lab_id,
+        None,
+        node,
+        results,
+        &refresh,
+    )
+    .await?;
     if provisioned == 0 {
         println!("No provisioners to run");
     }
