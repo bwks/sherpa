@@ -86,7 +86,8 @@ interactive shell, so it is 0 there, as with the system `ssh`.
 
 ## Thread stack
 
-`main` runs the command line on a thread of its own with an 8 MiB stack, and the Tokio
-runtime's threads get the same (`THREAD_STACK_SIZE` in `crates/client/src/main.rs`). Windows
-gives a main thread 1 MiB, and an SSH connection's nested polls (Jato, `russh`, the jump hosts)
-overflowed it in a debug build; Linux's main thread already has 8 MiB.
+The client runs on `#[tokio::main]`, so commands are polled on the main thread: 1 MiB on
+Windows, and usually 8 MiB on Linux (`ulimit -s`). An SSH connection fits in that on
+Windows, debug builds included, because Jato boxes its connection futures; before Jato
+v0.4.2 a debug build overflowed it through a jump host, and the client ran its commands on
+an 8 MiB thread instead. Jato's connecting architecture doc describes the stack use.

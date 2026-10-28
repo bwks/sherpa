@@ -74,7 +74,7 @@ virt = { version = "0.4.1", features = ["qemu"] }
 
 # SSH client (bwks/jato-lib), from GitHub; not on crates.io yet. The terminal feature gives
 # `sherpa ssh` its prompts and interactive shell.
-jato = { git = "https://github.com/bwks/jato-lib", tag = "v0.4.1", features = ["terminal"] }
+jato = { git = "https://github.com/bwks/jato-lib", tag = "v0.4.2", features = ["terminal"] }
 
 # HTTP client
 reqwest = { version = "0.13.2", default-features = false, features = ["rustls"] }
