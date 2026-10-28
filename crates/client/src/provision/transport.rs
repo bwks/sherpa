@@ -5,7 +5,6 @@
 //! Only the jump to the Sherpa server may ask for a passphrase or password, and answers are
 //! kept for the run, so provisioning many nodes asks once. A node is never asked about: while
 //! it boots its login fails, and `wait_for_node` retries instead.
-use std::fs;
 use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
@@ -118,22 +117,18 @@ impl NodeSession {
         self.execute(command, Some(input)).await
     }
 
-    /// Copy the client file `src` to `dst` on the node, relative to the login user's home
-    /// unless absolute, over SFTP as OpenSSH's `scp` does. The data goes to a private temporary
-    /// file that is renamed over `dst`, so it is never readable by others.
-    #[tracing::instrument(skip(self), fields(host = %self.host), level = "debug")]
-    pub async fn copy_to(&self, src: &Path, dst: &str) -> Result<()> {
-        let data = fs::read(src).with_context(|| format!("Cannot read {}", src.display()))?;
+    /// Copy `data`, read from the client file `src`, to `dst` on the node, relative to the
+    /// login user's home unless absolute, over SFTP as OpenSSH's `scp` does. The data goes to a
+    /// private temporary file that is renamed over `dst`, so it is never readable by others.
+    #[tracing::instrument(skip(self, data), fields(host = %self.host), level = "debug")]
+    pub async fn copy_to(&self, src: &Path, data: &[u8], dst: &str) -> Result<()> {
         let failed = || format!("Copying {} to {}:{dst} failed", src.display(), self.host);
         let mut sftp = self
             .session
             .sftp(Duration::from_secs(PROVISIONER_COPY_TIMEOUT))
             .await
             .with_context(failed)?;
-        let uploaded = sftp
-            .upload(dst, &data, COPY_MODE)
-            .await
-            .with_context(failed);
+        let uploaded = sftp.upload(dst, data, COPY_MODE).await.with_context(failed);
         if let Err(error) = sftp.close().await {
             tracing::debug!(host = %self.host, %error, "Failed to close the SFTP session cleanly");
         }
@@ -211,6 +206,7 @@ fn write_through(out: &mut impl Write, bytes: &[u8]) -> Result<()> {
 mod tests {
     use super::*;
     use shared::data::ClientConfig;
+    use std::fs;
 
     const LAB_SSH_CONFIG: &str = "Host web01.ab12cd34\n    HostName 172.31.0.11\n    \
                                   User sherpa\n    ProxyJump admin@sherpa.example:22\n";

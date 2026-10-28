@@ -12,6 +12,7 @@ use tokio::time;
 use topology::SshProvisioner;
 
 use super::client_files::{existing_client_file, resolve_client_path};
+use super::env_file::{client_variable, resolve_env_file};
 use super::remote::{
     cloud_init_wait_command, env_file_destination, env_loader_command, finish_file_command,
     prepare_file_command, script_wrapper_command, sftp_path,
@@ -22,6 +23,8 @@ use crate::ssh_client::retryable;
 /// A client file to copy, read before the node is changed.
 struct FileCopy {
     src: PathBuf,
+    /// What is copied: the file, or for an env file, the file with its references resolved.
+    content: Vec<u8>,
     dst: String,
     mode: u32,
 }
@@ -94,8 +97,8 @@ pub async fn provision(
     Ok(())
 }
 
-/// Resolve and read every client file the provisioner uses, so a missing file fails before the
-/// node is changed.
+/// Resolve and read every client file the provisioner uses, and resolve the variable
+/// references in env files, so a missing file or variable fails before the node is changed.
 fn read_client_files(
     provisioner: &SshProvisioner,
     manifest_dir: &Path,
@@ -103,8 +106,10 @@ fn read_client_files(
     let mut files = Vec::with_capacity(provisioner.files.len());
     for file in &provisioner.files {
         let src = existing_client_file(manifest_dir, &file.src)?;
+        let content = fs::read(&src).with_context(|| format!("Cannot read {}", src.display()))?;
         files.push(FileCopy {
             src,
+            content,
             dst: file.dst.clone(),
             mode: file.mode,
         });
@@ -118,8 +123,14 @@ fn read_client_files(
             .and_then(OsStr::to_str)
             .with_context(|| format!("Env file {} does not name a file", src.display()))?
             .to_owned();
+        let text = fs::read_to_string(&src)
+            .with_context(|| format!("Cannot read env file {} as text", src.display()))?;
+        let content = resolve_env_file(&text, client_variable)
+            .with_context(|| format!("Env file {}", src.display()))?
+            .into_bytes();
         env_files.push(FileCopy {
             src,
+            content,
             dst: env_file_destination(&name),
             mode: PROVISIONER_FILE_DEFAULT_MODE,
         });
@@ -141,7 +152,9 @@ async fn copy_file(session: &NodeSession, file: &FileCopy) -> Result<()> {
         .run(&prepare_file_command(&file.dst))
         .await
         .with_context(|| format!("Cannot prepare {}", file.dst))?;
-    session.copy_to(&file.src, &sftp_path(&file.dst)).await?;
+    session
+        .copy_to(&file.src, &file.content, &sftp_path(&file.dst))
+        .await?;
     session
         .run(&finish_file_command(&file.dst, file.mode))
         .await
@@ -172,11 +185,52 @@ mod tests {
         };
         let (files, env_files, scripts) = read_client_files(&provisioner, dir.path()).unwrap();
         assert_eq!(files[0].src, dir.path().join("token"));
+        assert_eq!(files[0].content, b"t");
         assert_eq!(files[0].dst, "~/.config/token");
         assert_eq!(files[0].mode, 640);
         assert_eq!(env_files[0].dst, "~/.env.d/dev.env");
         assert_eq!(env_files[0].mode, 600);
         assert_eq!(scripts[0].content, b"#!/bin/sh\n");
+    }
+
+    #[test]
+    fn env_files_are_copied_with_their_references_resolved() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("dev.env"),
+            "WHERE=$HOME\nPATH=$HOME/bin:$PATH\n",
+        )
+        .unwrap();
+        let provisioner = SshProvisioner {
+            env_files: vec!["dev.env".to_string()],
+            ..Default::default()
+        };
+        let (_, env_files, _) = read_client_files(&provisioner, dir.path()).unwrap();
+        let home = std::env::var("HOME").unwrap();
+        assert_eq!(
+            String::from_utf8(env_files[0].content.clone()).unwrap(),
+            format!("WHERE='{home}'\nPATH=$HOME/bin:$PATH\n")
+        );
+    }
+
+    #[test]
+    fn an_unset_env_file_variable_fails_before_the_node_is_changed() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("dev.env"),
+            "TOKEN=$SHERPA_TEST_UNSET_TOKEN\n",
+        )
+        .unwrap();
+        let provisioner = SshProvisioner {
+            env_files: vec!["dev.env".to_string()],
+            ..Default::default()
+        };
+        let Err(error) = read_client_files(&provisioner, dir.path()) else {
+            panic!("an env file with an unset variable was read");
+        };
+        let error = format!("{error:#}");
+        assert!(error.contains("dev.env"), "{error}");
+        assert!(error.contains("SHERPA_TEST_UNSET_TOKEN"), "{error}");
     }
 
     #[test]
