@@ -95,10 +95,13 @@ Remote steps, as the node's login user:
   `env_loader_command` appends, once, a line that exports every readable file in `~/.env.d` to
   `~/.bash_profile`, else `~/.profile`: the same choice as `user_env_loader_runcmd` for
   `~/.sherpa_env` (see [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md)).
-- **Scripts:** `script_wrapper_command` is the fixed remote command; the script arrives on stdin,
-  is written to a `0700` temporary file, run through its shebang with `~/.sherpa_env` and
-  `~/.env.d/*` exported, and removed. The command exits with the script's status. Secret data is
-  never part of a command line.
+- **Scripts:** `script_wrapper_command` is the fixed remote command; the script arrives on stdin
+  and is written to a `0700` temporary file. The user's shell is started as a login shell
+  (`"${SHELL:-/bin/sh}" -l -c`), so `/etc/profile`, `/etc/profile.d` and the user's login file
+  set up `PATH` and tools as for a login (mise's shims, for example, come from
+  `/etc/profile.d` on devbox images); it then exports `~/.sherpa_env` and `~/.env.d/*`, so those
+  win, and `exec`s the script through its shebang. The outer shell removes the file afterwards.
+  The command exits with the script's status. Secret data is never part of a command line.
 
 ## Container secret files
 
