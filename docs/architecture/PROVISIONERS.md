@@ -52,6 +52,7 @@ so nothing is lost by not serializing it.
 | `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs each node, prints `shared::util::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
 | `container.rs` | `container_secrets`/`node_secrets`: reads container provisioner files into `shared::data::SecretFile`s; `container_results` reports them |
 | `client_files.rs` | Client path rules shared by both types: `~` expanded, relative paths from the manifest's folder |
+| `env_file.rs` | Resolving `KEY=$NAME` lines of env files from the client's environment |
 | `ssh.rs` | The SSH provisioner: `wait_for_node` (connect, retrying failures at the node until the account exists, then `cloud-init status --wait`), then files, env files and scripts over that one connection. Client files are read before the node is changed |
 | `remote.rs` | Pure builders of the POSIX `sh` commands run on the node |
 | `transport.rs` | `SshTarget` (a node's route in `sherpa_ssh_config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
@@ -84,7 +85,13 @@ Remote steps, as the node's login user:
   `umask 077` and makes an existing file `0600`; Jato's SFTP upload then writes the contents
   to a new `0600` temporary file beside it and renames it over the destination, so they are
   never readable by others; `finish_file_command` sets the final mode.
-- **Env files:** copied like files to `~/.env.d/<name>` (`konst::NODE_USER_ENV_DIR`), then
+- **Env files:** read as text and resolved by `env_file::resolve_env_file`: a line whose
+  value is exactly `$NAME` or `${NAME}` (optionally indented or after `export`) gets the
+  client's value of `NAME` (`client_variable`), single-quoted with `shell_quote`; other lines
+  and line endings are kept, so `$HOME/bin:$PATH` still expands on the node. An unset variable
+  fails before the node is changed, naming the file, line and variable but never a value. The
+  resolved text is uploaded (`NodeSession::copy_to` takes the content read up front), like
+  files, to `~/.env.d/<name>` (`konst::NODE_USER_ENV_DIR`), then
   `env_loader_command` appends, once, a line that exports every readable file in `~/.env.d` to
   `~/.bash_profile`, else `~/.profile`: the same choice as `user_env_loader_runcmd` for
   `~/.sherpa_env` (see [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md)).
