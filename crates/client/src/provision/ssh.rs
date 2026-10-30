@@ -13,6 +13,7 @@ use topology::SshProvisioner;
 
 use super::client_files::{existing_client_file, resolve_client_path};
 use super::env_file::{client_variable, resolve_env_file};
+use super::output::NodeOutput;
 use super::remote::{
     cloud_init_wait_command, env_file_destination, env_loader_command, finish_file_command,
     prepare_file_command, script_wrapper_command, sftp_path,
@@ -65,21 +66,27 @@ pub async fn wait_for_node(target: &SshTarget, timeout: Duration) -> Result<Node
     Ok(session)
 }
 
-/// Run one SSH provisioner on a node: files, then env files, then scripts.
+/// Run one SSH provisioner on a node: files, then env files, then scripts, showing progress
+/// and script output in `output`.
 pub async fn provision(
     session: &NodeSession,
     provisioner: &SshProvisioner,
     manifest_dir: &Path,
+    output: &mut NodeOutput,
 ) -> Result<()> {
     let (files, env_files, scripts) = read_client_files(provisioner, manifest_dir)?;
 
     for file in &files {
-        println!("  copying {} to {}", file.src.display(), file.dst);
+        output.status(&format!("copying {} to {}", file.src.display(), file.dst))?;
         copy_file(session, file).await?;
     }
     if !env_files.is_empty() {
         for file in &env_files {
-            println!("  copying env file {} to {}", file.src.display(), file.dst);
+            output.status(&format!(
+                "copying env file {} to {}",
+                file.src.display(),
+                file.dst
+            ))?;
             copy_file(session, file).await?;
         }
         session
@@ -88,9 +95,9 @@ pub async fn provision(
             .context("Cannot make login shells load env files")?;
     }
     for script in &scripts {
-        println!("  running {}", script.path.display());
+        output.status(&format!("running {}", script.path.display()))?;
         session
-            .run_with_input(&script_wrapper_command(), &script.content)
+            .run_with_input(&script_wrapper_command(), &script.content, output)
             .await
             .with_context(|| format!("Script {} failed", script.path.display()))?;
     }

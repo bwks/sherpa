@@ -327,6 +327,9 @@ pub const PROVISIONER_FILE_DEFAULT_MODE: u32 = 600;
 pub const PROVISIONER_SSH_CONNECT_TIMEOUT: u64 = 15;
 /// Seconds between attempts to log in to a node that is not accepting the login yet.
 pub const PROVISIONER_SSH_RETRY_INTERVAL: u64 = 5;
+/// How many nodes the CLI runs ssh provisioners on at once, unless the manifest's
+/// `provision_concurrency` says otherwise.
+pub const PROVISION_CONCURRENCY: u8 = 8;
 /// Seconds each SFTP request may take while a provisioner copies a file to a node.
 pub const PROVISIONER_COPY_TIMEOUT: u64 = 300;
 /// Seconds an SSH login may take when it can ask for a passphrase or password, so a person

@@ -2680,7 +2680,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.62.2",
+ "windows-core 0.61.2",
 ]
 
 [[package]]
@@ -2902,8 +2902,8 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "jato"
-version = "0.4.2"
-source = "git+https://github.com/bwks/jato-lib?tag=v0.4.2#b61880f813852a351a912f768283c2734abe7804"
+version = "0.4.3"
+source = "git+https://github.com/bwks/jato-lib?rev=9a82552ec75f20eca80f0f81f0b82a0c1c935b4f#9a82552ec75f20eca80f0f81f0b82a0c1c935b4f"
 dependencies = [
  "crossterm",
  "crossterm_winapi",

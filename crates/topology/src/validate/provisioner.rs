@@ -11,9 +11,14 @@ use shared::validators::{valid_octal_mode, validate_secret_file};
 use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
 
 /// Check node provisioners: ssh provisioners run only on Linux and BSD VMs and container
-/// provisioners only on containers, and their paths, names and modes must be usable.
+/// provisioners only on containers, and their paths, names and modes must be usable. At least
+/// one node must be provisioned at a time.
 #[instrument(skip(manifest), level = "debug")]
 pub fn validate_provisioners(manifest: &Manifest) -> Result<()> {
+    ensure!(
+        manifest.provision_concurrency != Some(0),
+        "provision_concurrency must be at least 1"
+    );
     for node in &manifest.nodes {
         let provisioners = node.provisioners.as_deref().unwrap_or_default();
         if provisioners.is_empty() {
@@ -349,5 +354,15 @@ type = "ssh"
             let error = rejection("ubuntu_linux", &format!("env_files = [\"{env_file}\"]"));
             assert!(error.contains("env file"), "{env_file}: {error}");
         }
+    }
+
+    #[test]
+    fn provision_concurrency_must_be_at_least_one() {
+        let mut manifest = manifest("ubuntu_linux", "scripts = [\"a.sh\"]");
+        manifest.provision_concurrency = Some(1);
+        validate_provisioners(&manifest).unwrap();
+        manifest.provision_concurrency = Some(0);
+        let error = format!("{:#}", validate_provisioners(&manifest).unwrap_err());
+        assert!(error.contains("provision_concurrency"), "{error}");
     }
 }

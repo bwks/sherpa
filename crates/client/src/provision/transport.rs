@@ -5,7 +5,6 @@
 //! Only the jump to the Sherpa server may ask for a passphrase or password, and answers are
 //! kept for the run, so provisioning many nodes asks once. A node is never asked about: while
 //! it boots its login fails, and `wait_for_node` retries instead.
-use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
@@ -16,6 +15,7 @@ use shared::konst::{
     PROVISIONER_COPY_TIMEOUT, PROVISIONER_SSH_CONNECT_TIMEOUT, SSH_PROMPT_AUTH_TIMEOUT,
 };
 
+use super::output::NodeOutput;
 use crate::ssh_client::{self, HostKeyRefresh, PromptScope};
 
 /// The mode a copied file is written with; `finish_file_command` then sets the final mode.
@@ -112,9 +112,15 @@ impl NodeSession {
         self.execute(command, None).await
     }
 
-    /// Run `command` on the node with `input` on its stdin, showing its output as it runs.
-    pub async fn run_with_input(&self, command: &str, input: &[u8]) -> Result<()> {
-        self.execute(command, Some(input)).await
+    /// Run `command` on the node with `input` on its stdin, showing its output in `output` as
+    /// it runs.
+    pub async fn run_with_input(
+        &self,
+        command: &str,
+        input: &[u8],
+        output: &mut NodeOutput,
+    ) -> Result<()> {
+        self.execute(command, Some((input, output))).await
     }
 
     /// Copy `data`, read from the client file `src`, to `dst` on the node, relative to the
@@ -143,23 +149,27 @@ impl NodeSession {
     }
 
     /// Run `command`, sending `input` (or nothing) to its stdin. With input, which is how
-    /// scripts run, the output is shown as it arrives; otherwise only the error output is kept.
+    /// scripts run, the output is shown in its `NodeOutput` as it arrives; otherwise only the
+    /// error output is kept.
     #[tracing::instrument(skip(self, command, input), fields(host = %self.host), level = "debug")]
-    async fn execute(&self, command: &str, input: Option<&[u8]>) -> Result<()> {
+    async fn execute(&self, command: &str, input: Option<(&[u8], &mut NodeOutput)>) -> Result<()> {
         let mut exec = self
             .session
             .exec(command)
             .await
             .with_context(|| format!("Cannot run a command on {}", self.host))?;
-        if let Some(input) = input {
-            exec.write_stdin(input)
-                .await
-                .with_context(|| format!("Cannot send input to {}", self.host))?;
-        }
+        let mut output = match input {
+            Some((input, output)) => {
+                exec.write_stdin(input)
+                    .await
+                    .with_context(|| format!("Cannot send input to {}", self.host))?;
+                Some(output)
+            }
+            None => None,
+        };
         exec.close_stdin()
             .await
             .with_context(|| format!("Cannot send input to {}", self.host))?;
-        let show = input.is_some();
         let mut errors = Vec::new();
         let mut exit = None;
         while let Some(event) = exec
@@ -168,21 +178,20 @@ impl NodeSession {
             .with_context(|| format!("Lost the command on {}", self.host))?
         {
             match event {
-                Event::Stdout(bytes) => {
-                    if show {
-                        write_through(&mut io::stdout(), &bytes)?;
-                    }
-                }
-                Event::Stderr(bytes) => {
-                    if show {
-                        write_through(&mut io::stderr(), &bytes)?;
-                    } else {
-                        errors.extend(bytes);
-                    }
-                }
+                Event::Stdout(bytes) => match output.as_deref_mut() {
+                    Some(output) => output.stdout(&bytes)?,
+                    None => tracing::debug!(host = %self.host, "Command stdout not shown"),
+                },
+                Event::Stderr(bytes) => match output.as_deref_mut() {
+                    Some(output) => output.stderr(&bytes)?,
+                    None => errors.extend(bytes),
+                },
                 Event::Exit(status) => exit = Some(status),
                 other => tracing::debug!(?other, "Command event not shown"),
             }
+        }
+        if let Some(output) = output {
+            output.finish()?;
         }
         let exit = exit.unwrap_or(Exit::Unknown);
         if exit == Exit::Code(0) {
@@ -194,12 +203,6 @@ impl NodeSession {
         }
         bail!("{exit} on {}: {}", self.host, errors.trim())
     }
-}
-
-fn write_through(out: &mut impl Write, bytes: &[u8]) -> Result<()> {
-    out.write_all(bytes)
-        .context("Cannot show the command's output")?;
-    out.flush().context("Cannot show the command's output")
 }
 
 #[cfg(test)]

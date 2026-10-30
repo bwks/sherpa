@@ -182,6 +182,24 @@ mode = 400
     }
 
     #[test]
+    fn provision_concurrency_is_read_but_never_serialized() {
+        let manifest: Manifest =
+            toml::from_str(&format!("provision_concurrency = 3\n{MANIFEST}")).unwrap();
+        assert_eq!(manifest.provision_concurrency, Some(3));
+        let json = serde_json::to_string(&manifest).unwrap();
+        let saved = toml::to_string_pretty(&manifest).unwrap();
+        for output in [json, saved] {
+            assert!(!output.contains("provision_concurrency"), "{output}");
+        }
+    }
+
+    #[test]
+    fn provision_concurrency_above_255_is_rejected() {
+        let error = parse_error(&format!("provision_concurrency = 256\n{MANIFEST}"));
+        assert!(error.contains("provision_concurrency"), "{error}");
+    }
+
+    #[test]
     fn unknown_provisioner_type_is_rejected() {
         let error = parse_error(&MANIFEST.replace(r#"type = "ssh""#, r#"type = "telnet""#));
         assert!(error.contains("telnet"), "{error}");

@@ -307,6 +307,7 @@ fn test_write_load_roundtrip() {
         name: "roundtrip-lab".to_string(),
         description: Some("Practice routing between two nodes.".into()),
         ready_timeout: None,
+        provision_concurrency: None,
         nodes: vec![
             Node {
                 name: "r1".to_string(),

@@ -31,7 +31,7 @@ askama = { workspace = true }
 
 
 # Async
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "signal"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time", "signal", "sync"] }
 futures = { workspace = true }
 futures-util = { workspace = true }
 
