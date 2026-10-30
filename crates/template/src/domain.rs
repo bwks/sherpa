@@ -177,4 +177,15 @@ mod tests {
         assert!(xml.contains("<source network='mgmt-lab1'/>"));
         assert!(xml.contains("52:54:00:aa:bb:cc"));
     }
+
+    #[test]
+    fn test_unikernel_cpu_has_no_arch_element() {
+        let xml = base_unikernel_template(UnikernelBootMode::DirectKernel)
+            .render()
+            .unwrap();
+        // libvirt's domain schema has no <arch> under <cpu>; the guest
+        // architecture is set on <os><type>.
+        assert!(!xml.contains("<arch>"), "{xml}");
+        assert!(xml.contains("<type arch='x86_64'"), "{xml}");
+    }
 }
