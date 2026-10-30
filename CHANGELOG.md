@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.9] - 2026-10-30
+
+### Features
+
+- Enable the full Hyper-V enlightenment set for Windows by @bwks ([6926015](https://github.com/bwks/sherpa/commit/6926015b16e742442a7393e0cf8e2e4aedc2a181))
+
+### Miscellaneous
+
+- Merge pull request #380 from bwks/feat/windows-hyperv-enlightenments
+
+feat(template): full Hyper-V enlightenment set for Windows nodes by @bwks in [#380](https://github.com/bwks/sherpa/pull/380) ([bc64111](https://github.com/bwks/sherpa/commit/bc6411185bf8a9696bcd521945cc4e271575e269))
+- Bump version to 0.4.9 by @bwks ([2787096](https://github.com/bwks/sherpa/commit/2787096a7438d7d636d8e14a94594108e994b8b9))
+- Merge pull request #379 from bwks/changelog/v0.4.8
+
+chore(release): update changelog for v0.4.8 by @github-actions[bot] in [#379](https://github.com/bwks/sherpa/pull/379) ([83a8951](https://github.com/bwks/sherpa/commit/83a8951e883abcdc0d1ec2934b335290118a3227))
 ## [0.4.8] - 2026-10-30
 
 ### Bug Fixes
