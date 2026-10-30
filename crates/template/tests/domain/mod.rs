@@ -131,3 +131,45 @@ fn test_domain_renders_with_peer_interface() {
     // No isolated network referenced
     assert!(!output.contains("isolated"));
 }
+
+#[test]
+fn test_domain_windows_has_full_hyperv_enlightenments() {
+    let mut domain = base_domain_template();
+    domain.is_windows = true;
+    let xml = domain.render().expect("renders domain XML");
+    for element in [
+        "<relaxed state='on'/>",
+        "<vapic state='on'/>",
+        "<spinlocks state='on' retries='8191'/>",
+        "<vpindex state='on'/>",
+        "<runtime state='on'/>",
+        "<synic state='on'/>",
+        "<stimer state='on'/>",
+        "<frequencies state='on'/>",
+        "<tlbflush state='on'/>",
+        "<ipi state='on'/>",
+    ] {
+        assert!(xml.contains(element), "missing {element}: {xml}");
+    }
+    // stimer needs the hypervclock timer.
+    assert!(
+        xml.contains("<timer name='hypervclock' present='yes'/>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_non_windows_has_no_hyperv_enlightenments() {
+    let xml = base_domain_template().render().expect("renders domain XML");
+    assert!(!xml.contains("<hyperv"), "{xml}");
+    assert!(!xml.contains("hypervclock"), "{xml}");
+}
+
+#[test]
+fn test_domain_cpu_has_no_arch_element() {
+    let xml = base_domain_template().render().expect("renders domain XML");
+    // libvirt's domain schema has no <arch> under <cpu>; the guest
+    // architecture is set on <os><type>.
+    assert!(!xml.contains("<arch>"), "{xml}");
+    assert!(xml.contains("<type arch='x86_64'"), "{xml}");
+}
