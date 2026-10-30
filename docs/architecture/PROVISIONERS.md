@@ -35,7 +35,7 @@ so nothing is lost by not serializing it.
   node. ssh files: `dst` absolute or `~/`,
   with no empty, `.` or `..` parts and only `[A-Za-z0-9._+@-]` in each part, because it is used
   in SFTP paths and remote shell commands; modes as octal digits up to `777`; env file names
-  unique per node; at least one action.
+  unique per node; at least one action. `provision_concurrency`, when set, at least 1.
 - `server::validate::reject_provisioners` (`up::up_lab`, `redeploy::redeploy_node`): any node with
   provisioners is refused. The CLI never sends them, so they only arrive from the web UI or REST,
   which cannot run them.
@@ -49,11 +49,12 @@ so nothing is lost by not serializing it.
 
 | File | Role |
 |---|---|
-| `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs each node, prints `shared::util::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
+| `run.rs` | `provision_lab`: selects nodes with ssh provisioners (or `--node`), skips nodes missing from the ready list, runs the nodes concurrently (see [Concurrency](#concurrency)), prints `shared::util::render_provision_table` with any results passed in for container nodes, fails if any node was not provisioned |
 | `container.rs` | `container_secrets`/`node_secrets`: reads container provisioner files into `shared::data::SecretFile`s; `container_results` reports them |
 | `client_files.rs` | Client path rules shared by both types: `~` expanded, relative paths from the manifest's folder |
 | `env_file.rs` | Resolving `KEY=$NAME` lines of env files from the client's environment |
 | `ssh.rs` | The SSH provisioner: `wait_for_node` (connect, retrying failures at the node until the account exists, then `cloud-init status --wait`), then files, env files and scripts over that one connection. Client files are read before the node is changed |
+| `output.rs` | `NodeOutput`: one node's progress lines and script output, each line prefixed with the node's name and written whole |
 | `remote.rs` | Pure builders of the POSIX `sh` commands run on the node |
 | `transport.rs` | `SshTarget` (a node's route in `sherpa_ssh_config`) and `NodeSession` (one Jato connection): run a command, run one with stdin and its output shown, copy a file over SFTP |
 
@@ -74,7 +75,9 @@ so nothing is lost by not serializing it.
   (`PromptScope::JumpHostsOnly`); a node is never asked about, as its login fails while it
   boots. One `jato::PromptCache` serves the whole run, so provisioning many nodes asks once. An
   unknown server host key is asked about as in `sherpa ssh`. The authentication limit is
-  `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s) so typing is not cut off.
+  `konst::SSH_PROMPT_AUTH_TIMEOUT` (300 s) so typing is not cut off. Jato's `PromptCache`
+  (from v0.4.3) asks one question at a time across all its prompters and re-checks the cache
+  once it has its turn, so nodes connecting at once ask once.
 - **Commands** run through `Session::exec` with no time limit, as the old `ssh` had none;
   Jato's keepalives end the command if the node stops answering (about 90 s). Plain commands
   keep their stderr for the error; scripts, sent on stdin, show their output as it arrives.
@@ -99,9 +102,35 @@ Remote steps, as the node's login user:
   and is written to a `0700` temporary file. The user's shell is started as a login shell
   (`"${SHELL:-/bin/sh}" -l -c`), so `/etc/profile`, `/etc/profile.d` and the user's login file
   set up `PATH` and tools as for a login (mise's shims, for example, come from
-  `/etc/profile.d` on devbox images); it then exports `~/.sherpa_env` and `~/.env.d/*`, so those
+  `/etc/profile.d` on devbox images). FreeBSD's `sh`, and `csh`/`tcsh` with `-c`, refuse `-l`
+  (they are login shells only when started as `-sh`), so the wrapper first tries
+  `"$SHELL" -l -c :` and, if that fails, runs `/bin/sh -c` reading `/etc/profile` and
+  `~/.profile` itself, as a `sh` login does. Either way it then exports `~/.sherpa_env` and `~/.env.d/*`, so those
   win, and `exec`s the script through its shebang. The outer shell removes the file afterwards.
   The command exits with the script's status. Secret data is never part of a command line.
+
+## Concurrency
+
+`provision_lab` builds one future per node (`provision_one`: skip check, `SshTarget`,
+`wait_for_node`, then the provisioners) and runs them with `buffer_unordered`, up to
+`Manifest::provision_concurrency` at once (`konst::PROVISION_CONCURRENCY`, 8, when unset). The
+field is client-only and `#[serde(default, skip_serializing)]` like `provisioners`, so servers
+never see it; `validate_provisioners` refuses `0`. All futures run on the caller's task, so
+nothing needs to be `'static` or `Send`.
+
+- **Readiness and work together.** Each node's readiness wait is part of its future, so its
+  ready timeout starts when it gets a place, and a finished node frees its place at once
+  (unordered, so a slow node does not hold up later ones). `in_manifest_order` puts the
+  results back in manifest order for the table.
+- **Output.** `NodeOutput` prefixes every line with the node name, padded to the longest name
+  (`<node> | <line>`), keeps a partial line until it ends, and writes each batch of lines with
+  one `write_all` on a locked stdout or stderr, so lines from different nodes never mix. A
+  last line without a newline is shown when the command ends. Each node ends with a
+  `provisioned` or `failed` line.
+- **Host key refresh.** `HostKeyRefresh` clones share a `tokio::sync::Mutex`, so nodes whose
+  key is unknown at once refresh `sherpa_known_hosts` one at a time and never write it
+  together. A connection that reads the file while it is rewritten sees an unknown key and
+  refreshes again.
 
 ## Container secret files
 

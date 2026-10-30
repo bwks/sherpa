@@ -25,6 +25,10 @@ pub struct Manifest {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ready_timeout: Option<u64>,
+    /// How many nodes the CLI runs ssh provisioners on at once. Read by the client only, and
+    /// never serialized, like `Node::provisioners`.
+    #[serde(default, skip_serializing)]
+    pub provision_concurrency: Option<u8>,
     /// Kubernetes clusters built from the lab's Talos Linux nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub talos_clusters: Option<Vec<TalosCluster>>,

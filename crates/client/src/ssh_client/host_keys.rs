@@ -2,9 +2,11 @@
 //! the lab's `known_hosts` file, as after the node was restarted from the web UI.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use tokio::sync::Mutex;
 
 use shared::data::{ClientConfig, NodeHostKeysResponse, ServerConnection};
 
@@ -13,12 +15,14 @@ use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Where to ask for a lab's node host keys, and the lab folder their file is saved in.
+/// Clones share one lock, so nodes provisioned at once refresh the file one at a time.
 #[derive(Clone, Debug)]
 pub struct HostKeyRefresh {
     lab_id: String,
     server_url: String,
     server_connection: ServerConnection,
     lab_dir: PathBuf,
+    refreshing: Arc<Mutex<()>>,
 }
 
 impl HostKeyRefresh {
@@ -28,13 +32,16 @@ impl HostKeyRefresh {
             server_url: server_url.to_owned(),
             server_connection: config.server_connection.clone(),
             lab_dir: lab_dir.to_path_buf(),
+            refreshing: Arc::new(Mutex::new(())),
         }
     }
 
     /// Ask the server to read `node_name`'s host key again, and save the lab's `known_hosts`
-    /// file it returns in the lab folder.
+    /// file it returns in the lab folder. One refresh runs at a time, so two never write the
+    /// file at once.
     #[tracing::instrument(skip(self), fields(lab_id = %self.lab_id), level = "debug")]
     pub async fn refresh(&self, node_name: &str) -> Result<NodeHostKeysResponse> {
+        let _turn = self.refreshing.lock().await;
         let token = load_token().context("Authentication required: run sherpa login")?;
         let ws_client = WebSocketClient::new(
             self.server_url.clone(),

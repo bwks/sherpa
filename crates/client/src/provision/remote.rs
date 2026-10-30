@@ -67,13 +67,20 @@ pub fn env_loader_command() -> String {
 /// `environment_variables` and the env directory exported, so those win. The script is
 /// written to a private temporary file, which is removed afterwards; the command exits with
 /// the script's status.
+///
+/// FreeBSD's `sh`, and `csh`/`tcsh` with `-c`, refuse `-l`: they are login shells only when
+/// started as `-sh`, which a shell command cannot do. When `$SHELL -l` fails, `/bin/sh` reads
+/// `/etc/profile` and `~/.profile` itself, as a `sh` login does.
 pub fn script_wrapper_command() -> String {
     let env = source_env_files(&format!(
         r#""$HOME"/{NODE_USER_ENV_FILE} "$HOME"/{NODE_USER_ENV_DIR}/*"#
     ));
     let login = shell_quote(&format!(r#"{env}; exec "$1""#));
+    let profile = shell_quote(&format!(
+        r#"for sherpa_login_file in /etc/profile "$HOME"/.profile; do [ -r "$sherpa_login_file" ] && . "$sherpa_login_file"; done; unset sherpa_login_file; {env}; exec "$1""#
+    ));
     format!(
-        r#"t=$(mktemp "${{TMPDIR:-/tmp}}/sherpa-script.XXXXXXXX") || exit 1; trap 'rm -f "$t"' EXIT; cat > "$t" && chmod 700 "$t" || exit 1; "${{SHELL:-/bin/sh}}" -l -c {login} sherpa-script "$t" < /dev/null"#
+        r#"t=$(mktemp "${{TMPDIR:-/tmp}}/sherpa-script.XXXXXXXX") || exit 1; trap 'rm -f "$t"' EXIT; cat > "$t" && chmod 700 "$t" || exit 1; s="${{SHELL:-/bin/sh}}"; if "$s" -l -c : < /dev/null > /dev/null 2>&1; then "$s" -l -c {login} sherpa-script "$t" < /dev/null; else /bin/sh -c {profile} sherpa-script "$t" < /dev/null; fi"#
     )
 }
 
@@ -92,20 +99,23 @@ mod tests {
     use std::fs;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::process::{Command, Output, Stdio};
 
     use tempfile::tempdir;
 
+    /// The login shell the tests run commands with, unless a test needs another.
+    const LOGIN_SHELL: &str = "/bin/sh";
+
     /// Run `command` with `sh -c`, as sshd runs a command with the user's shell, with `home`
-    /// as `$HOME` and `sh` as the login shell in `$SHELL`.
-    fn run(home: &Path, command: &str, stdin: &str) -> Output {
+    /// as `$HOME` and `shell` as the login shell in `$SHELL`.
+    fn run(home: &Path, shell: &Path, command: &str, stdin: &str) -> Output {
         let mut child = Command::new("sh")
             .arg("-c")
             .arg(command)
             .env("HOME", home)
             .env("TMPDIR", home)
-            .env("SHELL", "/bin/sh")
+            .env("SHELL", shell)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -137,6 +147,7 @@ mod tests {
         let home = tempdir().unwrap();
         let output = run(
             home.path(),
+            Path::new(LOGIN_SHELL),
             &prepare_file_command("~/.config/app/token"),
             "",
         );
@@ -153,7 +164,12 @@ mod tests {
         let file = home.path().join("token");
         fs::write(&file, "old").unwrap();
         fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
-        let output = run(home.path(), &prepare_file_command("~/token"), "");
+        let output = run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &prepare_file_command("~/token"),
+            "",
+        );
         assert!(output.status.success(), "{output:?}");
         assert_eq!(fs::read_to_string(&file).unwrap(), "old");
         assert_eq!(mode(&file), 0o600);
@@ -163,11 +179,26 @@ mod tests {
     fn a_copied_file_gets_its_final_mode() {
         let home = tempdir().unwrap();
         let dst = format!("{}/srv/token", home.path().display());
-        run(home.path(), &prepare_file_command(&dst), "");
-        let output = run(home.path(), &finish_file_command(&dst, 640), "");
+        run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &prepare_file_command(&dst),
+            "",
+        );
+        let output = run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &finish_file_command(&dst, 640),
+            "",
+        );
         assert!(output.status.success(), "{output:?}");
         assert_eq!(mode(Path::new(&dst)), 0o640);
-        run(home.path(), &finish_file_command(&dst, 44), "");
+        run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &finish_file_command(&dst, 44),
+            "",
+        );
         assert_eq!(mode(Path::new(&dst)), 0o044);
     }
 
@@ -176,7 +207,12 @@ mod tests {
         let home = tempdir().unwrap();
         fs::write(home.path().join(".bash_profile"), "# mine\n").unwrap();
         for _ in 0..2 {
-            let output = run(home.path(), &env_loader_command(), "");
+            let output = run(
+                home.path(),
+                Path::new(LOGIN_SHELL),
+                &env_loader_command(),
+                "",
+            );
             assert!(output.status.success(), "{output:?}");
         }
         let profile = fs::read_to_string(home.path().join(".bash_profile")).unwrap();
@@ -187,12 +223,18 @@ mod tests {
     #[test]
     fn login_shells_export_env_files() {
         let home = tempdir().unwrap();
-        run(home.path(), &env_loader_command(), "");
+        run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &env_loader_command(),
+            "",
+        );
         let env_dir = home.path().join(NODE_USER_ENV_DIR);
         fs::create_dir(&env_dir).unwrap();
         fs::write(env_dir.join("dev.env"), "TOKEN='it''s secret'\n").unwrap();
         let output = run(
             home.path(),
+            Path::new(LOGIN_SHELL),
             r#". "$HOME/.profile"; sh -c 'printf %s "$TOKEN"'"#,
             "",
         );
@@ -211,7 +253,12 @@ mod tests {
         fs::create_dir(&env_dir).unwrap();
         fs::write(env_dir.join("dev.env"), "FROM_ENV_FILE=b\n").unwrap();
         let script = "#!/bin/sh\nprintf '%s-%s' \"$FROM_MANIFEST\" \"$FROM_ENV_FILE\"\nexit 3\n";
-        let output = run(home.path(), &script_wrapper_command(), script);
+        let output = run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &script_wrapper_command(),
+            script,
+        );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "a-b");
         assert_eq!(output.status.code(), Some(3));
         for entry in fs::read_dir(home.path()).unwrap() {
@@ -238,6 +285,7 @@ mod tests {
         .unwrap();
         let output = run(
             home.path(),
+            Path::new(LOGIN_SHELL),
             &script_wrapper_command(),
             "#!/bin/sh\nsherpa-test-tool\n",
         );
@@ -258,6 +306,7 @@ mod tests {
         fs::write(env_dir.join("dev.env"), "TOKEN=from-env-file\n").unwrap();
         let output = run(
             home.path(),
+            Path::new(LOGIN_SHELL),
             &script_wrapper_command(),
             "#!/bin/sh\nprintf %s \"$TOKEN\"\n",
         );
@@ -267,8 +316,72 @@ mod tests {
     #[test]
     fn a_script_without_a_shebang_runs_with_sh() {
         let home = tempdir().unwrap();
-        let output = run(home.path(), &script_wrapper_command(), "printf ok\n");
+        let output = run(
+            home.path(),
+            Path::new(LOGIN_SHELL),
+            &script_wrapper_command(),
+            "printf ok\n",
+        );
         assert_eq!(String::from_utf8_lossy(&output.stdout), "ok");
         assert!(output.status.success());
+    }
+
+    /// A login shell that refuses `-l`, as FreeBSD's `sh` and `tcsh` do with `-c`.
+    fn shell_without_login_flag(home: &Path) -> PathBuf {
+        let shell = home.join("nologin-flag-sh");
+        fs::write(
+            &shell,
+            "#!/bin/sh\ncase \"$1\" in -l) echo 'Illegal option -l' >&2; exit 2;; esac\n\
+             exec /bin/sh \"$@\"\n",
+        )
+        .unwrap();
+        fs::set_permissions(&shell, fs::Permissions::from_mode(0o755)).unwrap();
+        shell
+    }
+
+    #[test]
+    fn a_shell_without_a_login_flag_still_reads_the_login_files() {
+        let home = tempdir().unwrap();
+        let shell = shell_without_login_flag(home.path());
+        let tools = home.path().join("tools");
+        fs::create_dir(&tools).unwrap();
+        let tool = tools.join("sherpa-test-tool");
+        fs::write(&tool, "#!/bin/sh\nprintf found\n").unwrap();
+        fs::set_permissions(&tool, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(
+            home.path().join(".profile"),
+            format!("PATH=\"{}:$PATH\"; export PATH\n", tools.display()),
+        )
+        .unwrap();
+        let output = run(
+            home.path(),
+            &shell,
+            &script_wrapper_command(),
+            "#!/bin/sh\nsherpa-test-tool\n",
+        );
+        assert_eq!(
+            String::from_utf8_lossy(&output.stdout),
+            "found",
+            "{output:?}"
+        );
+        assert!(output.status.success());
+    }
+
+    #[test]
+    fn a_shell_without_a_login_flag_keeps_env_files_and_the_exit_status() {
+        let home = tempdir().unwrap();
+        let shell = shell_without_login_flag(home.path());
+        fs::write(home.path().join(".profile"), "export TOKEN=from-profile\n").unwrap();
+        let env_dir = home.path().join(NODE_USER_ENV_DIR);
+        fs::create_dir(&env_dir).unwrap();
+        fs::write(env_dir.join("dev.env"), "TOKEN=from-env-file\n").unwrap();
+        let output = run(
+            home.path(),
+            &shell,
+            &script_wrapper_command(),
+            "#!/bin/sh\nprintf %s \"$TOKEN\"\nexit 3\n",
+        );
+        assert_eq!(String::from_utf8_lossy(&output.stdout), "from-env-file");
+        assert_eq!(output.status.code(), Some(3));
     }
 }

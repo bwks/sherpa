@@ -7,6 +7,7 @@
 mod client_files;
 mod container;
 mod env_file;
+mod output;
 mod remote;
 mod run;
 mod ssh;
