@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.8] - 2026-10-30
+
+### Bug Fixes
+
+- Run scripts on shells without a login option by @bwks ([3dbaa9d](https://github.com/bwks/sherpa/commit/3dbaa9dda26f3faa138166ed6aa5623fc8f55a2a))
+
+### Features
+
+- Provision SSH nodes concurrently by @bwks ([cfe6338](https://github.com/bwks/sherpa/commit/cfe63380c19cef3f1525a1aac210ae7fffb88315))
+
+### Miscellaneous
+
+- Merge pull request #378 from bwks/feat/concurrent-provisioning
+
+feat(provision): provision SSH nodes concurrently by @bwks in [#378](https://github.com/bwks/sherpa/pull/378) ([408a650](https://github.com/bwks/sherpa/commit/408a6506b07aa1270ba9a03cad6990809b95dd9a))
+- Use the jato v0.4.3 release tag by @bwks ([8232c28](https://github.com/bwks/sherpa/commit/8232c280eb9bc8b641f692e47b56efcc40e39e8c))
+- Bump version to 0.4.8 by @bwks ([ac5cf12](https://github.com/bwks/sherpa/commit/ac5cf128a823c2962d2003ef5cf340d806038228))
+- Merge pull request #375 from bwks/changelog/v0.4.7
+
+chore(release): update changelog for v0.4.7 by @github-actions[bot] in [#375](https://github.com/bwks/sherpa/pull/375) ([4a2e869](https://github.com/bwks/sherpa/commit/4a2e869abbac81298142e2f71c6065c3203814f7))
 ## [0.4.7] - 2026-10-28
 
 ### Bug Fixes
