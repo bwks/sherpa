@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.15] - 2026-10-31
+
+### Bug Fixes
+
+- Keep destroying a lab when libvirt setup fails by @bwks ([45be319](https://github.com/bwks/sherpa/commit/45be319afced479fb30171c551ad8c5fa201f53f))
+
+### Miscellaneous
+
+- Merge pull request #400 from bwks/fix/396-destroy-libvirt-setup-failures
+
+fix(server): keep destroying a lab when libvirt setup fails by @bwks in [#400](https://github.com/bwks/sherpa/pull/400) ([9f07935](https://github.com/bwks/sherpa/commit/9f07935229bf889968f9a8f85e38d91bf16fcb4d))
+- Bump version to 0.4.15 by @bwks ([b51af32](https://github.com/bwks/sherpa/commit/b51af321d1aceff0295d6cfeec5b00f3076332de))
+- Merge pull request #399 from bwks/changelog/v0.4.14
+
+chore(release): update changelog for v0.4.14 by @github-actions[bot] in [#399](https://github.com/bwks/sherpa/pull/399) ([bf9ee52](https://github.com/bwks/sherpa/commit/bf9ee528d7bf009838b32dd7c8899fe10cf13ba0))
 ## [0.4.14] - 2026-10-31
 
 ### Bug Fixes
