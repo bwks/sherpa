@@ -11,7 +11,7 @@ without anything running in the image.
 | `frr01` | `frr_linux` 10.5.2 | Router on the core triangle |
 | `mongo01` | `mongo_db` 8.2.7-rc0 | Host; the image has no `ip` |
 | `surreal01` | `surreal_db` v3.0.0 | Host; the image has no shell |
-| `vault01`, `nats01`, `forgejo01`, `gitlab01` | `hashicorp_vault`, `nats_bus`, `forgejo_forge`, `gitlab_ce` | Hosts |
+| `vault01`, `nats01`, `forgejo01`, `gitlab01` | `hashicorp_vault`, `nats_bus`, `forgejo_forge`, `gitlab_ce` | Hosts; nats01 sets `skip_ready_check`, which must still start it |
 | `mysql01`, `postgres01` | `mysql_db` 8.4, `postgresql_db` 17 | Hosts |
 | `alpine01`, `ubuntu01`, `debian01`, `busybox01`, `rocky01` | `generic_container` | Hosts; debian01 and busybox01 set no `image`, so they run the repo recorded when the image was pulled |
 

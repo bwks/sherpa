@@ -37,10 +37,12 @@ model = "hashicorp_vault"
 version = "1.21"
 data_interface_count = 1
 
+# skip_ready_check must still start the container and wire its links.
 [[nodes]]
 name = "nats01"
 model = "nats_bus"
 version = "2.11"
+skip_ready_check = true
 
 [[nodes]]
 name = "forgejo01"

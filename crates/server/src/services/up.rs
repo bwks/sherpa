@@ -72,6 +72,17 @@ struct P2pContainerVeth {
     bridge: Option<String>,
 }
 
+/// Whether a node counts as ready before readiness polling starts: one with
+/// `skip_ready_check`, or a Talos cluster worker, which is checked as a Kubernetes node later.
+/// Containers are started during polling, so a skipped container is handled when it starts.
+fn skips_readiness_before_polling(
+    skip_ready_check: bool,
+    is_container: bool,
+    cluster_worker: bool,
+) -> bool {
+    !is_container && (skip_ready_check || cluster_worker)
+}
+
 /// Attach the eBPF redirect, and any impairment, on each P2p link not yet in `attached` whose
 /// ends both exist, by name in `ready`. Returns how many links it attached.
 #[instrument(skip_all, fields(%lab_id), level = "debug")]
@@ -2720,7 +2731,12 @@ pub async fn up_lab(
         let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
         for node in &all_lab_nodes {
             let cluster_worker = talos::readiness_waits_for_kubernetes(talos_clusters, &node.name);
-            if node.skip_ready_check.unwrap_or(false) || cluster_worker {
+            let is_container = container_nodes.iter().any(|c| c.name == node.name);
+            if skips_readiness_before_polling(
+                node.skip_ready_check.unwrap_or(false),
+                is_container,
+                cluster_worker,
+            ) {
                 tracing::info!(
                     lab_id = %lab_id,
                     node_name = %node.name,
@@ -2852,6 +2868,27 @@ pub async fn up_lab(
                 .await?;
 
                 if !is_running {
+                    // A skipped container is started once and not waited for.
+                    if container.skip_ready_check.unwrap_or(false) {
+                        tracing::info!(
+                            lab_id = %lab_id,
+                            node_name = %container.name,
+                            "Container not running; ready check skipped"
+                        );
+                        let _ = progress.send_status(
+                            format!("Node {} - Not running, ready check skipped", container.name),
+                            StatusKind::Done,
+                        );
+                        connected_nodes.insert(container.name.clone());
+                        node_info_list.push(data::NodeInfo {
+                            name: container.name.clone(),
+                            kind: "Container".to_string(),
+                            model: container.model,
+                            status: NodeState::Unknown,
+                            ip_address: mgmt_ipv4,
+                            ssh_port: None,
+                        });
+                    }
                     continue;
                 }
 
@@ -3292,6 +3329,29 @@ pub async fn up_lab(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_skipped_vm_is_ready_before_polling() {
+        assert!(skips_readiness_before_polling(true, false, false));
+    }
+
+    #[test]
+    fn test_talos_worker_is_ready_before_polling() {
+        assert!(skips_readiness_before_polling(false, false, true));
+    }
+
+    #[test]
+    fn test_skipped_container_waits_for_polling_to_start_it() {
+        // Containers are started during polling, so skipping their ready check there would
+        // skip starting them.
+        assert!(!skips_readiness_before_polling(true, true, false));
+    }
+
+    #[test]
+    fn test_node_without_skip_is_polled() {
+        assert!(!skips_readiness_before_polling(false, false, false));
+        assert!(!skips_readiness_before_polling(false, true, false));
+    }
 
     #[test]
     fn omitted_clone_method_is_preserved_during_expansion() {
