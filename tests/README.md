@@ -28,6 +28,7 @@ instead of repeating these instructions.
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
 | Private bridge lab test | `python3 tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
 | P2p containers lab test | `python3 tests/labs/p2p-containers/p2p_containers_lab_test.py` | On the Sherpa server: the node images, Docker access, logged-in CLI | about 2–5 min |
+| P2p links lab test | `python3 tests/labs/p2p-links/p2p_links_lab_test.py` | On the Sherpa server: the node images, `nicolaka/netshoot:v0.14`, Docker access, logged-in CLI | about 15–20 min |
 | Talos lab test | `python3 tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.11+ | seconds |
@@ -152,6 +153,7 @@ runs, so install the build under test first.
 ```sh
 python3 tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
 python3 tests/labs/p2p-containers/p2p_containers_lab_test.py  # P2p links on NOS, app and OS containers
+python3 tests/labs/p2p-links/p2p_links_lab_test.py            # P2p link requirements on every pair of node kinds
 python3 tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```
 
@@ -166,6 +168,7 @@ python3 tests/harness/vm_release_test.py --self-test
 python3 tests/harness/vm_release_guest.py --self-test
 python3 tests/labs/private-bridge/private_bridge_lab_test.py --self-test
 python3 tests/labs/p2p-containers/p2p_containers_lab_test.py --self-test
+python3 tests/labs/p2p-links/p2p_links_lab_test.py --self-test
 python3 tests/labs/talos-linux/talos_lab_test.py --self-test
 ```
 

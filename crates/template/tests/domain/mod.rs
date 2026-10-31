@@ -2,7 +2,7 @@ use askama::Template;
 
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, DiskBuses, DiskDevices, DiskDrivers,
-    DiskFormats, DiskTargets, Interface, InterfaceConnection, InterfaceType, MachineType, NodeDisk,
+    DiskFormats, DiskTargets, Interface, InterfaceType, MachineType, NodeDisk,
 };
 use template::DomainTemplate;
 
@@ -35,7 +35,6 @@ fn base_domain_template() -> DomainTemplate {
             mtu: 1500,
             mac_address: "52:54:00:aa:bb:cc".to_string(),
             connection_type: ConnectionTypes::Management,
-            interface_connection: None,
         }],
         interface_type: InterfaceType::Virtio,
         management_interface_type: InterfaceType::Virtio,
@@ -95,7 +94,6 @@ fn test_domain_renders_with_disabled_interface() {
         mtu: 1500,
         mac_address: "52:54:00:dd:ee:ff".to_string(),
         connection_type: ConnectionTypes::Disabled,
-        interface_connection: None,
     });
 
     let output = domain
@@ -106,30 +104,24 @@ fn test_domain_renders_with_disabled_interface() {
 }
 
 #[test]
-fn test_domain_renders_with_peer_interface() {
+fn test_domain_p2p_interface_sets_its_mtu() {
     let mut domain = base_domain_template();
     domain.interfaces.push(Interface {
-        name: "eth1".to_string(),
+        name: "tpa0-a10736e8".to_string(),
         num: 1,
-        mtu: 1500,
+        mtu: 9600,
         mac_address: "52:54:00:dd:ee:ff".to_string(),
-        connection_type: ConnectionTypes::Peer,
-        interface_connection: Some(InterfaceConnection {
-            local_id: 0,
-            local_port: 10001,
-            local_loopback: "127.0.0.10".to_string(),
-            source_id: 1,
-            source_port: 10002,
-            source_loopback: "127.0.0.11".to_string(),
-        }),
+        connection_type: ConnectionTypes::P2p,
     });
 
-    let output = domain
-        .render()
-        .expect("domain template should render with peer interface");
-    assert!(output.contains("<name>dev01-a10736e8</name>"));
-    // No isolated network referenced
-    assert!(!output.contains("isolated"));
+    let xml = domain.render().expect("renders domain XML");
+    let start = xml
+        .find("<interface type='ethernet'>")
+        .expect("renders a P2p interface");
+    let p2p = &xml[start..];
+    let p2p = &p2p[..p2p.find("</interface>").expect("closes the P2p interface")];
+    assert!(p2p.contains("<target dev='tpa0-a10736e8'/>"), "{p2p}");
+    assert!(p2p.contains("<mtu size='9600'/>"), "{p2p}");
 }
 
 #[test]

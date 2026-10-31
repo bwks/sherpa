@@ -36,19 +36,18 @@ use crate::validate::{
     validate_node_secrets,
 };
 use shared::data;
-use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
+use shared::data::{LabSubnets, LinkImpairment, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES,
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE,
     DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE,
     LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
-    MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS, NODE_CONFIGS_DIR,
+    MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
     READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE,
     SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
     SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, VETH_PREFIX,
-    ZTP_DIR,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -56,7 +55,7 @@ use topology::find_talos_cluster;
 use topology::validate::{
     check_bridge_device, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    validate_talos_clusters,
+    check_no_p2p_field, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -123,15 +122,8 @@ async fn attach_ready_p2p_links(
         if let Some(ld) = link_detail
             && let Some(ref impairment_cfg) = ld.impairment
         {
-            let netem = network::LinkImpairment {
-                delay_us: impairment_cfg.delay.unwrap_or(0) * 1000,
-                jitter_us: impairment_cfg.jitter.unwrap_or(0) * 1000,
-                loss_percent: impairment_cfg.loss_percent.unwrap_or(0.0),
-                reorder_percent: impairment_cfg.reorder_percent.unwrap_or(0.0),
-                corrupt_percent: impairment_cfg.corrupt_percent.unwrap_or(0.0),
-            };
-            network::apply_netem(ifindex_a as i32, &netem).await?;
-            network::apply_netem(ifindex_b as i32, &netem).await?;
+            let impairment = LinkImpairment::from(impairment_cfg);
+            network::apply_link_netem(ifindex_a, ifindex_b, &impairment, &impairment).await?;
         }
 
         tracing::info!(
@@ -175,7 +167,6 @@ fn find_interface_link(
                 peer_interface: link.int_b.clone(),
                 peer_interface_index: link.int_b_idx,
                 peer_side: data::PeerSide::B,
-                p2p: link.p2p,
             }))
         } else if link.node_b == node_name && link.int_b == *interface_name {
             interface_data = Some(data::NodeInterface::Peer(data::PeerInterface {
@@ -190,7 +181,6 @@ fn find_interface_link(
                 peer_interface: link.int_a.clone(),
                 peer_interface_index: link.int_a_idx,
                 peer_side: data::PeerSide::A,
-                p2p: link.p2p,
             }))
         }
     }
@@ -309,7 +299,6 @@ fn process_manifest_links(
     let mut links_detailed = vec![];
     for (link_idx, link) in links.iter().enumerate() {
         let mut this_link = topology::LinkDetailed {
-            p2p: link.p2p,
             impairment: link.impairment.clone(),
             ..Default::default()
         };
@@ -735,6 +724,8 @@ pub async fn up_lab(
         }
     }
 
+    check_no_p2p_field(manifest.links.as_deref().unwrap_or_default())
+        .context("Link validation failed")?;
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)
         .context("Failed to process manifest links")?;
     let bridges_detailed = process_manifest_bridges(&manifest.bridges, &nodes_expanded, lab_id)
@@ -1226,21 +1217,13 @@ pub async fn up_lab(
                 .find(|n| n.name == link.node_b)
                 .ok_or_else(|| anyhow!("Node not found: {}", link.node_b))?;
 
-            let link_kind = if link.p2p {
-                data::BridgeKind::P2p
-            } else {
-                data::BridgeKind::P2pBridge
-            };
+            let link_kind = data::BridgeKind::P2p;
 
-            let bridge_a = format!("{}a{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
-            let bridge_b = format!("{}b{}-{}", BRIDGE_PREFIX, link.link_idx, lab_id);
-            let veth_a = format!("{}a{}-{}", VETH_PREFIX, link.link_idx, lab_id);
-            let veth_b = format!("{}b{}-{}", VETH_PREFIX, link.link_idx, lab_id);
             let tap_a = format!("{}a{}-{}", TAP_PREFIX, link.link_idx, lab_id);
             let tap_b = format!("{}b{}-{}", TAP_PREFIX, link.link_idx, lab_id);
 
             // Create the link in the database
-            let _db_link = db::create_link(
+            let mut db_link = db::create_link(
                 &db,
                 link.link_idx,
                 link_kind.clone(),
@@ -1248,15 +1231,20 @@ pub async fn up_lab(
                 db::get_node_id(&node_b.record)?,
                 link.int_a.clone(),
                 link.int_b.clone(),
-                bridge_a.clone(),
-                bridge_b.clone(),
-                veth_a.clone(),
-                veth_b.clone(),
                 tap_a.clone(),
                 tap_b.clone(),
                 lab_record_id.clone(),
             )
             .await?;
+            // The manifest's impairment applies to both directions.
+            if let Some(impairment) = &link.impairment {
+                db_link.impairment_a_to_b = LinkImpairment::from(impairment);
+                db_link.impairment_b_to_a = LinkImpairment::from(impairment);
+                db::update_link(&db, db_link).await.context(format!(
+                    "failed to store impairment of link {}",
+                    link.link_idx
+                ))?;
+            }
 
             lab_link_data.push(data::LabLinkData {
                 index: link.link_idx,
@@ -1265,10 +1253,6 @@ pub async fn up_lab(
                 node_b: node_b.record.clone(),
                 int_a: link.int_a.clone(),
                 int_b: link.int_b.clone(),
-                bridge_a: bridge_a.clone(),
-                bridge_b: bridge_b.clone(),
-                veth_a: veth_a.clone(),
-                veth_b: veth_b.clone(),
                 tap_a: tap_a.clone(),
                 tap_b: tap_b.clone(),
             });
@@ -1292,78 +1276,43 @@ pub async fn up_lab(
                 "Creating point-to-point link"
             );
 
-            if link.p2p {
-                // P2p link: for VMs, libvirt creates the tap devices via type='ethernet'.
-                // A container end is a veth created into the container's netns once it has
-                // started, its host end named as the tap. eBPF redirect is attached once both
-                // ends exist.
+            // P2p link: for VMs, libvirt creates the tap devices via type='ethernet'.
+            // A container end is a veth created into the container's netns once it has
+            // started, its host end named as the tap. eBPF redirect is attached once both
+            // ends exist.
 
-                if node_a.kind == data::NodeKind::Container {
-                    p2p_container_veths.push(P2pContainerVeth {
-                        node_name: link.node_a.clone(),
-                        host_veth: tap_a.clone(),
-                        host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_a, link.int_a),
-                        interface_idx: link.int_a_idx,
-                        node_model: link.node_a_model,
-                        admin_down: false,
-                        bridge: None,
-                    });
-                    p2p_container_names.insert(link.node_a.clone());
-                }
-
-                if node_b.kind == data::NodeKind::Container {
-                    p2p_container_veths.push(P2pContainerVeth {
-                        node_name: link.node_b.clone(),
-                        host_veth: tap_b.clone(),
-                        host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_b, link.int_b),
-                        interface_idx: link.int_b_idx,
-                        node_model: link.node_b_model,
-                        admin_down: false,
-                        bridge: None,
-                    });
-                    p2p_container_names.insert(link.node_b.clone());
-                }
-
-                tracing::info!(
-                    lab_id = %lab_id,
-                    tap_a = %tap_a,
-                    tap_b = %tap_b,
-                    "P2p link registered — eBPF redirect will attach after node creation"
-                );
-            } else {
-                // PeerBridge link: create bridges + veth pair (existing behavior)
-                network::create_bridge(
-                    &bridge_a,
-                    &format!("{}-bridge-{}::{}", lab_id, link.node_a, link.int_a),
-                )
-                .await?;
-
-                network::create_bridge(
-                    &bridge_b,
-                    &format!("{}-bridge-{}::{}", lab_id, link.node_b, link.int_b),
-                )
-                .await?;
-
-                network::create_veth_pair(
-                    &veth_a,
-                    &veth_b,
-                    &format!("{}-veth-{}::{}", lab_id, link.node_a, link.int_a),
-                    &format!("{}-veth-{}::{}", lab_id, link.node_b, link.int_b),
-                )
-                .await?;
-
-                network::enslave_to_bridge(&veth_a, &bridge_a).await?;
-                network::enslave_to_bridge(&veth_b, &bridge_b).await?;
-
-                tracing::debug!(
-                    lab_id = %lab_id,
-                    bridge_a = %bridge_a,
-                    bridge_b = %bridge_b,
-                    veth_a = %veth_a,
-                    veth_b = %veth_b,
-                    "Created PeerBridge link infrastructure"
-                );
+            if node_a.kind == data::NodeKind::Container {
+                p2p_container_veths.push(P2pContainerVeth {
+                    node_name: link.node_a.clone(),
+                    host_veth: tap_a.clone(),
+                    host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_a, link.int_a),
+                    interface_idx: link.int_a_idx,
+                    node_model: link.node_a_model,
+                    admin_down: false,
+                    bridge: None,
+                });
+                p2p_container_names.insert(link.node_a.clone());
             }
+
+            if node_b.kind == data::NodeKind::Container {
+                p2p_container_veths.push(P2pContainerVeth {
+                    node_name: link.node_b.clone(),
+                    host_veth: tap_b.clone(),
+                    host_alias: format!("{}-p2p-host-{}::{}", lab_id, link.node_b, link.int_b),
+                    interface_idx: link.int_b_idx,
+                    node_model: link.node_b_model,
+                    admin_down: false,
+                    bridge: None,
+                });
+                p2p_container_names.insert(link.node_b.clone());
+            }
+
+            tracing::info!(
+                lab_id = %lab_id,
+                tap_a = %tap_a,
+                tap_b = %tap_b,
+                "P2p link registered — eBPF redirect will attach after node creation"
+            );
         }
 
         tracing::info!(
@@ -1409,72 +1358,17 @@ pub async fn up_lab(
         phases_completed.push("LinkCreation".to_string());
 
         // ========================================================================
-        // PHASE 6: Docker Container Link Networks
+        // PHASE 6: Docker networks for disabled interfaces of containers with no links
         // ========================================================================
         operation.ensure_active()?;
         let _ = progress.send_phase(
             data::UpPhase::ContainerNetworks,
-            "Creating Docker networks for container links".to_string(),
+            "Creating Docker networks for disabled container interfaces".to_string(),
         );
 
-        tracing::info!(lab_id = %lab_id, "Creating Docker networks for container-connected bridges");
+        tracing::info!(lab_id = %lab_id, "Creating Docker networks for disabled container interfaces");
 
         let mut docker_net_count = 0;
-        for link_data in &lab_link_data {
-            // P2p links handle container networking via veth netns move, not Docker macvlan
-            if link_data.kind == data::BridgeKind::P2p {
-                continue;
-            }
-
-            let node_a_data = lab_node_data
-                .iter()
-                .find(|n| n.record.id == link_data.node_a.id)
-                .ok_or_else(|| anyhow!("Node A not found in lab_node_data"))?;
-
-            let node_b_data = lab_node_data
-                .iter()
-                .find(|n| n.record.id == link_data.node_b.id)
-                .ok_or_else(|| anyhow!("Node B not found in lab_node_data"))?;
-
-            if node_a_data.kind == data::NodeKind::Container {
-                let docker_net_name =
-                    format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-                tracing::info!(
-                    lab_id = %lab_id,
-                    node = %node_a_data.name,
-                    network = %docker_net_name,
-                    bridge = %link_data.bridge_a,
-                    "Creating Docker macvlan network"
-                );
-                container::create_docker_macvlan_network(
-                    &docker_conn,
-                    &link_data.bridge_a,
-                    &docker_net_name,
-                )
-                .await?;
-                docker_net_count += 1;
-            }
-
-            if node_b_data.kind == data::NodeKind::Container {
-                let docker_net_name =
-                    format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-                tracing::info!(
-                    lab_id = %lab_id,
-                    node = %node_b_data.name,
-                    network = %docker_net_name,
-                    bridge = %link_data.bridge_b,
-                    "Creating Docker macvlan network"
-                );
-                container::create_docker_macvlan_network(
-                    &docker_conn,
-                    &link_data.bridge_b,
-                    &docker_net_name,
-                )
-                .await?;
-                docker_net_count += 1;
-            }
-        }
-
         // Create Docker macvlan bridge-mode networks for disabled interfaces on container nodes
         for nsd in &node_setup_data {
             let iso_network = match &nsd.isolated_network {
@@ -1914,7 +1808,6 @@ pub async fn up_lab(
                             mtu: node_image.interface_mtu,
                             mac_address: ztp_result.mac_address.clone(),
                             connection_type: data::ConnectionTypes::Management,
-                            interface_connection: None,
                         });
                     }
                     data::NodeInterface::Reserved => {
@@ -1924,7 +1817,6 @@ pub async fn up_lab(
                             mtu: node_image.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::Reserved,
-                            interface_connection: None,
                         });
                     }
                     data::NodeInterface::Bridge(bridge) => {
@@ -1934,55 +1826,24 @@ pub async fn up_lab(
                             mtu: node_image.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::PrivateBridge,
-                            interface_connection: None,
                         });
                     }
                     data::NodeInterface::Peer(peer) => {
-                        let local_id = peer.this_node_index as u8;
-                        let source_id = peer.peer_node_index as u8;
-                        let interface_connection = data::InterfaceConnection {
-                            local_id: peer.this_node_index,
-                            local_port: util::id_to_port(local_id),
-                            local_loopback: util::get_ip(&loopback_subnet, local_id).to_string(),
-                            source_id: peer.peer_node_index,
-                            source_port: util::id_to_port(source_id),
-                            source_loopback: util::get_ip(&loopback_subnet, source_id).to_string(),
+                        let tap_name = match peer.this_side {
+                            data::PeerSide::A => {
+                                format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                            }
+                            data::PeerSide::B => {
+                                format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                            }
                         };
-                        if peer.p2p {
-                            let tap_name = match peer.this_side {
-                                data::PeerSide::A => {
-                                    format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
-                                }
-                                data::PeerSide::B => {
-                                    format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
-                                }
-                            };
-                            interfaces.push(data::Interface {
-                                name: tap_name,
-                                num: interface.index,
-                                mtu: node_image.interface_mtu,
-                                mac_address: util::random_mac(KVM_OUI),
-                                connection_type: data::ConnectionTypes::P2p,
-                                interface_connection: Some(interface_connection),
-                            });
-                        } else {
-                            let bridge_name = match peer.this_side {
-                                data::PeerSide::A => {
-                                    format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                                }
-                                data::PeerSide::B => {
-                                    format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                                }
-                            };
-                            interfaces.push(data::Interface {
-                                name: bridge_name,
-                                num: interface.index,
-                                mtu: node_image.interface_mtu,
-                                mac_address: util::random_mac(KVM_OUI),
-                                connection_type: data::ConnectionTypes::PeerBridge,
-                                interface_connection: Some(interface_connection),
-                            });
-                        }
+                        interfaces.push(data::Interface {
+                            name: tap_name,
+                            num: interface.index,
+                            mtu: MTU_JUMBO_NET,
+                            mac_address: util::random_mac(KVM_OUI),
+                            connection_type: data::ConnectionTypes::P2p,
+                        });
                     }
                     data::NodeInterface::Disabled => {
                         interfaces.push(data::Interface {
@@ -1994,7 +1855,6 @@ pub async fn up_lab(
                             mtu: node_image.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::Disabled,
-                            interface_connection: None,
                         });
                     }
                 }
@@ -2131,7 +1991,6 @@ pub async fn up_lab(
                                 mtu: node_image.interface_mtu,
                                 mac_address: setup_result.mac_address.clone(),
                                 connection_type: data::ConnectionTypes::Management,
-                                interface_connection: None,
                             });
                         }
                         data::NodeInterface::Reserved => {
@@ -2141,7 +2000,6 @@ pub async fn up_lab(
                                 mtu: node_image.interface_mtu,
                                 mac_address: util::random_mac(KVM_OUI),
                                 connection_type: data::ConnectionTypes::Reserved,
-                                interface_connection: None,
                             });
                         }
                         data::NodeInterface::Bridge(bridge) => {
@@ -2151,57 +2009,24 @@ pub async fn up_lab(
                                 mtu: node_image.interface_mtu,
                                 mac_address: util::random_mac(KVM_OUI),
                                 connection_type: data::ConnectionTypes::PrivateBridge,
-                                interface_connection: None,
                             });
                         }
                         data::NodeInterface::Peer(peer) => {
-                            let local_id = peer.this_node_index as u8;
-                            let source_id = peer.peer_node_index as u8;
-                            let interface_connection = data::InterfaceConnection {
-                                local_id: peer.this_node_index,
-                                local_port: util::id_to_port(local_id),
-                                local_loopback: util::get_ip(&loopback_subnet, local_id)
-                                    .to_string(),
-                                source_id: peer.peer_node_index,
-                                source_port: util::id_to_port(source_id),
-                                source_loopback: util::get_ip(&loopback_subnet, source_id)
-                                    .to_string(),
+                            let tap_name = match peer.this_side {
+                                data::PeerSide::A => {
+                                    format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                }
+                                data::PeerSide::B => {
+                                    format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
+                                }
                             };
-                            if peer.p2p {
-                                let tap_name = match peer.this_side {
-                                    data::PeerSide::A => {
-                                        format!("{}a{}-{}", TAP_PREFIX, peer.link_index, lab_id)
-                                    }
-                                    data::PeerSide::B => {
-                                        format!("{}b{}-{}", TAP_PREFIX, peer.link_index, lab_id)
-                                    }
-                                };
-                                interfaces.push(data::Interface {
-                                    name: tap_name,
-                                    num: interface.index,
-                                    mtu: node_image.interface_mtu,
-                                    mac_address: util::random_mac(KVM_OUI),
-                                    connection_type: data::ConnectionTypes::P2p,
-                                    interface_connection: Some(interface_connection),
-                                });
-                            } else {
-                                let bridge_name = match peer.this_side {
-                                    data::PeerSide::A => {
-                                        format!("{}a{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                                    }
-                                    data::PeerSide::B => {
-                                        format!("{}b{}-{}", BRIDGE_PREFIX, peer.link_index, lab_id)
-                                    }
-                                };
-                                interfaces.push(data::Interface {
-                                    name: bridge_name,
-                                    num: interface.index,
-                                    mtu: node_image.interface_mtu,
-                                    mac_address: util::random_mac(KVM_OUI),
-                                    connection_type: data::ConnectionTypes::PeerBridge,
-                                    interface_connection: Some(interface_connection),
-                                });
-                            }
+                            interfaces.push(data::Interface {
+                                name: tap_name,
+                                num: interface.index,
+                                mtu: MTU_JUMBO_NET,
+                                mac_address: util::random_mac(KVM_OUI),
+                                connection_type: data::ConnectionTypes::P2p,
+                            });
                         }
                         data::NodeInterface::Disabled => {
                             interfaces.push(data::Interface {
@@ -2213,7 +2038,6 @@ pub async fn up_lab(
                                 mtu: node_image.interface_mtu,
                                 mac_address: util::random_mac(KVM_OUI),
                                 connection_type: data::ConnectionTypes::Disabled,
-                                interface_connection: None,
                             });
                         }
                     }
@@ -2593,54 +2417,7 @@ pub async fn up_lab(
         let mut container_link_networks: HashMap<String, Vec<data::ContainerNetworkAttachment>> =
             HashMap::new();
 
-        // Step 1: Build a lookup of (node_name, interface_name) -> docker_network_name
-        // from the link data for container nodes.
-        let mut container_link_net_lookup: HashMap<(String, String), String> = HashMap::new();
-        for link_data in &lab_link_data {
-            // P2p links handle container networking via veth netns move, not Docker networks
-            if link_data.kind == data::BridgeKind::P2p {
-                continue;
-            }
-
-            let node_a_data = lab_node_data
-                .iter()
-                .find(|n| n.record.id == link_data.node_a.id)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Node A not found in lab_node_data for link index {}",
-                        link_data.index
-                    )
-                })?;
-            let node_b_data = lab_node_data
-                .iter()
-                .find(|n| n.record.id == link_data.node_b.id)
-                .ok_or_else(|| {
-                    anyhow!(
-                        "Node B not found in lab_node_data for link index {}",
-                        link_data.index
-                    )
-                })?;
-
-            if node_a_data.kind == data::NodeKind::Container {
-                let docker_net_name =
-                    format!("{}-etha{}-{}", node_a_data.name, link_data.index, lab_id);
-                container_link_net_lookup.insert(
-                    (node_a_data.name.clone(), link_data.int_a.clone()),
-                    docker_net_name,
-                );
-            }
-
-            if node_b_data.kind == data::NodeKind::Container {
-                let docker_net_name =
-                    format!("{}-ethb{}-{}", node_b_data.name, link_data.index, lab_id);
-                container_link_net_lookup.insert(
-                    (node_b_data.name.clone(), link_data.int_b.clone()),
-                    docker_net_name,
-                );
-            }
-        }
-
-        // Step 2: Walk each container node's interfaces in index order.
+        // Walk each container node's interfaces in index order.
         // For each data interface, produce a ContainerNetworkAttachment with
         // the correct docker network name and linux_interface_name.
         for nsd in &node_setup_data {
@@ -2660,7 +2437,6 @@ pub async fn up_lab(
                 &nsd.name,
                 &node_data.model,
                 &nsd.interfaces,
-                &container_link_net_lookup,
                 lab_id,
             )
             .with_context(|| {

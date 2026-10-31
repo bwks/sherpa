@@ -988,6 +988,7 @@ async fn handle_resume(
 /// Handle "link.update_impairment" RPC call — update link impairment on a running P2p link
 ///
 /// Expected params: {"lab_id": "string", "link_index": number, "token": "string",
+///   "direction": "both" | "src_to_dst" | "dst_to_src" (default "both"),
 ///   "delay": number, "jitter": number, "loss_percent": number,
 ///   "reorder_percent": number, "corrupt_percent": number}
 async fn handle_link_update_impairment(
@@ -1041,9 +1042,30 @@ async fn handle_link_update_impairment(
         }
     };
 
+    let direction = match params.get("direction") {
+        None => data::ImpairmentDirection::Both,
+        Some(value) => match serde_json::from_value(value.clone()) {
+            Ok(direction) => direction,
+            Err(e) => {
+                return ServerMessage::RpcResponse {
+                    id,
+                    result: None,
+                    error: Some(RpcError {
+                        code: RpcErrorCode::InvalidParams,
+                        message: RPC_MSG_INVALID_PARAMS_IMPAIRMENT.to_string(),
+                        context: Some(format!(
+                            "direction must be both, src_to_dst or dst_to_src: {e}"
+                        )),
+                    }),
+                };
+            }
+        },
+    };
+
     let request = data::UpdateImpairmentRequest {
         lab_id,
         link_index,
+        direction,
         delay: params.get("delay").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         jitter: params.get("jitter").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
         loss_percent: params

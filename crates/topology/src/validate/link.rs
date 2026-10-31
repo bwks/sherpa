@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::{Result, bail};
 
-use crate::{BridgeDetailed, LinkDetailed, Node};
+use crate::{BridgeDetailed, Link2, LinkDetailed, Node};
 use shared::data::NodeModel;
 
 /// Checks if any links or bridges use the management interface (index 0) on a node.
@@ -99,6 +99,22 @@ fn check_device_interface(
         }
         None => {
             device_int_map.insert(device.to_string(), vec![interface]);
+        }
+    }
+    Ok(())
+}
+
+/// Rejects the removed `p2p` link setting. Every link is a P2p (eBPF) link, so a manifest that
+/// still sets it, either way, is told to delete it rather than having it silently ignored.
+pub fn check_no_p2p_field(links: &[Link2]) -> Result<()> {
+    for link in links {
+        if link.p2p.is_some() {
+            bail!(
+                "Manifest link - {} <-> {} sets `p2p`, which has been removed: every link is now \
+                 a P2p (eBPF) link. Delete `p2p` from the link",
+                link.src,
+                link.dst
+            );
         }
     }
     Ok(())
@@ -272,8 +288,35 @@ mod tests {
             int_b: "test".to_string(),
             int_b_idx: int_b,
             link_idx: 0,
-            p2p: false,
             impairment: None,
+        }
+    }
+
+    fn manifest_link(src: &str, dst: &str, p2p: Option<bool>) -> Link2 {
+        Link2 {
+            src: src.to_string(),
+            dst: dst.to_string(),
+            p2p,
+            impairment: None,
+        }
+    }
+
+    #[test]
+    fn test_links_without_p2p_field_pass() {
+        let links = vec![manifest_link("dev01::eth1", "dev02::eth1", None)];
+        assert!(check_no_p2p_field(&links).is_ok());
+    }
+
+    #[test]
+    fn test_p2p_field_is_rejected_either_way() {
+        for value in [true, false] {
+            let links = vec![
+                manifest_link("dev01::eth1", "dev02::eth1", None),
+                manifest_link("dev01::eth2", "dev03::eth1", Some(value)),
+            ];
+            let error = check_no_p2p_field(&links).unwrap_err().to_string();
+            assert!(error.contains("dev01::eth2 <-> dev03::eth1"), "{error}");
+            assert!(error.contains("Delete `p2p`"), "{error}");
         }
     }
 

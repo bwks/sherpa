@@ -8,31 +8,22 @@ The server crate is `crates/server`. It sits above the infrastructure crates (`d
 
 At runtime, Sherpa is a single server process with multiple public transports and several infrastructure backends.
 
-```text
-+------------------+   HTTPS + cookie / HTML + SSE   +---------------------------+
-| Browser UI       | <------------------------------> |                           |
-| Askama + HTMX    |                                  |                           |
-+------------------+                                  |                           |
-                                                      |          sherpad          |
-+------------------+   WebSocket JSON-RPC             |       crates/server       |
-| sherpa CLI       | <------------------------------> |                           |
-| client crate     |   token in RPC params            |  Axum router             |
-+------------------+                                  |  REST handlers           |
-                                                      |  WebSocket RPC           |
-+------------------+   REST + Bearer JWT              |  SSE progress streams    |
-| API clients      | <------------------------------> |  service layer           |
-+------------------+                                  |  scanner task            |
-                                                      +-------------+-------------+
-                                                                    |
-                                                                    v
-                                    +-------------------------------+-------------------------------+
-                                    |                         Backend APIs                         |
-                                    |                                                               |
-                                    |  SurrealDB:      users, labs, nodes, links, image records     |
-                                    |  libvirt/QEMU:   VM/unikernel domains, networks, disks        |
-                                    |  Docker daemon:  containers, images, Docker networks          |
-                                    |  Linux host:     bridges, veths, taps, impairment plumbing    |
-                                    +---------------------------------------------------------------+
+```mermaid
+flowchart LR
+    browser["Browser UI<br/>Askama + HTMX"]
+    cli["sherpa CLI<br/>client crate"]
+    apiclients["API clients"]
+    sherpad["sherpad<br/>crates/server<br/>Axum router<br/>REST handlers<br/>WebSocket RPC<br/>SSE progress streams<br/>service layer<br/>scanner task"]
+    subgraph backends["Backend APIs"]
+        surreal["SurrealDB:<br/>users, labs, nodes, links, image records"]
+        libvirt["libvirt/QEMU:<br/>VM/unikernel domains, networks, disks"]
+        docker["Docker daemon:<br/>containers, images, Docker networks"]
+        linuxhost["Linux host:<br/>bridges, veths, taps, impairment plumbing"]
+    end
+    browser <-->|"HTTPS + cookie / HTML + SSE"| sherpad
+    cli <-->|"WebSocket JSON-RPC<br/>token in RPC params"| sherpad
+    apiclients <-->|"REST + Bearer JWT"| sherpad
+    sherpad --> backends
 ```
 
 The public API surface is intentionally transport-agnostic at the data-model level. Request/response types live in `shared`, and the generated API registry in `crates/shared/src/api_spec.rs` describes how those operations map to REST, WebSocket RPC, and CLI commands. The implementation is not fully generated from the registry yet, but the registry is the intended public contract source of truth.
@@ -41,64 +32,25 @@ The public API surface is intentionally transport-agnostic at the data-model lev
 
 The server code is layered like this:
 
-```text
-+---------------------------------------------------------------------+
-|                         Transport layer                              |
-|                                                                     |
-|  api/router.rs                                                      |
-|  +- HTML routes: pages, forms, HTMX fragments                       |
-|  +- REST routes: /api/v1/...                                        |
-|  +- WebSocket route: /ws                                            |
-|  `- static assets: rust_embed catch-all                             |
-+-------------------------------+-------------------------------------+
-                                |
-                                v
-+---------------------------------------------------------------------+
-|                  Request/Auth/Response boundary                      |
-|                                                                     |
-|  api/handlers.rs                                                    |
-|  api/extractors.rs                                                  |
-|  api/websocket/rpc.rs                                               |
-|  auth/{jwt,cookies,middleware,context}.rs                           |
-|                                                                     |
-|  Responsibilities:                                                  |
-|  - parse path/query/body/form/multipart data                        |
-|  - authenticate cookies, bearer tokens, or RPC params.token          |
-|  - pass the caller's AuthContext to services                        |
-|  - construct service request structs                                |
-|  - convert service results into HTML, JSON, SSE, or RPC responses    |
-+-------------------------------+-------------------------------------+
-                                |
-                                v
-+---------------------------------------------------------------------+
-|                         Service layer                                |
-|                                                                     |
-|  services/up.rs          services/destroy.rs                        |
-|  services/down.rs        services/resume.rs                         |
-|  services/redeploy.rs    services/inspect.rs                        |
-|  services/import.rs      services/container_pull.rs                 |
-|  services/impairment.rs  services/scanner.rs                        |
-|                                                                     |
-|  Responsibilities:                                                  |
-|  - orchestrate db/libvirt/docker/network/template/topology/validate  |
-|  - emit progress updates for long-running operations                 |
-|  - maintain operation-level rollback/best-effort cleanup semantics   |
-|  - return shared request/response models                            |
-+-------------------------------+-------------------------------------+
-                                |
-                                v
-+---------------------------------------------------------------------+
-|                    Infrastructure and domain crates                  |
-|                                                                     |
-|  db         SurrealDB schema and CRUD                               |
-|  libvirt    QEMU/libvirt domain, network, storage operations         |
-|  container  Docker/Bollard operations                               |
-|  network    Linux bridges, veths, taps, impairment helpers           |
-|  topology   manifest transformation                                 |
-|  validate   validation of caller-provided manifest data              |
-|  template   generated configs/XML/scripts                           |
-|  shared     public models, constants, utilities, API spec            |
-+---------------------------------------------------------------------+
+```mermaid
+flowchart TB
+    subgraph transport["Transport layer"]
+        router["api/router.rs<br/>HTML routes: pages, forms, HTMX fragments<br/>REST routes: /api/v1/...<br/>WebSocket route: /ws<br/>static assets: rust_embed catch-all"]
+    end
+    subgraph boundary["Request/Auth/Response boundary"]
+        boundaryfiles["api/handlers.rs<br/>api/extractors.rs<br/>api/websocket/rpc.rs<br/>auth/{jwt,cookies,middleware,context}.rs"]
+        boundaryduties["Responsibilities:<br/>parse path/query/body/form/multipart data<br/>authenticate cookies, bearer tokens, or RPC params.token<br/>pass the caller's AuthContext to services<br/>construct service request structs<br/>convert service results into HTML, JSON, SSE, or RPC responses"]
+    end
+    subgraph servicelayer["Service layer"]
+        servicefiles["services/up.rs, services/destroy.rs<br/>services/down.rs, services/resume.rs<br/>services/redeploy.rs, services/inspect.rs<br/>services/import.rs, services/container_pull.rs<br/>services/impairment.rs, services/scanner.rs"]
+        serviceduties["Responsibilities:<br/>orchestrate db/libvirt/docker/network/template/topology/validate<br/>emit progress updates for long-running operations<br/>maintain operation-level rollback/best-effort cleanup semantics<br/>return shared request/response models"]
+    end
+    subgraph infra["Infrastructure and domain crates"]
+        crates["db: SurrealDB schema and CRUD<br/>libvirt: QEMU/libvirt domain, network, storage operations<br/>container: Docker/Bollard operations<br/>network: Linux bridges, veths, taps, impairment helpers<br/>topology: manifest transformation<br/>topology::validate: validation of caller-provided manifest data<br/>template: generated configs/XML/scripts<br/>shared: public models, constants, utilities, API spec"]
+    end
+    transport --> boundary
+    boundary --> servicelayer
+    servicelayer --> infra
 ```
 
 The important boundary is between handlers and services. Handlers know about transports and authentication. Services know about orchestration. Infrastructure crates know how to talk to their backend, but should not know about HTTP, cookies, WebSocket message IDs, or HTMX fragments.
@@ -107,88 +59,74 @@ The important boundary is between handlers and services. Handlers know about tra
 
 The binary entry point is `crates/server/src/main.rs`. Its job is intentionally small: initialize rustls, detect the internal background-child mode, parse the `sherpad` CLI, and dispatch to daemon management.
 
-```text
-sherpad process start
-        |
-        v
-main.rs
-  +- install rustls ring crypto provider
-  +- if argv[1] == "--background-child"
-  |     `- daemon::manager::run_background_child()
-  `- parse Cli from cli.rs
-        |
-        +- init      -> init::init(...)
-        +- doctor    -> doctor::doctor(...)
-        +- start     -> daemon::manager::start_daemon(foreground)
-        +- stop      -> daemon::manager::stop_daemon(force)
-        +- restart   -> daemon::manager::restart_daemon(foreground)
-        +- status    -> daemon::manager::status_daemon()
-        `- logs      -> daemon::manager::logs_daemon(follow)
+```mermaid
+flowchart TB
+    start["sherpad process start"] --> mainrs["main.rs"]
+    mainrs --> rustls["install rustls aws-lc-rs crypto provider"]
+    rustls --> bgcheck{"argv[1] == --background-child?"}
+    bgcheck -->|yes| bgchild["daemon::manager::run_background_child()"]
+    bgcheck -->|no| parse["parse Cli from cli.rs"]
+    parse -->|init| init["init::init(...)"]
+    parse -->|doctor| doctor["doctor::doctor(...)"]
+    parse -->|start| startd["daemon::manager::start_daemon(foreground)"]
+    parse -->|stop| stopd["daemon::manager::stop_daemon(force)"]
+    parse -->|restart| restartd["daemon::manager::restart_daemon(foreground)"]
+    parse -->|status| statusd["daemon::manager::status_daemon()"]
+    parse -->|logs| logsd["daemon::manager::logs_daemon(follow)"]
 ```
 
 Daemon mode is implemented in `crates/server/src/daemon/manager.rs`:
 
-```text
-sherpad start
-    |
-    +- ensure run/log dirs exist
-    +- verify no live PID file exists
-    |
-    +- foreground=true
-    |     +- write PID file
-    |     +- run_server(true)
-    |     `- remove PID file on exit
-    |
-    `- foreground=false
-          +- spawn current executable with --background-child
-          +- child writes its PID file
-          +- parent verifies child is still alive
-          `- parent exits
+```mermaid
+flowchart TB
+    start["sherpad start"] --> dirs["ensure run/log dirs exist"]
+    dirs --> pidcheck["verify no live PID file exists"]
+    pidcheck --> mode{"foreground?"}
+    mode -->|"foreground=true"| writepid["write PID file"]
+    writepid --> runserver["run_server(true)"]
+    runserver --> removepid["remove PID file on exit"]
+    mode -->|"foreground=false"| spawnchild["spawn current executable with --background-child"]
+    spawnchild --> childpid["child writes its PID file"]
+    childpid --> verify["parent verifies child is still alive"]
+    verify --> parentexit["parent exits"]
 ```
 
 The real server runtime is built by `crates/server/src/daemon/server.rs`:
 
-```text
-run_server(foreground)
-    |
-    +- load sherpa.toml
-    +- build tracing filter from RUST_LOG or default to info
-    +- if [otel].enabled
-    |     +- initialize OTLP trace exporter
-    |     +- initialize OTLP metric exporter
-    |     `- attach tracing-opentelemetry layer
-    +- configure logging
-    |     +- foreground: compact stdout/stderr formatter
-    |     `- daemon: compact file formatter
-    +- install SIGINT and SIGTERM handlers (startup fails if registration fails)
-    +- apply env overrides
-    |     +- SHERPA_SERVER_IPV4
-    |     +- SHERPA_SERVER_IPV6
-    |     +- SHERPA_SERVER_WS_PORT
-    |     `- SHERPA_SERVER_HTTP_PORT
-    +- AppState::new(config, metrics)
-    |     +- load/generate JWT secret
-    |     +- connect SurrealDB
-    |     +- apply DB schema
-    |     +- optionally seed admin user
-    |     +- restrict lab storage directories (daemon::storage::secure_lab_storage)
-    |     +- initialize Qemu wrapper
-    |     +- connect Docker client
-    |     `- create WebSocket registry and pending-job map
-    +- create CancellationToken for background services
-    +- if scanner enabled: spawn services::scanner::run_scanner(...)
-    +- build Axum router and add /ws route
-    +- if TLS enabled
-    |     +- compute certificate SANs if none configured
-    |     +- ensure certificate/key exist
-    |     +- start HTTP /cert listener
-    |     +- optionally start IPv6 HTTP /cert listener
-    |     +- optionally spawn IPv6 TLS listener
-    |     `- serve main IPv4 TLS listener with graceful shutdown handle
-    `- if TLS disabled
-          +- bind plain IPv4 listener
-          +- optionally spawn IPv6 listener
-          `- serve with graceful shutdown future
+```mermaid
+flowchart TB
+    runserver["run_server(foreground)"] --> config["load sherpa.toml"]
+    config --> filter["build tracing filter from RUST_LOG or default to info"]
+    filter --> otel{"[otel].enabled?"}
+    subgraph otelinit["OTel"]
+        traceexp["initialize OTLP trace exporter"] --> metricexp["initialize OTLP metric exporter"] --> otellayer["attach tracing-opentelemetry layer"]
+    end
+    otel -->|yes| traceexp
+    otel -->|no| logging
+    otellayer --> logging{"configure logging"}
+    logging -->|foreground| stdoutfmt["compact stdout/stderr formatter"]
+    logging -->|daemon| filefmt["compact file formatter"]
+    stdoutfmt --> signals
+    filefmt --> signals
+    signals["install SIGINT and SIGTERM handlers<br/>(startup fails if registration fails)"]
+    signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
+    envoverrides --> jwt
+    subgraph appstate["AppState::new(config, metrics)"]
+        jwt["load/generate JWT secret"] --> surreal["connect SurrealDB"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab storage directories<br/>(daemon::storage::secure_lab_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+    end
+    registry --> cancel["create CancellationToken for background services"]
+    cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
+    scanner --> router["build Axum router and add /ws route"]
+    router --> tls{"TLS enabled?"}
+    tls -->|yes| sans["compute certificate SANs if none configured"]
+    sans --> ensurecert["ensure certificate/key exist"]
+    ensurecert --> certlistener["start HTTP /cert listener"]
+    certlistener --> certlistener6["optionally start IPv6 HTTP /cert listener"]
+    certlistener6 --> tls6["optionally spawn IPv6 TLS listener"]
+    tls6 --> servetls["serve main IPv4 TLS listener with graceful shutdown handle"]
+    tls -->|no| bindplain["bind plain IPv4 listener"]
+    bindplain --> plain6["optionally spawn IPv6 listener"]
+    plain6 --> serveplain["serve with graceful shutdown future"]
 ```
 
 Shutdown uses SIGINT/SIGTERM. The handlers are registered once, before the server binds any listener, so a registration failure stops startup with an error instead of leaving a server that cannot shut down gracefully. On shutdown, the server cancels the background-service token. With TLS, it also asks the `axum_server::Handle` to perform graceful shutdown with a short timeout. The OpenTelemetry guard flushes traces/metrics when dropped.
@@ -237,28 +175,17 @@ readable by other server users or the `sherpa` group.
 
 `AppState` is the dependency graph passed into Axum handlers and cloned into async tasks. It is defined in `crates/server/src/daemon/state.rs`.
 
-```text
-                         +------------------------------+
-                         |           AppState            |
-                         +--------------+---------------+
-                                        |
-        +-------------------------------+-------------------------------+
-        |                               |                               |
-        v                               v                               v
-+----------------+              +----------------+              +----------------+
-| db             |              | qemu           |              | docker         |
-| Arc<Surreal>   |              | Arc<Qemu>      |              | Arc<Docker>    |
-|                |              |                |              |                |
-| users/labs     |              | domains        |              | containers     |
-| nodes/images   |              | networks/disks |              | images/networks|
-+----------------+              +----------------+              +----------------+
-                                        |
-                                        v
-+------------------------------------------------------------------------+
-| Other shared state                                                     |
-|                                                                        |
-| config, jwt_secret, WebSocket connections, metrics, pending SSE jobs   |
-+------------------------------------------------------------------------+
+```mermaid
+flowchart TB
+    appstate["AppState"]
+    db["db<br/>Arc#lt;Surreal#gt;<br/>users/labs<br/>nodes/images"]
+    qemu["qemu<br/>Arc#lt;Qemu#gt;<br/>domains<br/>networks/disks"]
+    docker["docker<br/>Arc#lt;Docker#gt;<br/>containers<br/>images/networks"]
+    other["Other shared state<br/>config, jwt_secret, WebSocket connections, metrics, pending SSE jobs"]
+    appstate --> db
+    appstate --> qemu
+    appstate --> docker
+    appstate --> other
 ```
 
 The state object deliberately holds clients rather than opening new connections in every handler. Some libvirt operations still create short-lived libvirt connections through `Qemu::connect()` because libvirt calls are blocking FFI-style operations and are wrapped at the libvirt crate boundary.
@@ -280,32 +207,25 @@ The state object deliberately holds clients rather than opening new connections 
 
 Sherpa has three main public transports and one browser-specific HTML flow.
 
-```text
-                             +--------------------+
-                             |  build_router()     |
-                             | api/router.rs       |
-                             +---------+----------+
-                                       |
-        +------------------------------+------------------------------+
-        |                              |                              |
-        v                              v                              v
-+----------------+             +----------------+             +------------------+
-| HTML/HTMX UI   |             | REST JSON API  |             | WebSocket RPC    |
-| Askama output  |             | /api/v1/...    |             | /ws              |
-+-------+--------+             +-------+--------+             +--------+---------+
-        |                              |                               |
-        | cookie auth                  | bearer/cookie auth             | params.token auth
-        v                              v                               v
-+----------------+             +----------------+             +------------------+
-| HTML handlers  |             | REST handlers  |             | rpc.rs dispatcher|
-| templates.rs   |             | Json<T>/SSE    |             | ServerMessage    |
-+-------+--------+             +-------+--------+             +--------+---------+
-        |                              |                               |
-        +------------------------------+-------------------------------+
-                                       v
-                              +-----------------+
-                              | services/*.rs   |
-                              +-----------------+
+```mermaid
+flowchart TB
+    router["build_router()<br/>api/router.rs"]
+    html["HTML/HTMX UI<br/>Askama output"]
+    rest["REST JSON API<br/>/api/v1/..."]
+    ws["WebSocket RPC<br/>/ws"]
+    htmlhandlers["HTML handlers<br/>templates.rs"]
+    resthandlers["REST handlers<br/>Json#lt;T#gt;/SSE"]
+    rpc["rpc.rs dispatcher<br/>ServerMessage"]
+    services["services/*.rs"]
+    router --> html
+    router --> rest
+    router -->|"route added in daemon/server.rs"| ws
+    html -->|cookie auth| htmlhandlers
+    rest -->|"bearer/cookie auth"| resthandlers
+    ws -->|"params.token auth"| rpc
+    htmlhandlers --> services
+    resthandlers --> services
+    rpc --> services
 ```
 
 ### HTML/HTMX UI
@@ -321,27 +241,25 @@ HTML routes generally authenticate with `AuthenticatedUserFromCookie`. When auth
 
 The HTML job/progress flow looks like this:
 
-```text
-Browser submits form
-        |
-        v
-HTML POST handler
-        |
-        +- authenticate cookie
-        +- validate/shape input
-        +- create Job { lab_name, JobType }
-        +- insert into AppState.pending_jobs[job_id]
-        `- redirect browser to /jobs/{job_id}
-                |
-                v
-        Browser opens /jobs/{job_id}/stream
-                |
-                v
-        job_stream_handler consumes pending_jobs[job_id]
-                |
-                +- spawn service task
-                +- service writes progress to ProgressSender
-                `- api/sse.rs renders HTML SSE fragments for HTMX
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant H as HTML POST handler
+    participant P as AppState.pending_jobs
+    participant S as job_stream_handler
+    participant T as service task
+    participant E as api/sse.rs
+    B->>H: submit form
+    H->>H: authenticate cookie
+    H->>H: validate/shape input
+    H->>H: create Job { lab_name, JobType }
+    H->>P: insert pending_jobs[job_id]
+    H-->>B: redirect to /jobs/{job_id}
+    B->>S: open /jobs/{job_id}/stream
+    S->>P: consume pending_jobs[job_id]
+    S->>T: spawn service task
+    T->>E: write progress to ProgressSender
+    E-->>B: HTML SSE fragments for HTMX
 ```
 
 That `pending_jobs` map is intentionally a transient handoff, not persistent job storage. If the process dies, pending jobs are lost.
@@ -358,35 +276,29 @@ REST auth is implemented by `AuthenticatedUser` in `api/extractors.rs`. It tries
 
 The WebSocket stack lives under `api/websocket/`:
 
-```text
-GET /ws
-  |
-  v
-handler.rs::ws_handler
-  | upgrades connection
-  v
-handle_socket_inner
-  +- split WebSocket sender/receiver
-  +- create Connection { id, sender, subscribed_logs }
-  +- insert into AppState.connections
-  +- increment ws connection metric
-  +- send ConnectedMsg
-  `- loop over incoming ClientMessage
-        |
-        +- SubscribeLogs / UnsubscribeLogs
-        +- Pong
-        `- RpcRequest { id, method, params }
-              |
-              +- if streaming method:
-              |     spawn rpc::handle_streaming_rpc_request(...)
-              `- else:
-                    spawn rpc::handle_rpc_request(...)
+```mermaid
+flowchart TB
+    get["GET /ws"] --> wshandler["handler.rs::ws_handler"]
+    wshandler -->|upgrades connection| inner["handle_socket_inner"]
+    inner --> split["split WebSocket sender/receiver"]
+    split --> conn["create Connection { id, sender, subscribed_logs }"]
+    conn --> insert["insert into AppState.connections"]
+    insert --> metric["increment ws connection metric"]
+    metric --> connected["send ConnectedMsg"]
+    connected --> msgloop["loop over incoming ClientMessage"]
+    msgloop --> subs["SubscribeLogs / UnsubscribeLogs"]
+    msgloop --> pong["Pong"]
+    msgloop --> rpcreq["RpcRequest { id, method, params }"]
+    rpcreq --> streaming{"streaming method?"}
+    streaming -->|yes| streamrpc["spawn rpc::handle_streaming_rpc_request(...)"]
+    streaming -->|no| plainrpc["spawn rpc::handle_rpc_request(...)"]
 ```
 
 Streaming RPC methods currently include:
 
 - `up`
 - `destroy`
+- `resume`
 - `redeploy`
 - `image.import`
 - `image.pull`
@@ -401,20 +313,16 @@ Regular RPC methods return one `ServerMessage::RpcResponse`. Streaming methods s
 
 Long-running operations use a common progress channel pattern:
 
-```text
-REST/HTML handler or WebSocket RPC handler
-        |
-        +- create mpsc::unbounded_channel<Message>()
-        +- create ProgressSender(tx)
-        +- spawn service task or call service directly
-        |      |
-        |      `- service calls progress.send_status/send_phase(...)
-        |
-        `- stream receiver
-              |
-              +- REST JSON SSE: api/sse.rs::json_progress_stream
-              +- HTML SSE:     api/sse.rs::up_progress_stream / destroy_progress_stream
-              `- WebSocket:    forwarding task sends Message::Text to Connection
+```mermaid
+flowchart TB
+    handler["REST/HTML handler or WebSocket RPC handler"] --> channel["create mpsc::unbounded_channel#lt;Message#gt;()"]
+    channel --> sender["create ProgressSender(tx)"]
+    sender --> service["spawn service task or call service directly"]
+    service --> send["service calls progress.send_status/send_phase(...)"]
+    send --> receiver["stream receiver"]
+    receiver --> restsse["REST JSON SSE:<br/>api/sse.rs::json_progress_stream"]
+    receiver --> htmlsse["HTML SSE:<br/>api/sse.rs::up_progress_stream / destroy_progress_stream"]
+    receiver --> websocket["WebSocket:<br/>forwarding task sends Message::Text to Connection"]
 ```
 
 The service layer does not know if progress is ultimately going to a browser SSE stream, REST SSE stream, or WebSocket. It only sees `ProgressSender`.
@@ -423,44 +331,27 @@ The service layer does not know if progress is ultimately going to a browser SSE
 
 Authentication has three input paths but one shared JWT validation model.
 
-```text
-+--------------------+       +--------------------+       +--------------------+
-| Browser HTML       |       | REST API           |       | WebSocket RPC      |
-| Cookie: sherpa_auth|       | Bearer or cookie   |       | params.token       |
-+---------+----------+       +---------+----------+       +---------+----------+
-          |                            |                            |
-          v                            v                            v
-+--------------------+       +--------------------+       +--------------------+
-| AuthenticatedUser  |       | AuthenticatedUser  |       | authenticate_req   |
-| FromCookie/Admin   |       | api/extractors.rs  |       | auth/middleware.rs |
-| api/extractors.rs  |       |                    |       |                    |
-+---------+----------+       +---------+----------+       +---------+----------+
-          |                            |                            |
-          +----------------------------+----------------------------+
-                                       |
-                                       v
-                            +----------------------+
-                            | jwt::validate_token  |
-                            | auth/jwt.rs          |
-                            +----------+-----------+
-                                       |
-                                       v
-                            +----------------------+
-                            | auth::middleware::   |
-                            | resolve_user (DB)    |
-                            +----------+-----------+
-                                       |
-                                       v
-                            +----------------------+
-                            | AuthContext          |
-                            | username + is_admin  |
-                            +----------+-----------+
-                                       |
-                                       v
-                            +----------------------+
-                            | service              |
-                            | auth/policy.rs check |
-                            +----------------------+
+```mermaid
+flowchart TB
+    browser["Browser HTML<br/>Cookie: sherpa_auth"]
+    rest["REST API<br/>Bearer or cookie"]
+    rpc["WebSocket RPC<br/>params.token"]
+    cookieext["AuthenticatedUserFromCookie / AdminUser<br/>api/extractors.rs"]
+    restext["AuthenticatedUser<br/>api/extractors.rs"]
+    authreq["authenticate_request<br/>auth/middleware.rs"]
+    jwt["jwt::validate_token<br/>auth/jwt.rs"]
+    resolve["auth::middleware::resolve_user (DB)"]
+    ctx["AuthContext<br/>username + is_admin"]
+    service["service<br/>auth/policy.rs check"]
+    browser --> cookieext
+    rest --> restext
+    rpc --> authreq
+    cookieext --> jwt
+    restext --> jwt
+    authreq --> jwt
+    jwt --> resolve
+    resolve --> ctx
+    ctx --> service
 ```
 
 ### Identity comes from the database
@@ -522,203 +413,171 @@ Web UI create and destroy run as jobs: the POST queues a `Job` in `AppState::pen
 
 The services directory is the orchestration layer. Each service is built around a public async function that takes typed request data, `&AppState`, and sometimes a `ProgressSender`.
 
-```text
-+--------------------------------------------------------------------------------+
-|                                services/*.rs                                    |
-|                                                                                |
-|  orchestration, progress reporting, rollback, best-effort cleanup, summaries    |
-+-------------------------+--------------------------+---------------------------+
-                          |                          |
-                          |                          |
-                          v                          v
-+-------------------------+        +-----------------+---------------------------+
-| Persistence             |        | Runtime I/O                                 |
-|                         |        |                                             |
-| - db crate              |        | - libvirt crate: domains, disks, networks   |
-| - SurrealDB records     |        | - container crate: Docker/Bollard           |
-| - schema + CRUD         |        | - network crate: bridges, veths, taps       |
-+-------------------------+        +-----------------+---------------------------+
-                          |                          |
-                          |                          v
-                          |        +---------------------------------------------+
-                          |        | Transformation and generation               |
-                          |        |                                             |
-                          |        | - topology crate: manifest expansion        |
-                          |        | - topology::validate: manifest checks       |
-                          |        | - template crate: configs/XML/scripts       |
-                          |        +---------------------------------------------+
-                          |
-                          v
-+--------------------------------------------------------------------------------+
-| shared crate: public request/response models, constants, utility helpers, spec  |
-+--------------------------------------------------------------------------------+
+```mermaid
+flowchart TB
+    services["services/*.rs<br/>orchestration, progress reporting, rollback, best-effort cleanup, summaries"]
+    persistence["Persistence<br/>db crate<br/>SurrealDB records<br/>schema + CRUD"]
+    runtime["Runtime I/O<br/>libvirt crate: domains, disks, networks<br/>container crate: Docker/Bollard<br/>network crate: bridges, veths, taps"]
+    transform["Transformation and generation<br/>topology crate: manifest expansion<br/>topology::validate: manifest checks<br/>template crate: configs/XML/scripts"]
+    shared["shared crate: public request/response models, constants, utility helpers, spec"]
+    services --> persistence
+    services --> runtime
+    runtime --> transform
+    persistence --> shared
 ```
 
 The services are not symmetrical. Some are short CRUD-style orchestrators, and some are large lifecycle engines.
 
 ### Service categories
 
-```text
-Lifecycle services
-  +- up.rs          create a full lab and all resources
-  +- destroy.rs     remove a full lab and all resources
-  +- redeploy.rs    replace one node inside an existing lab
-  +- down.rs        stop all nodes or one node
-  `- resume.rs      start all nodes or one node
-
-Read/model services
-  +- inspect.rs     read DB + runtime data and build lab inspection output
-  +- list_labs.rs   list lab summaries for a user
-  `- download.rs    package saved lab files for client download
-
-Image/admin services
-  +- import.rs          image import/list/show/set-default/scan/download support
-  +- container_pull.rs  Docker/OCI image pull with progress
-  `- clean.rs           admin force-clean path
-
-Network mutation services
-  `- impairment.rs  update delay/jitter/loss/reorder/corrupt settings on P2P links
-
-Background service
-  `- scanner.rs     reconcile runtime state from Docker/libvirt into SurrealDB
-
-Shared helpers
-  +- node_ops.rs    common node setup/building helpers
-  `- progress.rs    progress message abstraction
-```
+| Category | Module | Purpose |
+|---|---|---|
+| Lifecycle services | `up.rs` | create a full lab and all resources |
+| | `destroy.rs` | remove a full lab and all resources |
+| | `redeploy.rs` | replace one node inside an existing lab |
+| | `down.rs` | stop all nodes or one node |
+| | `resume.rs` | start all nodes or one node |
+| Read/model services | `inspect.rs` | read DB + runtime data and build lab inspection output |
+| | `list_labs.rs` | list lab summaries for a user |
+| | `download.rs` | package saved lab files for client download |
+| Image/admin services | `import.rs` | image import/list/show/set-default/scan/download support |
+| | `container_pull.rs` | Docker/OCI image pull with progress |
+| | `clean.rs` | admin force-clean path |
+| Network mutation services | `impairment.rs` | update delay/jitter/loss/reorder/corrupt settings on P2P links |
+| Background service | `scanner.rs` | reconcile runtime state from Docker/libvirt into SurrealDB |
+| Shared helpers | `node_ops.rs` | common node setup/building helpers |
+| | `progress.rs` | progress message abstraction |
 
 ### Service call graph for lab creation
 
 `up.rs` is the largest orchestration module. Its job is to convert a validated manifest into persistent records, generated files, runtime networks, and running nodes.
 
-```text
-up_lab(&AuthContext, UpRequest, &AppState, ProgressSender)
-    |
-    +- Deserialize manifest JSON into topology::Manifest
-    +- Load current user from DB
-    +- Guard: lab_id must not already exist
-    +- Load node image records from DB
-    |
-    +- Manifest validation and expansion
-    |   +- topology::validate::check_duplicate_device
-    |   +- validate environment variables
-    |   +- container::get_local_images
-    |   +- validate::validate_and_resolve_node_versions (server)
-    |   +- process_manifest_nodes
-    |   +- process_manifest_links
-    |   +- process_manifest_bridges
-    |   +- validate management/reserved/data interface bounds
-    |   `- validate duplicate links and bridge endpoints
-    |
-    +- Persistent model construction
-    |   +- reserve_lab_networks (retried while concurrent labs win a subnet)
-    |   |   +- read host interface networks (IPv4 and IPv6)
-    |   |   +- allocate IPv4/IPv6 management subnets (not in DB, not overlapping host)
-    |   |   +- allocate IPv4/IPv6 loopback subnets (not in DB)
-    |   |   `- db::create_lab: unique subnet indexes make the insert the reservation
-    |   +- db::create_node for each node
-    |   `- db::create_link for each link
-    |
-    +- Filesystem/model artifacts
-    |   +- create /opt/sherpa/labs/{lab_id}
-    |   +- write lab info file
-    |   +- save manifest for redeploy
-    |   +- create node configs
-    |   +- create ZTP/TFTP files where needed
-    |   +- create lab certs where needed
-    |   `- write SSH/config helper files
-    |
-    +- Runtime network creation
-    |   +- libvirt NAT management network
-    |   +- Docker bridge management network
-    |   +- per-node isolated/reserved networks
-    |   +- P2P bridge/veth/tap topology
-    |   +- Docker macvlan networks for container bridge links
-    |   `- Linux host interfaces via network crate
-    |
-    +- Runtime node creation
-    |   +- create/start containers through container crate
-    |   +- create/start VMs through libvirt crate
-    |   +- create/start unikernels through libvirt/QEMU path
-    |   +- attach P2P/eBPF/netns wiring where required
-    |   `- run readiness checks unless skipped
-    |
-    +- On resource-phase failure
-    |   `- attempt cleanup of partially-created resources
-    |
-    `- Return UpResponse { success, lab_info, summary, errors, total_time_secs }
+```mermaid
+flowchart TB
+    uplab["up_lab(&AuthContext, UpRequest, &AppState, ProgressSender)"] --> pre["Deserialize manifest JSON into topology::Manifest<br/>validate node secrets and Tailscale enrollment<br/>db::validate_lab_id<br/>lab_operations::begin"]
+    pre --> setup
+    subgraph phase1["1. Setup"]
+        setup["Load current user from DB<br/>Guard: lab_id must not already exist<br/>Load node image records from DB"]
+    end
+    setup --> validation
+    subgraph phase2["2. ManifestValidation"]
+        validation["topology::validate checks: duplicate device, device count, Talos clusters<br/>validate environment variables<br/>container::get_local_images<br/>validate::validate_and_resolve_node_versions (server)<br/>process_manifest_nodes, then lease node images<br/>validate disk method and guest account per node<br/>process_manifest_links, process_manifest_bridges<br/>validate management/reserved/data interface bounds<br/>validate duplicate links, link and bridge endpoints"]
+    end
+    validation --> startguard["Guard: no disks or VMs left from an earlier attempt with this lab_id<br/>(after validation, before any resource is created)"]
+    startguard --> hostnets
+    subgraph phase3["3. DatabaseRecords"]
+        subgraph reserve["reserve_lab_networks (retried while concurrent labs win a subnet)"]
+            hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate IPv4/IPv6 loopback subnets (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
+        end
+        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port)<br/>create the node's isolated and reserved libvirt networks and bridges"]
+    end
+    createnode --> labfiles
+    subgraph phase4["4. LabNetworkSetup"]
+        labfiles["create /opt/sherpa/labs/{lab_id}<br/>write lab info file<br/>save manifest.toml for redeploy"] --> mgmtnets["libvirt NAT management network<br/>Docker bridge management network"] --> tailscale["tailscale::provision when the lab joins a tailnet"]
+    end
+    tailscale --> links
+    subgraph phase5["5. LinkCreation"]
+        links["for each link: db::create_link, all P2p (and db::update_link for impairment)<br/>nothing created yet: libvirt makes VM taps, container veths come later<br/>record veths for disabled interfaces on containers with links"]
+    end
+    links --> ctrnets
+    subgraph phase6["6. ContainerNetworks"]
+        ctrnets["Docker macvlan bridge networks for disabled interfaces of containers with no link"]
+    end
+    ctrnets --> bridges
+    subgraph phase7["7. SharedBridges"]
+        bridges["network::create_bridge for each [[bridges]] entry<br/>members of containers with links: veth planned for start<br/>other container members: Docker macvlan bridge network<br/>db::create_bridge with its members"]
+    end
+    bridges --> ztpdirs
+    subgraph phase8["8. ZtpGeneration"]
+        ztpdirs["create ZTP and TFTP directories<br/>generate the lab CA certificate"] --> nodeztp["per node: assign and save management addresses, node TLS certificate<br/>containers: node_ops::generate_container_ztp<br/>Kubernetes clusters planned and their secrets generated<br/>VMs: node_ops::generate_vm_ztp, save management MAC, build domain template<br/>unikernels: node_ops::generate_unikernel_setup, build domain template"]
+    end
+    nodeztp --> boot
+    subgraph phase9["9. BootContainers"]
+        boot["create ZTP config and dnsmasq directories<br/>write dnsmasq config<br/>start the boot container (dnsmasq router)"]
+    end
+    boot --> disks
+    subgraph phase10["10. DiskCloning"]
+        disks["node_ops::clone_node_disks for VMs and unikernels"]
+    end
+    disks --> vms
+    subgraph phase11["11. VmCreation"]
+        vms["node_ops::create_vm for each VM<br/>node_ops::create_unikernel for each unikernel<br/>release the disk image leases"] --> vmebpf["11b: attach_ready_p2p_links: eBPF redirect on VM-to-VM P2p links"] --> isodown["11c: set isolated bridges down"]
+    end
+    isodown --> ssh
+    subgraph phase12["12. SshConfig"]
+        ssh["ssh_config::save_lab_ssh_files<br/>read the SSH private key for the client<br/>build container network attachments"]
+    end
+    ssh --> secrets
+    subgraph phase13["13. NodeReadiness"]
+        secrets["write container secret files to RAM"] --> startctr["start containers (node_ops::start_container_node)<br/>P2p containers: veths created into the container netns,<br/>then attach_ready_p2p_links for links now complete<br/>db::update_node_state Running"]
+        startctr --> ready["poll VMs with node_ops::check_vm_ready, record host keys<br/>poll unikernels with check_unikernel_ready<br/>no wait for skip_ready_check nodes or Talos cluster workers"]
+        ready --> refresh["ssh_config::refresh_lab_ssh_files with recorded host keys<br/>bootstrap Kubernetes clusters"]
+    end
+    refresh --> response["Return UpResponse { success, lab_info, summary, errors, total_time_secs }"]
+    phase1 -.->|"failure: returned, no cleanup"| failed["error returned"]
+    phase2 -.-> failed
+    startguard -.-> failed
+    phase3 -.->|"failure in phases 3-13"| rollback["clean::clean_lab_resources rolls back the lab<br/>(skipped when a destroy stopped up)"]
+    phase13 -.-> rollback
 ```
 
 The central architectural decision in creation is that the manifest is transformed into fully-expanded intermediate structures before resource creation. That avoids spreading manifest parsing rules across Docker/libvirt/network calls. Validation happens before resource-creating phases where possible; resource phases still need cleanup handling because external backends can fail mid-operation.
 
 ### Lab creation data flow
 
-```text
-manifest.toml / uploaded manifest JSON
-        |
-        v
-topology::Manifest
-        |
-        +- topology expansion
-        |      +- NodeExpanded[]
-        |      +- LinkDetailed[]
-        |      `- BridgeDetailed[]
-        |
-        +- topology::validate and server validate check caller-supplied data
-        |
-        +- db crate persists desired state
-        |      +- lab record
-        |      +- node records
-        |      `- link/interface records
-        |
-        +- template crate generates config/domain assets
-        |
-        `- runtime crates realize state
-               +- libvirt: VM/unikernel domains, NAT networks, disks
-               +- container: Docker containers/images/networks
-               `- network: bridges, veths, taps, impairment plumbing
+```mermaid
+flowchart TB
+    input["manifest.toml / uploaded manifest JSON"] --> manifest["topology::Manifest"]
+    manifest --> expansion["topology expansion<br/>NodeExpanded[]<br/>LinkDetailed[]<br/>BridgeDetailed[]"]
+    expansion --> validate["topology::validate and server validate<br/>check caller-supplied data"]
+    validate --> persist["db crate persists desired state<br/>lab record<br/>node records<br/>link/interface records"]
+    persist --> generate["template crate generates config/domain assets"]
+    generate --> realize["runtime crates realize state"]
+    realize --> libvirt["libvirt: VM/unikernel domains, NAT networks, disks"]
+    realize --> container["container: Docker containers/images/networks"]
+    realize --> network["network: bridges, veths, taps, impairment plumbing"]
 ```
 
 ### Service call graph for lab destruction
 
-`destroy.rs` is deliberately best-effort. It should attempt every cleanup category even if an earlier category fails.
+`destroy.rs` is meant to be best-effort: it should attempt every cleanup category even if an
+earlier category fails. A failure on one resource (a container, VM, disk, network or interface)
+is recorded and destroy carries on. Two setup failures do not follow the rule yet (#396): if
+`destroy_vms_and_disks` cannot connect to libvirt, list domains, or find, refresh or list the
+storage pool, or `destroy_libvirt_networks` cannot connect or list networks, destroy returns
+there and skips every later step.
 
-```text
-destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)
-    |
-    +- require_lab_access: load lab, check owner or admin
-    +- lab_operations::stop: cancel up/redeploy/resume on this lab and wait for them to end
-    |
-    +- destroy_containers
-    |   +- container::list_containers
-    |   +- kill matching lab containers if running
-    |   `- remove matching lab containers
-    |
-    +- destroy_vms_and_disks
-    |   +- list libvirt domains
-    |   +- undefine/destroy domains containing lab_id
-    |   +- lookup Sherpa storage pool
-    |   `- delete volumes containing lab_id
-    |
-    +- destroy_docker_networks
-    |   +- container::list_networks
-    |   `- delete networks containing lab_id
-    |
-    +- destroy_libvirt_networks
-    |   +- list libvirt networks
-    |   `- destroy/undefine networks containing lab_id
-    |
-    +- destroy_interfaces
-    |   +- network::find_interfaces_fuzzy(lab_id)
-    |   `- delete known Sherpa-created bridge/veth/tap interfaces
-    |
-    +- cleanup_database
-    |   +- db::delete_lab_links
-    |   +- db::delete_lab_nodes
-    |   `- db::delete_lab
-    |
-    +- remove lab directory
-    `- Return DestroyResponse { success, summary, errors }
+```mermaid
+flowchart TB
+    destroylab["destroy_lab(&AuthContext, lab_id, &AppState, ProgressSender)"] --> access["require_lab_access: load lab, check owner or admin"]
+    access --> stopops["lab_operations::stop: cancel up/redeploy/resume on this lab and wait for them to end"]
+    stopops --> listcontainers
+    subgraph containers["destroy_containers"]
+        listcontainers["container::list_containers"] --> kill["kill matching lab containers if running"] --> removecontainers["remove matching lab containers"]
+    end
+    removecontainers --> secrets["destroy_lab_secrets: remove the lab's container secret files"]
+    secrets --> listdomains
+    subgraph vms["destroy_vms_and_disks (setup failure stops destroy, #396)"]
+        listdomains["list libvirt domains"] --> undefine["undefine/destroy domains containing lab_id"] --> pool["lookup Sherpa storage pool"] --> volumes["delete volumes containing lab_id"]
+    end
+    volumes --> listnetworks
+    subgraph dockernets["destroy_docker_networks"]
+        listnetworks["container::list_networks"] --> deletenetworks["delete networks containing lab_id"]
+    end
+    deletenetworks --> listlibvirtnets
+    subgraph libvirtnets["destroy_libvirt_networks (setup failure stops destroy, #396)"]
+        listlibvirtnets["list libvirt networks"] --> undefinenets["destroy/undefine networks containing lab_id"]
+    end
+    undefinenets --> findifaces
+    subgraph interfaces["destroy_interfaces"]
+        findifaces["network::find_interfaces_fuzzy(lab_id)"] --> deleteifaces["delete known Sherpa-created bridge/veth/tap interfaces"]
+    end
+    deleteifaces --> deletelinks
+    subgraph database["cleanup_database"]
+        deletelinks["db::delete_lab_links"] --> deletenodes["db::delete_lab_nodes"] --> deletelab["db::delete_lab"]
+    end
+    deletelab --> removedir["remove lab directory"]
+    removedir --> response["Return DestroyResponse { success, summary, errors }"]
 ```
 
 Destruction uses name-based matching for many runtime resources because the runtime backends are external systems and the database may not be fully reliable after partial failures. This is why consistent naming with `lab_id` embedded in resource names is part of the architecture.
@@ -769,18 +628,17 @@ pull, import or delete. Container image leases last until the containers start.
 
 Redeploy is a controlled single-node replacement. It exists because updating node configuration in place is often less reliable than destroying and recreating that node.
 
-```text
-redeploy request
-   |
-   +- require_lab_owner in the service (owner only, admins included)
-   +- load saved manifest from lab directory for web UI flow
-   +- validate target lab and node
-   +- stop/remove current runtime node resources
-   +- regenerate node-specific config/assets from manifest
-   +- recreate node runtime resource
-   +- reconnect node to existing lab networks/links
-   +- update DB node state/details
-   `- stream progress and final RedeployResponse
+```mermaid
+flowchart TB
+    request["redeploy request"] --> owner["require_lab_owner in the service<br/>(owner only, admins included)"]
+    owner --> manifest["load saved manifest from lab directory for web UI flow"]
+    manifest --> validate["validate target lab and node"]
+    validate --> teardown["stop/remove current runtime node resources"]
+    teardown --> regenerate["regenerate node-specific config/assets from manifest"]
+    regenerate --> recreate["recreate node runtime resource"]
+    recreate --> reconnect["reconnect node to existing lab networks/links"]
+    reconnect --> updatedb["update DB node state/details"]
+    updatedb --> stream["stream progress and final RedeployResponse"]
 ```
 
 The important boundary is that redeploy should preserve the lab-level network topology and only replace the selected node's runtime resources and generated files.
@@ -789,15 +647,25 @@ The important boundary is that redeploy should preserve the lab-level network to
 
 `down.rs` and `resume.rs` operate at two scopes:
 
-```text
-POST /api/v1/labs/{id}/down              +
-POST /api/v1/labs/{id}/resume            +- node_name = None  -> all nodes in lab
-POST /labs/{id}/stop                     |
-POST /labs/{id}/start                    +
-
-POST /labs/{id}/nodes/{node}/stop        +
-POST /labs/{id}/nodes/{node}/start       +- node_name = Some -> one node
-RPC down/resume with node_name optional  +
+```mermaid
+flowchart LR
+    restdown["POST /api/v1/labs/{id}/down"]
+    restresume["POST /api/v1/labs/{id}/resume"]
+    webstop["POST /labs/{id}/stop"]
+    webstart["POST /labs/{id}/start"]
+    nodestop["POST /labs/{id}/nodes/{node}/stop"]
+    nodestart["POST /labs/{id}/nodes/{node}/start"]
+    rpc["RPC down/resume<br/>with node_name optional"]
+    alllab["node_name = None<br/>all nodes in lab"]
+    onenode["node_name = Some<br/>one node"]
+    restdown --> alllab
+    restresume --> alllab
+    webstop --> alllab
+    webstart --> alllab
+    nodestop --> onenode
+    nodestart --> onenode
+    rpc -->|node_name set| onenode
+    rpc -->|node_name omitted| alllab
 ```
 
 Services check owner-or-admin access first, then inspect node kind and call the right runtime backend: Docker for containers and libvirt for VMs/unikernels. The service returns a `LabNodeActionResponse` describing what changed and what failed.
@@ -825,23 +693,24 @@ the same `LabNodeActionResponse` once the wait completes.
 
 Image management is split by image kind and source:
 
-```text
-Image operations
-    |
-    +- import.rs
-    |   +- import local VM/unikernel disk image metadata/artifact
-    |   +- import local container tar/archive where supported
-    |   +- list image records
-    |   +- show image record details
-    |   +- set default image version
-    |   +- scan filesystem/Docker for discoverable images
-    |   `- download image from URL with progress
-    |
-    +- container_pull.rs
-    |   `- pull OCI image through Docker/Bollard with streamed status
-    |
-    `- delete.rs
-        `- remove imported image records/artifacts
+```mermaid
+flowchart LR
+    ops["Image operations"]
+    import["import.rs"]
+    pull["container_pull.rs"]
+    delete["delete.rs"]
+    ops --> import
+    ops --> pull
+    ops --> delete
+    import --> importvm["import local VM/unikernel disk image metadata/artifact"]
+    import --> importctr["import local container tar/archive where supported"]
+    import --> list["list image records"]
+    import --> show["show image record details"]
+    import --> setdefault["set default image version"]
+    import --> scan["scan filesystem/Docker for discoverable images"]
+    import --> download["download image from URL with progress"]
+    pull --> pulloci["pull OCI image through Docker/Bollard with streamed status"]
+    delete --> remove["remove imported image records/artifacts"]
 ```
 
 Admin-only image mutations are enforced at the transport boundary. Image list/show require authentication but not admin privileges. Long-running import/pull/download paths use `ProgressSender` so REST, WebSocket, and UI callers can receive progress without service-specific transport code.
@@ -850,38 +719,43 @@ Admin-only image mutations are enforced at the transport boundary. Image list/sh
 
 The scanner is the only long-running background service started by `run_server` today.
 
-```text
-run_server
-  |
-  +- create CancellationToken
-  `- if config.scanner.enabled
-        `- tokio::spawn(run_scanner(AppState, child_token))
-
-run_scanner
-  |
-  +- sleep interval_secs between cycles
-  +- stop immediately when cancellation token is triggered
-  `- scan_cycle
-        |
-        +- query_libvirt_states(qemu)
-        |     `- spawn_blocking because libvirt calls are blocking
-        |
-        +- query_docker_states(docker)
-        |     `- Bollard list_containers
-        |
-        +- db::list_labs
-        +- for each lab:
-        |     +- db::list_nodes_by_lab
-        |     +- batch load node images for NodeKind
-        |     +- map runtime state to NodeState
-        |     +- db::update_node_state when changed
-        |     +- read SSH host keys (wants_host_key): running VMs with SSH that started,
-        |     |   or still await a key since they started, or have none recorded
-        |     |   +- node_ops::check_vm_ready on port 22 --> record_node_host_key
-        |     |   `- refresh_lab_ssh_files when a key was recorded
-        |     +- derive LabState from node states
-        |     `- db::update_lab_state when changed
-        `- log but do not kill server on scan failure
+```mermaid
+flowchart TB
+    subgraph runserver["run_server"]
+        token["create CancellationToken"] --> enabled{"config.scanner.enabled?"}
+        enabled -->|yes| spawn["tokio::spawn(run_scanner(AppState, child_token))"]
+    end
+    subgraph runscanner["run_scanner"]
+        wait{"sleep interval_secs between cycles"}
+        stop["stop immediately"]
+        subgraph scancycle["scan_cycle"]
+            libvirtstates["query_libvirt_states(qemu)<br/>spawn_blocking because libvirt calls are blocking"]
+            dockerstates["query_docker_states(docker)<br/>Bollard list_containers"]
+            listlabs["db::list_labs"]
+            subgraph eachlab["for each lab"]
+                listnodes["db::list_nodes_by_lab"]
+                images["batch load node images for NodeKind"]
+                mapstate["map runtime state to NodeState"]
+                nodestate["db::update_node_state when changed"]
+                wantskey{"wants_host_key:<br/>running VMs with SSH that started,<br/>or still await a key since they started,<br/>or have none recorded"}
+                checkready["node_ops::check_vm_ready on port 22"]
+                recordkey["record_node_host_key"]
+                refresh["refresh_lab_ssh_files when a key was recorded"]
+                derive["derive LabState from node states"]
+                labstate["db::update_lab_state when changed"]
+            end
+        end
+    end
+    spawn --> wait
+    wait -->|cancellation token triggered| stop
+    wait -->|interval elapsed| libvirtstates
+    libvirtstates --> dockerstates --> listlabs --> listnodes
+    listnodes --> images --> mapstate --> nodestate --> wantskey
+    wantskey -->|yes| checkready --> recordkey --> refresh --> derive
+    wantskey -->|no| derive
+    derive --> labstate
+    labstate -->|next cycle| wait
+    scancycle -.->|"scan failure: log, do not kill server"| wait
 ```
 
 A VM that changes to Running joins `awaiting_host_key`, an in-memory set kept across cycles,
@@ -896,50 +770,17 @@ The scanner is reconciliation, not orchestration. It should not create or destro
 
 `api/router.rs` builds a single Axum router. It attaches CORS, HTTP tracing, embedded static asset handling, and the route table. The WebSocket route is added in `daemon/server.rs` after `build_router()` returns.
 
-```text
-build_router()
-    |
-    +- Public browser routes
-    |   +- GET/POST /login
-    |   +- GET/POST /signup
-    |   `- POST /logout
-    |
-    +- Protected browser routes
-    |   +- GET /
-    |   +- GET /labs, /labs/grid, /labs/create
-    |   +- GET /jobs/{job_id}, /jobs/{job_id}/stream
-    |   +- GET /labs/{lab_id}
-    |   +- GET /labs/{lab_id}/nodes[/node]
-    |   +- POST lab/node start/stop/redeploy/destroy actions
-    |   `- GET/POST profile and SSH-key routes
-    |
-    +- Admin browser routes
-    |   +- /admin/users...
-    |   +- /admin/labs
-    |   +- /admin/tools...
-    |   `- /admin/images...
-    |
-    +- Public API routes
-    |   +- GET /health
-    |   +- GET /cert
-    |   +- GET /api/v1/spec
-    |   +- GET /api/v1/openapi.json
-    |   +- GET /api/docs
-    |   `- POST /api/v1/auth/login
-    |
-    +- REST API routes
-    |   +- labs: list/create/inspect/delete/down/resume/redeploy
-    |   +- links: impairment update
-    |   +- images: list/show/import/upload/delete/default/pull/download
-    |   +- admin tools: clean/scan
-    |   `- users: create/list/info/delete/password
-    |
-    +- layers
-    |   +- CorsLayer mirror_request + credentials
-    |   `- TraceLayer::new_for_http()
-    |
-    `- catch-all static asset route /{*path}
-```
+`build_router()` contents:
+
+| Group | Routes |
+|---|---|
+| Public browser routes | `GET/POST /login`, `GET/POST /signup`, `POST /logout` |
+| Protected browser routes | `GET /`; `GET /labs`, `/labs/grid`, `/labs/create`; `GET /jobs/{job_id}`, `/jobs/{job_id}/stream`; `GET /labs/{lab_id}`; `GET /labs/{lab_id}/nodes[/node]`; `POST` lab/node start/stop/redeploy/destroy actions; `GET/POST` profile and SSH-key routes |
+| Admin browser routes | `/admin/users...`, `/admin/labs`, `/admin/tools...`, `/admin/images...` |
+| Public API routes | `GET /health`, `GET /cert`, `GET /api/v1/spec`, `GET /api/v1/openapi.json`, `GET /api/docs`, `POST /api/v1/auth/login` |
+| REST API routes | labs: list/create/inspect/delete/down/resume/redeploy; links: impairment update; images: list/show/import/upload/delete/default/pull/download; admin tools: clean/scan; users: create/list/info/delete/password |
+| Layers | `CorsLayer` mirror_request + credentials; `TraceLayer::new_for_http()` |
+| Catch-all | static asset route `/{*path}` |
 
 Auth is enforced by handler signatures and handler-local checks, not by route grouping. When reviewing a route's protection level, check the handler parameters and body rather than only the route table.
 
@@ -947,25 +788,17 @@ Auth is enforced by handler signatures and handler-local checks, not by route gr
 
 The generated API metadata is built from `crates/shared/src/api_spec.rs`.
 
-```text
-shared::api_spec::build_spec()
-    |
-    +- build_operations()
-    |     `- OperationDef[]
-    |          +- operation name
-    |          +- auth requirement
-    |          +- streaming flag
-    |          +- request/response schema names
-    |          `- REST/RPC/CLI bindings
-    |
-    +- build_schemas()
-    |     `- schemars JSON schemas from shared data types
-    |
-    `- ApiSpec
-          |
-          +- GET /api/v1/spec
-          `- build_openapi()
-                `- GET /api/v1/openapi.json
+```mermaid
+flowchart TB
+    buildspec["shared::api_spec::build_spec()"] --> buildops["build_operations()"]
+    buildspec --> buildschemas["build_schemas()"]
+    buildops --> opdefs["OperationDef[]<br/>operation name<br/>auth requirement<br/>streaming flag<br/>request/response schema names<br/>REST/RPC/CLI bindings"]
+    buildschemas --> schemas["schemars JSON schemas from shared data types"]
+    opdefs --> apispec["ApiSpec"]
+    schemas --> apispec
+    apispec --> specroute["GET /api/v1/spec"]
+    apispec --> buildopenapi["build_openapi()"]
+    buildopenapi --> openapiroute["GET /api/v1/openapi.json"]
 ```
 
 `/api/docs` serves embedded Swagger UI backed by the OpenAPI endpoint.
@@ -976,57 +809,37 @@ Current implementation note: the registry marks five canonical operations as str
 
 ### Create lifecycle phases
 
-The creation path is best understood as a staged compiler pipeline: manifest input is parsed, validated, transformed, persisted, rendered to files, and finally realized into runtime resources.
+The creation path validates and expands the whole manifest before it creates anything, then creates the lab's records, files and runtime resources phase by phase.
 
-```text
-                    +---------------+
-                    | Manifest input |
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | Deserialize   |
-                    | topology model|
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | Validate      |
-                    | no resources  |
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | Expand model  |
-                    | nodes/links   |
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | Persist DB    |
-                    | desired state |
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | Generate files|
-                    | configs/certs |
-                    +-------+-------+
-                            v
-       +--------------------+--------------------+
-       v                    v                    v
-+--------------+     +--------------+     +--------------+
-| libvirt      |     | Docker       |     | host network |
-| networks/dom |     | nets/ctrs    |     | bridge/veth  |
-+------+-------+     +------+-------+     +------+-------+
-       +--------------------+--------------------+
-                            v
-                    +---------------+
-                    | Start nodes   |
-                    | readiness     |
-                    +-------+-------+
-                            v
-                    +---------------+
-                    | UpResponse    |
-                    +---------------+
+```mermaid
+flowchart TB
+    input["Manifest input"] --> setup["1. Setup<br/>user, lab_id unused, image records"]
+    setup --> validation["2. ManifestValidation<br/>validate and expand nodes, links, bridges"]
+    validation --> guard["startup guard<br/>no leftover disks or VMs"]
+    subgraph created["Phases that create resources: a failure rolls back with clean_lab_resources"]
+        direction TB
+        db["3. DatabaseRecords<br/>lab, nodes, per-node libvirt networks"]
+        labnet["4. LabNetworkSetup<br/>lab dir and files, management networks, Tailscale"]
+        links["5. LinkCreation<br/>link records"]
+        ctrnets["6. ContainerNetworks"]
+        bridges["7. SharedBridges"]
+        ztp["8. ZtpGeneration<br/>CA and node certs, ZTP, cluster secrets, domain templates"]
+        boot["9. BootContainers"]
+        disks["10. DiskCloning"]
+        vms["11. VmCreation<br/>VMs, unikernels, VM-to-VM P2p links"]
+        ssh["12. SshConfig"]
+        ready["13. NodeReadiness<br/>start containers and their P2p links, wait for nodes"]
+        db --> labnet --> links --> ctrnets --> bridges --> ztp --> boot --> disks --> vms --> ssh --> ready
+    end
+    guard --> db
+    ready --> response["UpResponse"]
 ```
 
-Progress phases emitted by `up_lab` correspond to these stages. Fail-fast validation happens before resource creation where possible. Once resource creation starts, the service must assume partial success is possible and clean up on failures.
+`up_lab` reports progress per `shared::data::UpPhase`, in this order. Setup, ManifestValidation
+and the startup guard create nothing, so a failure there returns without cleanup. Once resource
+creation starts, the service must assume partial success is possible: a failure in a later
+phase cleans up what was created. The [call graph](#service-call-graph-for-lab-creation) lists
+what each phase does.
 
 ### Node readiness
 
@@ -1034,17 +847,16 @@ Progress phases emitted by `up_lab` correspond to these stages. Fail-fast valida
 manifest's `ready_port`, else the model's) with `node_ops::check_vm_ready`. Unikernels use
 `check_unikernel_ready`, and containers are ready once running.
 
-```text
-check_vm_ready(ip, port)
-  |
-  +- port 22 --> check_node_ssh_ready
-  |                |
-  |                +- TCP connect (100 ms) ---- refused/timeout --> not ready
-  |                +- Jato Session::host_key -- SSH handshake through key exchange,
-  |                     (5 s, no login)          then disconnect --> ready, with host key
-  |                                              non-SSH reply or timeout --> not ready
-  |
-  +- other port --> check_node_port_ready: TCP connect (100 ms)
+```mermaid
+flowchart TB
+    check["check_vm_ready(ip, port)"] --> port{"port"}
+    port -->|22| ssh["check_node_ssh_ready"]
+    ssh --> tcp["TCP connect (100 ms)"]
+    tcp -->|"refused/timeout"| notready["not ready"]
+    tcp -->|connected| hostkey["Jato Session::host_key<br/>(5 s, no login)"]
+    hostkey -->|"SSH handshake through key exchange, then disconnect"| ready["ready, with host key"]
+    hostkey -->|"non-SSH reply or timeout"| notready
+    port -->|other port| portready["check_node_port_ready:<br/>TCP connect (100 ms)"]
 ```
 
 An open port is not enough on SSH: network devices and some guests accept TCP connections
@@ -1085,42 +897,21 @@ keys with `node.host_keys`, warns about a changed key, and connects again (`SSH_
 
 A running lab is spread across several systems. The DB is the desired/known state, not the only state.
 
-```text
-Lab {lab_id}
-  |
-  +- SurrealDB
-  |   +- user record
-  |   +- lab record
-  |   +- node records
-  |   +- link records
-  |   `- image records
-  |
-  +- RAM: /run/sherpa/secrets/{lab_id}/{node} (container secret files)
-  |
-  +- Filesystem: /opt/sherpa/labs/{lab_id}
-  |   +- lab info file
-  |   +- saved manifest
-  |   +- generated node configs
-  |   +- ZTP/TFTP assets
-  |   +- cert material where needed
-  |   `- SSH/helper config files
-  |
-  +- libvirt/QEMU
-  |   +- VM domains
-  |   +- unikernel domains
-  |   +- NAT/isolated/reserved networks
-  |   `- cloned/resized disks in Sherpa storage pool
-  |
-  +- Docker
-  |   +- containers
-  |   +- bridge/macvlan networks
-  |   `- pulled/imported container images
-  |
-  `- Linux host networking
-      +- bridges
-      +- veth pairs
-      +- tap devices
-      `- impairment/eBPF/netns wiring where applicable
+```mermaid
+flowchart LR
+    lab["Lab {lab_id}"]
+    surreal["SurrealDB<br/>user record<br/>lab record<br/>node records<br/>link records<br/>image records"]
+    ram["RAM: /run/sherpa/secrets/{lab_id}/{node}<br/>(container secret files)"]
+    fs["Filesystem: /opt/sherpa/labs/{lab_id}<br/>lab info file<br/>saved manifest<br/>generated node configs<br/>ZTP/TFTP assets<br/>cert material where needed<br/>SSH/helper config files"]
+    libvirt["libvirt/QEMU<br/>VM domains<br/>unikernel domains<br/>NAT/isolated/reserved networks<br/>cloned/resized disks in Sherpa storage pool"]
+    docker["Docker<br/>containers<br/>bridge/macvlan networks<br/>pulled/imported container images"]
+    host["Linux host networking<br/>bridges<br/>veth pairs<br/>tap devices<br/>impairment/eBPF/netns wiring where applicable"]
+    lab --> surreal
+    lab --> ram
+    lab --> fs
+    lab --> libvirt
+    lab --> docker
+    lab --> host
 ```
 
 Destroy and clean paths must account for all of these locations. That is why cleanup is not a single database delete.
@@ -1143,34 +934,38 @@ hypervisor, by `services::node_resources`:
 
 ### Container data interfaces
 
-Each container data interface is a Docker network attachment (`ContainerNetworkAttachment`),
-connected in index order after the container starts (`container::run_container`). Nothing runs in
-the image for most interfaces, so images without `ip` (such as `mongo`) work.
+Every `[[links]]` link is a P2p (eBPF) link. A container with a link takes all its data
+interfaces as veth pairs created from the host straight into its namespace after it starts,
+including its private bridge members and disabled interfaces (see `P2P-ARCHITECTURE.md`).
+Nothing runs in the image, so images without `ip` (such as `mongo`) or a shell work.
 
-`services::container_networks` builds the attachments for `up` and `redeploy`. Every data
-interface gets one: Docker names unnamed interfaces in attach order, so one left out would rename
-every interface after it. A link end with no Docker network is an error.
+A container with no link gets a Docker network attachment (`ContainerNetworkAttachment`) for
+each data interface, connected in index order after the container starts
+(`container::run_container`). `services::container_networks` builds them for `up` and
+`redeploy`. Every data interface gets one: Docker names unnamed interfaces in attach order, so
+one left out would rename every interface after it. A link end among them is an error, since a
+container with a link takes veths.
 
 | Interface | Docker network | Mode | Parent |
 |---|---|---|---|
-| `[[links]]` end | `{node}-eth{a,b}{link_index}-{lab_id}` | macvlan passthru | the link's `bra`/`brb` bridge |
 | `[[bridges]]` member | `{node}-brs{interface_index}-{lab_id}` | macvlan bridge | the bridge's `brs{bridge_index}-{lab_id}` |
 | disabled | `{node}-iso{interface_index}-{lab_id}` | macvlan bridge | the node's isolated `bri` bridge |
 
-Bridge member networks are created in phase 7, after their `brs` bridge, and the containers'
-P2p bridge members get a veth pair there (see `P2P-ARCHITECTURE.md`). The bridge record stores
-its `members`, each a node and interface, so `redeploy` reconnects exactly those interfaces,
-for VMs as well as containers.
+Bridge links, from labs created before every link was a P2p link, are no longer supported: see
+[P2P-ARCHITECTURE.md](P2P-ARCHITECTURE.md).
 
+Bridge member networks are created in phase 7, after their `brs` bridge, and the members of
+containers with links get a veth pair there. The bridge record stores its `members`, each a
+node and interface, so `redeploy` reconnects exactly those interfaces, for VMs as well as
+containers.
 
 - Docker names the interface in the container through the endpoint driver option
   `konst::DOCKER_ENDPOINT_IFNAME_OPT` when `linux_interface_name` is set.
 - A disabled interface is a macvlan on the node's isolated bridge. The server sets that bridge
   down from the host (`network::set_link_down`, phase 11c and the container redeploy), as for
   VMs, so the interface has no carrier.
-- A linked, renamed interface (SR Linux) is still set promiscuous and up with `ip` in the
-  container. P2p links also run `ip` in the container, after moving the veth into its namespace:
-  a link moved into another namespace comes up down, and `sherpad` cannot enter the namespace.
+- An active interface that Docker renames (an SR Linux bridge member) is set promiscuous and up
+  with `ip` in the container (`data_interface_command`).
 
 ### Lab management addressing
 
@@ -1195,57 +990,49 @@ saved addresses.
 
 ### Destroy lifecycle phases
 
-```text
-destroy_lab(&AuthContext, lab_id)
-          |
-          v
-  require_lab_access: load lab, owner or admin
-          |
-          v
-  load lab info file
-          |
-          v
-+-----------------------------------------------------+
-| best-effort cleanup sequence                         |
-|                                                     |
-| 1. Docker containers, then their secret files       |
-| 2. libvirt domains and disks                         |
-| 3. Docker networks                                  |
-| 4. libvirt networks                                 |
-| 5. Linux host interfaces                            |
-| 6. SurrealDB lab/link/node records                   |
-| 7. /opt/sherpa/labs/{lab_id} directory               |
-+-----------------------------------------------------+
-          |
-          v
-DestroyResponse
-  +- success = errors.is_empty()
-  +- summary of each cleanup category
-  `- detailed DestroyError[] for failed categories
+```mermaid
+flowchart TB
+    destroy["destroy_lab(&AuthContext, lab_id)"] --> access["require_lab_access: load lab, owner or admin"]
+    access --> stopops["lab_operations::stop: cancel operations on this lab"]
+    stopops --> labname["lab name from the lab record"]
+    labname --> containers
+    subgraph cleanup["best-effort cleanup sequence"]
+        containers["Step 1: Docker containers, then their secret files"]
+        domains["Step 2: libvirt domains and disks"]
+        dockernets["Step 3: Docker networks"]
+        libvirtnets["Step 4: libvirt networks"]
+        interfaces["Step 5: Linux host interfaces"]
+        records["Step 6: SurrealDB lab/link/node records"]
+        labdir["Step 7: /opt/sherpa/labs/{lab_id} directory"]
+        containers --> domains --> dockernets --> libvirtnets --> interfaces --> records --> labdir
+    end
+    labdir --> response["DestroyResponse<br/>success = errors.is_empty()<br/>summary of each cleanup category<br/>detailed DestroyError[] for failed categories"]
 ```
 
 The best-effort rule is important: failing to delete a disk should not prevent the server from attempting to delete Docker networks or database records. Operators need a complete summary of what was cleaned and what still requires manual repair.
+
+Today the rule holds per resource but not for libvirt setup failures, which stop destroy before
+Docker networks, libvirt networks, host interfaces and the database are cleaned (#396).
 
 ## TLS/listener architecture
 
 TLS is enabled by default. The main listener serves the UI, REST API, and WebSocket endpoint. When TLS is enabled, a separate HTTP listener is started only for certificate retrieval.
 
-```text
-TLS enabled
-   |
-   +- main listener
-   |     +- IPv4: wss/https on config.server_ipv4:config.ws_port
-   |     `- IPv6: optional wss/https on [config.server_ipv6]:config.ws_port
-   |
-   `- cert listener
-         +- IPv4: http on config.server_ipv4:config.http_port
-         `- IPv6: optional http on [config.server_ipv6]:config.http_port
-
-TLS disabled
-   |
-   `- main listener only
-         +- IPv4: ws/http
-         `- IPv6: optional ws/http
+```mermaid
+flowchart TB
+    subgraph tlson["TLS enabled"]
+        main["main listener"]
+        main --> main4["IPv4: wss/https on config.server_ipv4:config.ws_port"]
+        main --> main6["IPv6: optional wss/https on [config.server_ipv6]:config.ws_port"]
+        cert["cert listener"]
+        cert --> cert4["IPv4: http on config.server_ipv4:config.http_port"]
+        cert --> cert6["IPv6: optional http on [config.server_ipv6]:config.http_port"]
+    end
+    subgraph tlsoff["TLS disabled"]
+        mainonly["main listener only"]
+        mainonly --> plain4["IPv4: ws/http"]
+        mainonly --> plain6["IPv6: optional ws/http"]
+    end
 ```
 
 Certificate SAN generation is part of server startup. If no SANs are configured, startup adds listen IPs, non-loopback interface IPs when listening on unspecified addresses, localhost, loopbacks, hostname, and FQDN when available.
@@ -1256,21 +1043,18 @@ The `/cert` endpoint is public by design because clients need to fetch the certi
 
 Logging and OTel are initialized before `AppState` so startup failures and backend connection failures are visible.
 
-```text
-run_server
-  |
-  +- EnvFilter from RUST_LOG or info
-  +- if OTel enabled
-  |     +- SdkTracerProvider + OTLP span exporter
-  |     +- SdkMeterProvider + periodic OTLP metric exporter
-  |     +- tracing_opentelemetry layer
-  |     `- Metrics::new(meter)
-  |
-  +- if foreground
-  |     `- tracing fmt layer to terminal
-  |
-  `- if daemon
-        `- tracing fmt layer to sherpad log file
+```mermaid
+flowchart TB
+    runserver["run_server"] --> envfilter["EnvFilter from RUST_LOG or info"]
+    envfilter --> otel{"OTel enabled?"}
+    otel -->|yes| tracer
+    subgraph otelinit["OTel"]
+        tracer["SdkTracerProvider + OTLP span exporter"] --> meter["SdkMeterProvider + periodic OTLP metric exporter"] --> layer["tracing_opentelemetry layer"] --> metrics["Metrics::new(meter)"]
+    end
+    otel -->|no| mode
+    metrics --> mode{"foreground or daemon?"}
+    mode -->|foreground| terminal["tracing fmt layer to terminal"]
+    mode -->|daemon| logfile["tracing fmt layer to sherpad log file"]
 ```
 
 Important spans/metrics are created at these levels:

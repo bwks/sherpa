@@ -740,7 +740,8 @@ fn build_operations() -> Vec<OperationDef> {
         // Link operations
         OperationDef {
             name: "link.update_impairment".to_string(),
-            description: "Update link impairment (delay, jitter, loss) on a running P2p link"
+            description: "Update link impairment (delay, jitter, loss, reorder, corruption) on a \
+                          running P2p link, in one or both directions"
                 .to_string(),
             category: Category::Link,
             auth: AuthRequirement::Authenticated,
@@ -758,7 +759,7 @@ fn build_operations() -> Vec<OperationDef> {
                     method: "link.update_impairment".to_string(),
                 },
                 cli: CliBinding {
-                    command: "sherpa lab link impairment".to_string(),
+                    command: "sherpa link impair".to_string(),
                 },
             },
         },

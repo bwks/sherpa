@@ -5,14 +5,16 @@ containers in the same bridge.
 
 | Node | Model | Connections |
 |---|---|---|
-| `dev01` | `alpine_linux` 3.23.0 VM, 4 data interfaces | eth1 in the bridge, eth2 P2p link to fr03 |
+| `dev01` | `alpine_linux` 3.23.0 VM, 4 data interfaces | eth1 in the bridge, eth2 link to fr03 |
 | `fr01` | `frr_linux` 10.5.2 container | eth1 in the bridge, eth2 link to fr02 |
 | `fr02` | `frr_linux` 10.5.2 container | eth1 in the bridge, eth2 link to fr01 |
-| `fr03` | `frr_linux` 10.5.2 container, P2p | eth1 in the bridge, eth2 P2p link to dev01 |
+| `fr03` | `frr_linux` 10.5.2 container | eth1 in the bridge, eth2 link to dev01 |
+| `fr04` | `frr_linux` 10.5.2 container | eth1 in the bridge, no link |
 
-fr01's link comes after its bridge member, so a bridge member left out would rename the link
-interface. fr03 has a P2p link, so its data interfaces are veths moved into the container
-instead of Docker networks.
+Every link is a P2p (eBPF) link. A container with a link takes all its data interfaces as
+veths created in its namespace, its bridge member included (fr01, fr02, fr03). fr04 has no
+link, so its bridge member and disabled interfaces are Docker networks, attached in interface
+order: a bridge member left out would rename every interface after it.
 
 ## Requirements
 
@@ -35,6 +37,6 @@ Each run logs every command and its output under
 
 - every bridge member and link end gets an address, and every bridge member pings every other
   member, and each link end its peer, from that interface;
-- the same after redeploying fr01 (Docker networks), fr03 (P2p) and dev01 (VM);
+- the same after redeploying fr01 and fr03 (veths), fr04 (Docker networks) and dev01 (VM);
 - `sherpa destroy` cleans up everything and the lab is gone. Run on the Sherpa server, it also
   checks no libvirt domain or network, Docker network or host interface of the lab is left.

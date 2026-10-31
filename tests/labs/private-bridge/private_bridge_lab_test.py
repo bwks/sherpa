@@ -25,7 +25,7 @@ LAB = Path(__file__).resolve().parent
 ROOT = LAB.parent.parent.parent
 RUNS = ROOT / ".tmp" / "lab-tests"
 # Redeployed in this order: a Docker-networked container, a P2p container, then the VM.
-REDEPLOYED = ("fr01", "fr03", "dev01")
+REDEPLOYED = ("fr01", "fr03", "fr04", "dev01")
 # Bridge members are numbered from the first address of the bridge subnet; link `n` (0-based)
 # uses the subnet after it.
 SUBNET_PREFIX = "10.45"
@@ -348,15 +348,15 @@ class SelfTest(unittest.TestCase):
 
     def test_every_bridge_member_and_link_end_gets_a_unique_address(self):
         addresses, _ = address_plan(self.manifest())
-        self.assertEqual(len(addresses), 8)
+        self.assertEqual(len(addresses), 9)
         self.assertEqual(len({item.address for item in addresses}), len(addresses))
         self.assertEqual(len({(item.node, item.interface) for item in addresses}), len(addresses))
 
     def test_bridge_members_ping_each_other_and_link_ends_ping_their_peer(self):
         _, pings = address_plan(self.manifest())
         bridge_pings = [p for p in pings if p[0].address.startswith(f"{SUBNET_PREFIX}.0.")]
-        self.assertEqual(len(bridge_pings), 4 * 3)
-        self.assertEqual(len(pings), 4 * 3 + 2 + 2)
+        self.assertEqual(len(bridge_pings), 5 * 4)
+        self.assertEqual(len(pings), 5 * 4 + 2 + 2)
         self.assertIn((Address("fr01", "eth2", "10.45.1.1/24"), Address("fr02", "eth2", "10.45.1.2/24")),
                       pings)
 

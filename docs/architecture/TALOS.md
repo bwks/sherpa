@@ -46,13 +46,26 @@ rules (names, one or three controllers, members are defined `talos_linux` nodes 
 without a user `ztp_config`, VIP capacity). Two controllers are refused: etcd needs a majority,
 so two members tolerate no failure and are less available than one.
 
-```text
-up, Phase 8                              up, after node readiness
------------                              ------------------------
-plan_clusters (endpoint / VIP)           bring_up_clusters
-generate_cluster_secrets  --saved-->      write talosconfig + kubeconfig
-node_machine_config per node              bootstrap (first controller, once)
-  -> node.ztp_config -> NoCloud ISO       wait_for_kubernetes (all members Ready)
+```mermaid
+flowchart LR
+    subgraph phase8["up, Phase 8"]
+        direction TB
+        plan["plan_clusters<br/>(endpoint / VIP)"]
+        secrets["generate_cluster_secrets"]
+        machine["node_machine_config per node"]
+        ztp["node.ztp_config"]
+        iso["NoCloud ISO"]
+        plan --> secrets --> machine --> ztp --> iso
+    end
+    subgraph ready["up, after node readiness"]
+        direction TB
+        bringup["bring_up_clusters"]
+        creds["write talosconfig + kubeconfig"]
+        boot["bootstrap<br/>(first controller, once)"]
+        wait["wait_for_kubernetes<br/>(all members Ready)"]
+        bringup --> creds --> boot --> wait
+    end
+    secrets -->|saved| creds
 ```
 
 Code: `crates/server/src/services/talos/` (`plan`, `secrets`, `bootstrap`, and the lab

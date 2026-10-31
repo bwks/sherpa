@@ -10,7 +10,7 @@ use topology::Manifest;
 use topology::validate::{
     check_bridge_device, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    validate_provisioners, validate_tailscale, validate_talos_clusters,
+    check_no_p2p_field, validate_provisioners, validate_tailscale, validate_talos_clusters,
 };
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
@@ -48,6 +48,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
 
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);
+    check_no_p2p_field(manifest.links.as_deref().unwrap_or_default())?;
     let links_detailed = process_manifest_links(&manifest.links, &nodes_expanded)?;
     let bridges_detailed =
         process_manifest_bridges(&manifest.bridges, &nodes_expanded, "validate")?;
