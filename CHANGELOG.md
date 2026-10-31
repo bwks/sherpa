@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.13] - 2026-10-31
+
+### Bug Fixes
+
+- Start containers with skip_ready_check during sherpa up by @bwks ([1a4df3a](https://github.com/bwks/sherpa/commit/1a4df3a1b6803298d1ad932043737d0732c94d79))
+
+### Miscellaneous
+
+- Merge pull request #392 from bwks/fix/388-skip-ready-check-containers
+
+fix(server): start containers with skip_ready_check during sherpa up by @bwks in [#392](https://github.com/bwks/sherpa/pull/392) ([4801723](https://github.com/bwks/sherpa/commit/4801723bc269205553e4b353a58a5f8c5f16585e))
+- Bump version to 0.4.13 by @bwks ([1783528](https://github.com/bwks/sherpa/commit/17835280b4c3627a780ad8202dada2326cf63ba9))
+- Merge pull request #390 from bwks/changelog/v0.4.12
+
+chore(release): update changelog for v0.4.12 by @github-actions[bot] in [#390](https://github.com/bwks/sherpa/pull/390) ([418c041](https://github.com/bwks/sherpa/commit/418c0412471a7603e0d9db33a0b4e2646496dfce))
 ## [0.4.12] - 2026-10-31
 
 ### Bug Fixes
