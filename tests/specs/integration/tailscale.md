@@ -27,7 +27,7 @@ and command/stop timeout overrides.
 
 Decision, 2026-10-16: the code suite in [`tests/environments/`](../../environments/README.md)
 runs `live_gateway_daemon_smoke` but skips
-`live_tailnet_enrollment_stop_resume_cleanup`. That test joins a real tailnet and needs
+`live_tailnet_enrollment_stop_reenroll_cleanup`. That test joins a real tailnet and needs
 `SHERPA_TEST_TAILSCALE_AUTH_KEY` plus a disposable Docker network
 (`SHERPA_TEST_TAILSCALE_NETWORK`, `_IPV4`, optional `_IPV6`, `_ROUTES`). Enabling it means
 passing an ephemeral test-tailnet key through the environment at run time, never in
@@ -70,7 +70,7 @@ Set these environment variables in the shell running the test:
 After formatting and linting pass, run:
 
 ```bash
-cargo test -p container live_tailnet_enrollment_stop_resume_cleanup -- --ignored --nocapture
+cargo test -p container live_tailnet_enrollment_stop_reenroll_cleanup -- --ignored --nocapture
 ```
 
 The test checks enrollment, repeated stop, resume with unchanged Tailscale
