@@ -194,7 +194,7 @@
 Container-local Docker API mock tests cover lifecycle failures without a real daemon.
 The ignored `live_gateway_daemon_smoke` exercises dual-stack gateway startup,
 forwarding restrictions, secret stdin delivery, restart, and cleanup. The ignored
-`live_tailnet_enrollment_stop_resume_cleanup` requires an explicitly supplied test
+`live_tailnet_enrollment_stop_reenroll_cleanup` requires an explicitly supplied test
 tailnet credential. See [Tailscale setup](../../../docs/TAILNET.md) for configuration
 and [Tailscale testing](../integration/tailscale.md) for commands, prerequisites,
 mixed VM/container acceptance, and cleanup-retry checks.

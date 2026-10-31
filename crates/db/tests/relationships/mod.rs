@@ -2,10 +2,10 @@ use anyhow::Result;
 
 use db::{
     apply_schema, count_links_by_lab, count_nodes_by_lab, create_bridge, create_lab, create_link,
-    create_node_image, create_user, delete_lab_cascade, delete_user, get_lab, list_bridges,
-    list_links_by_lab, list_nodes_by_lab,
+    create_node_image, create_user, delete_lab, delete_lab_cascade, delete_lab_links,
+    delete_lab_nodes, delete_user, get_lab, list_bridges, list_links_by_lab, list_nodes_by_lab,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel};
+use shared::data::{BridgeKind, BridgeMember, NodeConfig, NodeModel};
 
 use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db};
 
@@ -76,7 +76,16 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
         "test-br".to_string(),
         "test-net".to_string(),
         lab_rid.clone(),
-        vec![n1_id, n2_id],
+        vec![
+            BridgeMember {
+                node: n1_id,
+                interface: "eth2".to_string(),
+            },
+            BridgeMember {
+                node: n2_id,
+                interface: "eth2".to_string(),
+            },
+        ],
     )
     .await?;
 
@@ -101,6 +110,75 @@ async fn test_delete_lab_cascade_removes_nodes_links_bridges() -> Result<()> {
     // Verify bridges are gone
     let bridges_after = list_bridges(&db, &lab_rid).await?;
     assert_eq!(bridges_after.len(), 0);
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+/// The server's destroy deletes links, then nodes, then the lab. A bridge must not stop
+/// its members' nodes from being deleted, and it keeps which interface of each node it holds.
+#[tokio::test]
+#[ignore]
+async fn test_bridge_members_and_delete_lab_nodes() -> Result<()> {
+    let db = setup_db("test_delete_nodes_with_bridge").await?;
+
+    let user = create_user(
+        &db,
+        "bridge_user".to_string(),
+        "TestPass123!",
+        false,
+        vec![],
+    )
+    .await?;
+    create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
+
+    let lab = create_lab(
+        &db,
+        "Bridge Lab",
+        "brdg0001",
+        &user,
+        &ipv4_lab_networks(
+            "127.127.2.0/24",
+            "172.31.2.0/24",
+            "172.31.2.1",
+            "172.31.2.2",
+        ),
+    )
+    .await?;
+    let lab_rid = lab.id.clone().expect("lab has id");
+
+    let node1 = create_test_node_with_model(&db, "n1", 1, NodeModel::UbuntuLinux, &lab).await?;
+    let node2 = create_test_node_with_model(&db, "n2", 2, NodeModel::UbuntuLinux, &lab).await?;
+    let members = vec![
+        BridgeMember {
+            node: node1.id.clone().expect("n1 has id"),
+            interface: "eth1".to_string(),
+        },
+        BridgeMember {
+            node: node2.id.clone().expect("n2 has id"),
+            interface: "eth3".to_string(),
+        },
+    ];
+    create_bridge(
+        &db,
+        0,
+        "brs0-brdg0001".to_string(),
+        "sherpa-bridge0-private-brdg0001".to_string(),
+        lab_rid.clone(),
+        members.clone(),
+    )
+    .await?;
+
+    let bridges = list_bridges(&db, &lab_rid).await?;
+    assert_eq!(bridges.len(), 1);
+    assert_eq!(bridges[0].members, members);
+
+    delete_lab_links(&db, &lab.lab_id).await?;
+    delete_lab_nodes(&db, &lab.lab_id).await?;
+    delete_lab(&db, &lab.lab_id).await?;
+
+    assert_eq!(count_nodes_by_lab(&db, lab_rid.clone()).await?, 0);
+    assert!(list_bridges(&db, &lab_rid).await?.is_empty());
 
     teardown_db(&db).await?;
     Ok(())

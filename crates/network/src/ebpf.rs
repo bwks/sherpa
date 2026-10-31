@@ -1,7 +1,9 @@
+use std::io::ErrorKind;
+
 use anyhow::{Context, Result};
 use aya::Ebpf;
 use aya::maps::HashMap;
-use aya::programs::tc::qdisc_detach_program;
+use aya::programs::tc::{NlOptions, TcAttachOptions, qdisc_add_clsact, qdisc_detach_program};
 use aya::programs::{SchedClassifier, TcAttachType};
 use tracing::instrument;
 
@@ -22,18 +24,37 @@ struct AlignedElf<const N: usize>([u8; N]);
 /// in the BPF map, and attaches the program to the interface's ingress.
 /// Packets arriving on `iface_name` will be redirected to `peer_ifindex`'s egress.
 ///
+/// The program is attached as a legacy TC filter on the interface's `clsact` qdisc, never
+/// through TCX, which aya picks by default on kernels >= 6.6. A TCX attachment lasts only as
+/// long as sherpad holds its file descriptor, so a sherpad restart would drop it, and
+/// `qdisc_detach_program` cannot remove it, so a re-attach would leave the old program in
+/// front of the new one.
+///
 /// The Ebpf object is intentionally leaked so the TC filter, BPF program, and maps
 /// persist in the kernel after this function returns. Cleanup happens when the
 /// interface is deleted (e.g. VM destroy removes the tap device).
 #[instrument(fields(%iface_name, peer_ifindex))]
 pub fn attach_p2p_redirect(iface_name: &str, peer_ifindex: u32) -> Result<()> {
+    // Legacy TC filters hang off the clsact qdisc; it exists already on a re-attach.
+    match qdisc_add_clsact(iface_name) {
+        Ok(()) => {
+            tracing::debug!(interface = %iface_name, "added clsact qdisc");
+        }
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+            tracing::debug!(interface = %iface_name, "clsact qdisc already present");
+        }
+        Err(e) => {
+            return Err(e).context(format!("failed to add clsact qdisc to {iface_name}"));
+        }
+    }
+
     // Detach any existing p2p_redirect program on this interface.
     // This makes the function idempotent for redeploy/resume scenarios.
     match qdisc_detach_program(iface_name, TcAttachType::Ingress, "p2p_redirect") {
         Ok(()) => {
             tracing::debug!(interface = %iface_name, "detached existing p2p_redirect program");
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        Err(e) if e.kind() == ErrorKind::NotFound => {
             // No existing program — expected on first attach
         }
         Err(e) => {
@@ -74,7 +95,11 @@ pub fn attach_p2p_redirect(iface_name: &str, peer_ifindex: u32) -> Result<()> {
             .context(format!("failed to load TC program for {iface_name}"))?;
 
         program
-            .attach(iface_name, TcAttachType::Ingress)
+            .attach_with_options(
+                iface_name,
+                TcAttachType::Ingress,
+                TcAttachOptions::Netlink(NlOptions::default()),
+            )
             .context(format!("failed to attach TC program to {iface_name}"))?;
     }
 

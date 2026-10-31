@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use shared::data::{DbBridge, RecordId};
+use shared::data::{BridgeMember, DbBridge, RecordId};
 use std::sync::Arc;
 use surrealdb::Surreal;
 use surrealdb::engine::remote::ws::Client;
@@ -18,7 +18,7 @@ use crate::persistence::BridgeRow;
 /// * `bridge_name` - Linux bridge name on the host
 /// * `network_name` - Libvirt network name
 /// * `lab_id` - RecordId of the lab this bridge belongs to
-/// * `nodes` - Vector of node RecordIds connected to this bridge
+/// * `members` - The node interfaces connected to this bridge
 ///
 /// # Returns
 /// The created DbBridge record with generated ID
@@ -34,7 +34,7 @@ pub async fn create_bridge(
     bridge_name: String,
     network_name: String,
     lab_id: RecordId,
-    nodes: Vec<RecordId>,
+    members: Vec<BridgeMember>,
 ) -> Result<DbBridge> {
     let domain = DbBridge {
         id: None,
@@ -42,7 +42,7 @@ pub async fn create_bridge(
         bridge_name: bridge_name.clone(),
         network_name: network_name.clone(),
         lab: lab_id.clone(),
-        nodes,
+        members,
     };
     let bridge: Option<BridgeRow> = db
         .create("bridge")

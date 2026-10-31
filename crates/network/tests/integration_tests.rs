@@ -43,17 +43,19 @@ async fn tap_rtnetlink_unsupported() -> bool {
     }
 }
 
-/// Returns the output of `bpftool net show dev <iface>`.
-///
-/// Used to verify eBPF program attachment on kernel ≥ 6.6 where aya uses TCX
-/// (bpf_mprog_attach) instead of legacy TC netlink filters. TCX programs are
-/// not visible in `tc filter show ingress` but do appear in bpftool output.
-fn bpftool_net_show(iface: &str) -> String {
-    std::process::Command::new("bpftool")
-        .args(["net", "show", "dev", iface])
+/// Number of p2p_redirect programs attached to an interface's ingress as legacy TC filters,
+/// from `tc filter show dev <iface> ingress`. Programs attached through TCX are not listed
+/// there, so a TCX attachment counts as none: it would not survive a sherpad restart, and
+/// re-attaching could not replace it.
+fn p2p_redirect_filters(iface: &str) -> usize {
+    let output = std::process::Command::new("tc")
+        .args(["filter", "show", "dev", iface, "ingress"])
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default()
+        .expect("tc command failed");
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|line| line.contains(" p2p_redirect "))
+        .count()
 }
 
 /// Returns the raw output of `ip link show <name>`, or empty string on failure.
@@ -563,22 +565,9 @@ async fn test_ebpf_redirect_between_veths() -> Result<()> {
     // Attach redirect: dst ingress → src egress
     attach_p2p_redirect(dst, idx_src)?;
 
-    // Verify p2p_redirect is attached on both interfaces via bpftool (TCX on kernel ≥ 6.6)
-    let bpf_src = bpftool_net_show(src);
-    assert!(
-        bpf_src.contains("p2p_redirect"),
-        "p2p_redirect should be attached on {}, got: {}",
-        src,
-        bpf_src
-    );
-
-    let bpf_dst = bpftool_net_show(dst);
-    assert!(
-        bpf_dst.contains("p2p_redirect"),
-        "p2p_redirect should be attached on {}, got: {}",
-        dst,
-        bpf_dst
-    );
+    // Verify p2p_redirect is attached on both interfaces as a TC filter
+    assert_eq!(p2p_redirect_filters(src), 1, "p2p_redirect on {src}");
+    assert_eq!(p2p_redirect_filters(dst), 1, "p2p_redirect on {dst}");
 
     // Deleting the interface removes the BPF program automatically
     delete_interface(src).await?;
@@ -613,31 +602,16 @@ async fn test_ebpf_redirect_idempotent() -> Result<()> {
     // Attach once
     attach_p2p_redirect(src, idx_dst)?;
 
-    // Verify p2p_redirect is attached via bpftool (TCX on kernel ≥ 6.6)
-    let bpf_out = bpftool_net_show(src);
-    assert!(
-        bpf_out.contains("p2p_redirect"),
-        "p2p_redirect should be attached after first attach, got: {}",
-        bpf_out
+    assert_eq!(
+        p2p_redirect_filters(src),
+        1,
+        "p2p_redirect after first attach"
     );
 
-    // Attach again (idempotent re-attach) — should not error
+    // Re-attach with another peer, as redeploy and resume do: the old program is replaced,
+    // not left in front of the new one redirecting to the old peer.
     attach_p2p_redirect(src, idx_src)?;
-
-    // Verify p2p_redirect is still attached after re-attach
-    let bpf_out = bpftool_net_show(src);
-    assert!(
-        bpf_out.contains("p2p_redirect"),
-        "p2p_redirect should be attached after re-attach, got: {}",
-        bpf_out
-    );
-
-    // Verify at least one p2p_redirect is present — the key guarantee is no error on re-attach
-    assert!(
-        bpf_out.contains("p2p_redirect"),
-        "p2p_redirect should be present after idempotent re-attach, got: {}",
-        bpf_out
-    );
+    assert_eq!(p2p_redirect_filters(src), 1, "p2p_redirect after re-attach");
 
     delete_interface(src).await?;
 
@@ -668,15 +642,9 @@ async fn test_ebpf_redirect_between_taps() -> Result<()> {
     attach_p2p_redirect(tap_a, idx_b)?;
     attach_p2p_redirect(tap_b, idx_a)?;
 
-    // Verify p2p_redirect is attached on both taps via bpftool (TCX on kernel ≥ 6.6)
-    for (name, label) in [(tap_a, "tap_a"), (tap_b, "tap_b")] {
-        let bpf_out = bpftool_net_show(name);
-        assert!(
-            bpf_out.contains("p2p_redirect"),
-            "p2p_redirect should be attached on {}, got: {}",
-            label,
-            bpf_out
-        );
+    // Verify p2p_redirect is attached on both taps as a TC filter
+    for name in [tap_a, tap_b] {
+        assert_eq!(p2p_redirect_filters(name), 1, "p2p_redirect on {name}");
     }
 
     delete_interface(tap_a).await?;
@@ -714,13 +682,8 @@ async fn test_ebpf_and_netem_coexist() -> Result<()> {
     apply_netem(idx_src as i32, &impairment).await?;
     apply_netem(idx_dst as i32, &impairment).await?;
 
-    // Verify p2p_redirect is still attached after netem (TCX on kernel ≥ 6.6)
-    let bpf_out = bpftool_net_show(src);
-    assert!(
-        bpf_out.contains("p2p_redirect"),
-        "p2p_redirect should still be present after netem, got: {}",
-        bpf_out
-    );
+    // Verify p2p_redirect is still attached after netem
+    assert_eq!(p2p_redirect_filters(src), 1, "p2p_redirect after netem");
 
     let netem_output = std::process::Command::new("tc")
         .args(["qdisc", "show", "dev", src])
@@ -732,16 +695,19 @@ async fn test_ebpf_and_netem_coexist() -> Result<()> {
         "netem qdisc should be present, got: {}",
         netem_out
     );
-    // Note: TCX does not create a clsact qdisc — no clsact assertion here
+    assert!(
+        netem_out.contains("clsact"),
+        "clsact qdisc should coexist with netem, got: {}",
+        netem_out
+    );
 
     // Verify netem can be removed without affecting eBPF
     remove_netem(idx_src as i32).await?;
 
-    let bpf_after_out = bpftool_net_show(src);
-    assert!(
-        bpf_after_out.contains("p2p_redirect"),
-        "p2p_redirect should survive netem removal, got: {}",
-        bpf_after_out
+    assert_eq!(
+        p2p_redirect_filters(src),
+        1,
+        "p2p_redirect after netem removal"
     );
 
     delete_interface(src).await?;

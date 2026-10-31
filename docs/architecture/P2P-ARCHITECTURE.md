@@ -17,6 +17,17 @@ A single TC classifier BPF program is shared across all P2p links. For each inte
 
 The BPF objects are intentionally leaked via `std::mem::forget()` so the TC filters persist in the kernel after the setup function returns. They are cleaned up when the interfaces are deleted during lab destroy.
 
+`network::attach_p2p_redirect` attaches the program as a legacy netlink TC filter
+(`TcAttachOptions::Netlink`), never through TCX, which aya chooses by default on kernels 6.6 and
+later. Two things depend on this:
+
+- **Restarts.** A TC filter holds its own kernel reference to the program. A TCX link lasts only
+  while its file descriptor is open, and that descriptor lives in `sherpad`, so a restart would
+  drop every redirect.
+- **Re-attach.** Redeploy and resume re-attach the surviving end of a link to the new peer. The
+  function first removes the old filter with `qdisc_detach_program`, which only sees TC filters.
+  A TCX program would stay in front of the new one and keep redirecting to the deleted peer.
+
 ### Link Impairment (TC netem)
 
 Each interface supports two coexisting TC layers:
@@ -67,6 +78,7 @@ Container_A <-- eth1 (netns) | veth_a_out --[BPF redirect -> veth_b_out]--> veth
    - Host side (e.g. `tpa0-{lab_id}`) — stays in host namespace, gets the eBPF redirect program
    - Container side (e.g. `cva0-{lab_id}`) — moved into the container's network namespace
 2. Disabled (unlinked) interfaces also get veth pairs, but without eBPF. The host side is set DOWN to remove carrier, so the container sees the interface as "not connected".
+   Private bridge (`[[bridges]]`) members also get veth pairs without eBPF. The host side joins the bridge's `brs` Linux bridge, in phase 7 after the bridge is created.
 3. After the container starts (Phase 13), the container's PID is obtained via Docker inspect.
 4. Each container-side veth is moved into the container's network namespace using `ip link set {veth} netns {pid}`.
 5. Inside the container, the veth is renamed to the correct interface name (e.g. `eth1`, `e1-1`) and brought UP with promiscuous mode enabled.
@@ -82,7 +94,7 @@ For disabled container interfaces, the host-side veth is set DOWN after the cont
 
 ### Teardown
 
-Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cv*`, `cd*`, and `ce*` prefixes via fuzzy interface search.
+Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cv*`, `cb*`, `cd*`, and `ce*` prefixes via fuzzy interface search.
 
 ### Naming Convention
 
@@ -90,8 +102,10 @@ Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`
 - Container-side veths (linked): `cva{link_index}-{lab_id}` / `cvb{link_index}-{lab_id}`
 - Host-side veths (disabled): `cd{node_index}i{interface_index}-{lab_id}`
 - Container-side veths (disabled): `ce{node_index}i{interface_index}-{lab_id}`
+- Host-side veths (bridge member): `cb{node_index}i{interface_index}-{lab_id}` (`konst::BRIDGE_MEMBER_HOST_VETH_PREFIX`)
+- Container-side veths (bridge member): `cc{node_index}i{interface_index}-{lab_id}` (`konst::BRIDGE_MEMBER_CONTAINER_VETH_PREFIX`)
 
-Note: Disabled veth names include the node index to avoid collisions when multiple containers share the same disabled interface index. The compact format stays within Linux's 15-character interface name limit.
+Note: Disabled and bridge member veth names include the node index to avoid collisions when multiple containers share the same disabled interface index. The compact format stays within Linux's 15-character interface name limit.
 
 ## VM-to-Container
 

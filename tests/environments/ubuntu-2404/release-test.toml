@@ -82,7 +82,7 @@ vm_image_sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d9733
 test_db_user = "sherpa"
 test_db_port = 42069
 # Tests skipped by name. Live tailnet enrollment is deferred; see PROJECT.md (Tailnet access).
-skip_tests = ["tailscale::tests::live_tailnet_enrollment_stop_resume_cleanup"]
+skip_tests = ["tailscale::tests::live_tailnet_enrollment_stop_reenroll_cleanup"]
 # Non-secret opt-ins for live integration tests. Credentials are never stored here.
 # SHERPA_TEST_KEEP_FAILED_LABS keeps a failed lab test's nested lab for debugging.
 environment = ["SHERPA_OVERLAY_LIVE=1", "SHERPA_TEST_KEEP_FAILED_LABS=1"]

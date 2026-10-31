@@ -26,6 +26,7 @@ instead of repeating these instructions.
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
 | VM code suite | `python3 tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
+| Private bridge lab test | `python3 tests/labs/private-bridge/private_bridge_lab_test.py` | Sherpa host with the alpine and FRR images, logged-in CLI | about 5–10 min |
 | Talos lab test | `python3 tests/labs/talos-linux/talos_lab_test.py` | Sherpa host with the Talos image, logged-in CLI, internet | about 25–35 min |
 | Web UI JavaScript | `node tests/web/test_theme.cjs` | Node.js | seconds |
 | Harness self-tests | `python3 tests/harness/<script>.py --self-test` | Python 3.11+ | seconds |
@@ -148,6 +149,7 @@ them from inside the lab, and always destroy them. They test whatever `sherpad` 
 runs, so install the build under test first.
 
 ```sh
+python3 tests/labs/private-bridge/private_bridge_lab_test.py  # private bridges: a VM and containers
 python3 tests/labs/talos-linux/talos_lab_test.py         # Talos clusters: single and ha labs in parallel
 ```
 
@@ -160,6 +162,7 @@ python3 tests/harness/test_env.py --self-test
 python3 tests/harness/test_env_guest.py --self-test
 python3 tests/harness/vm_release_test.py --self-test
 python3 tests/harness/vm_release_guest.py --self-test
+python3 tests/labs/private-bridge/private_bridge_lab_test.py --self-test
 python3 tests/labs/talos-linux/talos_lab_test.py --self-test
 ```
 
@@ -173,6 +176,7 @@ Run these after changing anything in `tests/harness/` or a lab runner.
 | Database schema or queries | Also the db integration tests |
 | Runtime code (server services, libvirt, container, network, guest templates) | The VM code suite on one release, in the background, before merging |
 | Installer or uninstaller scripts | The installer suite |
+| Lab networking (links, bridges, container or VM interfaces) | The private bridge lab test, against a server running the change |
 | Talos nodes or clusters | The Talos lab test, against a server running the change |
 | Before a release, or periodically | The VM code suite on both releases |
 

@@ -6,6 +6,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 
 | Lab | Covers | Time |
 |---|---|---|
+| [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy | about 5–10 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters | about 25–35 min |
 
 ## Rules

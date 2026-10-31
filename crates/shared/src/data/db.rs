@@ -112,5 +112,12 @@ pub struct DbBridge {
     pub bridge_name: String,
     pub network_name: String,
     pub lab: RecordId,
-    pub nodes: Vec<RecordId>,
+    pub members: Vec<BridgeMember>,
+}
+
+/// A node interface connected to a shared bridge.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct BridgeMember {
+    pub node: RecordId,
+    pub interface: String,
 }
