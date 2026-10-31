@@ -283,15 +283,15 @@ def bundled_ports(show_json, channel):
     return set(active)
 
 
-def arista_config(bundle_ports, save):
-    """EOS configuration lines for bundles, as {channel: ports}. A vEOS VM cold boots on resume,
-    so it saves its configuration; cEOS cannot write its startup-config in Sherpa (`Device or
-    resource busy`), and `down` only pauses it, so it keeps its running configuration."""
+def arista_config(bundle_ports):
+    """EOS configuration lines for bundles, as {channel: ports}, saved with `write memory`. A vEOS
+    VM cold boots on resume, so it needs the saved configuration; on cEOS the save checks that
+    its startup-config can be written."""
     lines = ["enable", "configure", "lldp run"]
     for channel, ports in sorted(bundle_ports.items()):
         lines += [f"interface {ports[0]}-{ports[-1].removeprefix('Ethernet')}", "no switchport",
                   f"channel-group {channel} mode active", "exit"]
-    lines += ["end", "write memory"] if save else ["end"]
+    lines += ["end", "write memory"]
     return "\n".join(lines) + "\n"
 
 
@@ -644,7 +644,7 @@ class LabRun:
 
     def configure_arista(self, node):
         """Configure the node's bundles, retrying while EOS is still starting."""
-        config = arista_config(arista_bundles(node), save=node.startswith("veos"))
+        config = arista_config(arista_bundles(node))
         deadline = time.monotonic() + READY_TIMEOUT
         while True:
             outcome = self.ssh(f"configure {node}", node, None, check=False, stdin=config)
@@ -798,11 +798,11 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(set(REDEPLOYED) | {REBOOTED}, set(VMS) | {"c1"})
 
     def test_arista_config_bundles_each_ports_pair(self):
-        config = arista_config(arista_bundles("veos1"), save=True)
+        config = arista_config(arista_bundles("veos1"))
         self.assertIn("interface Ethernet1-2\nno switchport\nchannel-group 1 mode active", config)
         self.assertIn("interface Ethernet3-4\nno switchport\nchannel-group 2 mode active", config)
         self.assertTrue(config.endswith("write memory\n"))
-        self.assertNotIn("write memory", arista_config(arista_bundles("ceos1"), save=False))
+        self.assertTrue(arista_config(arista_bundles("ceos1")).endswith("write memory\n"))
         self.assertEqual(arista_bundles("ceos1"), {2: ("Ethernet1", "Ethernet2"),
                                                    3: ("Ethernet3", "Ethernet4")})
 

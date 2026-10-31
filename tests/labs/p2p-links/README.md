@@ -63,7 +63,7 @@ Each run logs every command and its output, and keeps the captures, under
 
 | Requirement | How |
 |---|---|
-| L2 transparency | `l2frames.py` sends LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q, QinQ and 9000-byte frames each way on every Linux link; all must arrive, tags intact. Each Arista bundle's ends must be LLDP neighbours on both ports and bundle both into the port-channel. |
+| L2 transparency | `l2frames.py` sends LLDP, STP, pause, LACP, 802.1X, GARP-range, CDP, 802.1Q, QinQ and 9000-byte frames each way on every Linux link; all must arrive, tags intact. Each Arista bundle's ends must be LLDP neighbours on both ports and bundle both into the port-channel. Every Arista node, cEOS included, must save its configuration with `write memory`. |
 | Packet capture | `tcpdump` on each Linux link's src host end must see every frame from both ends. |
 | Impairment | `sherpa link impair` sets `src-to-dst`, then `dst-to-src`, then both with reorder and corruption, then clears, on every Linux link. Each step checks the netem delay on the host end each direction leaves through, and the round-trip time. The manifest's impairment on link 0 is checked after `up`. |
 | Jumbo frames | Every host end, taps included, is MTU 9600, and unfragmented 8972-byte pings pass each way. |
