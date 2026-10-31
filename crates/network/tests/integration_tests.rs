@@ -13,10 +13,11 @@ use std::process::{Child, Command};
 use anyhow::Result;
 
 use network::{
-    LinkImpairment, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
-    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge,
-    find_interfaces_fuzzy, get_ifindex, remove_netem, set_link_down, update_netem,
+    apply_netem, attach_p2p_redirect, create_bridge, create_tap, create_veth_in_netns,
+    create_veth_pair, delete_interface, enslave_to_bridge, find_interfaces_fuzzy, get_ifindex,
+    remove_netem, set_link_down, update_netem,
 };
+use shared::data::LinkImpairment;
 
 // ============================================================================
 // Helper

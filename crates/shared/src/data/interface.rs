@@ -6,8 +6,6 @@ use strum::IntoEnumIterator;
 use strum_macros::EnumIter;
 use thiserror::Error;
 
-use super::mapping::InterfaceConnection;
-
 pub trait InterfaceTrait {
     fn to_idx(&self) -> u8;
     fn from_idx(idx: u8) -> Result<String, ParseInterfaceIdxError>;
@@ -170,8 +168,6 @@ pub enum ConnectionTypes {
     Disabled, // Disable interface
     Management,    // Connects to management bridge
     P2p,           // Point-to-point eBPF redirect (no bridges)
-    Peer,          // Peered with another device
-    PeerBridge,    // Peered with another device via a bridge
     PrivateBridge, // Attached to a private bridge
     Reserved,      // Reserved interfaces used by the virtual platform
 }
@@ -183,7 +179,6 @@ pub struct Interface {
     pub mac_address: String,
     pub mtu: u16,
     pub connection_type: ConnectionTypes,
-    pub interface_connection: Option<InterfaceConnection>,
 }
 
 interface_enum!(

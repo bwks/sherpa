@@ -1,6 +1,10 @@
 #!/bin/sh
-# Install OpenSSH server and sudo
-apk add --no-cache openssh-server sudo lldpd
+# Install OpenSSH server and sudo, retrying while the network is not yet reachable
+for attempt in 1 2 3 4 5 6 7 8 9 10; do
+  apk add --no-cache openssh-server sudo lldpd && break
+  echo "apk add failed (attempt $attempt of 10), retrying in 3s"
+  sleep 3
+done
 ssh-keygen -A
 
 # Create vtysh config

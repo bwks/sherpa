@@ -185,7 +185,6 @@ pub const SHERPA_SSH_INDEX_HEADER: &str = "# Sherpa lab SSH configs - managed by
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
 pub const LAB_FILE_NAME: &str = "lab-info.toml";
 pub const BRIDGE_PREFIX: &str = "br";
-pub const VETH_PREFIX: &str = "ve";
 pub const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.
 pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
@@ -231,7 +230,6 @@ pub const VNC_PORT_FIRST: u16 = 5900;
 pub const VNC_PORT_LAST: u16 = 6999;
 /// Attempts to reserve a VNC port when concurrent labs take the same one.
 pub const VNC_PORT_ALLOCATION_ATTEMPTS: u32 = 10;
-pub const BASE_PORT: u16 = 10000;
 pub const HTTP_PORT: u16 = 8080;
 pub const TFTP_PORT: u16 = 69;
 
@@ -261,6 +259,14 @@ pub const MTU_JUMBO_NET: u16 = 9600;
 /// Interface indexes tried when creating a veth end into a container's netns, from the host's
 /// highest index up, before giving up.
 pub const NETNS_VETH_INDEX_ATTEMPTS: u32 = 64;
+/// Size of the kernel's `tc_netem_qopt`, which starts netem's options.
+pub const NETEM_QOPT_LEN: usize = 24;
+/// Netlink attribute that carries a qdisc's options (`TCA_OPTIONS`).
+pub const TCA_OPTIONS: u16 = 2;
+/// netem option attribute for packet reordering (`TCA_NETEM_REORDER`).
+pub const TCA_NETEM_REORDER: u16 = 3;
+/// netem option attribute for bit-flip corruption (`TCA_NETEM_CORRUPT`).
+pub const TCA_NETEM_CORRUPT: u16 = 4;
 
 pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";

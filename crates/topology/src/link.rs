@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::NodeModel;
+use shared::data::{LinkImpairment, NodeModel};
 use shared::util::split_node_int;
 
 /// Manifest Link
@@ -29,13 +29,25 @@ pub struct ManifestImpairment {
     pub corrupt_percent: Option<f32>,
 }
 
+impl From<&ManifestImpairment> for LinkImpairment {
+    /// The manifest gives delay and jitter in milliseconds; netem takes microseconds.
+    fn from(value: &ManifestImpairment) -> Self {
+        Self {
+            delay_us: value.delay.unwrap_or(0) * 1000,
+            jitter_us: value.jitter.unwrap_or(0) * 1000,
+            loss_percent: value.loss_percent.unwrap_or(0.0),
+            reorder_percent: value.reorder_percent.unwrap_or(0.0),
+            corrupt_percent: value.corrupt_percent.unwrap_or(0.0),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct LinkExpanded {
     pub node_a: String,
     pub int_a: String,
     pub node_b: String,
     pub int_b: String,
-    pub p2p: bool,
     pub impairment: Option<ManifestImpairment>,
 }
 
@@ -52,7 +64,6 @@ pub struct LinkDetailed {
     pub int_b: String,
     pub int_b_idx: u8,
     pub link_idx: u16,
-    pub p2p: bool,
     pub impairment: Option<ManifestImpairment>,
 }
 
@@ -66,6 +77,8 @@ pub struct LinkDetailed {
 pub struct Link2 {
     pub src: String,
     pub dst: String,
+    /// Removed: every link is a P2p (eBPF) link. Kept only so validation can reject a manifest
+    /// that still sets it (`validate::check_no_p2p_field`).
     pub p2p: Option<bool>,
     pub impairment: Option<ManifestImpairment>,
 }
@@ -80,8 +93,38 @@ impl Link2 {
             int_a,
             node_b,
             int_b,
-            p2p: self.p2p.unwrap_or(false),
             impairment: self.impairment.clone(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_manifest_impairment_converts_milliseconds_to_microseconds() {
+        let manifest = ManifestImpairment {
+            delay: Some(20),
+            jitter: Some(2),
+            loss_percent: Some(1.5),
+            reorder_percent: Some(10.0),
+            corrupt_percent: Some(0.5),
+        };
+        assert_eq!(
+            LinkImpairment::from(&manifest),
+            LinkImpairment {
+                delay_us: 20_000,
+                jitter_us: 2_000,
+                loss_percent: 1.5,
+                reorder_percent: 10.0,
+                corrupt_percent: 0.5,
+            }
+        );
+    }
+
+    #[test]
+    fn test_empty_manifest_impairment_is_clear() {
+        assert!(LinkImpairment::from(&ManifestImpairment::default()).is_clear());
     }
 }

@@ -170,12 +170,29 @@ mod tests {
             mtu: 9500,
             mac_address: "52:54:00:aa:bb:cc".to_string(),
             connection_type: ConnectionTypes::Management,
-            interface_connection: None,
         }];
 
         let xml = tmpl.render().unwrap();
         assert!(xml.contains("<source network='mgmt-lab1'/>"));
         assert!(xml.contains("52:54:00:aa:bb:cc"));
+    }
+
+    #[test]
+    fn test_unikernel_p2p_interface_sets_its_mtu() {
+        let mut tmpl = base_unikernel_template(UnikernelBootMode::DirectKernel);
+        tmpl.interfaces = vec![Interface {
+            name: "tpa0-lab1".to_string(),
+            num: 1,
+            mtu: 9600,
+            mac_address: "52:54:00:aa:bb:cc".to_string(),
+            connection_type: ConnectionTypes::P2p,
+        }];
+
+        let xml = tmpl.render().unwrap();
+        let p2p = &xml[xml.find("<interface type='ethernet'>").unwrap()..];
+        let p2p = &p2p[..p2p.find("</interface>").unwrap()];
+        assert!(p2p.contains("<target dev='tpa0-lab1'/>"), "{p2p}");
+        assert!(p2p.contains("<mtu size='9600'/>"), "{p2p}");
     }
 
     #[test]

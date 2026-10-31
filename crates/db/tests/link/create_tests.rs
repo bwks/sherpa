@@ -50,15 +50,11 @@ async fn test_create_link_success() -> Result<()> {
     let link = create_link(
         &db,
         0,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -118,15 +114,11 @@ async fn test_create_link_with_lab() -> Result<()> {
     let link = create_link(
         &db,
         0,
-        BridgeKind::P2pVeth,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "GigabitEthernet0/0".to_string(),
         "GigabitEthernet0/0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -182,15 +174,11 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
     create_link(
         &db,
         0,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -201,15 +189,11 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
     let result = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br2".to_string(),
-        "br3".to_string(),
-        "veth2".to_string(),
-        "veth3".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -274,15 +258,11 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     let link1 = create_link(
         &db,
         0,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "GigabitEthernet0/0".to_string(),
         "GigabitEthernet0/0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -293,15 +273,11 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     let link2 = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "GigabitEthernet0/1".to_string(),
         "GigabitEthernet0/1".to_string(),
-        "br2".to_string(),
-        "br3".to_string(),
-        "veth2".to_string(),
-        "veth3".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -363,66 +339,38 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
     )
     .await?;
 
-    // Test P2pBridge
-    let link1 = create_link(
-        &db,
-        0,
-        BridgeKind::P2pBridge,
-        node1.id.clone().unwrap(),
-        node2.id.clone().unwrap(),
-        "eth0".to_string(),
-        "eth0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
-        String::new(),
-        String::new(),
-        lab.id.clone().unwrap(),
-    )
-    .await?;
-
-    // Test P2pVeth
+    // Test P2p
     let link2 = create_link(
         &db,
         1,
-        BridgeKind::P2pVeth,
+        BridgeKind::P2p,
         node2.id.clone().unwrap(),
         node3.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br2".to_string(),
-        "br3".to_string(),
-        "veth2".to_string(),
-        "veth3".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
 
-    // Test P2pUdp
+    // Test SharedBridge
     let link3 = create_link(
         &db,
         2,
-        BridgeKind::P2pUdp,
+        BridgeKind::SharedBridge,
         node1.id.clone().unwrap(),
         node3.id.clone().unwrap(),
         "eth1".to_string(),
         "eth1".to_string(),
-        "br4".to_string(),
-        "br5".to_string(),
-        "veth4".to_string(),
-        "veth5".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
     )
     .await?;
 
-    assert!(matches!(link1.kind, BridgeKind::P2pBridge));
-    assert!(matches!(link2.kind, BridgeKind::P2pVeth));
-    assert!(matches!(link3.kind, BridgeKind::P2pUdp));
+    assert!(matches!(link2.kind, BridgeKind::P2p));
+    assert!(matches!(link3.kind, BridgeKind::SharedBridge));
 
     teardown_db(&db).await?;
     Ok(())
@@ -473,15 +421,11 @@ async fn test_create_link_increments_count() -> Result<()> {
     create_link(
         &db,
         0,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -490,15 +434,11 @@ async fn test_create_link_increments_count() -> Result<()> {
     create_link(
         &db,
         1,
-        BridgeKind::P2pVeth,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth1".to_string(),
         "eth1".to_string(),
-        "br2".to_string(),
-        "br3".to_string(),
-        "veth2".to_string(),
-        "veth3".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -557,15 +497,11 @@ async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
     let created_link = create_link(
         &db,
         0,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "GigabitEthernet0/0".to_string(),
         "GigabitEthernet0/0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -631,15 +567,11 @@ async fn test_create_link_can_retrieve_by_id() -> Result<()> {
     let created_link = create_link(
         &db,
         0,
-        BridgeKind::P2pVeth,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br0".to_string(),
-        "br1".to_string(),
-        "veth0".to_string(),
-        "veth1".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),

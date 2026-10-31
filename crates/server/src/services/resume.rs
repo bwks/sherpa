@@ -578,10 +578,6 @@ async fn reattach_p2p_ebpf_for_nodes(
         .collect();
 
     for link in &db_links {
-        if link.kind != data::BridgeKind::P2p {
-            continue;
-        }
-
         // Only process links that involve one of the cold-booted nodes
         let involves_target = target_record_ids
             .iter()
@@ -602,18 +598,13 @@ async fn reattach_p2p_ebpf_for_nodes(
         network::attach_p2p_redirect(&link.tap_b, ifindex_a)
             .context(format!("failed to attach eBPF redirect on {}", link.tap_b))?;
 
-        // Re-apply link impairment if configured
-        if link.delay_us > 0 || link.loss_percent > 0.0 {
-            let netem = network::LinkImpairment {
-                delay_us: link.delay_us,
-                jitter_us: link.jitter_us,
-                loss_percent: link.loss_percent,
-                reorder_percent: 0.0,
-                corrupt_percent: 0.0,
-            };
-            network::apply_netem(ifindex_a as i32, &netem).await?;
-            network::apply_netem(ifindex_b as i32, &netem).await?;
-        }
+        network::apply_link_netem(
+            ifindex_a,
+            ifindex_b,
+            &link.impairment_a_to_b,
+            &link.impairment_b_to_a,
+        )
+        .await?;
 
         tracing::info!(
             lab_id = %lab_id,

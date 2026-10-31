@@ -2,7 +2,8 @@ use anyhow::{Context, Result, anyhow};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use shared::data::{
-    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig, RecordId, RecordIdKey,
+    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, LinkImpairment, NodeConfig, RecordId,
+    RecordIdKey,
 };
 use surrealdb_types::{
     Datetime, RecordId as SurrealRecordId, RecordIdKey as SurrealRecordIdKey, SurrealValue,
@@ -64,12 +65,14 @@ pub(crate) struct LinkRow {
     pub int_a: String,
     pub int_b: String,
     pub lab: SurrealRecordId,
-    pub bridge_a: String,
-    pub bridge_b: String,
-    pub veth_a: String,
-    pub veth_b: String,
     pub tap_a: String,
     pub tap_b: String,
+    pub impairment_a_to_b: LinkImpairmentRow,
+    pub impairment_b_to_a: LinkImpairmentRow,
+}
+
+#[derive(Clone, Debug, Deserialize, SurrealValue)]
+pub(crate) struct LinkImpairmentRow {
     pub delay_us: u32,
     pub jitter_us: u32,
     pub loss_percent: f32,
@@ -310,17 +313,10 @@ impl TryFrom<&DbLink> for LinkRow {
             int_a: value.int_a.clone(),
             int_b: value.int_b.clone(),
             lab: to_surreal_id(&value.lab),
-            bridge_a: value.bridge_a.clone(),
-            bridge_b: value.bridge_b.clone(),
-            veth_a: value.veth_a.clone(),
-            veth_b: value.veth_b.clone(),
             tap_a: value.tap_a.clone(),
             tap_b: value.tap_b.clone(),
-            delay_us: value.delay_us,
-            jitter_us: value.jitter_us,
-            loss_percent: value.loss_percent,
-            reorder_percent: value.reorder_percent,
-            corrupt_percent: value.corrupt_percent,
+            impairment_a_to_b: LinkImpairmentRow::from(&value.impairment_a_to_b),
+            impairment_b_to_a: LinkImpairmentRow::from(&value.impairment_b_to_a),
         })
     }
 }
@@ -338,18 +334,35 @@ impl TryFrom<LinkRow> for DbLink {
             int_a: value.int_a,
             int_b: value.int_b,
             lab: from_surreal_id(value.lab)?,
-            bridge_a: value.bridge_a,
-            bridge_b: value.bridge_b,
-            veth_a: value.veth_a,
-            veth_b: value.veth_b,
             tap_a: value.tap_a,
             tap_b: value.tap_b,
+            impairment_a_to_b: LinkImpairment::from(value.impairment_a_to_b),
+            impairment_b_to_a: LinkImpairment::from(value.impairment_b_to_a),
+        })
+    }
+}
+
+impl From<&LinkImpairment> for LinkImpairmentRow {
+    fn from(value: &LinkImpairment) -> Self {
+        Self {
             delay_us: value.delay_us,
             jitter_us: value.jitter_us,
             loss_percent: value.loss_percent,
             reorder_percent: value.reorder_percent,
             corrupt_percent: value.corrupt_percent,
-        })
+        }
+    }
+}
+
+impl From<LinkImpairmentRow> for LinkImpairment {
+    fn from(value: LinkImpairmentRow) -> Self {
+        Self {
+            delay_us: value.delay_us,
+            jitter_us: value.jitter_us,
+            loss_percent: value.loss_percent,
+            reorder_percent: value.reorder_percent,
+            corrupt_percent: value.corrupt_percent,
+        }
     }
 }
 

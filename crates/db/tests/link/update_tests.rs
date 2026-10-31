@@ -3,7 +3,7 @@ use db::{
     create_lab, create_link, create_node, create_node_image, create_user, get_link_by_id,
     update_link,
 };
-use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
+use shared::data::{BridgeKind, LinkImpairment, NodeConfig, NodeModel, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
 
@@ -48,15 +48,11 @@ async fn test_update_link_success() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-node1-eth0".to_string(),
-        "br-node2-eth0".to_string(),
-        "veth-node1".to_string(),
-        "veth-node2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -65,24 +61,39 @@ async fn test_update_link_success() -> Result<()> {
 
     // Update mutable fields
     link.index = 10;
-    link.kind = BridgeKind::P2pVeth;
+    link.kind = BridgeKind::SharedBridge;
     link.int_a = "eth1".to_string();
     link.int_b = "eth1".to_string();
-    link.bridge_a = "new-bridge-a".to_string();
-    link.bridge_b = "new-bridge-b".to_string();
-    link.veth_a = "new-veth-a".to_string();
-    link.veth_b = "new-veth-b".to_string();
+    link.tap_a = "new-tap-a".to_string();
+    link.tap_b = "new-tap-b".to_string();
+    // Each direction keeps its own impairment.
+    let a_to_b = LinkImpairment {
+        delay_us: 20000,
+        jitter_us: 1000,
+        loss_percent: 2.5,
+        reorder_percent: 10.0,
+        corrupt_percent: 0.5,
+    };
+    let b_to_a = LinkImpairment {
+        delay_us: 5000,
+        ..LinkImpairment::default()
+    };
+    link.impairment_a_to_b = a_to_b;
+    link.impairment_b_to_a = b_to_a;
 
     let updated = update_link(&db, link).await?;
 
     assert_eq!(updated.index, 10);
-    assert_eq!(updated.kind, BridgeKind::P2pVeth);
+    assert_eq!(updated.kind, BridgeKind::SharedBridge);
     assert_eq!(updated.int_a, "eth1");
     assert_eq!(updated.int_b, "eth1");
-    assert_eq!(updated.bridge_a, "new-bridge-a");
-    assert_eq!(updated.bridge_b, "new-bridge-b");
-    assert_eq!(updated.veth_a, "new-veth-a");
-    assert_eq!(updated.veth_b, "new-veth-b");
+    assert_eq!(updated.tap_a, "new-tap-a");
+    assert_eq!(updated.tap_b, "new-tap-b");
+    assert_eq!(updated.impairment_a_to_b, a_to_b);
+    assert_eq!(updated.impairment_b_to_a, b_to_a);
+    let stored = get_link_by_id(&db, updated.id.clone().unwrap()).await?;
+    assert_eq!(stored.impairment_a_to_b, a_to_b);
+    assert_eq!(stored.impairment_b_to_a, b_to_a);
 
     teardown_db(&db).await?;
     Ok(())
@@ -129,15 +140,11 @@ async fn test_update_link_without_id_fails() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -212,15 +219,11 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab1.id.clone().unwrap(),
@@ -293,15 +296,11 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -375,15 +374,11 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -450,15 +445,11 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
     create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -469,15 +460,11 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
     let mut link2 = create_link(
         &db,
         2,
-        BridgeKind::P2pVeth,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth1".to_string(),
         "eth1".to_string(),
-        "br-3".to_string(),
-        "br-4".to_string(),
-        "veth-3".to_string(),
-        "veth-4".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -545,15 +532,11 @@ async fn test_update_link_preserves_id() -> Result<()> {
     let link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -615,15 +598,11 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),
@@ -689,15 +668,11 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
     let mut link = create_link(
         &db,
         1,
-        BridgeKind::P2pBridge,
+        BridgeKind::P2p,
         node1.id.clone().unwrap(),
         node2.id.clone().unwrap(),
         "eth0".to_string(),
         "eth0".to_string(),
-        "br-1".to_string(),
-        "br-2".to_string(),
-        "veth-1".to_string(),
-        "veth-2".to_string(),
         String::new(),
         String::new(),
         lab.id.clone().unwrap(),

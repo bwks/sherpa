@@ -4,9 +4,7 @@
 //! attachment names its interface. Every data interface must therefore get an attachment, in
 //! interface order: one left out would rename every interface after it.
 
-use std::collections::HashMap;
-
-use anyhow::{Result, anyhow};
+use anyhow::{Result, bail};
 
 use shared::data;
 use shared::util;
@@ -14,8 +12,6 @@ use shared::util;
 /// How a container data interface is connected.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ContainerDataInterface {
-    /// One end of a `[[links]]` link, on the named Docker network.
-    Linked(String),
     /// A member of a `[[bridges]]` private bridge.
     Bridged,
     /// Not connected: on the node's isolated network, admin down.
@@ -54,7 +50,6 @@ pub(crate) fn data_attachment(
         None
     };
     let (name, linux_interface_name, admin_down) = match connection {
-        ContainerDataInterface::Linked(network) => (network, srlinux_name, false),
         ContainerDataInterface::Bridged => (
             bridge_member_network_name(node_name, interface_idx, lab_id),
             srlinux_name,
@@ -75,29 +70,25 @@ pub(crate) fn data_attachment(
     })
 }
 
-/// The Docker attachments for a container node's data interfaces, in interface order.
-/// `link_networks` maps `(node name, interface name)` to the Docker network of a link end.
+/// The Docker attachments for a container node's data interfaces, in interface order. Only a
+/// container with no `[[links]]` link gets them: every link is a P2p link, and a container with
+/// one takes all its data interfaces as veths instead.
 pub(crate) fn data_attachments(
     node_name: &str,
     model: &data::NodeModel,
     interfaces: &[data::InterfaceData],
-    link_networks: &HashMap<(String, String), String>,
     lab_id: &str,
 ) -> Result<Vec<data::ContainerNetworkAttachment>> {
     let mut attachments = vec![];
     for iface in interfaces {
         let connection = match &iface.data {
             data::NodeInterface::Peer(_) => {
-                let network = link_networks
-                    .get(&(node_name.to_string(), iface.name.clone()))
-                    .ok_or_else(|| {
-                        anyhow!(
-                            "No Docker network for link interface {} of node {}",
-                            iface.name,
-                            node_name
-                        )
-                    })?;
-                ContainerDataInterface::Linked(network.clone())
+                bail!(
+                    "Link interface {} of node {} has no Docker network: a container with a link \
+                     takes its data interfaces as veths",
+                    iface.name,
+                    node_name
+                );
             }
             data::NodeInterface::Bridge(_) => ContainerDataInterface::Bridged,
             data::NodeInterface::Disabled => ContainerDataInterface::Disabled,
@@ -163,16 +154,8 @@ mod tests {
                 peer_interface: name.to_string(),
                 peer_interface_index: index,
                 peer_side: data::PeerSide::B,
-                p2p: false,
             }),
         )
-    }
-
-    fn link_networks() -> HashMap<(String, String), String> {
-        HashMap::from([(
-            ("fr01".to_string(), "eth2".to_string()),
-            format!("fr01-etha0-{LAB_ID}"),
-        )])
     }
 
     #[test]
@@ -234,58 +217,36 @@ mod tests {
     }
 
     #[test]
-    fn test_linked_interface_uses_its_link_network() {
-        let attachment = data_attachment(
-            "fr01",
-            &data::NodeModel::FrrLinux,
-            "eth2",
-            2,
-            ContainerDataInterface::Linked(format!("fr01-etha0-{LAB_ID}")),
-            LAB_ID,
-        )
-        .unwrap();
-        assert_eq!(attachment.name, "fr01-etha0-fe4edfdc");
-        assert!(!attachment.admin_down);
-    }
-
-    #[test]
     fn test_bridge_member_keeps_later_interfaces_in_order() {
-        // A bridge member on eth1 used to be dropped, so the eth2 link came up as eth1.
+        // A bridge member on eth1 used to be dropped, so later interfaces came up one name early.
         let interfaces = vec![
             interface("eth0", 0, data::NodeInterface::Management),
             bridged("eth1", 1),
-            peer("eth2", 2),
-            interface("eth3", 3, data::NodeInterface::Disabled),
+            interface("eth2", 2, data::NodeInterface::Disabled),
+            bridged("eth3", 3),
         ];
-        let attachments = data_attachments(
-            "fr01",
-            &data::NodeModel::FrrLinux,
-            &interfaces,
-            &link_networks(),
-            LAB_ID,
-        )
-        .unwrap();
+        let attachments =
+            data_attachments("fr01", &data::NodeModel::FrrLinux, &interfaces, LAB_ID).unwrap();
         let names: Vec<&str> = attachments.iter().map(|a| a.name.as_str()).collect();
         assert_eq!(
             names,
             [
                 "fr01-brs1-fe4edfdc",
-                "fr01-etha0-fe4edfdc",
-                "fr01-iso3-fe4edfdc"
+                "fr01-iso2-fe4edfdc",
+                "fr01-brs3-fe4edfdc"
             ]
         );
     }
 
     #[test]
-    fn test_link_without_a_network_is_an_error() {
+    fn test_link_interface_is_an_error() {
         let interfaces = vec![peer("eth2", 2)];
-        let result = data_attachments(
-            "fr01",
-            &data::NodeModel::FrrLinux,
-            &interfaces,
-            &HashMap::new(),
-            LAB_ID,
+        let error = data_attachments("fr01", &data::NodeModel::FrrLinux, &interfaces, LAB_ID)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("takes its data interfaces as veths"),
+            "{error}"
         );
-        assert!(result.is_err());
     }
 }

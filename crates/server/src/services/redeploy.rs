@@ -34,9 +34,9 @@ use shared::data::{
     DbBridge, DbNode, NodeState, RecordId, RedeployRequest, RedeployResponse, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_FILE_NAME,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_FILE_NAME, MTU_JUMBO_NET,
     READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_SECRETS_DIR, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    SHERPA_SECRETS_DIR, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -423,10 +423,9 @@ pub async fn redeploy_node(
             let bridge_interfaces = node_bridge_interfaces(&db_bridges, &node_record_id);
 
             // Check if this node has any P2p links
-            let is_p2p_container = db_links.iter().any(|link| {
-                link.kind == data::BridgeKind::P2p
-                    && (link.node_a == node_record_id || link.node_b == node_record_id)
-            });
+            let is_p2p_container = db_links
+                .iter()
+                .any(|link| link.node_a == node_record_id || link.node_b == node_record_id);
 
             let first_data_idx = node_image
                 .reserved_interface_count
@@ -448,9 +447,6 @@ pub async fn redeploy_node(
 
                 // P2p linked interfaces
                 for link in &db_links {
-                    if link.kind != data::BridgeKind::P2p {
-                        continue;
-                    }
                     if link.node_a == node_record_id {
                         let iface_idx = util::interface_to_idx(&target_node.model, &link.int_a)?;
                         p2p_container_veths.push(P2pContainerVeth {
@@ -515,40 +511,14 @@ pub async fn redeploy_node(
                     });
                 }
             } else {
-                // Non-P2p container: use Docker macvlan networks (existing behavior)
-                let mut iface_net_lookup: HashMap<String, (String, String)> = HashMap::new();
-
-                for link in &db_links {
-                    if link.node_a == node_record_id {
-                        let docker_net_name =
-                            format!("{}-etha{}-{}", node_name, link.index, lab_id);
-                        iface_net_lookup
-                            .insert(link.int_a.clone(), (docker_net_name, link.bridge_a.clone()));
-                    }
-                    if link.node_b == node_record_id {
-                        let docker_net_name =
-                            format!("{}-ethb{}-{}", node_name, link.index, lab_id);
-                        iface_net_lookup
-                            .insert(link.int_b.clone(), (docker_net_name, link.bridge_b.clone()));
-                    }
-                }
-
+                // A container with no links: Docker macvlan networks for bridge members and
+                // disabled interfaces
                 let isolated = node_ops::node_isolated_network_data(node_name, node_idx, lab_id);
 
                 for idx in first_data_idx..=max_iface_idx {
                     let iface_name = util::interface_from_idx(&target_node.model, idx)?;
 
-                    let connection = if let Some((docker_net_name, bridge_name)) =
-                        iface_net_lookup.get(&iface_name)
-                    {
-                        container::create_docker_macvlan_network(
-                            &docker_conn,
-                            bridge_name,
-                            docker_net_name,
-                        )
-                        .await?;
-                        ContainerDataInterface::Linked(docker_net_name.clone())
-                    } else if let Some(bridge_name) = bridge_interfaces.get(&iface_name) {
+                    let connection = if let Some(bridge_name) = bridge_interfaces.get(&iface_name) {
                         container::create_docker_macvlan_bridge_network(
                             &docker_conn,
                             bridge_name,
@@ -675,9 +645,6 @@ pub async fn redeploy_node(
 
                 // Re-attach eBPF redirect on P2p links involving this node
                 for link in &db_links {
-                    if link.kind != data::BridgeKind::P2p {
-                        continue;
-                    }
                     if link.node_a != node_record_id && link.node_b != node_record_id {
                         continue;
                     }
@@ -694,18 +661,13 @@ pub async fn redeploy_node(
                     network::attach_p2p_redirect(&link.tap_b, ifindex_a)
                         .context(format!("failed to attach eBPF redirect on {}", link.tap_b))?;
 
-                    // Re-apply link impairment if configured
-                    if link.delay_us > 0 || link.loss_percent > 0.0 {
-                        let netem = network::LinkImpairment {
-                            delay_us: link.delay_us,
-                            jitter_us: link.jitter_us,
-                            loss_percent: link.loss_percent,
-                            reorder_percent: 0.0,
-                            corrupt_percent: 0.0,
-                        };
-                        network::apply_netem(ifindex_a as i32, &netem).await?;
-                        network::apply_netem(ifindex_b as i32, &netem).await?;
-                    }
+                    network::apply_link_netem(
+                        ifindex_a,
+                        ifindex_b,
+                        &link.impairment_a_to_b,
+                        &link.impairment_b_to_a,
+                    )
+                    .await?;
 
                     tracing::info!(
                         lab_id = %lab_id,
@@ -780,7 +742,6 @@ pub async fn redeploy_node(
                 mtu: node_image.interface_mtu,
                 mac_address: vm_ztp.mac_address.clone(),
                 connection_type: data::ConnectionTypes::Management,
-                interface_connection: None,
             });
 
             // Reserved interfaces
@@ -797,7 +758,6 @@ pub async fn redeploy_node(
                     mtu: node_image.interface_mtu,
                     mac_address: util::random_mac(KVM_OUI),
                     connection_type: data::ConnectionTypes::Reserved,
-                    interface_connection: None,
                 });
             }
 
@@ -815,75 +775,23 @@ pub async fn redeploy_node(
                 let mut found_link = false;
                 for link in &db_links {
                     if link.node_a == node_record_id && link.int_a == interface_name {
-                        let is_p2p = link.kind == data::BridgeKind::P2p;
-                        let iface_name = if is_p2p {
-                            format!("{}a{}-{}", TAP_PREFIX, link.index, lab_id)
-                        } else {
-                            format!("{}a{}-{}", BRIDGE_PREFIX, link.index, lab_id)
-                        };
-                        let conn_type = if is_p2p {
-                            data::ConnectionTypes::P2p
-                        } else {
-                            data::ConnectionTypes::PeerBridge
-                        };
-                        let source_node = db::get_node_by_id(&db, link.node_b.clone()).await?;
-                        let interface_connection = data::InterfaceConnection {
-                            local_id: node_idx,
-                            local_port: util::id_to_port(node_idx as u8),
-                            local_loopback: util::get_ip(&loopback_subnet, node_idx as u8)
-                                .to_string(),
-                            source_id: source_node.index,
-                            source_port: util::id_to_port(source_node.index as u8),
-                            source_loopback: util::get_ip(
-                                &loopback_subnet,
-                                source_node.index as u8,
-                            )
-                            .to_string(),
-                        };
                         interfaces.push(data::Interface {
-                            name: iface_name,
+                            name: link.tap_a.clone(),
                             num: idx,
-                            mtu: node_image.interface_mtu,
+                            mtu: MTU_JUMBO_NET,
                             mac_address: util::random_mac(KVM_OUI),
-                            connection_type: conn_type,
-                            interface_connection: Some(interface_connection),
+                            connection_type: data::ConnectionTypes::P2p,
                         });
                         found_link = true;
                         break;
                     }
                     if link.node_b == node_record_id && link.int_b == interface_name {
-                        let is_p2p = link.kind == data::BridgeKind::P2p;
-                        let iface_name = if is_p2p {
-                            format!("{}b{}-{}", TAP_PREFIX, link.index, lab_id)
-                        } else {
-                            format!("{}b{}-{}", BRIDGE_PREFIX, link.index, lab_id)
-                        };
-                        let conn_type = if is_p2p {
-                            data::ConnectionTypes::P2p
-                        } else {
-                            data::ConnectionTypes::PeerBridge
-                        };
-                        let source_node = db::get_node_by_id(&db, link.node_a.clone()).await?;
-                        let interface_connection = data::InterfaceConnection {
-                            local_id: node_idx,
-                            local_port: util::id_to_port(node_idx as u8),
-                            local_loopback: util::get_ip(&loopback_subnet, node_idx as u8)
-                                .to_string(),
-                            source_id: source_node.index,
-                            source_port: util::id_to_port(source_node.index as u8),
-                            source_loopback: util::get_ip(
-                                &loopback_subnet,
-                                source_node.index as u8,
-                            )
-                            .to_string(),
-                        };
                         interfaces.push(data::Interface {
-                            name: iface_name,
+                            name: link.tap_b.clone(),
                             num: idx,
-                            mtu: node_image.interface_mtu,
+                            mtu: MTU_JUMBO_NET,
                             mac_address: util::random_mac(KVM_OUI),
-                            connection_type: conn_type,
-                            interface_connection: Some(interface_connection),
+                            connection_type: data::ConnectionTypes::P2p,
                         });
                         found_link = true;
                         break;
@@ -899,7 +807,6 @@ pub async fn redeploy_node(
                             mtu: node_image.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::PrivateBridge,
-                            interface_connection: None,
                         });
                     } else {
                         // Disabled interface - connected to isolated network
@@ -909,7 +816,6 @@ pub async fn redeploy_node(
                             mtu: node_image.interface_mtu,
                             mac_address: util::random_mac(KVM_OUI),
                             connection_type: data::ConnectionTypes::Disabled,
-                            interface_connection: None,
                         });
                     }
                 }
@@ -950,10 +856,7 @@ pub async fn redeploy_node(
             // Re-attach eBPF redirect on P2p links involving this VM
             let p2p_vm_links: Vec<_> = db_links
                 .iter()
-                .filter(|l| {
-                    l.kind == data::BridgeKind::P2p
-                        && (l.node_a == node_record_id || l.node_b == node_record_id)
-                })
+                .filter(|l| l.node_a == node_record_id || l.node_b == node_record_id)
                 .collect();
 
             if !p2p_vm_links.is_empty() {
@@ -978,17 +881,13 @@ pub async fn redeploy_node(
                     network::attach_p2p_redirect(&link.tap_b, ifindex_a)
                         .context(format!("failed to attach eBPF redirect on {}", link.tap_b))?;
 
-                    if link.delay_us > 0 || link.loss_percent > 0.0 {
-                        let netem = network::LinkImpairment {
-                            delay_us: link.delay_us,
-                            jitter_us: link.jitter_us,
-                            loss_percent: link.loss_percent,
-                            reorder_percent: 0.0,
-                            corrupt_percent: 0.0,
-                        };
-                        network::apply_netem(ifindex_a as i32, &netem).await?;
-                        network::apply_netem(ifindex_b as i32, &netem).await?;
-                    }
+                    network::apply_link_netem(
+                        ifindex_a,
+                        ifindex_b,
+                        &link.impairment_a_to_b,
+                        &link.impairment_b_to_a,
+                    )
+                    .await?;
 
                     tracing::info!(
                         lab_id = %lab_id,

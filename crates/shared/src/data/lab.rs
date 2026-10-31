@@ -31,7 +31,6 @@ pub struct PeerInterface {
     pub peer_interface: String,
     pub peer_interface_index: u8,
     pub peer_side: PeerSide,
-    pub p2p: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -166,10 +165,6 @@ pub struct LabLinkData {
     pub node_b: DbNode,
     pub int_a: String,
     pub int_b: String,
-    pub bridge_a: String,
-    pub bridge_b: String,
-    pub veth_a: String,
-    pub veth_b: String,
     /// Tap device name for node_a side (P2p links only).
     pub tap_a: String,
     /// Tap device name for node_b side (P2p links only).

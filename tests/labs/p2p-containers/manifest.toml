@@ -101,79 +101,63 @@ version = "9"
 [[links]]
 src = "sw01::eth1"
 dst = "srl01::eth-1/1"
-p2p = true
 
 [[links]]
 src = "sw01::eth2"
 dst = "frr01::eth1"
-p2p = true
 
 [[links]]
 src = "srl01::eth-1/2"
 dst = "frr01::eth2"
-p2p = true
 
 [[links]]
 src = "mongo01::eth1"
 dst = "sw01::eth3"
-p2p = true
 
 [[links]]
 src = "surreal01::eth1"
 dst = "sw01::eth4"
-p2p = true
 
 [[links]]
 src = "vault01::eth1"
 dst = "sw01::eth5"
-p2p = true
 
 [[links]]
 src = "nats01::eth1"
 dst = "sw01::eth6"
-p2p = true
 
 [[links]]
 src = "forgejo01::eth1"
 dst = "sw01::eth7"
-p2p = true
 
 [[links]]
 src = "gitlab01::eth1"
 dst = "sw01::eth8"
-p2p = true
 
 [[links]]
 src = "mysql01::eth1"
 dst = "sw01::eth9"
-p2p = true
 
 [[links]]
 src = "postgres01::eth1"
 dst = "sw01::eth10"
-p2p = true
 
 [[links]]
 src = "alpine01::eth1"
 dst = "sw01::eth11"
-p2p = true
 
 [[links]]
 src = "ubuntu01::eth1"
 dst = "sw01::eth12"
-p2p = true
 
 [[links]]
 src = "debian01::eth1"
 dst = "sw01::eth13"
-p2p = true
 
 [[links]]
 src = "busybox01::eth1"
 dst = "sw01::eth14"
-p2p = true
 
 [[links]]
 src = "rocky01::eth1"
 dst = "sw01::eth15"
-p2p = true

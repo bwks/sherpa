@@ -1,6 +1,6 @@
 # P2p containers lab test
 
-Tests `p2p = true` links on container nodes end to end through the `sherpa` CLI. Every link is
+Tests P2p (eBPF) links on container nodes end to end through the `sherpa` CLI. Every link is
 P2p, and several hosts have no `ip` command or no shell, so their interfaces must come up
 without anything running in the image.
 

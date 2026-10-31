@@ -467,8 +467,8 @@ class SelfTest(unittest.TestCase):
         for section in ("nodes", "links"):
             self.assertEqual(rendered[section], manifest[section])
 
-    def test_every_link_is_p2p(self):
-        self.assertTrue(all(link.get("p2p") for link in self.manifest()["links"]))
+    def test_no_link_sets_the_removed_p2p_field(self):
+        self.assertFalse(any("p2p" in link for link in self.manifest()["links"]))
 
     def test_every_host_has_a_unique_address_and_a_sw01_access_port(self):
         manifest = self.manifest()

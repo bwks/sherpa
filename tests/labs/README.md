@@ -8,6 +8,7 @@ the `sherpa` CLI against an installed server, the way a user does. This is diffe
 |---|---|---|
 | [private-bridge](private-bridge/README.md) | `[[bridges]]` with a VM and containers, through up, redeploy and destroy | about 5–10 min |
 | [p2p-containers](p2p-containers/README.md) | P2p links on network OS, application and OS containers, some without `ip` or a shell, through up, redeploy and destroy | about 2–5 min |
+| [p2p-links](p2p-links/README.md) | P2p (eBPF) link requirements on VM ⟷ VM, VM ⟷ container and container ⟷ container: L2 protocols, LACP, capture, per-direction impairment, jumbo frames, lifecycle | about 15–20 min |
 | [talos-linux](talos-linux/README.md) | Sherpa-built Talos Kubernetes clusters | about 25–35 min |
 
 ## Rules

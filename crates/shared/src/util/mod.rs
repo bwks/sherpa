@@ -10,7 +10,6 @@ mod interface;
 mod ip;
 mod mac;
 mod output;
-mod port;
 mod random;
 mod sanitizers;
 mod ssh;
@@ -56,7 +55,6 @@ pub use mac::{clean_mac, random_mac};
 pub use output::{
     display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
-pub use port::id_to_port;
 pub use random::{generate_lab_name, get_id, get_id_for_user};
 pub use sanitizers::dasher;
 pub use ssh::{

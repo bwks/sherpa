@@ -1,7 +1,7 @@
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
 
-use super::{BridgeKind, LabState, NodeState, RecordId};
+use super::{BridgeKind, LabState, LinkImpairment, NodeState, RecordId};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DbUser {
@@ -78,31 +78,18 @@ pub struct DbLink {
     pub int_a: String,
     pub int_b: String,
     pub lab: RecordId,
-    pub bridge_a: String,
-    pub bridge_b: String,
-    pub veth_a: String,
-    pub veth_b: String,
     /// Tap device name for node_a side (P2p links only).
     #[serde(default)]
     pub tap_a: String,
     /// Tap device name for node_b side (P2p links only).
     #[serde(default)]
     pub tap_b: String,
-    /// Link impairment: one-way delay in microseconds.
+    /// Impairment on traffic from node_a to node_b: netem on `tap_b`'s egress.
     #[serde(default)]
-    pub delay_us: u32,
-    /// Link impairment: delay jitter in microseconds.
+    pub impairment_a_to_b: LinkImpairment,
+    /// Impairment on traffic from node_b to node_a: netem on `tap_a`'s egress.
     #[serde(default)]
-    pub jitter_us: u32,
-    /// Link impairment: packet loss percent (0.0-100.0).
-    #[serde(default)]
-    pub loss_percent: f32,
-    /// Link impairment: packet reorder percent (0.0-100.0).
-    #[serde(default)]
-    pub reorder_percent: f32,
-    /// Link impairment: bit-flip corruption percent (0.0-100.0).
-    #[serde(default)]
-    pub corrupt_percent: f32,
+    pub impairment_b_to_a: LinkImpairment,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

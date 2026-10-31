@@ -1,6 +1,14 @@
 # P2p Link Architecture
 
-P2p (point-to-point) links provide protocol-transparent connections between nodes using eBPF TC classifier programs. Unlike bridge-based links (`PeerBridge`), P2p links pass all L2 protocols including STP, LLDP, LACP, and any other protocol that would normally be filtered by a Linux bridge's `group_fwd_mask`.
+P2p (point-to-point) links provide protocol-transparent connections between nodes using eBPF TC
+classifier programs. Every `[[links]]` link is a P2p link. They pass all L2 protocols, including
+STP, LLDP, LACP, pause frames and anything else a Linux bridge would filter or never forward.
+
+Links used to have a `p2p` setting, and a link without it was joined through two Linux bridges
+and a veth pair. The setting is now rejected by `topology::validate::check_no_p2p_field`, and
+nothing creates or handles bridge links any more. Labs that still have them must be destroyed
+before upgrading. UDP tunnels for VMs and direct veths for containers were planned once and
+never built; their leftovers are gone.
 
 ## How It Works
 
@@ -35,26 +43,52 @@ Each interface supports two coexisting TC layers:
 - **clsact qdisc** — ingress hook for the BPF redirect program
 - **root netem qdisc** — egress hook for delay/loss/jitter simulation
 
-Packet flow with impairment:
+netem on iface_a's egress controls B->A impairment. netem on iface_b's egress controls A->B
+impairment. Each direction is stored on the link record (`impairment_a_to_b`,
+`impairment_b_to_a`, where A is the manifest's `src`) and is set on its own by the impairment
+API (`services::impairment`, `direction` in the request). `up` stores the manifest's
+`[links.impairment]` in both; resume and redeploy re-apply each direction that is not clear
+with `network::apply_link_netem`.
 
-```
-Node_A sends packet
-  -> iface_a ingress (BPF: redirect to iface_b egress)
-  -> iface_b egress (netem: adds configured delay/loss/jitter)
-  -> delivered to Node_B
+```mermaid
+sequenceDiagram
+    participant nodeA as Node_A
+    participant ifaceA as iface_a
+    participant ifaceB as iface_b
+    participant nodeB as Node_B
+    nodeA->>ifaceA: A to B packet, iface_a ingress
+    ifaceA->>ifaceB: BPF redirect to iface_b egress
+    Note over ifaceB: netem: impairment_a_to_b
+    ifaceB->>nodeB: delivered
+    nodeB->>ifaceB: B to A packet, iface_b ingress
+    ifaceB->>ifaceA: BPF redirect to iface_a egress
+    Note over ifaceA: netem: impairment_b_to_a
+    ifaceA->>nodeA: delivered
 ```
 
-netem on iface_a's egress controls B->A impairment. netem on iface_b's egress controls A->B impairment. This gives per-direction impairment control.
+`network::tc::apply_netem` sends a `tc_netem_qopt` (delay, jitter, loss, and a gap of 1 when
+reordering) followed by `TCA_NETEM_REORDER` and `TCA_NETEM_CORRUPT` attributes: reordering and
+corruption have no field in `tc_netem_qopt`.
 
 ## VM-to-VM
 
-```
-VM_A <-- tap_a --[ingress: BPF redirect -> tap_b]--> tap_b --[ingress: BPF redirect -> tap_a]--> VM_B
+```mermaid
+flowchart LR
+    vmA["VM_A"]
+    vmB["VM_B"]
+    subgraph host["host netns"]
+        tapA["tpa{link}-{lab} (tap)"]
+        tapB["tpb{link}-{lab} (tap)"]
+    end
+    vmA <--> tapA
+    tapA -->|"ingress: BPF redirect to tpb"| tapB
+    tapB -->|"ingress: BPF redirect to tpa"| tapA
+    tapB <--> vmB
 ```
 
 ### Setup
 
-1. The libvirt domain template uses `<interface type='ethernet'>` with a `<target dev='tap_name'/>` directive. This tells libvirt/QEMU to use a pre-named tap device instead of connecting to a bridge.
+1. The libvirt domain template uses `<interface type='ethernet'>` with a `<target dev='tap_name'/>` directive. This tells libvirt/QEMU to use a pre-named tap device instead of connecting to a bridge. It also sets `<mtu size='9600'/>` (`konst::MTU_JUMBO_NET`), as the container veths have: libvirt sets the tap's MTU and gives virtio guests the host MTU. A redirect to egress does not check the target's MTU, so jumbo frames passed before, but the tap reported 1500.
 2. Libvirt creates the tap device when the VM starts.
 3. After VM creation (Phase 11b), the eBPF redirect program is attached to each tap's ingress, wiring tap_a -> tap_b and tap_b -> tap_a.
 
@@ -68,8 +102,22 @@ Deleting the tap devices (via libvirt domain undefine/destroy) automatically det
 
 ## Container-to-Container
 
-```
-Container_A <-- eth1 (netns) | veth_a_out --[BPF redirect -> veth_b_out]--> veth_b_out | eth1 (netns) --> Container_B
+```mermaid
+flowchart LR
+    subgraph nsA["Container_A netns"]
+        ctrA["Container_A"] <--> ethA["eth1"]
+    end
+    subgraph host["host netns"]
+        vethA["tpa{link}-{lab} (veth)"]
+        vethB["tpb{link}-{lab} (veth)"]
+    end
+    subgraph nsB["Container_B netns"]
+        ethB["eth1"] <--> ctrB["Container_B"]
+    end
+    ethA ---|veth pair| vethA
+    vethA -->|"ingress: BPF redirect to tpb"| vethB
+    vethB -->|"ingress: BPF redirect to tpa"| vethA
+    vethB ---|veth pair| ethB
 ```
 
 ### Setup
@@ -124,8 +172,20 @@ Note: Disabled and bridge member veth names include the node index to avoid coll
 
 ## VM-to-Container
 
-```
-VM_A <-- tap_a --[ingress: BPF redirect -> veth_out]--> veth_out --[ingress: BPF redirect -> tap_a]--> | eth1 (netns) --> Container_B
+```mermaid
+flowchart LR
+    vmA["VM_A"]
+    subgraph host["host netns"]
+        tapA["tpa{link}-{lab} (tap)"]
+        vethOut["tpb{link}-{lab} (veth)"]
+    end
+    subgraph nsB["Container_B netns"]
+        ethB["eth1"] <--> ctrB["Container_B"]
+    end
+    vmA <--> tapA
+    tapA -->|"ingress: BPF redirect to tpb"| vethOut
+    vethOut -->|"ingress: BPF redirect to tpa"| tapA
+    vethOut ---|veth pair| ethB
 ```
 
 ### Setup
@@ -150,8 +210,8 @@ VM disabled interfaces use libvirt's isolated network (`<interface type='network
 
 Since each endpoint has a standard kernel network interface on the host:
 
-- `tcpdump -i tap_a` captures all traffic to/from VM_A
-- `tcpdump -i veth_out` captures all traffic to/from a container endpoint
+- `tcpdump -i tpa<link>-<lab>` (or `tpb`) captures all traffic to/from a VM endpoint
+- the same works on a container end's host veth, which is named the same way
 - All L2 protocols are visible — no bridge filtering
 
 ## Crash Resilience

@@ -22,20 +22,14 @@ pub struct LabSubnets {
 #[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeKind {
-    P2p,
     #[default]
-    P2pBridge,
-    P2pUdp,
-    P2pVeth,
+    P2p,
     SharedBridge,
 }
 impl fmt::Display for BridgeKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             BridgeKind::P2p => write!(f, "p2p"),
-            BridgeKind::P2pBridge => write!(f, "p2p_bridge"),
-            BridgeKind::P2pUdp => write!(f, "p2p_udp"),
-            BridgeKind::P2pVeth => write!(f, "p2p_veth"),
             BridgeKind::SharedBridge => write!(f, "shared_bridge"),
         }
     }
@@ -80,30 +74,27 @@ mod tests {
     #[test]
     fn test_bridge_kind_display() {
         assert_eq!(BridgeKind::P2p.to_string(), "p2p");
-        assert_eq!(BridgeKind::P2pBridge.to_string(), "p2p_bridge");
-        assert_eq!(BridgeKind::P2pUdp.to_string(), "p2p_udp");
-        assert_eq!(BridgeKind::P2pVeth.to_string(), "p2p_veth");
         assert_eq!(BridgeKind::SharedBridge.to_string(), "shared_bridge");
     }
 
     #[test]
     fn test_bridge_kind_to_vec() {
         let kinds = BridgeKind::to_vec();
-        assert_eq!(kinds.len(), 5);
+        assert_eq!(kinds.len(), 2);
     }
 
     #[test]
     fn test_bridge_kind_serde_roundtrip() {
-        let kind = BridgeKind::P2pVeth;
+        let kind = BridgeKind::SharedBridge;
         let json = serde_json::to_string(&kind).expect("serializes");
-        assert_eq!(json, "\"p2p_veth\"");
+        assert_eq!(json, "\"shared_bridge\"");
         let back: BridgeKind = serde_json::from_str(&json).expect("deserializes");
-        assert_eq!(back, BridgeKind::P2pVeth);
+        assert_eq!(back, BridgeKind::SharedBridge);
     }
 
     #[test]
     fn test_bridge_kind_default() {
         let kind = BridgeKind::default();
-        assert_eq!(kind, BridgeKind::P2pBridge);
+        assert_eq!(kind, BridgeKind::P2p);
     }
 }

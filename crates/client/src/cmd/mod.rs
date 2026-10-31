@@ -8,6 +8,7 @@ mod image;
 mod init;
 mod inspect;
 mod interrupt;
+mod link;
 mod login;
 mod manifest_processing;
 mod new;

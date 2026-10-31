@@ -147,3 +147,28 @@ impl NatNetwork {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_nat_network_bridge_has_no_stp() {
+        // With STP on, the kernel holds each new port for twice its 2 second minimum forward
+        // delay, so a container's first network traffic is lost.
+        let xml = NatNetwork {
+            network_name: "sherpa-management-fe4edfdc".to_string(),
+            bridge_name: "brm-fe4edfdc".to_string(),
+            ipv4_address: Ipv4Addr::new(172, 31, 3, 1),
+            ipv4_netmask: Ipv4Addr::new(255, 255, 255, 0),
+            ipv6_address: None,
+            ipv6_prefix_length: None,
+        }
+        .render()
+        .unwrap();
+        assert!(
+            xml.contains("<bridge name='brm-fe4edfdc' stp='off'/>"),
+            "{xml}"
+        );
+    }
+}
