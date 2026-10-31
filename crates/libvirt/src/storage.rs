@@ -2,7 +2,9 @@ use std::thread;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use shared::konst::{STORAGE_POOL_REFRESH_ATTEMPTS, STORAGE_POOL_REFRESH_RETRY_MS};
+use shared::konst::{
+    SHERPA_STORAGE_POOL, STORAGE_POOL_REFRESH_ATTEMPTS, STORAGE_POOL_REFRESH_RETRY_MS,
+};
 use tracing::instrument;
 use virt::connect::Connect;
 use virt::storage_pool::StoragePool;
@@ -78,4 +80,21 @@ pub fn refresh_pool(pool: &StoragePool) -> Result<()> {
             }
         }
     }
+}
+
+/// The volumes of the Sherpa storage pool that belong to a lab, after refreshing the pool so
+/// volumes made outside libvirt are seen.
+#[instrument(level = "debug", skip(qemu_conn))]
+pub fn list_lab_volumes(qemu_conn: &Connect, lab_id: &str) -> Result<Vec<String>> {
+    let pool = StoragePool::lookup_by_name(qemu_conn, SHERPA_STORAGE_POOL).context(format!(
+        "Failed to find storage pool '{SHERPA_STORAGE_POOL}'"
+    ))?;
+    refresh_pool(&pool)?;
+    let volumes = pool.list_volumes().context(format!(
+        "Failed to list volumes in pool '{SHERPA_STORAGE_POOL}'"
+    ))?;
+    Ok(volumes
+        .into_iter()
+        .filter(|volume| volume.contains(lab_id))
+        .collect())
 }

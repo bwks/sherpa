@@ -546,12 +546,13 @@ flowchart TB
 
 ### Service call graph for lab destruction
 
-`destroy.rs` is meant to be best-effort: it should attempt every cleanup category even if an
-earlier category fails. A failure on one resource (a container, VM, disk, network or interface)
-is recorded and destroy carries on. Two setup failures do not follow the rule yet (#396): if
-`destroy_vms_and_disks` cannot connect to libvirt, list domains, or find, refresh or list the
-storage pool, or `destroy_libvirt_networks` cannot connect or list networks, destroy returns
-there and skips every later step.
+`destroy.rs` is best-effort: it attempts every cleanup category even if an earlier category
+fails. A failure on one resource (a container, VM, disk, network or interface) is recorded and
+destroy carries on. So is a setup failure: if `destroy_vms_and_disks` cannot connect to libvirt,
+list domains, or find, refresh or list the storage pool, or `destroy_libvirt_networks` cannot
+connect or list networks, that step records a `vm`, `disk` or `libvirt_network` error and the
+later steps still run. A `vm` or `disk` error keeps the lab record and lab directory, so destroy
+can be retried once libvirt is back.
 
 ```mermaid
 flowchart TB
@@ -563,7 +564,7 @@ flowchart TB
     end
     removecontainers --> secrets["destroy_lab_secrets: remove the lab's container secret files"]
     secrets --> listdomains
-    subgraph vms["destroy_vms_and_disks (setup failure stops destroy, #396)"]
+    subgraph vms["destroy_vms_and_disks"]
         listdomains["list libvirt domains"] --> undefine["undefine/destroy domains containing lab_id"] --> pool["lookup Sherpa storage pool"] --> volumes["delete volumes containing lab_id"]
     end
     volumes --> listnetworks
@@ -571,7 +572,7 @@ flowchart TB
         listnetworks["container::list_networks"] --> deletenetworks["delete networks containing lab_id"]
     end
     deletenetworks --> listlibvirtnets
-    subgraph libvirtnets["destroy_libvirt_networks (setup failure stops destroy, #396)"]
+    subgraph libvirtnets["destroy_libvirt_networks"]
         listlibvirtnets["list libvirt networks"] --> undefinenets["destroy/undefine networks containing lab_id"]
     end
     undefinenets --> findifaces
@@ -1016,9 +1017,6 @@ flowchart TB
 ```
 
 The best-effort rule is important: failing to delete a disk should not prevent the server from attempting to delete Docker networks or database records. Operators need a complete summary of what was cleaned and what still requires manual repair.
-
-Today the rule holds per resource but not for libvirt setup failures, which stop destroy before
-Docker networks, libvirt networks, host interfaces and the database are cleaned (#396).
 
 ## TLS/listener architecture
 

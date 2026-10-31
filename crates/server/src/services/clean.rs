@@ -3,7 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 use opentelemetry::KeyValue;
 
-use shared::data::{DestroyError, DestroyResponse, DestroySummary, LabInfo};
+use shared::data::{DestroyResponse, DestroySummary, LabInfo};
 use shared::konst::{LAB_FILE_NAME, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR};
 use shared::util::load_file;
 
@@ -88,14 +88,7 @@ pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Resul
     // 2. Destroy VMs and disks
     let vms_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Cleaning VMs and disks");
-    if let Err(e) = destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors) {
-        errors.push(DestroyError::new(
-            "vm",
-            lab_id,
-            format!("VM/disk cleanup error: {:?}", e),
-        ));
-        tracing::error!(lab_id = %lab_id, error = ?e, "VM/disk cleanup encountered an error");
-    }
+    destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors);
     tracing::info!(
         lab_id = %lab_id,
         vms_destroyed = summary.vms_destroyed.len(),
@@ -121,14 +114,7 @@ pub(crate) async fn clean_lab_resources(lab_id: &str, state: &AppState) -> Resul
     // 4. Destroy libvirt networks
     let libvirt_net_timer = std::time::Instant::now();
     tracing::info!(lab_id = %lab_id, "Cleaning libvirt networks");
-    if let Err(e) = destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors) {
-        errors.push(DestroyError::new(
-            "libvirt_network",
-            lab_id,
-            format!("Libvirt network cleanup error: {:?}", e),
-        ));
-        tracing::error!(lab_id = %lab_id, error = ?e, "Libvirt network cleanup encountered an error");
-    }
+    destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors);
     tracing::info!(
         lab_id = %lab_id,
         destroyed = summary.libvirt_networks_destroyed.len(),
