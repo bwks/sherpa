@@ -5,6 +5,7 @@ use shared::data::{ClientConfig, LabNodeActionResponse};
 use shared::error::RpcErrorCode;
 use shared::util::{Emoji, term_msg_surround};
 
+use crate::cmd::outcome::ensure_nodes_succeeded;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -113,5 +114,5 @@ pub async fn down(
         }
     }
 
-    Ok(())
+    ensure_nodes_succeeded("stopped", &action_response.results)
 }
