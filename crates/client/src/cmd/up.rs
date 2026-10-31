@@ -367,6 +367,14 @@ pub async fn up(
     )
     .await?;
 
+    if !up_data.success {
+        bail!(
+            "Lab {}-{} was only partly created; see the errors above",
+            up_data.lab_info.name,
+            up_data.lab_info.id
+        );
+    }
+
     Ok(())
 }
 

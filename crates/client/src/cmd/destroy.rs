@@ -14,6 +14,7 @@ use shared::util::{
     render_lab_info_table, render_nodes_table, term_msg_surround,
 };
 
+use super::outcome::ensure_lab_destroyed;
 use crate::token::load_token;
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
@@ -200,6 +201,16 @@ pub async fn destroy(
     // Display detailed results
     display_destroy_results(&destroy_data)?;
 
+    // While the lab still exists on the server, keep the local SSH files: they still reach any
+    // nodes that survived, and the next `sherpa destroy` removes them.
+    if !destroy_data.summary.database_records_deleted {
+        println!(
+            "\n{} Local SSH files kept: the lab still exists on the server",
+            Emoji::Warning
+        );
+        return ensure_lab_destroyed(&destroy_data, "sherpa destroy");
+    }
+
     // Clean up local SSH config
     match get_cwd() {
         Ok(cwd) => {
@@ -340,7 +351,7 @@ pub async fn destroy(
         }
     }
 
-    Ok(())
+    ensure_lab_destroyed(&destroy_data, "sherpa destroy")
 }
 
 /// Ask user for confirmation before destroying lab

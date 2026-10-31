@@ -386,10 +386,12 @@ async fn import_image(
                     if response.db_tracked { "yes" } else { "no" }
                 );
                 println!("   Default:  {}", if default { "yes" } else { "no" });
-            } else {
-                eprintln!("Image import failed");
             }
         }
+    }
+
+    if !response.success {
+        bail!("Image import failed");
     }
 
     Ok(())
@@ -430,10 +432,12 @@ async fn delete_image(
                     "   Disk Deleted: {}",
                     if response.disk_deleted { "yes" } else { "no" }
                 );
-            } else {
-                eprintln!("Image delete failed");
             }
         }
+    }
+
+    if !response.success {
+        bail!("Image delete failed");
     }
 
     Ok(())
@@ -466,10 +470,12 @@ async fn set_default_image(
                 println!("   Model:   {}", response.model);
                 println!("   Kind:    {}", response.kind);
                 println!("   Version: {}", response.version);
-            } else {
-                eprintln!("Failed to set default image");
             }
         }
+    }
+
+    if !response.success {
+        bail!("Failed to set default image");
     }
 
     Ok(())
@@ -562,10 +568,12 @@ async fn pull_container_image(
                     "   DB Track: {}",
                     if response.db_tracked { "yes" } else { "no" }
                 );
-            } else {
-                eprintln!("Container image pull failed: {}", response.message);
             }
         }
+    }
+
+    if !response.success {
+        bail!("Container image pull failed: {}", response.message);
     }
 
     Ok(())
@@ -625,10 +633,12 @@ async fn download_vm_image(
                     if response.db_tracked { "yes" } else { "no" }
                 );
                 println!("   Default:  {}", if default { "yes" } else { "no" });
-            } else {
-                eprintln!("VM image download failed");
             }
         }
+    }
+
+    if !response.success {
+        bail!("VM image download failed");
     }
 
     Ok(())

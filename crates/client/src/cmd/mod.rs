@@ -11,6 +11,7 @@ mod interrupt;
 mod login;
 mod manifest_processing;
 mod new;
+mod outcome;
 mod provision;
 mod redeploy;
 mod resume;

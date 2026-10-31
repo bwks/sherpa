@@ -145,6 +145,13 @@ pub async fn redeploy(
         .context("No result in redeploy response")?;
     let result: RedeployResponse =
         serde_json::from_value(result_value).context("Failed to parse redeploy response")?;
+    if !result.success {
+        bail!(
+            "Node '{}' was not redeployed: {}",
+            result.node_name,
+            result.message
+        );
+    }
 
     println!(
         "\n{} Node '{}' redeployed successfully in {}s",

@@ -4,6 +4,7 @@ use shared::data::{DestroyResponse, ServerConnection};
 use shared::util::{Emoji, display_destroy_results, term_msg_surround};
 
 use super::rpc_call;
+use crate::cmd::outcome::ensure_lab_destroyed;
 
 /// Clean all resources for a lab (admin-only)
 ///
@@ -43,5 +44,5 @@ pub async fn clean(
 
     display_destroy_results(&clean_data)?;
 
-    Ok(())
+    ensure_lab_destroyed(&clean_data, &format!("sherpa server clean {lab_id}"))
 }

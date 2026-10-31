@@ -268,9 +268,7 @@ class LabRun:
             self.sherpa("sherpa destroy (after failed up)", ["destroy", "--yes"], UP_TIMEOUT, check=False)
             return None
         try:
-            destroy = self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
-            require("partially destroyed" not in destroy.output,
-                    f"sherpa destroy did not clean up everything; see {self.log.name}")
+            self.sherpa("sherpa destroy", ["destroy", "--yes"], UP_TIMEOUT)
             inspect = self.sherpa("lab gone", ["inspect"], check=False)
             require(inspect.code != 0, f"lab {self.lab_id} still exists after destroy")
             self.no_host_leftovers()
