@@ -42,6 +42,7 @@ talosconfig-*
 manifest*.toml*
 !dev/integration-test/manifest.toml
 !tests/environments/*/manifest.toml
+!tests/labs/*/manifest.toml
 !tests/labs/*/*/manifest.toml
 
 # Tailwind CSS

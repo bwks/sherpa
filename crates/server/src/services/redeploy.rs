@@ -34,10 +34,9 @@ use shared::data::{
     DbBridge, DbNode, NodeState, RecordId, RedeployRequest, RedeployResponse, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_CONTAINER_VETH_PREFIX, BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX,
-    CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
-    READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_FILE_NAME,
+    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
+    SHERPA_SECRETS_DIR, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -47,13 +46,16 @@ use topology::find_talos_cluster;
 // node's new identity cannot overwrite another node's concurrent update.
 static REDEPLOY_LOCKS: OnceLock<DashMap<String, Weak<Mutex<()>>>> = OnceLock::new();
 
-/// Tracks a veth pair created for a P2p container interface during redeploy.
+/// A data interface of a P2p container: a veth created into the container's netns once it has
+/// started, with its host end named `host_veth`.
 struct P2pContainerVeth {
     host_veth: String,
-    container_veth: String,
+    host_alias: String,
     interface_idx: u8,
     node_model: data::NodeModel,
     admin_down: bool,
+    /// The private bridge the host end joins, for a bridge member.
+    bridge: Option<String>,
 }
 
 /// Redeploy a single node: destroy existing + recreate with fresh ZTP
@@ -377,6 +379,10 @@ pub async fn redeploy_node(
 
     match node_image.kind {
         data::NodeKind::Container => {
+            // As validated on `sherpa up`, from the image the node was created from.
+            if target_node.image.is_none() {
+                target_node.image = node_image.container_repo(None);
+            }
             let ztp_result = node_ops::generate_container_ztp(
                 &mut target_node,
                 &node_image,
@@ -437,80 +443,60 @@ pub async fn redeploy_node(
             let mut p2p_container_veths: Vec<P2pContainerVeth> = vec![];
 
             if is_p2p_container {
-                // P2p container: create veth pairs for ALL data interfaces (linked + disabled).
-                // Docker only handles the management network.
+                // P2p container: a veth for ALL data interfaces (linked + disabled), created
+                // once the container has started. Docker only handles the management network.
 
-                // Create veths for P2p linked interfaces
+                // P2p linked interfaces
                 for link in &db_links {
                     if link.kind != data::BridgeKind::P2p {
                         continue;
                     }
                     if link.node_a == node_record_id {
-                        let container_veth =
-                            format!("{}a{}-{}", CONTAINER_VETH_PREFIX, link.index, lab_id);
-                        network::create_veth_pair(
-                            &link.tap_a,
-                            &container_veth,
-                            &format!("{}-p2p-host-{}::{}", lab_id, node_name, link.int_a),
-                            &format!("{}-p2p-ctr-{}::{}", lab_id, node_name, link.int_a),
-                        )
-                        .await?;
                         let iface_idx = util::interface_to_idx(&target_node.model, &link.int_a)?;
                         p2p_container_veths.push(P2pContainerVeth {
                             host_veth: link.tap_a.clone(),
-                            container_veth,
+                            host_alias: format!(
+                                "{}-p2p-host-{}::{}",
+                                lab_id, node_name, link.int_a
+                            ),
                             interface_idx: iface_idx,
                             node_model: target_node.model,
                             admin_down: false,
+                            bridge: None,
                         });
                     }
                     if link.node_b == node_record_id {
-                        let container_veth =
-                            format!("{}b{}-{}", CONTAINER_VETH_PREFIX, link.index, lab_id);
-                        network::create_veth_pair(
-                            &link.tap_b,
-                            &container_veth,
-                            &format!("{}-p2p-host-{}::{}", lab_id, node_name, link.int_b),
-                            &format!("{}-p2p-ctr-{}::{}", lab_id, node_name, link.int_b),
-                        )
-                        .await?;
                         let iface_idx = util::interface_to_idx(&target_node.model, &link.int_b)?;
                         p2p_container_veths.push(P2pContainerVeth {
                             host_veth: link.tap_b.clone(),
-                            container_veth,
+                            host_alias: format!(
+                                "{}-p2p-host-{}::{}",
+                                lab_id, node_name, link.int_b
+                            ),
                             interface_idx: iface_idx,
                             node_model: target_node.model,
                             admin_down: false,
+                            bridge: None,
                         });
                     }
                 }
 
-                // Create veths for bridge members; the host side joins the bridge
+                // Bridge members; the host end joins the bridge
                 for (iface_name, bridge_name) in &bridge_interfaces {
                     let iface_idx = util::interface_to_idx(&target_node.model, iface_name)?;
-                    let host_veth =
-                        format!("{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}");
-                    let container_veth = format!(
-                        "{BRIDGE_MEMBER_CONTAINER_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}"
-                    );
-                    network::create_veth_pair(
-                        &host_veth,
-                        &container_veth,
-                        &format!("{}-bridge-host-{}::{}", lab_id, node_name, iface_name),
-                        &format!("{}-bridge-ctr-{}::{}", lab_id, node_name, iface_name),
-                    )
-                    .await?;
-                    network::enslave_to_bridge(&host_veth, bridge_name).await?;
                     p2p_container_veths.push(P2pContainerVeth {
-                        host_veth,
-                        container_veth,
+                        host_veth: format!(
+                            "{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}"
+                        ),
+                        host_alias: format!("{}-bridge-host-{}::{}", lab_id, node_name, iface_name),
                         interface_idx: iface_idx,
                         node_model: target_node.model,
                         admin_down: false,
+                        bridge: Some(bridge_name.clone()),
                     });
                 }
 
-                // Create veths for disabled interfaces
+                // Disabled interfaces
                 let linked_iface_idxs: std::collections::HashSet<u8> = p2p_container_veths
                     .iter()
                     .map(|v| v.interface_idx)
@@ -519,21 +505,13 @@ pub async fn redeploy_node(
                     if linked_iface_idxs.contains(&idx) {
                         continue;
                     }
-                    let host_veth = format!("cd{}i{}-{}", node_idx, idx, lab_id);
-                    let container_veth = format!("ce{}i{}-{}", node_idx, idx, lab_id);
-                    network::create_veth_pair(
-                        &host_veth,
-                        &container_veth,
-                        &format!("{}-p2p-disabled-host-{}::{}", lab_id, node_name, idx),
-                        &format!("{}-p2p-disabled-ctr-{}::{}", lab_id, node_name, idx),
-                    )
-                    .await?;
                     p2p_container_veths.push(P2pContainerVeth {
-                        host_veth,
-                        container_veth,
+                        host_veth: format!("cd{}i{}-{}", node_idx, idx, lab_id),
+                        host_alias: format!("{}-p2p-disabled-host-{}::{}", lab_id, node_name, idx),
                         interface_idx: idx,
                         node_model: target_node.model,
                         admin_down: true,
+                        bridge: None,
                     });
                 }
             } else {
@@ -651,13 +629,12 @@ pub async fn redeploy_node(
                 network::set_link_down(&isolated.bridge_name).await?;
             }
 
-            // P2p post-start: move veths into container netns and attach eBPF
+            // P2p post-start: create veths into the container's netns, named and up, so
+            // nothing runs in the image, then attach eBPF
             if is_p2p_container && !p2p_container_veths.is_empty() {
                 let pid = container::get_container_pid(&docker_conn, &container_name).await?;
 
                 for veth_info in &p2p_container_veths {
-                    network::move_to_netns(&veth_info.container_veth, pid).await?;
-
                     let target_name = if veth_info.node_model == data::NodeModel::NokiaSrlinux {
                         let iface_name = util::interface_from_idx(
                             &veth_info.node_model,
@@ -668,43 +645,31 @@ pub async fn redeploy_node(
                         format!("eth{}", veth_info.interface_idx)
                     };
 
-                    let setup_cmd = if veth_info.admin_down {
-                        format!(
-                            "ip link set {} name {} && ip link set {} down",
-                            veth_info.container_veth, target_name, target_name
-                        )
-                    } else {
-                        format!(
-                            "ip link set {} name {} && ip link set {} promisc on && ip link set {} up",
-                            veth_info.container_veth, target_name, target_name, target_name
-                        )
-                    };
-                    container::exec_container_with_retry(
-                        &docker_conn,
-                        &container_name,
-                        vec!["sh", "-c", &setup_cmd],
-                        3,
-                        Duration::from_secs(2),
+                    network::create_veth_in_netns(
+                        &veth_info.host_veth,
+                        &veth_info.host_alias,
+                        &target_name,
+                        pid,
+                        !veth_info.admin_down,
                     )
                     .await
                     .with_context(|| {
                         format!(
-                            "Failed to configure P2p interface {} in container {}",
-                            target_name, container_name
+                            "Failed to create P2p interface {target_name} in container \
+                             {container_name}"
                         )
                     })?;
-
-                    if veth_info.admin_down {
-                        network::set_link_down(&veth_info.host_veth).await?;
+                    if let Some(bridge_name) = &veth_info.bridge {
+                        network::enslave_to_bridge(&veth_info.host_veth, bridge_name).await?;
                     }
 
                     tracing::info!(
                         lab_id = %lab_id,
                         container = %container_name,
-                        veth = %veth_info.container_veth,
+                        host_veth = %veth_info.host_veth,
                         target = %target_name,
                         admin_down = veth_info.admin_down,
-                        "Moved P2p veth into container netns (redeploy)"
+                        "Created P2p veth into container netns (redeploy)"
                     );
                 }
 

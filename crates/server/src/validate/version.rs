@@ -83,10 +83,17 @@ pub fn validate_and_resolve_node_versions(
         // Step 4: Check image/disk existence based on node kind
         match node_image.kind {
             NodeKind::Container => {
+                let repo = node_images
+                    .iter()
+                    .find(|c| c.model == node.model && c.version == resolved_version)
+                    .and_then(|c| c.container_repo(node.image.as_deref()));
+                if updated_node.image.is_none() {
+                    updated_node.image = repo.clone();
+                }
                 validate_container_image(
                     &node.name,
                     &node.model,
-                    node_image.repo.as_deref(),
+                    repo.as_deref(),
                     &resolved_version,
                     docker_images,
                 )?;
@@ -158,9 +165,9 @@ fn validate_container_image(
         Some(r) => format!("{}:{}", r, version),
         None => {
             bail!(
-                "Container node '{}' (model: {}) has no repo configured in node_image",
-                node_name,
-                model
+                "Container node '{node_name}' (model: {model}) has no image repo configured: set \
+                 `image` on the node in the manifest, or pull the image with `sherpa server image \
+                 pull --model {model} --repo <image>:{version}`"
             );
         }
     };
@@ -352,7 +359,7 @@ mod tests {
         );
         assert!(result.is_err());
         let error_msg = result.unwrap_err().to_string();
-        assert!(error_msg.contains("no repo configured"));
+        assert!(error_msg.contains("no image repo configured"));
     }
 
     // ============================================================================
@@ -577,5 +584,99 @@ mod tests {
         let resolved = result.unwrap();
         assert_eq!(resolved[0].version, Some("4.32.0F".to_string()));
         assert_eq!(resolved[1].version, Some("4.31.0F".to_string()));
+    }
+
+    fn generic_image(version: &str, repo: Option<&str>, default: bool) -> NodeConfig {
+        let mut config =
+            create_test_node_image(NodeModel::GenericContainer, version, NodeKind::Container);
+        config.repo = repo.map(str::to_string);
+        config.default = default;
+        config
+    }
+
+    #[test]
+    fn test_resolve_container_without_built_in_repo_uses_manifest_image() {
+        let mut node = create_test_node("host1", NodeModel::GenericContainer, Some("24.04"));
+        node.image = Some("ubuntu".to_string());
+        let images = [
+            generic_image("3.22", None, true),
+            generic_image("24.04", None, false),
+        ];
+
+        let resolved = validate_and_resolve_node_versions(
+            &[node],
+            &images,
+            "/tmp/images",
+            &["ubuntu:24.04".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(resolved[0].image.as_deref(), Some("ubuntu"));
+    }
+
+    #[test]
+    fn test_resolve_container_without_built_in_repo_uses_repo_pulled_for_its_version() {
+        // The model's default image is another repo; the node's version decides.
+        let nodes = [create_test_node(
+            "host1",
+            NodeModel::GenericContainer,
+            Some("24.04"),
+        )];
+        let images = [
+            generic_image("3.22", Some("alpine"), true),
+            generic_image("24.04", Some("ubuntu"), false),
+        ];
+
+        let resolved = validate_and_resolve_node_versions(
+            &nodes,
+            &images,
+            "/tmp/images",
+            &["ubuntu:24.04".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(resolved[0].image.as_deref(), Some("ubuntu"));
+    }
+
+    #[test]
+    fn test_resolve_container_without_image_or_repo_fails_naming_both_fixes() {
+        let nodes = [create_test_node("db1", NodeModel::PostgresqlDb, Some("17"))];
+        let mut config = create_test_node_image(NodeModel::PostgresqlDb, "17", NodeKind::Container);
+        config.repo = None;
+        config.default = true;
+
+        let error = validate_and_resolve_node_versions(
+            &nodes,
+            &[config],
+            "/tmp/images",
+            &["postgres:17".to_string()],
+        )
+        .unwrap_err();
+
+        let message = format!("{error:#}");
+        assert!(message.contains("`image`"), "{message}");
+        assert!(message.contains("--repo"), "{message}");
+    }
+
+    #[test]
+    fn test_resolve_container_sets_the_image_it_validated() {
+        let nodes = [create_test_node(
+            "ceos1",
+            NodeModel::AristaCeos,
+            Some("4.32.0F"),
+        )];
+        let mut config =
+            create_test_node_image(NodeModel::AristaCeos, "4.32.0F", NodeKind::Container);
+        config.default = true;
+
+        let resolved = validate_and_resolve_node_versions(
+            &nodes,
+            &[config],
+            "/tmp/images",
+            &["test-repo:4.32.0F".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(resolved[0].image.as_deref(), Some("test-repo"));
     }
 }

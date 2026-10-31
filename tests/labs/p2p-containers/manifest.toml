@@ -1,0 +1,177 @@
+name = "p2p-containers"
+
+# Every link is P2p. sw01, srl01 and frr01 are routers on a triangle of routed links; sw01 is
+# also the access switch for the hosts, all in one VLAN. The hosts are application and OS
+# images, some without `ip` (mongo) or without a shell at all (surreal), so their interfaces
+# must come up without anything running in the image.
+
+[[nodes]]
+name = "sw01"
+model = "arista_ceos"
+version = "4.35.1F"
+
+[[nodes]]
+name = "srl01"
+model = "nokia_srlinux"
+version = "25.10.1"
+
+[[nodes]]
+name = "frr01"
+model = "frr_linux"
+version = "10.5.2"
+
+[[nodes]]
+name = "mongo01"
+model = "mongo_db"
+version = "8.2.7-rc0"
+
+[[nodes]]
+name = "surreal01"
+model = "surreal_db"
+version = "v3.0.0"
+data_interface_count = 1
+
+[[nodes]]
+name = "vault01"
+model = "hashicorp_vault"
+version = "1.21"
+data_interface_count = 1
+
+[[nodes]]
+name = "nats01"
+model = "nats_bus"
+version = "2.11"
+
+[[nodes]]
+name = "forgejo01"
+model = "forgejo_forge"
+version = "11"
+data_interface_count = 1
+
+[[nodes]]
+name = "gitlab01"
+model = "gitlab_ce"
+version = "18.7.6-ce.0"
+data_interface_count = 1
+
+[[nodes]]
+name = "mysql01"
+model = "mysql_db"
+version = "8.4"
+environment_variables = ["MYSQL_ROOT_PASSWORD=sherpa-lab-test"]
+
+[[nodes]]
+name = "postgres01"
+model = "postgresql_db"
+version = "17"
+environment_variables = ["POSTGRES_PASSWORD=sherpa-lab-test"]
+
+# OS images run as generic containers. Some name their image and some do not, so both the
+# manifest's `image` and the repo recorded when the image was pulled are covered.
+[[nodes]]
+name = "alpine01"
+model = "generic_container"
+image = "alpine"
+version = "3.22"
+
+[[nodes]]
+name = "ubuntu01"
+model = "generic_container"
+image = "ubuntu"
+version = "24.04"
+
+[[nodes]]
+name = "debian01"
+model = "generic_container"
+version = "13"
+
+[[nodes]]
+name = "busybox01"
+model = "generic_container"
+version = "1.37"
+
+[[nodes]]
+name = "rocky01"
+model = "generic_container"
+image = "rockylinux/rockylinux"
+version = "9"
+
+[[links]]
+src = "sw01::eth1"
+dst = "srl01::eth-1/1"
+p2p = true
+
+[[links]]
+src = "sw01::eth2"
+dst = "frr01::eth1"
+p2p = true
+
+[[links]]
+src = "srl01::eth-1/2"
+dst = "frr01::eth2"
+p2p = true
+
+[[links]]
+src = "mongo01::eth1"
+dst = "sw01::eth3"
+p2p = true
+
+[[links]]
+src = "surreal01::eth1"
+dst = "sw01::eth4"
+p2p = true
+
+[[links]]
+src = "vault01::eth1"
+dst = "sw01::eth5"
+p2p = true
+
+[[links]]
+src = "nats01::eth1"
+dst = "sw01::eth6"
+p2p = true
+
+[[links]]
+src = "forgejo01::eth1"
+dst = "sw01::eth7"
+p2p = true
+
+[[links]]
+src = "gitlab01::eth1"
+dst = "sw01::eth8"
+p2p = true
+
+[[links]]
+src = "mysql01::eth1"
+dst = "sw01::eth9"
+p2p = true
+
+[[links]]
+src = "postgres01::eth1"
+dst = "sw01::eth10"
+p2p = true
+
+[[links]]
+src = "alpine01::eth1"
+dst = "sw01::eth11"
+p2p = true
+
+[[links]]
+src = "ubuntu01::eth1"
+dst = "sw01::eth12"
+p2p = true
+
+[[links]]
+src = "debian01::eth1"
+dst = "sw01::eth13"
+p2p = true
+
+[[links]]
+src = "busybox01::eth1"
+dst = "sw01::eth14"
+p2p = true
+
+[[links]]
+src = "rocky01::eth1"
+dst = "sw01::eth15"
+p2p = true

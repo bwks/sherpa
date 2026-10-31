@@ -8,12 +8,14 @@
 /// Tests create and destroy their own interfaces.
 /// Interface names are prefixed with "st-" (sherpa-test) to avoid collisions.
 /// Names are kept short — Linux interface names are limited to 15 characters.
+use std::process::{Child, Command};
+
 use anyhow::Result;
 
 use network::{
-    LinkImpairment, apply_netem, attach_p2p_redirect, create_bridge, create_tap, create_veth_pair,
-    delete_interface, enslave_to_bridge, find_interfaces_fuzzy, get_ifindex, remove_netem,
-    set_link_down, update_netem,
+    LinkImpairment, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
+    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge,
+    find_interfaces_fuzzy, get_ifindex, remove_netem, set_link_down, update_netem,
 };
 
 // ============================================================================
@@ -65,6 +67,63 @@ fn ip_link_show(name: &str) -> String {
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
         .unwrap_or_default()
+}
+
+/// A process holding a network namespace of its own, standing in for a container. Killed on
+/// drop, which removes the namespace and anything in it.
+struct NetnsHolder(Child);
+
+impl NetnsHolder {
+    fn start() -> Self {
+        let child = Command::new("unshare")
+            .args(["--net", "sleep", "60"])
+            .spawn()
+            .expect("unshare command failed");
+        // Let unshare enter the new namespace before the test looks it up by pid.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        Self(child)
+    }
+
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+
+    /// The raw output of `ip link show <name>` inside the namespace, or empty on failure.
+    fn ip_link_show(&self, name: &str) -> String {
+        Command::new("nsenter")
+            .args([
+                "-t",
+                &self.pid().to_string(),
+                "-n",
+                "ip",
+                "link",
+                "show",
+                name,
+            ])
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default()
+    }
+}
+
+impl Drop for NetnsHolder {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// Whether the flags field of `ip link show` output has `flag`, e.g. `UP` or `PROMISC`.
+fn has_flag(ip_link_output: &str, flag: &str) -> bool {
+    let Some(start) = ip_link_output.find('<') else {
+        return false;
+    };
+    let Some(end) = ip_link_output[start..].find('>') else {
+        return false;
+    };
+    ip_link_output[start + 1..start + end]
+        .split(',')
+        .any(|f| f == flag)
 }
 
 /// Check whether the UP flag is set on an interface (via ip link show flags field).
@@ -826,5 +885,162 @@ async fn test_update_netem() -> Result<()> {
 
     delete_interface(src).await?;
 
+    Ok(())
+}
+
+// ============================================================================
+// Veth created into another network namespace
+// ============================================================================
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_in_netns_enabled() -> Result<()> {
+    let host = "st-nsv-on";
+    cleanup_interface(host).await;
+    let holder = NetnsHolder::start();
+
+    create_veth_in_netns(host, "test-nsv-on", "eth1", holder.pid(), true).await?;
+
+    // The far end is in the namespace, already named, up and promiscuous, without anything
+    // run inside the namespace.
+    let inside = holder.ip_link_show("eth1");
+    assert!(has_flag(&inside, "UP"), "eth1 should be up: {inside}");
+    assert!(
+        has_flag(&inside, "PROMISC"),
+        "eth1 should be promiscuous: {inside}"
+    );
+    assert!(
+        has_flag(&inside, "LOWER_UP"),
+        "eth1 should have carrier: {inside}"
+    );
+    assert!(
+        inside.contains("mtu 9600"),
+        "eth1 should have jumbo MTU: {inside}"
+    );
+
+    let outside = ip_link_show(host);
+    assert!(has_flag(&outside, "UP"), "host end should be up: {outside}");
+    assert!(
+        outside.contains("mtu 9600"),
+        "host end should have jumbo MTU: {outside}"
+    );
+    assert!(
+        outside.contains("alias test-nsv-on"),
+        "host end alias: {outside}"
+    );
+
+    delete_interface(host).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_in_netns_disabled() -> Result<()> {
+    let host = "st-nsv-off";
+    cleanup_interface(host).await;
+    let holder = NetnsHolder::start();
+
+    create_veth_in_netns(host, "test-nsv-off", "eth2", holder.pid(), false).await?;
+
+    // A disabled interface is there but down, with no carrier.
+    let inside = holder.ip_link_show("eth2");
+    assert!(!inside.is_empty(), "eth2 should exist in the namespace");
+    assert!(!has_flag(&inside, "UP"), "eth2 should be down: {inside}");
+    assert!(
+        !has_flag(&inside, "LOWER_UP"),
+        "eth2 should have no carrier: {inside}"
+    );
+
+    let outside = ip_link_show(host);
+    assert!(
+        !has_flag(&outside, "UP"),
+        "host end should be down: {outside}"
+    );
+    assert!(
+        outside.contains("alias test-nsv-off"),
+        "host end alias: {outside}"
+    );
+
+    delete_interface(host).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_in_netns_of_missing_pid_fails() -> Result<()> {
+    let host = "st-nsv-nopid";
+    cleanup_interface(host).await;
+    let holder = NetnsHolder::start();
+    let pid = holder.pid();
+    drop(holder);
+
+    let result = create_veth_in_netns(host, "test-nsv-nopid", "eth1", pid, true).await;
+
+    assert!(result.is_err(), "a pid that is gone should fail");
+    assert!(
+        ip_link_show(host).is_empty(),
+        "no host end should be left behind"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
+    // Hosts often have their own eth0 and eth1. The name belongs to the namespace it is created
+    // in, so a host interface with the same name must neither block nor be changed.
+    let host = "st-nsv-clash";
+    let clash = "st-nsv-eth1";
+    cleanup_interface(host).await;
+    cleanup_interface(clash).await;
+    create_veth_pair(clash, "st-nsv-eth1p", "clash", "clash-peer").await?;
+    set_link_down(clash).await?;
+    let holder = NetnsHolder::start();
+
+    create_veth_in_netns(host, "test-nsv-clash", clash, holder.pid(), true).await?;
+
+    let inside = holder.ip_link_show(clash);
+    assert!(
+        has_flag(&inside, "UP"),
+        "{clash} should be up in the namespace: {inside}"
+    );
+    assert!(
+        has_flag(&inside, "PROMISC"),
+        "{clash} should be promiscuous: {inside}"
+    );
+    let outside = ip_link_show(clash);
+    assert!(
+        !has_flag(&outside, "UP"),
+        "host {clash} must be left down: {outside}"
+    );
+    assert!(
+        !has_flag(&outside, "PROMISC"),
+        "host {clash} must not be changed: {outside}"
+    );
+
+    delete_interface(host).await?;
+    delete_interface(clash).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_create_veth_in_netns_with_host_end_taken_fails() -> Result<()> {
+    let host = "st-nsv-taken";
+    cleanup_interface(host).await;
+    create_veth_pair(host, "st-nsv-takenp", "taken", "taken-peer").await?;
+    let holder = NetnsHolder::start();
+
+    let result = create_veth_in_netns(host, "test-nsv-taken", "eth1", holder.pid(), true).await;
+
+    assert!(
+        result.is_err(),
+        "a host end name already in use should fail"
+    );
+    assert!(
+        holder.ip_link_show("eth1").is_empty(),
+        "nothing should be created in the namespace"
+    );
+    delete_interface(host).await?;
     Ok(())
 }
