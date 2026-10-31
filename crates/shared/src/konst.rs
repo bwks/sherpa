@@ -291,7 +291,11 @@ pub const ARISTA_ZTP_DIR: &str = "arista";
 pub const ARISTA_ABOOT_DIR: &str = "aboot_iso";
 pub const ARISTA_VEOS_ZTP_SCRIPT: &str = "veos-ztp.sh";
 pub const ARISTA_VEOS_ZTP: &str = "startup-config";
-pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/flash/startup-config";
+/// Where a cEOS node's ZTP config is mounted, read-only. EOS saves by replacing
+/// `ARISTA_CEOS_STARTUP_CONFIG`, which a bind-mounted file cannot be, so the config is copied
+/// there when the container starts.
+pub const ARISTA_CEOS_ZTP_VOLUME_MOUNT: &str = "/mnt/sherpa-ztp/startup-config";
+pub const ARISTA_CEOS_STARTUP_CONFIG: &str = "/mnt/flash/startup-config";
 pub const NOKIA_SRLINUX_ZTP_VOLUME_MOUNT: &str = "/etc/opt/srlinux/config.json";
 pub const ARUBA_ZTP_DIR: &str = "aruba";
 pub const ARUBA_ZTP_CONFIG: &str = "aos-config.txt";

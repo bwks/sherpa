@@ -19,22 +19,23 @@ use crate::services::progress::ProgressSender;
 use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
-    ARISTA_ABOOT_DIR, ARISTA_CEOS_ZTP_VOLUME_MOUNT, CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG,
-    CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG, CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG,
-    CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA, CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA,
-    CONTAINER_ARISTA_CEOS_COMMANDS, CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO,
-    CONTAINER_DISK_NAME, CONTAINER_FORGEJO_COMMANDS, CONTAINER_FORGEJO_REPO,
-    CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO, CONTAINER_GITLAB_CE_COMMANDS,
-    CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE, CONTAINER_HASHICORP_VAULT_CAPABILITIES,
-    CONTAINER_HASHICORP_VAULT_COMMANDS, CONTAINER_HASHICORP_VAULT_ENV_VARS,
-    CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
-    CONTAINER_NATS_COMMANDS, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
-    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
-    CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
-    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ,
-    KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS,
-    NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_PASSWD_FILE,
-    NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
+    ARISTA_ABOOT_DIR, ARISTA_CEOS_STARTUP_CONFIG, ARISTA_CEOS_ZTP_VOLUME_MOUNT,
+    CISCO_ASAV_ZTP_CONFIG, CISCO_FTDV_ZTP_CONFIG, CISCO_IOSV_ZTP_CONFIG, CISCO_IOSXE_ZTP_CONFIG,
+    CISCO_IOSXR_ZTP_CONFIG, CISCO_ISE_ZTP_CONFIG, CISCO_NXOS_ZTP_CONFIG, CLOUD_INIT_META_DATA,
+    CLOUD_INIT_NETWORK_CONFIG, CLOUD_INIT_USER_DATA, CONTAINER_ARISTA_CEOS_COMMANDS,
+    CONTAINER_ARISTA_CEOS_ENV_VARS, CONTAINER_ARISTA_CEOS_REPO, CONTAINER_DISK_NAME,
+    CONTAINER_FORGEJO_COMMANDS, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_ENV_VARS, CONTAINER_FRR_REPO,
+    CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE,
+    CONTAINER_HASHICORP_VAULT_CAPABILITIES, CONTAINER_HASHICORP_VAULT_COMMANDS,
+    CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_HASHICORP_VAULT_REPO,
+    CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_COMMANDS,
+    CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
+    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
+    FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
+    MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE,
+    NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_PASSWD_FILE, NODE_STAGING_DIR,
+    NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
     NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
     SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
@@ -351,11 +352,8 @@ pub fn generate_container_ztp(
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
-            volumes = vec![format!("{}:{}", ztp_volume.src, ztp_volume.dst)];
-            commands = CONTAINER_ARISTA_CEOS_COMMANDS
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            volumes = vec![format!("{}:{}:ro", ztp_volume.src, ztp_volume.dst)];
+            commands = ceos_startup_commands();
 
             // Update node fields for consistency
             node.image = Some(image.clone());
@@ -617,6 +615,20 @@ pub fn generate_container_ztp(
         user,
         ztp_record,
     })
+}
+
+/// The command a cEOS container starts with: copy the ZTP config into flash unless a saved
+/// config is already there, then hand over to init.
+fn ceos_startup_commands() -> Vec<String> {
+    let init = CONTAINER_ARISTA_CEOS_COMMANDS.join(" ");
+    vec![
+        "sh".to_string(),
+        "-c".to_string(),
+        format!(
+            "[ -f {ARISTA_CEOS_STARTUP_CONFIG} ] || cp {ARISTA_CEOS_ZTP_VOLUME_MOUNT} \
+             {ARISTA_CEOS_STARTUP_CONFIG}; exec {init}"
+        ),
+    ]
 }
 
 // ============================================================================
@@ -4321,5 +4333,24 @@ mod tests {
             VmReadiness::Ready { host_key: None }
         );
         task.abort();
+    }
+
+    #[test]
+    fn test_ceos_startup_commands_copy_the_ztp_config_into_flash_once() {
+        let commands = ceos_startup_commands();
+        assert_eq!(commands.len(), 3);
+        assert_eq!(commands[0], "sh");
+        assert_eq!(commands[1], "-c");
+        // EOS saves by replacing startup-config, which a bind-mounted file cannot be, so the
+        // ZTP config is copied into flash. A config already saved there is kept.
+        assert_eq!(
+            commands[2],
+            "[ -f /mnt/flash/startup-config ] || cp /mnt/sherpa-ztp/startup-config \
+             /mnt/flash/startup-config; exec /sbin/init systemd.setenv=INTFTYPE=eth \
+             systemd.setenv=ETBA=1 systemd.setenv=SKIP_ZEROTOUCH_BARRIER_IN_SYSDBINIT=1 \
+             systemd.setenv=CEOS=1 systemd.setenv=EOS_PLATFORM=ceoslab \
+             systemd.setenv=container=docker systemd.setenv=MAPETH0=1 \
+             systemd.setenv=MGMT_INTF=eth0"
+        );
     }
 }
