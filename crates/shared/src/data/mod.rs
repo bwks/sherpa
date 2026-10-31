@@ -49,7 +49,9 @@ pub use disk::{
 pub use dns::{Dns, NameServer};
 pub use download::DownloadLabResponse;
 pub use host_key::{NodeHostKey, NodeHostKeysRequest, NodeHostKeysResponse};
-pub use impairment::{UpdateImpairmentRequest, UpdateImpairmentResponse};
+pub use impairment::{
+    ImpairmentDirection, LinkImpairment, UpdateImpairmentRequest, UpdateImpairmentResponse,
+};
 pub use import::{
     ContainerPullRequest, ContainerPullResponse, DeleteImageRequest, DeleteImageResponse,
     DownloadImageRequest, ImageSummary, ImportRequest, ImportResponse, ListImagesRequest,
@@ -70,7 +72,7 @@ pub use lab::{
     LabSummary, ListLabsResponse, NodeInterface, NodeSetupData, NodeSshUsername, PeerInterface,
     PeerSide,
 };
-pub use mapping::{CloneDisk, InterfaceConnection, NodeConnection, NodeDisk, QemuCommand};
+pub use mapping::{CloneDisk, NodeConnection, NodeDisk, QemuCommand};
 pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,

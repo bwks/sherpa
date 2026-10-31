@@ -4,16 +4,18 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
-use network::tc::LinkImpairment;
-use shared::data::{BridgeKind, UpdateImpairmentRequest, UpdateImpairmentResponse};
-use shared::konst::TAP_PREFIX;
+use shared::data::{
+    BridgeKind, ImpairmentDirection, LinkImpairment, UpdateImpairmentRequest,
+    UpdateImpairmentResponse,
+};
 
 /// Update link impairment on a running P2p link
 ///
 /// This function:
 /// 1. Finds the link in the database by lab_id + link_index
 /// 2. Validates it is a P2p link (impairment only works on P2p links)
-/// 3. Applies TC netem impairment to both tap interfaces
+/// 3. Applies TC netem impairment to the host end of each direction the request names,
+///    leaving the other direction as it was. All-zero values remove the impairment.
 /// 4. Updates the database record with the new impairment values
 ///
 /// The caller must own the lab or be an admin. `request.username` is ignored.
@@ -62,71 +64,49 @@ pub async fn update_impairment(
         corrupt_percent: request.corrupt_percent,
     };
 
-    let is_zero = request.delay == 0
-        && request.jitter == 0
-        && request.loss_percent == 0.0
-        && request.reorder_percent == 0.0
-        && request.corrupt_percent == 0.0;
-
-    // Resolve interface names
-    let tap_a = format!("{}a{}-{}", TAP_PREFIX, request.link_index, lab_id);
-    let tap_b = format!("{}b{}-{}", TAP_PREFIX, request.link_index, lab_id);
-
-    // Get ifindex for both interfaces
-    let ifindex_a = network::tap::get_ifindex(&tap_a)
-        .await
-        .context(format!("Failed to get ifindex for {}", tap_a))?;
-    let ifindex_b = network::tap::get_ifindex(&tap_b)
-        .await
-        .context(format!("Failed to get ifindex for {}", tap_b))?;
-
-    // Apply or remove netem on both interfaces
-    if is_zero {
-        // Remove impairment
-        let _ = network::tc::remove_netem(ifindex_a as i32).await;
-        let _ = network::tc::remove_netem(ifindex_b as i32).await;
-        tracing::info!(
-            lab_id = %lab_id,
-            link_index = request.link_index,
-            "Removed link impairment"
-        );
-    } else {
-        // Apply/update impairment on both directions
-        network::tc::update_netem(ifindex_a as i32, &impairment)
-            .await
-            .context(format!("Failed to apply netem on {}", tap_a))?;
-        network::tc::update_netem(ifindex_b as i32, &impairment)
-            .await
-            .context(format!("Failed to apply netem on {}", tap_b))?;
-        tracing::info!(
-            lab_id = %lab_id,
-            link_index = request.link_index,
-            delay_ms = request.delay,
-            jitter_ms = request.jitter,
-            loss_percent = request.loss_percent,
-            "Applied link impairment"
-        );
+    // Traffic from A to B leaves the host through B's end, so its netem goes on tap_b.
+    let (to_b, to_a) = match request.direction {
+        ImpairmentDirection::Both => (true, true),
+        ImpairmentDirection::SrcToDst => (true, false),
+        ImpairmentDirection::DstToSrc => (false, true),
+    };
+    if to_b {
+        set_netem(&db_link.tap_b, &impairment).await?;
+        db_link.impairment_a_to_b = impairment;
     }
-
-    // Update the database record (stored as microseconds)
-    db_link.delay_us = request.delay * 1000;
-    db_link.jitter_us = request.jitter * 1000;
-    db_link.loss_percent = request.loss_percent;
-    db_link.reorder_percent = request.reorder_percent;
-    db_link.corrupt_percent = request.corrupt_percent;
+    if to_a {
+        set_netem(&db_link.tap_a, &impairment).await?;
+        db_link.impairment_b_to_a = impairment;
+    }
+    tracing::info!(
+        lab_id = %lab_id,
+        link_index = request.link_index,
+        direction = ?request.direction,
+        delay_ms = request.delay,
+        jitter_ms = request.jitter,
+        loss_percent = request.loss_percent,
+        reorder_percent = request.reorder_percent,
+        corrupt_percent = request.corrupt_percent,
+        "Updated link impairment"
+    );
 
     db::update_link(&state.db, db_link)
         .await
         .context("Failed to update link impairment in database")?;
 
-    let message = if is_zero {
+    let direction = match request.direction {
+        ImpairmentDirection::Both => "both directions",
+        ImpairmentDirection::SrcToDst => "src to dst",
+        ImpairmentDirection::DstToSrc => "dst to src",
+    };
+    let message = if impairment.is_clear() {
         format!(
-            "Removed impairment from link {} in lab '{}'",
+            "Removed impairment from link {} in lab '{}' ({direction})",
             request.link_index, lab_id
         )
     } else {
         format!(
-            "Applied impairment to link {} in lab '{}': delay={}ms jitter={}ms loss={}% reorder={}% corrupt={}%",
+            "Applied impairment to link {} in lab '{}' ({direction}): delay={}ms jitter={}ms loss={}% reorder={}% corrupt={}%",
             request.link_index,
             lab_id,
             request.delay,
@@ -141,4 +121,27 @@ pub async fn update_impairment(
         success: true,
         message,
     })
+}
+
+/// Replace the netem impairment on a host end, or remove it when `impairment` is clear.
+#[instrument(skip(impairment), fields(%iface_name), level = "debug")]
+async fn set_netem(iface_name: &str, impairment: &LinkImpairment) -> Result<()> {
+    let ifindex = network::tap::get_ifindex(iface_name)
+        .await
+        .context(format!("Failed to get ifindex for {iface_name}"))?;
+    if impairment.is_clear() {
+        match network::tc::remove_netem(ifindex as i32).await {
+            Ok(()) => {
+                tracing::debug!(interface = %iface_name, "removed netem");
+            }
+            Err(e) => {
+                // An end with no impairment has no netem qdisc to remove.
+                tracing::debug!(interface = %iface_name, error = %e, "no netem removed");
+            }
+        }
+        return Ok(());
+    }
+    network::tc::update_netem(ifindex as i32, impairment)
+        .await
+        .context(format!("Failed to apply netem on {iface_name}"))
 }

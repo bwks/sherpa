@@ -31,21 +31,6 @@ pub struct NodeDisk {
     pub target_bus: DiskBuses,
 }
 
-/// Interfaces Connection Map
-// Each device has a loopback assigned from the 127.127.127.0/24 range
-// Connections will be created between devices with UDP tunnels with ports in the 10k range.
-// Interfaces with no defined connection will be set to 'down' status
-// In the domain XML config, the source is the remote peer.
-#[derive(Debug, Deserialize, Serialize)]
-pub struct InterfaceConnection {
-    pub local_id: u16,
-    pub local_port: u16,
-    pub local_loopback: String,
-    pub source_id: u16,
-    pub source_port: u16,
-    pub source_loopback: String,
-}
-
 #[derive(Clone, Debug)]
 // Qemu commamnd-line arguments mapping
 pub struct QemuCommand {

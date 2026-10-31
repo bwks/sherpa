@@ -18,7 +18,7 @@ use shared::data::{
 };
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR,
-    SHERPA_STORAGE_POOL, TAP_PREFIX, VETH_PREFIX,
+    SHERPA_STORAGE_POOL, TAP_PREFIX,
 };
 use shared::util::dir_exists;
 
@@ -687,11 +687,8 @@ pub(crate) async fn destroy_interfaces(
             for interface in lab_interfaces {
                 // Only delete interfaces created outside of Libvirt/Docker
                 // Only 1 side of the veth interface needs to be deleted
-                if interface.starts_with(&format!("{}a", BRIDGE_PREFIX))
-                    || interface.starts_with(&format!("{}b", BRIDGE_PREFIX))
-                    || interface.starts_with(&format!("{}i", BRIDGE_PREFIX))
+                if interface.starts_with(&format!("{}i", BRIDGE_PREFIX))
                     || interface.starts_with(&format!("{}s", BRIDGE_PREFIX))
-                    || interface.starts_with(&format!("{}a", VETH_PREFIX))
                     || interface.starts_with(&format!("{}a", TAP_PREFIX))
                     || interface.starts_with(&format!("{}b", TAP_PREFIX))
                     || interface.starts_with(BRIDGE_MEMBER_HOST_VETH_PREFIX)

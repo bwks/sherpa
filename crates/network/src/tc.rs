@@ -5,24 +5,11 @@ use rtnetlink::packet_core::{
 };
 use rtnetlink::packet_route::RouteNetlinkMessage;
 use rtnetlink::packet_route::tc::{TcAttribute, TcHandle, TcMessage};
+use shared::data::LinkImpairment;
+use shared::konst::{NETEM_QOPT_LEN, TCA_NETEM_CORRUPT, TCA_NETEM_REORDER, TCA_OPTIONS};
 use tracing::instrument;
 
 use crate::linux::setup_netlink;
-
-/// Link impairment parameters for TC netem.
-#[derive(Debug, Clone, Default)]
-pub struct LinkImpairment {
-    /// One-way delay in microseconds.
-    pub delay_us: u32,
-    /// Delay jitter in microseconds.
-    pub jitter_us: u32,
-    /// Packet loss in percent (0.0-100.0).
-    pub loss_percent: f32,
-    /// Packet reordering probability as percent (0.0-100.0).
-    pub reorder_percent: f32,
-    /// Bit-flip corruption probability as percent (0.0-100.0).
-    pub corrupt_percent: f32,
-}
 
 /// Convert a percentage (0.0-100.0) to the kernel's u32 representation.
 /// Kernel uses 0 = 0%, u32::MAX ~ 100%.
@@ -34,6 +21,49 @@ fn percent_to_kernel(pct: f32) -> u32 {
         return u32::MAX;
     }
     ((pct as f64 / 100.0) * u32::MAX as f64) as u32
+}
+
+/// Build netem's `TCA_OPTIONS` payload.
+///
+/// The kernel reads a raw `tc_netem_qopt` first, with no attribute header, then any netem
+/// attributes after it. Reordering and corruption have no field in `tc_netem_qopt`, so they
+/// go in `TCA_NETEM_REORDER` and `TCA_NETEM_CORRUPT`.
+fn netem_options(impairment: &LinkImpairment) -> Vec<u8> {
+    // latency and jitter are in PSCHED ticks, not microseconds. Modern kernels use a fixed
+    // 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000.
+    let latency = (impairment.delay_us as u64 * 15625 / 1000) as u32;
+    let jitter = (impairment.jitter_us as u64 * 15625 / 1000) as u32;
+    // With a gap of 1 and a reorder probability, each packet may be sent at once while the
+    // rest wait for the delay, as `tc ... reorder` does.
+    let gap: u32 = if impairment.reorder_percent > 0.0 {
+        1
+    } else {
+        0
+    };
+    let mut options = Vec::with_capacity(NETEM_QOPT_LEN + 24);
+    options.extend_from_slice(&latency.to_ne_bytes());
+    options.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
+    options.extend_from_slice(&percent_to_kernel(impairment.loss_percent).to_ne_bytes());
+    options.extend_from_slice(&gap.to_ne_bytes());
+    options.extend_from_slice(&0u32.to_ne_bytes()); // duplicate
+    options.extend_from_slice(&jitter.to_ne_bytes());
+
+    if impairment.reorder_percent > 0.0 {
+        push_probability_attribute(&mut options, TCA_NETEM_REORDER, impairment.reorder_percent);
+    }
+    if impairment.corrupt_percent > 0.0 {
+        push_probability_attribute(&mut options, TCA_NETEM_CORRUPT, impairment.corrupt_percent);
+    }
+    options
+}
+
+/// Append a netem attribute holding a probability and a correlation (always 0), the layout of
+/// both `tc_netem_reorder` and `tc_netem_corrupt`. It is 12 bytes, so no padding is needed.
+fn push_probability_attribute(options: &mut Vec<u8>, kind: u16, percent: f32) {
+    options.extend_from_slice(&12u16.to_ne_bytes());
+    options.extend_from_slice(&kind.to_ne_bytes());
+    options.extend_from_slice(&percent_to_kernel(percent).to_ne_bytes());
+    options.extend_from_slice(&0u32.to_ne_bytes());
 }
 
 /// Send a raw TC netlink message and check for errors in the response.
@@ -62,33 +92,15 @@ async fn send_tc_message(msg: NetlinkMessage<RouteNetlinkMessage>) -> Result<()>
 /// root egress scheduler.
 #[instrument(fields(iface_index, delay_us = impairment.delay_us, jitter_us = impairment.jitter_us), level = "debug")]
 pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Result<()> {
-    // Serialize tc_netem_qopt fields in kernel layout order (6 x u32, native endian).
-    // latency and jitter must be in PSCHED ticks (not microseconds).
-    // Modern Linux kernels use a fixed 15.625 MHz PSCHED clock: ticks = µs * 15625 / 1000.
-    let latency = (impairment.delay_us as u64 * 15625 / 1000) as u32;
-    let jitter = (impairment.jitter_us as u64 * 15625 / 1000) as u32;
-    let gap: u32 = if impairment.reorder_percent > 0.0 {
-        1
-    } else {
-        0
-    };
-    let mut qopt_bytes = Vec::with_capacity(24);
-    qopt_bytes.extend_from_slice(&latency.to_ne_bytes());
-    qopt_bytes.extend_from_slice(&1000u32.to_ne_bytes()); // limit: default queue depth
-    qopt_bytes.extend_from_slice(&percent_to_kernel(impairment.loss_percent).to_ne_bytes());
-    qopt_bytes.extend_from_slice(&gap.to_ne_bytes());
-    qopt_bytes.extend_from_slice(&0u32.to_ne_bytes()); // duplicate
-    qopt_bytes.extend_from_slice(&jitter.to_ne_bytes());
-
     let mut msg = TcMessage::default();
     msg.header.index = iface_index;
     msg.header.handle = TcHandle { major: 1, minor: 0 };
     msg.header.parent = TcHandle::ROOT;
     msg.attributes.push(TcAttribute::Kind("netem".to_string()));
-    // TCA_OPTIONS (type 2) must carry the raw tc_netem_qopt bytes directly —
-    // the kernel reads them without any nested NLA framing.
-    msg.attributes
-        .push(TcAttribute::Other(DefaultNla::new(2, qopt_bytes)));
+    msg.attributes.push(TcAttribute::Other(DefaultNla::new(
+        TCA_OPTIONS,
+        netem_options(impairment),
+    )));
 
     let mut req = NetlinkMessage::from(RouteNetlinkMessage::NewQueueDiscipline(msg));
     req.header.flags = NLM_F_REQUEST | NLM_F_ACK | NLM_F_CREATE | NLM_F_REPLACE;
@@ -98,6 +110,8 @@ pub async fn apply_netem(iface_index: i32, impairment: &LinkImpairment) -> Resul
         delay_us = impairment.delay_us,
         jitter_us = impairment.jitter_us,
         loss_pct = impairment.loss_percent,
+        reorder_pct = impairment.reorder_percent,
+        corrupt_pct = impairment.corrupt_percent,
         "applying netem qdisc"
     );
 
@@ -128,6 +142,28 @@ pub async fn update_netem(iface_index: i32, impairment: &LinkImpairment) -> Resu
     // Remove then re-add — simplest approach that avoids change vs replace semantics
     let _ = remove_netem(iface_index).await;
     apply_netem(iface_index, impairment).await
+}
+
+/// Apply a link's impairment for each direction that has one. Traffic from A to B leaves the
+/// host through B's end, so `a_to_b` goes on `ifindex_b`'s egress and `b_to_a` on `ifindex_a`'s.
+#[instrument(skip(a_to_b, b_to_a), fields(ifindex_a, ifindex_b), level = "debug")]
+pub async fn apply_link_netem(
+    ifindex_a: u32,
+    ifindex_b: u32,
+    a_to_b: &LinkImpairment,
+    b_to_a: &LinkImpairment,
+) -> Result<()> {
+    if !a_to_b.is_clear() {
+        apply_netem(ifindex_b as i32, a_to_b)
+            .await
+            .context(format!("failed to apply netem on ifindex {ifindex_b}"))?;
+    }
+    if !b_to_a.is_clear() {
+        apply_netem(ifindex_a as i32, b_to_a)
+            .await
+            .context(format!("failed to apply netem on ifindex {ifindex_a}"))?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -165,6 +201,68 @@ mod tests {
     #[test]
     fn test_percent_to_kernel_over_hundred_clamps() {
         assert_eq!(percent_to_kernel(150.0), u32::MAX);
+    }
+
+    /// Length, type and the two u32 fields of the netem attribute at `offset`.
+    fn nla(options: &[u8], offset: usize) -> (u16, u16, u32, u32) {
+        let len = u16::from_ne_bytes(options[offset..offset + 2].try_into().unwrap());
+        let kind = u16::from_ne_bytes(options[offset + 2..offset + 4].try_into().unwrap());
+        let probability = u32::from_ne_bytes(options[offset + 4..offset + 8].try_into().unwrap());
+        let correlation = u32::from_ne_bytes(options[offset + 8..offset + 12].try_into().unwrap());
+        (len, kind, probability, correlation)
+    }
+
+    #[test]
+    fn test_netem_options_without_reorder_or_corrupt_is_only_qopt() {
+        let options = netem_options(&LinkImpairment {
+            delay_us: 20_000,
+            loss_percent: 10.0,
+            ..LinkImpairment::default()
+        });
+        assert_eq!(options.len(), NETEM_QOPT_LEN);
+        assert_eq!(&options[0..4], &312_500u32.to_ne_bytes());
+        assert_eq!(&options[8..12], &percent_to_kernel(10.0).to_ne_bytes());
+    }
+
+    #[test]
+    fn test_netem_options_carry_reorder() {
+        let options = netem_options(&LinkImpairment {
+            delay_us: 10_000,
+            reorder_percent: 25.0,
+            ..LinkImpairment::default()
+        });
+        assert_eq!(&options[12..16], &1u32.to_ne_bytes(), "gap");
+        assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
+        assert_eq!(
+            nla(&options, NETEM_QOPT_LEN),
+            (12, TCA_NETEM_REORDER, percent_to_kernel(25.0), 0)
+        );
+    }
+
+    #[test]
+    fn test_netem_options_carry_corrupt() {
+        let options = netem_options(&LinkImpairment {
+            corrupt_percent: 5.0,
+            ..LinkImpairment::default()
+        });
+        assert_eq!(options.len(), NETEM_QOPT_LEN + 12);
+        assert_eq!(
+            nla(&options, NETEM_QOPT_LEN),
+            (12, TCA_NETEM_CORRUPT, percent_to_kernel(5.0), 0)
+        );
+    }
+
+    #[test]
+    fn test_netem_options_carry_reorder_and_corrupt() {
+        let options = netem_options(&LinkImpairment {
+            delay_us: 10_000,
+            reorder_percent: 25.0,
+            corrupt_percent: 5.0,
+            ..LinkImpairment::default()
+        });
+        assert_eq!(options.len(), NETEM_QOPT_LEN + 24);
+        assert_eq!(nla(&options, NETEM_QOPT_LEN).1, TCA_NETEM_REORDER);
+        assert_eq!(nla(&options, NETEM_QOPT_LEN + 12).1, TCA_NETEM_CORRUPT);
     }
 
     #[test]

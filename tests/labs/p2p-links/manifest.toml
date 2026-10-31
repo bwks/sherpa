@@ -1,0 +1,92 @@
+name = "p2p-links"
+
+# Every link is P2p, and each pair of node kinds is covered: VM ⟷ VM, VM ⟷ container and
+# container ⟷ container. Linux endpoints carry the raw L2, capture, impairment and jumbo
+# checks; Arista nodes form LLDP neighbours and a two-link LACP bundle on each pair.
+
+[[nodes]]
+name = "u1"
+model = "ubuntu_linux"
+version = "24.04"
+data_interface_count = 2
+
+[[nodes]]
+name = "u2"
+model = "ubuntu_linux"
+version = "24.04"
+data_interface_count = 1
+
+[[nodes]]
+name = "c1"
+model = "generic_container"
+image = "alpine"
+version = "3.22"
+data_interface_count = 2
+
+[[nodes]]
+name = "c2"
+model = "generic_container"
+image = "alpine"
+version = "3.22"
+
+[[nodes]]
+name = "veos1"
+model = "arista_veos"
+version = "4.35.3F"
+
+[[nodes]]
+name = "veos2"
+model = "arista_veos"
+version = "4.35.3F"
+
+[[nodes]]
+name = "ceos1"
+model = "arista_ceos"
+version = "4.35.1F"
+
+[[nodes]]
+name = "ceos2"
+model = "arista_ceos"
+version = "4.35.1F"
+
+# Linux endpoints, one link per pair. The manifest impairment is applied at `up` and must
+# survive down/resume and redeploys.
+[[links]]
+src = "u1::eth1"
+dst = "u2::eth1"
+
+[links.impairment]
+delay = 5
+
+[[links]]
+src = "u1::eth2"
+dst = "c1::eth1"
+
+[[links]]
+src = "c1::eth2"
+dst = "c2::eth1"
+
+# Arista LACP bundles, two links per pair.
+[[links]]
+src = "veos1::eth1"
+dst = "veos2::eth1"
+
+[[links]]
+src = "veos1::eth2"
+dst = "veos2::eth2"
+
+[[links]]
+src = "veos1::eth3"
+dst = "ceos1::eth1"
+
+[[links]]
+src = "veos1::eth4"
+dst = "ceos1::eth2"
+
+[[links]]
+src = "ceos1::eth3"
+dst = "ceos2::eth1"
+
+[[links]]
+src = "ceos1::eth4"
+dst = "ceos2::eth2"

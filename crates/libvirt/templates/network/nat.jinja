@@ -6,7 +6,7 @@
       <port start='1024' end='65535'/>
     </nat>
   </forward>
-  <bridge name='{{ bridge_name }}' stp='on' delay='0'/>
+  <bridge name='{{ bridge_name }}' stp='off'/>
   <domain name='{{ SHERPA_DOMAIN_NAME }}' localOnly='yes'/>
   <dns enable='yes'/>
   <ip address='{{ ipv4_address }}' netmask='{{ ipv4_netmask }}'></ip>

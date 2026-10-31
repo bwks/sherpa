@@ -1,7 +1,8 @@
 name = "private-bridge"
 
-# A VM and three containers in one private bridge. fr01 also has a link after its bridge
-# member, and fr03 is a P2p container, so both container wiring paths are covered.
+# A VM and four containers in one private bridge. fr01, fr02 and fr03 also have links, so they
+# take every data interface as a veth; fr04 has no link, so its bridge member is a Docker
+# network. Both container wiring paths are covered.
 
 [[nodes]]
 name = "dev01"
@@ -25,6 +26,11 @@ name = "fr03"
 model = "frr_linux"
 version = "10.5.2"
 
+[[nodes]]
+name = "fr04"
+model = "frr_linux"
+version = "10.5.2"
+
 [[links]]
 src = "fr01::eth2"
 dst = "fr02::eth2"
@@ -32,8 +38,7 @@ dst = "fr02::eth2"
 [[links]]
 src = "fr03::eth2"
 dst = "dev01::eth2"
-p2p = true
 
 [[bridges]]
 name = "private"
-links = ["dev01::eth1", "fr01::eth1", "fr02::eth1", "fr03::eth1"]
+links = ["dev01::eth1", "fr01::eth1", "fr02::eth1", "fr03::eth1", "fr04::eth1"]

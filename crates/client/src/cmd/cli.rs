@@ -12,6 +12,7 @@ use super::download::download;
 use super::image::{ImageCommands, parse_image_commands};
 use super::init::init;
 use super::inspect::inspect;
+use super::link::{LinkCommands, parse_link_commands};
 use super::login::{login, logout, whoami};
 use super::new::new;
 use super::provision::provision;
@@ -253,6 +254,12 @@ enum Commands {
         command: SshConfigCommands,
     },
 
+    /// Link commands
+    Link {
+        #[command(subcommand)]
+        commands: LinkCommands,
+    },
+
     /// Image management commands
     Image {
         #[command(subcommand)]
@@ -451,6 +458,12 @@ impl Cli {
                     ssh_config_clean(&server_url, &config).await?;
                 }
             },
+            Commands::Link { commands } => {
+                let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
+
+                let server_url = resolve_server_url(cli.server_url, &config);
+                parse_link_commands(commands, &config, &server_url).await?;
+            }
             Commands::Image { commands } => {
                 let config = load_client_config_for_command(&sherpa.config_file_path, cli.insecure);
 

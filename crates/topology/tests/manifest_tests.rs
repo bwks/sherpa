@@ -50,7 +50,6 @@ dst = "server1::eth1"
 [[links]]
 src = "router1::eth2"
 dst = "server1::eth2"
-p2p = true
 
 [[bridges]]
 name = "mgmt-bridge"
@@ -191,7 +190,7 @@ fn test_parse_full_manifest() {
     assert_eq!(links[0].p2p, None);
     assert_eq!(links[1].src, "router1::eth2");
     assert_eq!(links[1].dst, "server1::eth2");
-    assert_eq!(links[1].p2p, Some(true));
+    assert_eq!(links[1].p2p, None);
 
     // Bridges
     let bridges = manifest.bridges.as_ref().expect("has bridges");
