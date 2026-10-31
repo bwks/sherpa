@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.10] - 2026-10-31
+
+### Bug Fixes
+
+- Attach P2p redirects as TC filters, not TCX by @bwks ([005e6ca](https://github.com/bwks/sherpa/commit/005e6cad954f4b820433b0f3712f50e823f683bb))
+- Connect containers in private bridges by @bwks ([42e2c14](https://github.com/bwks/sherpa/commit/42e2c14700a42ff60a8aa5cb7e90dc810bd6b871))
+
+### Miscellaneous
+
+- Merge pull request #382 from bwks/fix/345-container-bridges
+
+fix: containers in private bridges, P2p redirects across restarts by @bwks in [#382](https://github.com/bwks/sherpa/pull/382) ([5af6cb8](https://github.com/bwks/sherpa/commit/5af6cb81845a3b8d1548d0a4f430080ee397efc4))
+- Bump version to 0.4.10 by @bwks ([ffbecf4](https://github.com/bwks/sherpa/commit/ffbecf4408b8d6d22934429263a8799396d30f85))
+- Merge pull request #381 from bwks/changelog/v0.4.9
+
+chore(release): update changelog for v0.4.9 by @github-actions[bot] in [#381](https://github.com/bwks/sherpa/pull/381) ([dc21f10](https://github.com/bwks/sherpa/commit/dc21f10760ea663cf8455c265263dbe6d884ccc4))
+
+### Testing
+
+- Skip the renamed live tailnet test [skip ci] by @bwks ([1242f76](https://github.com/bwks/sherpa/commit/1242f76f7c4a0b184b377ab6c28cfc0d32a1349d))
 ## [0.4.9] - 2026-10-30
 
 ### Features
