@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.12] - 2026-10-31
+
+### Bug Fixes
+
+- Create P2p container interfaces from the host, with no command in the image by @bwks ([c3c5a68](https://github.com/bwks/sherpa/commit/c3c5a68c87a255b1b03463f6dd7705cb416733f5))
+
+### Miscellaneous
+
+- Merge pull request #387 from bwks/fix/355-p2p-veth-netns
+
+fix: create P2p container interfaces from the host, with no command in the image by @bwks in [#387](https://github.com/bwks/sherpa/pull/387) ([5a5421e](https://github.com/bwks/sherpa/commit/5a5421e3ddd72a5500913a340606b7669925e207))
+- Bump version to 0.4.12 by @bwks ([6e78371](https://github.com/bwks/sherpa/commit/6e78371a9f17724aaea17fbd7134c9aba3f49b73))
+- Merge pull request #386 from bwks/changelog/v0.4.11
+
+chore(release): update changelog for v0.4.11 by @github-actions[bot] in [#386](https://github.com/bwks/sherpa/pull/386) ([9f03e9d](https://github.com/bwks/sherpa/commit/9f03e9dd52e0a8c409ae28f33be689c74a46c1c2))
 ## [0.4.11] - 2026-10-31
 
 ### Bug Fixes
