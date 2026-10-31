@@ -4,14 +4,13 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use opentelemetry::KeyValue;
-use virt::storage_pool::StoragePool;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
 use container::tailscale::{gateway_name, is_gateway, remove_gateway};
 use container::{
     Docker, delete_network, kill_container, list_containers, list_networks, remove_container,
 };
-use libvirt::delete_disk;
+use libvirt::{delete_disk, list_lab_volumes};
 use network::{delete_interface, find_interfaces_fuzzy};
 use shared::data::{
     DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
@@ -131,7 +130,7 @@ pub async fn destroy_lab(
         "Destroying VMs and disks...".to_string(),
         StatusKind::Progress,
     );
-    destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    destroy_vms_and_disks(lab_id, &state.qemu, &mut summary, &mut errors);
     if summary.vms_destroyed.is_empty() && summary.vms_failed.is_empty() {
         let _ = progress.send_status("No VMs to destroy".to_string(), StatusKind::Info);
     } else {
@@ -190,7 +189,7 @@ pub async fn destroy_lab(
         "Destroying libvirt networks...".to_string(),
         StatusKind::Progress,
     );
-    destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors)?;
+    destroy_libvirt_networks(lab_id, &state.qemu, &mut summary, &mut errors);
     if summary.libvirt_networks_destroyed.is_empty() && summary.libvirt_networks_failed.is_empty() {
         let _ = progress.send_status(
             "No libvirt networks to destroy".to_string(),
@@ -481,19 +480,40 @@ pub(crate) async fn destroy_containers(
     }
 }
 
-/// Destroy all VMs and their disks for a lab
+/// Destroy all VMs and their disks for a lab. A failure is recorded in `errors` and the rest of
+/// destroy carries on; a `vm` or `disk` error keeps the lab for a retry.
 pub(crate) fn destroy_vms_and_disks(
     lab_id: &str,
     qemu: &libvirt::Qemu,
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
-) -> Result<()> {
-    let qemu_conn = qemu.connect().context("Failed to connect to libvirt")?;
+) {
+    let qemu_conn = match qemu.connect() {
+        Ok(conn) => conn,
+        Err(e) => {
+            errors.push(DestroyError::new(
+                "vm",
+                "libvirt",
+                format!("Failed to connect to libvirt: {e:?}"),
+            ));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to connect to libvirt to destroy VMs");
+            return;
+        }
+    };
 
     // Destroy VMs
-    let domains = qemu_conn
-        .list_all_domains(0)
-        .context("Failed to list domains")?;
+    let domains = match qemu_conn.list_all_domains(0) {
+        Ok(domains) => domains,
+        Err(e) => {
+            errors.push(DestroyError::new(
+                "vm",
+                "list_domains",
+                format!("Failed to list domains: {e:?}"),
+            ));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list libvirt domains");
+            return;
+        }
+    };
 
     for domain in domains {
         let vm_name = match domain.get_name() {
@@ -537,23 +557,24 @@ pub(crate) fn destroy_vms_and_disks(
     }
 
     if errors.iter().any(|error| error.resource_type == "vm") {
-        return Ok(());
+        return;
     }
 
     // Delete all disks belonging to this lab
+    let lab_disks = match list_lab_volumes(&qemu_conn, lab_id) {
+        Ok(disks) => disks,
+        Err(e) => {
+            errors.push(DestroyError::new(
+                "disk",
+                SHERPA_STORAGE_POOL,
+                format!("{e:?}"),
+            ));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list lab disks");
+            return;
+        }
+    };
 
-    let storage_pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL).context(
-        format!("Failed to find storage pool '{}'", SHERPA_STORAGE_POOL),
-    )?;
-    libvirt::refresh_pool(&storage_pool)
-        .context("Cannot refresh storage pool before disk cleanup")?;
-    let pool_disks = storage_pool
-        .list_volumes()
-        .context("Failed to list storage volumes")?;
-
-    let lab_disks: Vec<&String> = pool_disks.iter().filter(|d| d.contains(lab_id)).collect();
-
-    for disk in lab_disks {
+    for disk in &lab_disks {
         match delete_disk(&qemu_conn, disk) {
             Ok(_) => {
                 summary.disks_deleted.push(disk.to_string());
@@ -566,8 +587,6 @@ pub(crate) fn destroy_vms_and_disks(
             }
         }
     }
-
-    Ok(())
 }
 
 /// Destroy all Docker networks for a lab
@@ -616,17 +635,38 @@ pub(crate) async fn destroy_docker_networks(
     }
 }
 
-/// Destroy all libvirt networks for a lab
+/// Destroy all libvirt networks for a lab. A failure is recorded in `errors` and the rest of
+/// destroy carries on.
 pub(crate) fn destroy_libvirt_networks(
     lab_id: &str,
     qemu: &libvirt::Qemu,
     summary: &mut DestroySummary,
     errors: &mut Vec<DestroyError>,
-) -> Result<()> {
-    let qemu_conn = qemu.connect().context("Failed to connect to libvirt")?;
-    let networks = qemu_conn
-        .list_all_networks(0)
-        .context("Failed to list networks")?;
+) {
+    let qemu_conn = match qemu.connect() {
+        Ok(conn) => conn,
+        Err(e) => {
+            errors.push(DestroyError::new(
+                "libvirt_network",
+                "libvirt",
+                format!("Failed to connect to libvirt: {e:?}"),
+            ));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to connect to libvirt to destroy networks");
+            return;
+        }
+    };
+    let networks = match qemu_conn.list_all_networks(0) {
+        Ok(networks) => networks,
+        Err(e) => {
+            errors.push(DestroyError::new(
+                "libvirt_network",
+                "list_networks",
+                format!("Failed to list networks: {e:?}"),
+            ));
+            tracing::error!(lab_id = %lab_id, error = ?e, "Failed to list libvirt networks");
+            return;
+        }
+    };
 
     for network in networks {
         let network_name = match network.get_name() {
@@ -672,8 +712,6 @@ pub(crate) fn destroy_libvirt_networks(
             }
         }
     }
-
-    Ok(())
 }
 
 /// Delete network interfaces for a lab
@@ -755,6 +793,9 @@ mod tests {
     use shared::konst::LAB_FILE_NAME;
 
     use crate::services::node_secrets::write_node_secrets;
+
+    /// A libvirt URI whose socket does not exist, so connecting always fails.
+    const UNREACHABLE_QEMU_URI: &str = "qemu+unix:///system?socket=/nonexistent/sherpa-test.sock";
 
     #[test]
     fn lab_secrets_are_removed_with_the_lab() {
@@ -1066,5 +1107,49 @@ mod tests {
             assert!(database_deleted.load(Ordering::SeqCst));
             assert!(!lab_dir.exists());
         }
+    }
+
+    #[tokio::test]
+    async fn libvirt_connection_failure_is_recorded_and_retains_metadata() {
+        let qemu = libvirt::Qemu {
+            uri: UNREACHABLE_QEMU_URI.to_string(),
+        };
+        let mut summary = DestroySummary::default();
+        let mut errors = Vec::new();
+
+        destroy_vms_and_disks("lab", &qemu, &mut summary, &mut errors);
+        destroy_libvirt_networks("lab", &qemu, &mut summary, &mut errors);
+
+        let resource_types: Vec<&str> = errors
+            .iter()
+            .map(|error| error.resource_type.as_str())
+            .collect();
+        assert_eq!(resource_types, vec!["vm", "libvirt_network"]);
+        assert!(
+            errors
+                .iter()
+                .all(|error| error.error_message.contains("Failed to connect to libvirt")),
+            "{errors:?}"
+        );
+
+        // VMs and disks may be left, so the lab is kept for a destroy retry.
+        let root = tempdir().unwrap();
+        let lab_dir = root.path().join("lab");
+        fs::create_dir(&lab_dir).unwrap();
+        let database_deleted = AtomicBool::new(false);
+        cleanup_lab_metadata(
+            "lab",
+            lab_dir.to_str().unwrap(),
+            async {
+                database_deleted.store(true, Ordering::SeqCst);
+                Ok(())
+            },
+            &mut summary,
+            &mut errors,
+            None,
+        )
+        .await;
+        assert!(!database_deleted.load(Ordering::SeqCst));
+        assert!(lab_dir.exists());
     }
 }

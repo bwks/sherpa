@@ -13,7 +13,6 @@ use serde_json;
 use opentelemetry::KeyValue;
 
 use tracing::instrument;
-use virt::storage_pool::StoragePool;
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_starter;
@@ -47,7 +46,7 @@ use shared::konst::{
     SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
     SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
     SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SHERPA_STORAGE_POOL, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -799,13 +798,8 @@ pub async fn up_lab(
         .iter()
         .any(|image| image.kind != data::NodeKind::Container)
     {
-        let pool = StoragePool::lookup_by_name(&qemu_conn, SHERPA_STORAGE_POOL)?;
-        libvirt::refresh_pool(&pool)?;
         anyhow::ensure!(
-            !pool
-                .list_volumes()?
-                .iter()
-                .any(|name| name.contains(lab_id)),
+            libvirt::list_lab_volumes(&qemu_conn, lab_id)?.is_empty(),
             "Existing disks for this lab ID must be cleaned before startup"
         );
         for domain in qemu_conn.list_all_domains(0)? {
