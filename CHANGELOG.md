@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.11] - 2026-10-31
+
+### Bug Fixes
+
+- Exit non-zero when the server reports a failure by @bwks ([a3bdc6e](https://github.com/bwks/sherpa/commit/a3bdc6e8bef87342cfed1d6421b2eab5c2bfe5da))
+
+### Miscellaneous
+
+- Merge pull request #385 from bwks/fix/383-destroy-exit-code
+
+fix(client): exit non-zero when the server reports a failure by @bwks in [#385](https://github.com/bwks/sherpa/pull/385) ([110d475](https://github.com/bwks/sherpa/commit/110d475dc611fa318282aa26bf95283bf456b272))
+- Bump version to 0.4.11 by @bwks ([5fbf8f0](https://github.com/bwks/sherpa/commit/5fbf8f0081f3ba1a729f1508ebca9ef62397d5ce))
+- Merge pull request #384 from bwks/changelog/v0.4.10
+
+chore(release): update changelog for v0.4.10 by @github-actions[bot] in [#384](https://github.com/bwks/sherpa/pull/384) ([89cb295](https://github.com/bwks/sherpa/commit/89cb29523eacc55f156f013edc9552bea6f21e58))
 ## [0.4.10] - 2026-10-31
 
 ### Bug Fixes
