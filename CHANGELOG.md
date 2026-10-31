@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.16] - 2026-10-31
+
+### Bug Fixes
+
+- Let cEOS save its startup-config by @bwks ([e903896](https://github.com/bwks/sherpa/commit/e90389689d22ede81f4f2949b7b4bd29decb794f))
+
+### Miscellaneous
+
+- Merge pull request #403 from bwks/fix/395-ceos-write-memory
+
+fix(server): let cEOS save its startup-config by @bwks in [#403](https://github.com/bwks/sherpa/pull/403) ([a8ff8a0](https://github.com/bwks/sherpa/commit/a8ff8a05e70dfade93f4a6c4574288e7229e2f8b))
+- Bump version to 0.4.16 by @bwks ([0825c25](https://github.com/bwks/sherpa/commit/0825c2552df60cd3b1db8bef24758742b2101f87))
+- Merge pull request #401 from bwks/changelog/v0.4.15
+
+chore(release): update changelog for v0.4.15 by @github-actions[bot] in [#401](https://github.com/bwks/sherpa/pull/401) ([3c9d53f](https://github.com/bwks/sherpa/commit/3c9d53f8b15220be93316ec5868589035798d42a))
 ## [0.4.15] - 2026-10-31
 
 ### Bug Fixes
