@@ -1,6 +1,6 @@
 // Server-side implementation of the redeploy operation for a single node
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 use std::sync::{Arc, OnceLock, Weak};
@@ -16,6 +16,7 @@ use tracing::instrument;
 use crate::auth::context::AuthContext;
 use crate::auth::policy::{require_lab_owner, require_lab_starter};
 use crate::daemon::state::AppState;
+use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations;
@@ -29,11 +30,14 @@ use crate::services::up::process_manifest_nodes;
 use crate::validate::{reject_provisioners, validate_node_secrets};
 
 use shared::data;
-use shared::data::{DbNode, NodeState, RedeployRequest, RedeployResponse, StatusKind};
+use shared::data::{
+    DbBridge, DbNode, NodeState, RecordId, RedeployRequest, RedeployResponse, StatusKind,
+};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_SECRETS_DIR, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    BRIDGE_MEMBER_CONTAINER_VETH_PREFIX, BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX,
+    CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, KVM_OUI, LAB_FILE_NAME, READINESS_SLEEP,
+    READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
+    TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -409,6 +413,8 @@ pub async fn redeploy_node(
 
             // Build interface-to-docker-network lookup from DB links
             let db_links = db::list_links_by_lab(&db, lab_record_id.clone()).await?;
+            let db_bridges = db::list_bridges(&db, &lab_record_id).await?;
+            let bridge_interfaces = node_bridge_interfaces(&db_bridges, &node_record_id);
 
             // Check if this node has any P2p links
             let is_p2p_container = db_links.iter().any(|link| {
@@ -479,6 +485,31 @@ pub async fn redeploy_node(
                     }
                 }
 
+                // Create veths for bridge members; the host side joins the bridge
+                for (iface_name, bridge_name) in &bridge_interfaces {
+                    let iface_idx = util::interface_to_idx(&target_node.model, iface_name)?;
+                    let host_veth =
+                        format!("{BRIDGE_MEMBER_HOST_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}");
+                    let container_veth = format!(
+                        "{BRIDGE_MEMBER_CONTAINER_VETH_PREFIX}{node_idx}i{iface_idx}-{lab_id}"
+                    );
+                    network::create_veth_pair(
+                        &host_veth,
+                        &container_veth,
+                        &format!("{}-bridge-host-{}::{}", lab_id, node_name, iface_name),
+                        &format!("{}-bridge-ctr-{}::{}", lab_id, node_name, iface_name),
+                    )
+                    .await?;
+                    network::enslave_to_bridge(&host_veth, bridge_name).await?;
+                    p2p_container_veths.push(P2pContainerVeth {
+                        host_veth,
+                        container_veth,
+                        interface_idx: iface_idx,
+                        node_model: target_node.model,
+                        admin_down: false,
+                    });
+                }
+
                 // Create veths for disabled interfaces
                 let linked_iface_idxs: std::collections::HashSet<u8> = p2p_container_veths
                     .iter()
@@ -507,8 +538,7 @@ pub async fn redeploy_node(
                 }
             } else {
                 // Non-P2p container: use Docker macvlan networks (existing behavior)
-                let mut iface_net_lookup: std::collections::HashMap<String, (String, String)> =
-                    std::collections::HashMap::new();
+                let mut iface_net_lookup: HashMap<String, (String, String)> = HashMap::new();
 
                 for link in &db_links {
                     if link.node_a == node_record_id {
@@ -530,7 +560,8 @@ pub async fn redeploy_node(
                 for idx in first_data_idx..=max_iface_idx {
                     let iface_name = util::interface_from_idx(&target_node.model, idx)?;
 
-                    if let Some((docker_net_name, bridge_name)) = iface_net_lookup.get(&iface_name)
+                    let connection = if let Some((docker_net_name, bridge_name)) =
+                        iface_net_lookup.get(&iface_name)
                     {
                         container::create_docker_macvlan_network(
                             &docker_conn,
@@ -538,47 +569,32 @@ pub async fn redeploy_node(
                             docker_net_name,
                         )
                         .await?;
-
-                        let linux_interface_name =
-                            if target_node.model == data::NodeModel::NokiaSrlinux {
-                                util::srlinux_to_linux_interface(&iface_name).ok()
-                            } else {
-                                None
-                            };
-                        additional_networks.push(data::ContainerNetworkAttachment {
-                            name: docker_net_name.clone(),
-                            ipv4_address: None,
-                            ipv6_address: None,
-                            linux_interface_name,
-                            admin_down: false,
-                        });
+                        ContainerDataInterface::Linked(docker_net_name.clone())
+                    } else if let Some(bridge_name) = bridge_interfaces.get(&iface_name) {
+                        container::create_docker_macvlan_bridge_network(
+                            &docker_conn,
+                            bridge_name,
+                            &container_networks::bridge_member_network_name(node_name, idx, lab_id),
+                        )
+                        .await?;
+                        ContainerDataInterface::Bridged
                     } else {
-                        let docker_net_name = format!("{}-iso{}-{}", node_name, idx, lab_id);
                         container::create_docker_macvlan_bridge_network(
                             &docker_conn,
                             &isolated.bridge_name,
-                            &docker_net_name,
+                            &container_networks::isolated_network_name(node_name, idx, lab_id),
                         )
                         .await?;
-
-                        let linux_interface_name =
-                            util::interface_from_idx(&target_node.model, idx)
-                                .ok()
-                                .and_then(|name| {
-                                    if target_node.model == data::NodeModel::NokiaSrlinux {
-                                        util::srlinux_to_linux_interface(&name).ok()
-                                    } else {
-                                        Some(name)
-                                    }
-                                });
-                        additional_networks.push(data::ContainerNetworkAttachment {
-                            name: docker_net_name,
-                            ipv4_address: None,
-                            ipv6_address: None,
-                            linux_interface_name,
-                            admin_down: true,
-                        });
-                    }
+                        ContainerDataInterface::Disabled
+                    };
+                    additional_networks.push(container_networks::data_attachment(
+                        node_name,
+                        &target_node.model,
+                        &iface_name,
+                        idx,
+                        connection,
+                        lab_id,
+                    )?);
                 }
             }
 
@@ -825,6 +841,8 @@ pub async fn redeploy_node(
                 .reserved_interface_count
                 .checked_add(data_interface_count)
                 .ok_or_else(|| anyhow!("Data interface count overflow for node {}", node_name))?;
+            let db_bridges = db::list_bridges(&db, &lab_record_id).await?;
+            let bridge_interfaces = node_bridge_interfaces(&db_bridges, &node_record_id);
             for idx in first_data_interface_idx..=max_interface_idx {
                 let interface_name = util::interface_from_idx(&target_node.model, idx)?;
 
@@ -909,26 +927,16 @@ pub async fn redeploy_node(
 
                 // Check bridges
                 if !found_link {
-                    let db_bridges = db::list_bridges(&db, &lab_record_id).await?;
-                    let mut found_bridge = false;
-                    for bridge in &db_bridges {
-                        if bridge.nodes.contains(&node_record_id) {
-                            // Check if this node's interface connects to this bridge
-                            // For now, treat as bridge interface
-                            interfaces.push(data::Interface {
-                                name: bridge.bridge_name.clone(),
-                                num: idx,
-                                mtu: node_image.interface_mtu,
-                                mac_address: util::random_mac(KVM_OUI),
-                                connection_type: data::ConnectionTypes::PrivateBridge,
-                                interface_connection: None,
-                            });
-                            found_bridge = true;
-                            break;
-                        }
-                    }
-
-                    if !found_bridge {
+                    if let Some(bridge_name) = bridge_interfaces.get(&interface_name) {
+                        interfaces.push(data::Interface {
+                            name: bridge_name.clone(),
+                            num: idx,
+                            mtu: node_image.interface_mtu,
+                            mac_address: util::random_mac(KVM_OUI),
+                            connection_type: data::ConnectionTypes::PrivateBridge,
+                            interface_connection: None,
+                        });
+                    } else {
                         // Disabled interface - connected to isolated network
                         interfaces.push(data::Interface {
                             name: util::dasher(&util::interface_from_idx(&target_node.model, idx)?),
@@ -1163,10 +1171,22 @@ fn node_management_addresses(
     Ok((ipv4, ipv6))
 }
 
+/// The node's interfaces in private bridges, mapped to the bridge's Linux bridge name.
+fn node_bridge_interfaces(bridges: &[DbBridge], node: &RecordId) -> HashMap<String, String> {
+    let mut interfaces = HashMap::new();
+    for bridge in bridges {
+        for member in &bridge.members {
+            if member.node == *node {
+                interfaces.insert(member.interface.clone(), bridge.bridge_name.clone());
+            }
+        }
+    }
+    interfaces
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use shared::data::RecordId;
 
     fn mgmt_net(with_v6: bool) -> data::SherpaNetwork {
         let prefix = util::get_ipv4_network("172.31.1.0/24").unwrap();
@@ -1244,5 +1264,45 @@ mod tests {
     fn test_invalid_saved_address_is_an_error() {
         let node = db_node(1, Some("not-an-ip"), None);
         assert!(node_management_addresses(&node, &mgmt_net(false)).is_err());
+    }
+
+    fn bridge(index: u16, members: &[(&str, &str)]) -> DbBridge {
+        DbBridge {
+            id: None,
+            index,
+            bridge_name: format!("brs{index}-lab"),
+            network_name: format!("sherpa-bridge{index}-lab"),
+            lab: RecordId::new("lab", "lab"),
+            members: members
+                .iter()
+                .map(|(node, interface)| data::BridgeMember {
+                    node: RecordId::new("node", *node),
+                    interface: interface.to_string(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_only_member_interfaces_map_to_their_bridge() {
+        // Redeploy used to put every unlinked interface of a bridge's node on that bridge.
+        let bridges = vec![
+            bridge(0, &[("dev01", "eth1"), ("fr01", "eth1")]),
+            bridge(1, &[("dev01", "eth3"), ("fr02", "eth1")]),
+        ];
+        let interfaces = node_bridge_interfaces(&bridges, &RecordId::new("node", "dev01"));
+        assert_eq!(
+            interfaces,
+            HashMap::from([
+                ("eth1".to_string(), "brs0-lab".to_string()),
+                ("eth3".to_string(), "brs1-lab".to_string()),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_node_in_no_bridge_has_no_bridge_interfaces() {
+        let bridges = vec![bridge(0, &[("fr01", "eth1")])];
+        assert!(node_bridge_interfaces(&bridges, &RecordId::new("node", "dev01")).is_empty());
     }
 }

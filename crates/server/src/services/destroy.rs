@@ -17,8 +17,8 @@ use shared::data::{
     DestroyError, DestroyResponse, DestroySummary, StatusKind, TailscaleGatewaySettings,
 };
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH, SHERPA_SECRETS_DIR,
-    SHERPA_STORAGE_POOL, TAP_PREFIX, VETH_PREFIX,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_VETH_PREFIX, SHERPA_LABS_PATH,
+    SHERPA_SECRETS_DIR, SHERPA_STORAGE_POOL, TAP_PREFIX, VETH_PREFIX,
 };
 use shared::util::dir_exists;
 
@@ -695,6 +695,7 @@ pub(crate) async fn destroy_interfaces(
                     || interface.starts_with(&format!("{}a", TAP_PREFIX))
                     || interface.starts_with(&format!("{}b", TAP_PREFIX))
                     || interface.starts_with(CONTAINER_VETH_PREFIX)
+                    || interface.starts_with(BRIDGE_MEMBER_HOST_VETH_PREFIX)
                     || interface.starts_with("cd")
                     || interface.starts_with("ce")
                 {

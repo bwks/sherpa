@@ -1145,7 +1145,23 @@ hypervisor, by `services::node_resources`:
 
 Each container data interface is a Docker network attachment (`ContainerNetworkAttachment`),
 connected in index order after the container starts (`container::run_container`). Nothing runs in
-the image for most interfaces, so images without `ip` (such as `mongo`) work:
+the image for most interfaces, so images without `ip` (such as `mongo`) work.
+
+`services::container_networks` builds the attachments for `up` and `redeploy`. Every data
+interface gets one: Docker names unnamed interfaces in attach order, so one left out would rename
+every interface after it. A link end with no Docker network is an error.
+
+| Interface | Docker network | Mode | Parent |
+|---|---|---|---|
+| `[[links]]` end | `{node}-eth{a,b}{link_index}-{lab_id}` | macvlan passthru | the link's `bra`/`brb` bridge |
+| `[[bridges]]` member | `{node}-brs{interface_index}-{lab_id}` | macvlan bridge | the bridge's `brs{bridge_index}-{lab_id}` |
+| disabled | `{node}-iso{interface_index}-{lab_id}` | macvlan bridge | the node's isolated `bri` bridge |
+
+Bridge member networks are created in phase 7, after their `brs` bridge, and the containers'
+P2p bridge members get a veth pair there (see `P2P-ARCHITECTURE.md`). The bridge record stores
+its `members`, each a node and interface, so `redeploy` reconnects exactly those interfaces,
+for VMs as well as containers.
+
 
 - Docker names the interface in the container through the endpoint driver option
   `konst::DOCKER_ENDPOINT_IFNAME_OPT` when `linux_interface_name` is set.

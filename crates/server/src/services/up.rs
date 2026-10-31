@@ -19,6 +19,7 @@ use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_starter;
 use crate::daemon::state::AppState;
 use crate::services::clean;
+use crate::services::container_networks;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
 use crate::services::lab_operations::{self, StopReason};
@@ -37,7 +38,8 @@ use crate::validate::{
 use shared::data;
 use shared::data::{LabSubnets, NodeSshUsername, NodeState, StatusKind};
 use shared::konst::{
-    BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
+    BRIDGE_MEMBER_CONTAINER_VETH_PREFIX, BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX,
+    CONTAINER_DNSMASQ_CAPABILITIES, CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO,
     CONTAINER_SECRETS_DIR, CONTAINER_VETH_PREFIX, DNSMASQ_CONFIG_FILE, DNSMASQ_DIR,
     DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE, LAB_CERT_VALIDITY_DAYS,
     LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET,
@@ -1457,7 +1459,8 @@ pub async fn up_lab(
                 if !matches!(iface.data, data::NodeInterface::Disabled) {
                     continue;
                 }
-                let docker_net_name = format!("{}-iso{}-{}", node_data.name, iface.index, lab_id);
+                let docker_net_name =
+                    container_networks::isolated_network_name(&node_data.name, iface.index, lab_id);
                 tracing::info!(
                     lab_id = %lab_id,
                     node = %node_data.name,
@@ -1500,7 +1503,7 @@ pub async fn up_lab(
         );
 
         for bridge in bridges_detailed.iter() {
-            let mut bridge_nodes = vec![];
+            let mut bridge_members = vec![];
 
             let _ = progress.send_status(
                 format!(
@@ -1530,8 +1533,87 @@ pub async fn up_lab(
             );
 
             for link in bridge.links.iter() {
-                if let Some(node_data) = lab_node_data.iter().find(|n| n.name == link.node_name) {
-                    bridge_nodes.push(db::get_node_id(&node_data.record)?);
+                let node_data = lab_node_data
+                    .iter()
+                    .find(|n| n.name == link.node_name)
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Node {} in bridge {} not found in lab_node_data",
+                            link.node_name,
+                            bridge.manifest_name
+                        )
+                    })?;
+                bridge_members.push(data::BridgeMember {
+                    node: db::get_node_id(&node_data.record)?,
+                    interface: link.interface_name.clone(),
+                });
+
+                if node_data.kind != data::NodeKind::Container {
+                    continue;
+                }
+
+                if p2p_container_names.contains(&link.node_name) {
+                    // P2p containers take every data interface as a veth moved into their
+                    // netns. The host side of a bridge member's veth joins the bridge.
+                    // Format: cb{node_idx}i{iface_idx}-{lab_id} / cc{node_idx}i{iface_idx}-{lab_id}
+                    let host_veth = format!(
+                        "{BRIDGE_MEMBER_HOST_VETH_PREFIX}{}i{}-{lab_id}",
+                        node_data.index, link.interface_index
+                    );
+                    let container_veth = format!(
+                        "{BRIDGE_MEMBER_CONTAINER_VETH_PREFIX}{}i{}-{lab_id}",
+                        node_data.index, link.interface_index
+                    );
+                    network::create_veth_pair(
+                        &host_veth,
+                        &container_veth,
+                        &format!(
+                            "{}-bridge-host-{}::{}",
+                            lab_id, link.node_name, link.interface_name
+                        ),
+                        &format!(
+                            "{}-bridge-ctr-{}::{}",
+                            lab_id, link.node_name, link.interface_name
+                        ),
+                    )
+                    .await?;
+                    network::enslave_to_bridge(&host_veth, &bridge.bridge_name).await?;
+                    p2p_container_veths.push(P2pContainerVeth {
+                        node_name: link.node_name.clone(),
+                        host_veth: host_veth.clone(),
+                        container_veth: container_veth.clone(),
+                        interface_idx: link.interface_index,
+                        node_model: node_data.model,
+                        admin_down: false,
+                    });
+                    tracing::info!(
+                        lab_id = %lab_id,
+                        node = %link.node_name,
+                        interface = %link.interface_name,
+                        host_veth = %host_veth,
+                        bridge = %bridge.bridge_name,
+                        "Created bridge member veth pair for P2p container"
+                    );
+                } else {
+                    let docker_net_name = container_networks::bridge_member_network_name(
+                        &link.node_name,
+                        link.interface_index,
+                        lab_id,
+                    );
+                    tracing::info!(
+                        lab_id = %lab_id,
+                        node = %link.node_name,
+                        interface = %link.interface_name,
+                        network = %docker_net_name,
+                        bridge = %bridge.bridge_name,
+                        "Creating Docker macvlan bridge-mode network for bridge member"
+                    );
+                    container::create_docker_macvlan_bridge_network(
+                        &docker_conn,
+                        &bridge.bridge_name,
+                        &docker_net_name,
+                    )
+                    .await?;
                 }
             }
 
@@ -1541,7 +1623,7 @@ pub async fn up_lab(
                 bridge.bridge_name.clone(),
                 bridge.libvirt_name.clone(),
                 lab_record_id.clone(),
-                bridge_nodes,
+                bridge_members,
             )
             .await?;
         }
@@ -2588,56 +2670,19 @@ pub async fn up_lab(
                 continue;
             }
 
-            let attachments: Vec<data::ContainerNetworkAttachment> = nsd
-                .interfaces
-                .iter()
-                .filter_map(|iface| {
-                    match &iface.data {
-                        data::NodeInterface::Peer(_) | data::NodeInterface::Bridge(_) => {
-                            // Linked interface — look up docker network name
-                            let docker_net_name = container_link_net_lookup
-                                .get(&(nsd.name.clone(), iface.name.clone()))?;
-                            let linux_interface_name =
-                                if node_data.model == data::NodeModel::NokiaSrlinux {
-                                    util::srlinux_to_linux_interface(&iface.name).ok()
-                                } else {
-                                    None
-                                };
-                            Some(data::ContainerNetworkAttachment {
-                                name: docker_net_name.clone(),
-                                ipv4_address: None,
-                                ipv6_address: None,
-                                linux_interface_name,
-                                admin_down: false,
-                            })
-                        }
-                        data::NodeInterface::Disabled => {
-                            // Disabled interface — use isolated network
-                            let docker_net_name =
-                                format!("{}-iso{}-{}", node_data.name, iface.index, lab_id);
-                            let linux_interface_name =
-                                util::interface_from_idx(&node_data.model, iface.index)
-                                    .ok()
-                                    .and_then(|name| {
-                                        if node_data.model == data::NodeModel::NokiaSrlinux {
-                                            util::srlinux_to_linux_interface(&name).ok()
-                                        } else {
-                                            Some(name)
-                                        }
-                                    });
-                            Some(data::ContainerNetworkAttachment {
-                                name: docker_net_name,
-                                ipv4_address: None,
-                                ipv6_address: None,
-                                linux_interface_name,
-                                admin_down: true,
-                            })
-                        }
-                        // Skip Management and Reserved
-                        _ => None,
-                    }
-                })
-                .collect();
+            let attachments = container_networks::data_attachments(
+                &nsd.name,
+                &node_data.model,
+                &nsd.interfaces,
+                &container_link_net_lookup,
+                lab_id,
+            )
+            .with_context(|| {
+                format!(
+                    "Failed to build network attachments for container {}",
+                    nsd.name
+                )
+            })?;
 
             container_link_networks.insert(nsd.name.clone(), attachments);
         }

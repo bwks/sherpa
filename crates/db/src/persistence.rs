@@ -1,7 +1,9 @@
 use anyhow::{Context, Result, anyhow};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig, RecordId, RecordIdKey};
+use shared::data::{
+    BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig, RecordId, RecordIdKey,
+};
 use surrealdb_types::{
     Datetime, RecordId as SurrealRecordId, RecordIdKey as SurrealRecordIdKey, SurrealValue,
 };
@@ -82,7 +84,13 @@ pub(crate) struct BridgeRow {
     pub bridge_name: String,
     pub network_name: String,
     pub lab: SurrealRecordId,
-    pub nodes: Vec<SurrealRecordId>,
+    pub members: Vec<BridgeMemberRow>,
+}
+
+#[derive(Clone, Debug, Deserialize, SurrealValue)]
+pub(crate) struct BridgeMemberRow {
+    pub node: SurrealRecordId,
+    pub interface: String,
 }
 
 #[derive(Clone, Debug, Deserialize, SurrealValue)]
@@ -345,6 +353,26 @@ impl TryFrom<LinkRow> for DbLink {
     }
 }
 
+impl From<&BridgeMember> for BridgeMemberRow {
+    fn from(value: &BridgeMember) -> Self {
+        Self {
+            node: to_surreal_id(&value.node),
+            interface: value.interface.clone(),
+        }
+    }
+}
+
+impl TryFrom<BridgeMemberRow> for BridgeMember {
+    type Error = anyhow::Error;
+
+    fn try_from(value: BridgeMemberRow) -> Result<Self> {
+        Ok(Self {
+            node: from_surreal_id(value.node)?,
+            interface: value.interface,
+        })
+    }
+}
+
 impl TryFrom<&DbBridge> for BridgeRow {
     type Error = anyhow::Error;
 
@@ -355,7 +383,7 @@ impl TryFrom<&DbBridge> for BridgeRow {
             bridge_name: value.bridge_name.clone(),
             network_name: value.network_name.clone(),
             lab: to_surreal_id(&value.lab),
-            nodes: value.nodes.iter().map(to_surreal_id).collect(),
+            members: value.members.iter().map(BridgeMemberRow::from).collect(),
         })
     }
 }
@@ -370,10 +398,10 @@ impl TryFrom<BridgeRow> for DbBridge {
             bridge_name: value.bridge_name,
             network_name: value.network_name,
             lab: from_surreal_id(value.lab)?,
-            nodes: value
-                .nodes
+            members: value
+                .members
                 .into_iter()
-                .map(from_surreal_id)
+                .map(BridgeMember::try_from)
                 .collect::<Result<Vec<_>>>()?,
         })
     }

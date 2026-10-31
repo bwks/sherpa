@@ -134,9 +134,9 @@ async fn inspect_lab_inner(
         .into_iter()
         .map(|bridge| {
             let connected_nodes: Vec<String> = bridge
-                .nodes
+                .members
                 .iter()
-                .map(|rid| node_name_from_id(&db_nodes, rid))
+                .map(|member| node_name_from_id(&db_nodes, &member.node))
                 .collect();
             BridgeInfo {
                 bridge_name: bridge.bridge_name,

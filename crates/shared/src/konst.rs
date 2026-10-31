@@ -188,6 +188,10 @@ pub const BRIDGE_PREFIX: &str = "br";
 pub const VETH_PREFIX: &str = "ve";
 pub const TAP_PREFIX: &str = "tp";
 pub const CONTAINER_VETH_PREFIX: &str = "cv";
+/// Host side of a P2p container's private bridge member veth; it joins the bridge.
+pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
+/// Container side of a P2p container's private bridge member veth.
+pub const BRIDGE_MEMBER_CONTAINER_VETH_PREFIX: &str = "cc";
 
 pub const SHERPA_DB_NAME: &str = "sherpa";
 pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
