@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.14] - 2026-10-31
+
+### Bug Fixes
+
+- Turn STP off on the management bridge, retry FRR boot apk by @bwks ([9e45d04](https://github.com/bwks/sherpa/commit/9e45d042ddae38bf80c4d45d505cdbbc7ee95728))
+
+### Features
+
+- Make every link a P2p eBPF link by @bwks ([34d9990](https://github.com/bwks/sherpa/commit/34d999088a0316c89a18e33f84c7174fe1784a10))
+
+### Miscellaneous
+
+- Merge pull request #398 from bwks/feat/391-ebpf-only-p2p
+
+feat: make every link a P2p eBPF link by @bwks in [#398](https://github.com/bwks/sherpa/pull/398) ([1ca5fbe](https://github.com/bwks/sherpa/commit/1ca5fbe3d6e41543c7557caf7a748d9732c49dce))
+- Bump version to 0.4.14 by @bwks ([15fdf78](https://github.com/bwks/sherpa/commit/15fdf78b8dd1cc09476e13be1fb4f99d7ec375b9))
+- Merge pull request #393 from bwks/changelog/v0.4.13
+
+chore(release): update changelog for v0.4.13 by @github-actions[bot] in [#393](https://github.com/bwks/sherpa/pull/393) ([7cbcfa8](https://github.com/bwks/sherpa/commit/7cbcfa8fd421d6df95e2c036bb6900aa4fff95ac))
 ## [0.4.13] - 2026-10-31
 
 ### Bug Fixes
