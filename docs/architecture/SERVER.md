@@ -523,6 +523,12 @@ flowchart TB
 
 The central architectural decision in creation is that the manifest is transformed into fully-expanded intermediate structures before resource creation. That avoids spreading manifest parsing rules across Docker/libvirt/network calls. Validation happens before resource-creating phases where possible; resource phases still need cleanup handling because external backends can fail mid-operation.
 
+The management network's `brm-{lab_id}` bridge is created by libvirt from
+`crates/libvirt/templates/network/nat.jinja`, with STP off. With STP on, the kernel holds every
+new port for its 2 second minimum forward delay twice, listening then learning, whatever the
+network XML asks for. A container's first DNS lookups were lost that way, so the FRR image's boot
+`apk add` of openssh failed and the node never became reachable.
+
 ### Lab creation data flow
 
 ```mermaid
