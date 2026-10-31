@@ -1,0 +1,39 @@
+name = "private-bridge"
+
+# A VM and three containers in one private bridge. fr01 also has a link after its bridge
+# member, and fr03 is a P2p container, so both container wiring paths are covered.
+
+[[nodes]]
+name = "dev01"
+model = "alpine_linux"
+version = "3.23.0"
+# More data interfaces than the VM uses, so redeploy has unused interfaces to leave alone.
+data_interface_count = 4
+
+[[nodes]]
+name = "fr01"
+model = "frr_linux"
+version = "10.5.2"
+
+[[nodes]]
+name = "fr02"
+model = "frr_linux"
+version = "10.5.2"
+
+[[nodes]]
+name = "fr03"
+model = "frr_linux"
+version = "10.5.2"
+
+[[links]]
+src = "fr01::eth2"
+dst = "fr02::eth2"
+
+[[links]]
+src = "fr03::eth2"
+dst = "dev01::eth2"
+p2p = true
+
+[[bridges]]
+name = "private"
+links = ["dev01::eth1", "fr01::eth1", "fr02::eth1", "fr03::eth1"]

@@ -13,5 +13,5 @@ pub use linux::{
 };
 
 pub use ebpf::attach_p2p_redirect;
-pub use tap::{create_tap, get_ifindex, move_to_netns};
+pub use tap::{create_tap, create_veth_in_netns, get_ifindex};
 pub use tc::{LinkImpairment, apply_netem, remove_netem, update_netem};

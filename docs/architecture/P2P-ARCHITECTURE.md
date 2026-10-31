@@ -74,15 +74,32 @@ Container_A <-- eth1 (netns) | veth_a_out --[BPF redirect -> veth_b_out]--> veth
 
 ### Setup
 
-1. A veth pair is created in the host namespace for each container endpoint:
-   - Host side (e.g. `tpa0-{lab_id}`) — stays in host namespace, gets the eBPF redirect program
-   - Container side (e.g. `cva0-{lab_id}`) — moved into the container's network namespace
-2. Disabled (unlinked) interfaces also get veth pairs, but without eBPF. The host side is set DOWN to remove carrier, so the container sees the interface as "not connected".
-   Private bridge (`[[bridges]]`) members also get veth pairs without eBPF. The host side joins the bridge's `brs` Linux bridge, in phase 7 after the bridge is created.
-3. After the container starts (Phase 13), the container's PID is obtained via Docker inspect.
-4. Each container-side veth is moved into the container's network namespace using `ip link set {veth} netns {pid}`.
-5. Inside the container, the veth is renamed to the correct interface name (e.g. `eth1`, `e1-1`) and brought UP with promiscuous mode enabled.
-6. The eBPF redirect program is attached to each host-side veth's ingress.
+1. Phase 5 records a veth for each container endpoint, and phase 7 one for each private
+   bridge (`[[bridges]]`) member. Nothing is created yet.
+2. After the container starts (Phase 13), its PID is obtained via Docker inspect.
+3. `network::create_veth_in_netns` creates each veth in one netlink request. The container end is
+   the request's own link, created in the container's network namespace (`IFLA_NET_NS_PID`)
+   with its final name (e.g. `eth1`, `e1-1`), promiscuous and up. The host end (e.g.
+   `tpa0-{lab_id}`) is the veth peer and stays in the host namespace.
+4. Disabled (unlinked) interfaces get veths too, but down on both ends and without eBPF, so the
+   container sees the interface as "not connected". A bridge member's host end joins the
+   bridge's `brs` Linux bridge.
+5. The eBPF redirect program is attached to the host end's ingress once both ends of the link
+   exist: VM-to-VM links in phase 11b, links with a container end as each container comes up.
+
+Nothing runs inside the container, so this works for images without `ip` or a shell, and needs
+only `CAP_NET_ADMIN`. Two kernel details shape the request:
+
+- **Which end is the container's.** The kernel brings a new veth's own end up only after both
+  ends are joined; it applies the peer's flags before that, where bringing it up fails with
+  `ENOTCONN`. So the container end must be the request's own end, not the peer. An existing
+  link in another namespace cannot be brought up from outside it: `IFLA_TARGET_NETNSID` on a
+  set-link request means "move it there", not "change it there".
+- **The name lookup.** Older kernels, 6.8 among them (7.0 does not), look a new link's name
+  up in the caller's namespace first, so a host interface named `eth1` would fail a request for the container's `eth1`
+  (`EEXIST` under `NLM_F_EXCL`). The request therefore also sets an interface index, one above
+  the host's highest, which the kernel looks up instead. Indexes are per namespace, so one free
+  on the host can be taken in the container; the next is tried then.
 
 ### Docker Networking Bypass
 
@@ -90,20 +107,18 @@ P2p containers bypass Docker's network stack entirely for data interfaces. Docke
 
 ### Disabled Interface Carrier Removal
 
-For disabled container interfaces, the host-side veth is set DOWN after the container-side is moved into the netns. Since a veth pair shares carrier state, setting the host side DOWN causes the container side to lose carrier, making the interface appear as "not connected" to the container NOS.
+Disabled container interfaces are created down on both ends. Since a veth end has carrier only while its peer is up, the container side has no carrier, so the interface appears "not connected" to the container NOS, even if the NOS brings it up itself (cEOS does).
 
 ### Teardown
 
-Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cv*`, `cb*`, `cd*`, and `ce*` prefixes via fuzzy interface search.
+Host-side veths are cleaned up during lab destroy by matching the `tpa*`, `tpb*`, `cb*` and `cd*` prefixes via fuzzy interface search. Deleting a host end deletes its container end, and a container's ends go when its namespace does.
 
 ### Naming Convention
 
 - Host-side veths (linked): `tpa{link_index}-{lab_id}` / `tpb{link_index}-{lab_id}` (same as VM taps)
-- Container-side veths (linked): `cva{link_index}-{lab_id}` / `cvb{link_index}-{lab_id}`
 - Host-side veths (disabled): `cd{node_index}i{interface_index}-{lab_id}`
-- Container-side veths (disabled): `ce{node_index}i{interface_index}-{lab_id}`
 - Host-side veths (bridge member): `cb{node_index}i{interface_index}-{lab_id}` (`konst::BRIDGE_MEMBER_HOST_VETH_PREFIX`)
-- Container-side veths (bridge member): `cc{node_index}i{interface_index}-{lab_id}` (`konst::BRIDGE_MEMBER_CONTAINER_VETH_PREFIX`)
+- Container ends are created with their interface name in the container (`eth1`, `e1-1`, ...)
 
 Note: Disabled and bridge member veth names include the node index to avoid collisions when multiple containers share the same disabled interface index. The compact format stays within Linux's 15-character interface name limit.
 
@@ -118,7 +133,7 @@ VM_A <-- tap_a --[ingress: BPF redirect -> veth_out]--> veth_out --[ingress: BPF
 This is a hybrid of the VM-VM and Container-Container flows:
 
 1. The VM side uses a tap device created by libvirt (`<interface type='ethernet'>`).
-2. The container side uses a veth pair — host side stays in host namespace, container side moves into the container's netns.
+2. The container side uses a veth pair — host side stays in host namespace, container side is created in the container's netns.
 3. The eBPF redirect program wires the VM's tap to the container's host-side veth and vice versa.
 
 The VM's tap and container's host-side veth are both regular kernel network interfaces, so the eBPF redirect works identically regardless of whether the peer is a tap or veth.

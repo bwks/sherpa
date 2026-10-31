@@ -187,11 +187,8 @@ pub const LAB_FILE_NAME: &str = "lab-info.toml";
 pub const BRIDGE_PREFIX: &str = "br";
 pub const VETH_PREFIX: &str = "ve";
 pub const TAP_PREFIX: &str = "tp";
-pub const CONTAINER_VETH_PREFIX: &str = "cv";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.
 pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
-/// Container side of a P2p container's private bridge member veth.
-pub const BRIDGE_MEMBER_CONTAINER_VETH_PREFIX: &str = "cc";
 
 pub const SHERPA_DB_NAME: &str = "sherpa";
 pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
@@ -261,6 +258,9 @@ pub const TEMP_DIR: &str = ".tmp";
 pub const MTU_STD: u16 = 1500;
 pub const MTU_JUMBO_INT: u16 = 9216;
 pub const MTU_JUMBO_NET: u16 = 9600;
+/// Interface indexes tried when creating a veth end into a container's netns, from the host's
+/// highest index up, before giving up.
+pub const NETNS_VETH_INDEX_ATTEMPTS: u32 = 64;
 
 pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";

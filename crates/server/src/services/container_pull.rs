@@ -37,8 +37,6 @@ pub async fn pull_container_image(
     let _ = progress.send_status("Updating database...".to_string(), StatusKind::Progress);
 
     // Import pulled image to database
-    let config = NodeConfig::get_model(request.model);
-
     let existing_versions =
         db::get_node_image_versions(&state.db, &request.model, &NodeKind::Container).await?;
     let make_default = if existing_versions.is_empty() {
@@ -46,11 +44,7 @@ pub async fn pull_container_image(
     } else {
         request.default
     };
-
-    let mut db_config = config;
-    db_config.version = request.tag.clone();
-    db_config.default = make_default;
-    db_config.id = None;
+    let db_config = pulled_node_image(&request, make_default);
 
     let db_tracked = match db::upsert_node_image(&state.db, db_config).await {
         Ok(_) => {
@@ -93,4 +87,39 @@ pub async fn pull_container_image(
         db_tracked,
         message: "Image pulled successfully".to_string(),
     })
+}
+
+/// The node image record for a pulled container image: the model's defaults, with the version
+/// and repo it was pulled from. Models without a built-in repo run the repo recorded here.
+fn pulled_node_image(request: &ContainerPullRequest, default: bool) -> NodeConfig {
+    let mut config = NodeConfig::get_model(request.model);
+    config.version = request.tag.clone();
+    config.repo = Some(request.repo.clone());
+    config.default = default;
+    config.id = None;
+    config
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use shared::data::NodeModel;
+
+    #[test]
+    fn test_pulled_node_image_records_the_repo_it_was_pulled_from() {
+        let request = ContainerPullRequest {
+            model: NodeModel::PostgresqlDb,
+            repo: "postgres".to_string(),
+            tag: "17".to_string(),
+            default: false,
+        };
+
+        let config = pulled_node_image(&request, true);
+
+        assert_eq!(config.model, NodeModel::PostgresqlDb);
+        assert_eq!(config.repo.as_deref(), Some("postgres"));
+        assert_eq!(config.version, "17");
+        assert!(config.default);
+        assert_eq!(config.container_repo(None).as_deref(), Some("postgres"));
+    }
 }
