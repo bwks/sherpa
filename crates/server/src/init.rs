@@ -17,7 +17,8 @@ use shared::konst::{
     SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
     SHERPA_IMAGES_PATH, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
     SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
-    SHERPA_STORAGE_POOL_PATH,
+    SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
+    SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
@@ -219,7 +220,9 @@ async fn create_admin_account(db: &Database, env_file: &Path) -> Result<()> {
 
 /// Create the first personal user account, unless one already exists.
 ///
-/// Lab work is done from personal accounts; `admin` cannot start labs.
+/// Lab work is done from personal accounts; `admin` cannot start labs. Each answer comes from its
+/// `SHERPA_USER_*` environment variable when that is set, otherwise it is prompted for, so `init`
+/// can run unattended. These are not read from the env file, which would keep the password.
 #[instrument(skip(db))]
 async fn create_first_user(db: &Database) -> Result<()> {
     term_msg_underline("Creating First User Account");
@@ -232,11 +235,37 @@ async fn create_first_user(db: &Database) -> Result<()> {
     }
 
     println!("Labs are started from personal user accounts, not from '{ADMIN_USERNAME}'.");
-    let username = normalize_username(&prompt("Username")?);
+    let username = match env::var(SHERPA_USER_NAME_ENV) {
+        Ok(username) => {
+            println!("Using the username from {SHERPA_USER_NAME_ENV}");
+            username
+        }
+        Err(_) => prompt("Username")?,
+    };
+    let username = normalize_username(&username);
     validate_username(&username)?;
-    let password = prompt_password(&username)?;
-    let is_admin = prompt_yes_no("Make this user an administrator?", true)?;
-    let ssh_keys = prompt_ssh_key(&username)?;
+    let password = match env::var(SHERPA_USER_PASSWORD_ENV) {
+        Ok(password) if password.is_empty() => {
+            anyhow::bail!("{SHERPA_USER_PASSWORD_ENV} is set but empty")
+        }
+        Ok(password) => {
+            println!("Using the password from {SHERPA_USER_PASSWORD_ENV}");
+            password
+        }
+        Err(_) => prompt_password(&username)?,
+    };
+    let is_admin = match env::var(SHERPA_USER_IS_ADMIN_ENV) {
+        Ok(answer) => {
+            parse_yes_no(&answer, true).context(format!("Invalid {SHERPA_USER_IS_ADMIN_ENV}"))?
+        }
+        Err(_) => prompt_yes_no("Make this user an administrator?", true)?,
+    };
+    let ssh_keys = match env::var(SHERPA_USER_SSH_KEY_ENV) {
+        Ok(answer) => {
+            read_ssh_key(&answer).context(format!("Invalid {SHERPA_USER_SSH_KEY_ENV}"))?
+        }
+        Err(_) => prompt_ssh_key(&username)?,
+    };
 
     if ssh_keys.is_empty() {
         println!(
@@ -280,8 +309,12 @@ fn prompt_optional(label: &str) -> Result<String> {
 
 fn prompt_yes_no(question: &str, default: bool) -> Result<bool> {
     let hint = if default { "[Y/n]" } else { "[y/N]" };
-    let answer = prompt_optional(&format!("{question} {hint}"))?;
-    match answer.to_lowercase().as_str() {
+    parse_yes_no(&prompt_optional(&format!("{question} {hint}"))?, default)
+}
+
+/// A yes or no answer; an empty answer is the default.
+fn parse_yes_no(answer: &str, default: bool) -> Result<bool> {
+    match answer.trim().to_lowercase().as_str() {
         "" => Ok(default),
         "y" | "yes" => Ok(true),
         "n" | "no" => Ok(false),
@@ -291,19 +324,24 @@ fn prompt_yes_no(question: &str, default: bool) -> Result<bool> {
 
 /// Ask for an SSH public key as a file path or the key itself. Enter skips it.
 fn prompt_ssh_key(username: &str) -> Result<Vec<String>> {
-    let answer = prompt_optional(&format!(
+    read_ssh_key(&prompt_optional(&format!(
         "SSH public key for {username} (file path or key, Enter to skip)"
-    ))?;
+    ))?)
+}
+
+/// An SSH public key given as a file path or the key itself; an empty answer gives no key.
+fn read_ssh_key(answer: &str) -> Result<Vec<String>> {
+    let answer = answer.trim();
     if answer.is_empty() {
         return Ok(vec![]);
     }
-    let key = if Path::new(&answer).is_file() {
-        fs::read_to_string(&answer)
+    let key = if Path::new(answer).is_file() {
+        fs::read_to_string(answer)
             .context(format!("Failed to read SSH public key file '{answer}'"))?
             .trim()
             .to_string()
     } else {
-        answer
+        answer.to_string()
     };
     validate_ssh_key(&key).context("Invalid SSH public key")?;
     Ok(vec![key])
@@ -322,4 +360,42 @@ fn prompt_password(username: &str) -> Result<String> {
         anyhow::bail!("Password cannot be empty");
     }
     Ok(password)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const TEST_SSH_KEY: &str =
+        "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE6/8GjrZ1QD9nWLGeWkclvKEWliuCe2qDrak7cEmjIG dev";
+
+    #[test]
+    fn test_parse_yes_no_reads_answers_and_default() {
+        assert!(parse_yes_no("", true).unwrap());
+        assert!(!parse_yes_no("", false).unwrap());
+        assert!(parse_yes_no("Yes", false).unwrap());
+        assert!(parse_yes_no("y", false).unwrap());
+        assert!(!parse_yes_no("NO", true).unwrap());
+        assert!(!parse_yes_no("n", true).unwrap());
+        assert!(parse_yes_no("maybe", true).is_err());
+    }
+
+    #[test]
+    fn test_read_ssh_key_accepts_a_key_a_file_or_nothing() {
+        assert_eq!(read_ssh_key(TEST_SSH_KEY).unwrap(), vec![TEST_SSH_KEY]);
+        assert!(read_ssh_key("").unwrap().is_empty());
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("id_ed25519.pub");
+        fs::write(&path, format!("{TEST_SSH_KEY}\n")).unwrap();
+        assert_eq!(
+            read_ssh_key(path.to_str().unwrap()).unwrap(),
+            vec![TEST_SSH_KEY]
+        );
+    }
+
+    #[test]
+    fn test_read_ssh_key_rejects_an_invalid_key() {
+        assert!(read_ssh_key("not a key").is_err());
+    }
 }

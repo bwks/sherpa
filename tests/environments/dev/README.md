@@ -34,7 +34,16 @@ is up. It is safe to run again with `sherpa provision`. It:
    only fetches, so work in progress is never touched;
 5. creates a virtualenv for the docs at `~/.venvs/sherpa-docs`;
 6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`, with a generated
-   database password that only the guest keeps.
+   database password that only the guest keeps;
+7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
+   administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
+   `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
+   `sherpad`;
+8. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
+   and logs in as `dev`.
+
+Nothing is prompted for. Login shells load `~/.env.d/`, so `sherpa login` works there without
+prompts too.
 
 Node images are not copied; import them as needed with `sherpa server image import`.
 
@@ -53,13 +62,6 @@ mise run sherpa up
 
 ## After provisioning
 
-`sherpad init` asks for passwords and an SSH key, so it is run by hand in the guest:
-
-```
-sudo -u sherpa -H /opt/sherpa/bin/sherpad init
-sudo systemctl start sherpad
-```
-
-Development then happens in the guest's checkouts: build with
+Development happens in the guest's checkouts: build with
 `cargo build --release -p sherpad`, install over `/opt/sherpa/bin/sherpad`, restart `sherpad`, and
 push from there.
