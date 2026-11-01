@@ -245,6 +245,10 @@ class Guest:
         """Whether the selected release runs SurrealDB in a container (before 0.5.0)."""
         return not embeds_database(self.config[selection]["version"])
 
+    def upgraded_from_legacy(self):
+        """Whether this run upgrades from a baseline that kept its data in SurrealDB."""
+        return "baseline" in self.config and self.legacy("baseline")
+
     def environment(self, selection="candidate"):
         env = dict(os.environ)
         env.update(SHERPA_SERVER_IPV4=self.settings["listen_ip"],
@@ -334,7 +338,9 @@ class Guest:
         for key, value in self.environment(selection).items():
             if key.startswith("SHERPA_") and key != "SHERPA_ARTIFACT_DIR":
                 require(env_values.get(key) == value, f"Environment setting mismatch: {key}")
-        if not self.legacy(selection):
+        # An upgrade from a release before 0.5.0 keeps that release's database settings, which
+        # only sherpad migrate-db reads; a fresh install of 0.5.0 or later never writes them.
+        if not self.legacy(selection) and not self.upgraded_from_legacy():
             for key in ("SHERPA_DB_PASSWORD", "SHERPA_DB_PORT"):
                 require(key not in env_values, f"Embedded-database install wrote {key}")
         _, groups = self.command(["id", "-nG", "sherpa"])
@@ -363,8 +369,11 @@ class Guest:
             self.command(["curl", "-fsS",
                           f"http://{self.settings['client_host']}:{self.settings['db_port']}/health"])
             require(any((self.base / "db").iterdir()), "Database storage is empty")
+        elif self.upgraded_from_legacy() and selection == "candidate":
+            # The update keeps the old container, stopped and not restarting, for rollback.
+            require(code == 0, "The upgrade removed the legacy database container")
+            require(state.strip().endswith(" false no"), "Legacy database container still runs")
         elif code == 0:
-            # Left by an upgrade from a release before 0.5.0, stopped, for rollback.
             require(state.strip().endswith(" false no"), "Legacy database container still runs")
 
     def verify_embedded_database(self):
@@ -1082,6 +1091,15 @@ class GuestTests(unittest.TestCase):
         document = toml_document({"integration-db": {"status": "passed", "passed": 3, "failures": [],
                                                       "skips": ['quote " and \\ slash']}})
         self.assertEqual(tomllib.loads(document)["integration-db"]["skips"], ['quote " and \\ slash'])
+
+    def test_only_an_upgrade_from_before_0_5_0_counts_as_upgraded_from_legacy(self):
+        guest = Guest.__new__(Guest)
+        guest.config = {"candidate": {"version": "v0.5.0"}}
+        self.assertFalse(guest.upgraded_from_legacy())
+        guest.config["baseline"] = {"version": "v0.5.0"}
+        self.assertFalse(guest.upgraded_from_legacy())
+        guest.config["baseline"] = {"version": "v0.4.18"}
+        self.assertTrue(guest.upgraded_from_legacy())
 
     def test_baseline_installs_with_its_own_installer_and_upgrade_uses_the_updater(self):
         guest = Guest.__new__(Guest)
