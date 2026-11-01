@@ -1,0 +1,18 @@
+# Developer tools for the dev server, installed by mise. The provisioner copies this to
+# ~/.config/mise/config.toml in the guest; system libraries and compilers come from apt.
+
+[settings]
+# Follow the repository's rust-toolchain.toml files: stable at the root, nightly for the eBPF
+# program in crates/ebpf-redirect.
+idiomatic_version_file_enable_tools = ["rust"]
+
+[tools]
+rust = [
+    { version = "stable", profile = "minimal", components = "rustfmt,clippy,llvm-tools" },
+    { version = "nightly", profile = "minimal", components = "rust-src" },
+]
+# The host's version. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
+"cargo:bpf-linker" = "0.10.2"
+gh = "latest"
+shellcheck = "latest"
+bats = "latest"

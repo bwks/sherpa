@@ -8,17 +8,17 @@ set -euo pipefail
 
 CODE_DIR="${HOME}/code/rust"
 DOCS_VENV="${HOME}/.venvs/sherpa-docs"
-# The host's version. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
-BPF_LINKER_VERSION="0.10.2"
+MISE="${HOME}/.local/bin/mise"
 REPOS=(bwks/sherpa bwks/sherpa-docs)
 SHERPA_BASE="/opt/sherpa"
 # Login shells load ~/.env.d/, so `sherpa login` finds the account here too.
 ACCOUNT_ENV="${HOME}/.env.d/sherpa-account.env"
 SHERPA_ACCOUNT="dev"
 SERVER_IP=""
+# System libraries and compilers. Developer tools come from mise, set in provision/mise.toml.
 APT_PACKAGES=(
     build-essential pkg-config libvirt-dev clang llvm libelf-dev
-    git gh jq rsync curl python3-venv shellcheck bats
+    git jq rsync curl python3-venv
 )
 
 log() {
@@ -39,21 +39,25 @@ apt_install() {
     return 1
 }
 
-install_rust() {
-    if ! command -v rustup >/dev/null 2>&1 && [ ! -x "${HOME}/.cargo/bin/rustup" ]; then
-        log "Installing rustup"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --profile minimal --component rustfmt,clippy
+# Installs mise and the tools in ~/.config/mise/config.toml, which the provisioner copies from
+# provision/mise.toml, and puts them on the PATH of login shells and of this script.
+install_tools() {
+    if [ ! -x "${MISE}" ]; then
+        log "Installing mise"
+        curl -fsSL https://mise.run | sh
     fi
-    # shellcheck source=/dev/null
-    source "${HOME}/.cargo/env"
-    rustup toolchain install stable --profile minimal --component rustfmt,clippy,llvm-tools
-    # The eBPF program builds on nightly with build-std and links with bpf-linker.
-    rustup toolchain install nightly --profile minimal --component rust-src
-    if ! command -v bpf-linker >/dev/null 2>&1; then
-        log "Installing bpf-linker"
-        cargo install --locked "bpf-linker@${BPF_LINKER_VERSION}"
+    log "Installing tools with mise"
+    "${MISE}" install --yes
+    local profile="${HOME}/.profile"
+    # The provisioner's ~/.env.d loader goes in ~/.bash_profile when it exists, so does this.
+    if [ -f "${HOME}/.bash_profile" ]; then
+        profile="${HOME}/.bash_profile"
     fi
+    local activate="eval \"\$(\$HOME/.local/bin/mise activate bash --shims)\""
+    if ! grep -qxF "${activate}" "${profile}"; then
+        echo "${activate}" >> "${profile}"
+    fi
+    eval "$("${MISE}" activate bash --shims)"
 }
 
 setup_git() {
@@ -184,7 +188,7 @@ EOF
 
 main() {
     apt_install
-    install_rust
+    install_tools
     setup_git
     clone_repos
     setup_docs_venv
