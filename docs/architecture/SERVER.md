@@ -966,7 +966,9 @@ QEMU and I/O threads), so later labs see them. Two labs started at the same mome
 pass the check before either stores its pins; unlike VNC ports, pins have no unique index.
 
 Huge pages come from the host's transparent hugepages, which QEMU requests for guest RAM.
-There is no `memoryBacking` setting.
+There is no `memoryBacking` setting. `scripts/sherpa_install.sh` sets THP to `madvise` unless it
+is `always`, now and on boot through `/etc/tmpfiles.d/sherpa-thp.conf`; the uninstall script
+removes that rule.
 
 ### Container data interfaces
 
