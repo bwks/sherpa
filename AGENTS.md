@@ -14,6 +14,10 @@ database in use is SurrealDB.
 - Always run `cargo fmt` and `cargo clippy --workspace -- -D warnings` before running tests.
   Formatting and linting must pass first. CI will fail if formatting is wrong, so catch it locally
   before committing.
+- Development, builds, installs and tests can run in the dev server, a Sherpa lab with root and
+  the toolchains. How to bring it up, connect to it and work in it is in
+  `tests/environments/dev/README.md`. Follow it; do not hard-code its address or add host-side
+  SSH config or mounts.
 
 ## Project Tasks
 - Features to implement are tracked in the PROJECT.md file.

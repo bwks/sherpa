@@ -60,8 +60,65 @@ cd tests/environments/dev
 mise run sherpa up
 ```
 
-## After provisioning
+`mise run sherpa up` prints nothing until `sherpa up` finishes, because its output is buffered.
+Do not stop it: an interrupted `up` leaves a half-created lab that must be destroyed first.
 
-Development happens in the guest's checkouts: build with
-`cargo build --release -p sherpad`, install over `/opt/sherpa/bin/sherpad`, restart `sherpad`, and
-push from there.
+## Working on the dev server
+
+These steps are for people and agents alike. The guest is rebuilt from this manifest, so its
+address changes with every `sherpa up`: never write it down or hard-code it anywhere, and derive
+it from the files Sherpa generates for the lab.
+
+### Connecting
+
+`sherpa up` writes `sherpa_ssh_config`, which routes through a ProxyJump to the Sherpa server.
+After every `sherpa up`, write a direct config from it:
+
+```
+cd tests/environments/dev
+python3 direct_ssh_config.py
+ssh -F sherpa_ssh_direct_config dev
+```
+
+`direct_ssh_config.py` resolves each node from `sherpa_ssh_config` and the lab's `lab-info.toml`,
+and writes `sherpa_ssh_direct_config` with no ProxyJump and a shared master connection, so each
+command after the first takes milliseconds. The master socket lives in `$XDG_RUNTIME_DIR`. Both
+generated files are gitignored. Close the master connection with
+`ssh -F sherpa_ssh_direct_config -O exit dev`.
+
+Do not add SSH config to `~/.ssh` or mount the guest on the host; use the generated config.
+
+### Developing
+
+Everything runs in the guest, as its login user `sherpa`, which has passwordless `sudo`:
+
+- **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
+  only working copies: commit and push from there. Git authenticates through `gh` with
+  `GH_TOKEN`.
+- **Build and install:**
+  ```
+  cd ~/code/rust/sherpa
+  cargo build --release -p sherpad
+  sudo install -o sherpa -g sherpa -m 755 target/release/sherpad /opt/sherpa/bin/sherpad
+  sudo systemctl restart sherpad
+  ```
+  `cargo build --release` at the workspace root does not rebuild `sherpad`.
+- **Update to a release:** `sudo bash ~/code/rust/sherpa/scripts/sherpa_update.sh --version vX.Y.Z`.
+- **Tests:** formatting, clippy, unit tests, the test database (`dev/testdb`) and the lab tests
+  all run in the guest, as described in [running tests](../../README.md). The guest's `sherpa`
+  CLI is already logged in as `dev`.
+- **Images:** none are imported. Copy the ones a test needs from the host's image store and
+  register them with `sherpa server image import`.
+
+Nested lab VMs run slower in the guest than on the host, so run the final check on the host
+before a release.
+
+### Tearing down
+
+```
+cd tests/environments/dev
+ssh -F sherpa_ssh_direct_config -O exit dev
+sherpa destroy
+```
+
+Destroying the lab deletes the guest's checkouts: push any work first.
