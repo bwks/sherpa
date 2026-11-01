@@ -1,8 +1,8 @@
 # Sherpa dev server: a fast, nested Sherpa VM built by Sherpa
 
-> Status: decided. Tracked in #402. The manifest settings are built (`[nodes.performance_tuning]`,
-> documented in `docs/architecture/SERVER.md`); the installer THP change and the dev environment
-> are not.
+> Status: built. Tracked in #402. The manifest settings (`[nodes.performance_tuning]`, in
+> `docs/architecture/SERVER.md`), the installer's THP setting, and the environment in
+> `tests/environments/dev` are all done.
 
 ## Goal
 
@@ -97,7 +97,7 @@ Node 0 stays for users' labs. Whether node 1 is also isolated from them is a dec
    needed and registered with `sherpa server image import`. The Arista images can't be pulled from
    a public registry.
 3. **Development loop**, run entirely inside the guest as root:
-   - sync the working tree from the host with `rsync`;
+   - work in the guest's own `sherpa` and `sherpa-docs` checkouts, and push from there;
    - `cargo build --release -p sherpad`, then install it and restart `sherpad`;
    - run the lab tests.
 
@@ -139,3 +139,8 @@ Node 0 stays for users' labs. Whether node 1 is also isolated from them is a dec
   should set `transparent_hugepage=madvise`.
 - **No separate measuring step:** the tuning is built straight into the manifest.
 - **Node images** are not copied while the server is built; they are copied in as needed.
+- **Source:** the guest clones `bwks/sherpa` and `bwks/sherpa-docs` and is developed and pushed
+  from there, rather than synced from the host with `rsync`. Git authenticates with the user's
+  `GH_TOKEN`, passed in by the CLI from a provisioner env file, until the agent has its own keys.
+- **Toolchains:** rustup (stable, and nightly for the eBPF program), not mise, since the
+  repository pins its toolchains with `rust-toolchain.toml`.

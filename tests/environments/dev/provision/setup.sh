@@ -1,0 +1,119 @@
+#!/bin/bash
+#
+# Builds the Sherpa dev server: toolchains, the sherpa and sherpa-docs checkouts, and a Sherpa
+# server installed with the checkout's own installer. Runs as the node's login user through the
+# SSH provisioner; safe to run again with `sherpa provision`.
+
+set -euo pipefail
+
+CODE_DIR="${HOME}/code/rust"
+DOCS_VENV="${HOME}/.venvs/sherpa-docs"
+# The host's version. 0.12 links a system LLVM of a version Ubuntu 24.04 does not ship.
+BPF_LINKER_VERSION="0.10.2"
+REPOS=(bwks/sherpa bwks/sherpa-docs)
+APT_PACKAGES=(
+    build-essential pkg-config libvirt-dev clang llvm libelf-dev
+    git gh jq rsync curl python3-venv shellcheck bats
+)
+
+log() {
+    echo "==> $*"
+}
+
+apt_install() {
+    local attempt
+    # The Ubuntu archive is sometimes mid-sync and serves an index of the wrong size.
+    for attempt in 1 2 3 4 5; do
+        if sudo apt-get update -qq && \
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${APT_PACKAGES[@]}"; then
+            return 0
+        fi
+        log "apt failed (attempt ${attempt}), retrying in 30s"
+        sleep 30
+    done
+    return 1
+}
+
+install_rust() {
+    if ! command -v rustup >/dev/null 2>&1 && [ ! -x "${HOME}/.cargo/bin/rustup" ]; then
+        log "Installing rustup"
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
+            sh -s -- -y --profile minimal --component rustfmt,clippy
+    fi
+    # shellcheck source=/dev/null
+    source "${HOME}/.cargo/env"
+    rustup toolchain install stable --profile minimal --component rustfmt,clippy,llvm-tools
+    # The eBPF program builds on nightly with build-std and links with bpf-linker.
+    rustup toolchain install nightly --profile minimal --component rust-src
+    if ! command -v bpf-linker >/dev/null 2>&1; then
+        log "Installing bpf-linker"
+        cargo install --locked "bpf-linker@${BPF_LINKER_VERSION}"
+    fi
+}
+
+setup_git() {
+    if [ -z "${GH_TOKEN:-}" ]; then
+        echo "GH_TOKEN is not set; bring the lab up with it in your environment" >&2
+        exit 1
+    fi
+    gh auth setup-git
+    # Commit as the token's GitHub account, with its no-reply address.
+    local login id name
+    login="$(gh api user --jq .login)"
+    id="$(gh api user --jq .id)"
+    name="$(gh api user --jq '.name // .login')"
+    git config --global user.name "${name}"
+    git config --global user.email "${id}+${login}@users.noreply.github.com"
+    git config --global init.defaultBranch main
+    git config --global pull.ff only
+}
+
+clone_repos() {
+    local repo dir
+    mkdir -p "${CODE_DIR}"
+    for repo in "${REPOS[@]}"; do
+        dir="${CODE_DIR}/${repo#*/}"
+        if [ -d "${dir}/.git" ]; then
+            # Never touch work in progress; only fetch.
+            log "Fetching ${repo}"
+            git -C "${dir}" fetch --prune origin
+        else
+            log "Cloning ${repo}"
+            git clone "https://github.com/${repo}.git" "${dir}"
+        fi
+    done
+}
+
+setup_docs_venv() {
+    if [ ! -x "${DOCS_VENV}/bin/mkdocs" ]; then
+        log "Creating the sherpa-docs virtualenv"
+        python3 -m venv "${DOCS_VENV}"
+    fi
+    "${DOCS_VENV}/bin/pip" install -q -r "${CODE_DIR}/sherpa-docs/requirements.txt"
+}
+
+install_sherpa_server() {
+    if [ -x /opt/sherpa/bin/sherpad ]; then
+        log "Sherpa server already installed"
+        return 0
+    fi
+    local server_ip db_password
+    server_ip="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
+    # The guest's own database; the installer keeps it in /opt/sherpa/env/sherpa.env.
+    db_password="$(openssl rand -hex 24)"
+    log "Installing the Sherpa server on ${server_ip}"
+    sudo SHERPA_DB_PASSWORD="${db_password}" SHERPA_SERVER_IPV4="${server_ip}" \
+        bash "${CODE_DIR}/sherpa/scripts/sherpa_install.sh"
+}
+
+main() {
+    apt_install
+    install_rust
+    setup_git
+    clone_repos
+    setup_docs_venv
+    install_sherpa_server
+    log "Done. Next: sudo -u sherpa -H /opt/sherpa/bin/sherpad init"
+}
+
+main "$@"

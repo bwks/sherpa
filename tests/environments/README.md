@@ -10,6 +10,10 @@ installation is never the thing under test.
 | [ubuntu-2404](ubuntu-2404/README.md) | 24.04 LTS | `ubuntu_linux` `24.04-20260926` | 8 vCPUs, 16 GiB RAM, 100 GiB disk |
 | [ubuntu-2604](ubuntu-2604/README.md) | 26.04 LTS | `ubuntu_linux` `26.04` | 8 vCPUs, 16 GiB RAM, 100 GiB disk |
 
+[dev](dev/README.md) is not a test environment: it is a long-lived development server, with
+toolchains and checkouts provisioned on top of Ubuntu 24.04. The rules below apply to it only
+where they make sense; it is not disposable and installs more than cloud-init needs.
+
 ## Rules
 
 - One directory per test server, each with one `manifest.toml` describing a

@@ -1,0 +1,28 @@
+name = "sherpa-dev"
+ready_timeout = 600
+
+[[nodes]]
+name = "dev"
+model = "ubuntu_linux"
+version = "24.04-20260926"
+cpu_count = 14
+memory = 49152
+boot_disk_size = 300
+boot_disk_clone_method = "copy"
+
+# NUMA node 1: vCPUs on sibling pairs 9/25 to 15/31, QEMU and disk I/O on 8/24.
+[nodes.performance_tuning]
+cpu_mode = "host-passthrough"
+cpu_topology = { sockets = 1, cores = 7, threads = 2 }
+cpu_pinning = [9, 25, 10, 26, 11, 27, 12, 28, 13, 29, 14, 30, 15, 31]
+qemu_cpus = [8, 24]
+numa_node = 1
+disk_cache = "none"
+disk_io = "native"
+disk_io_thread_cpus = [8, 24]
+interface_queues = 4
+
+[[nodes.provisioners]]
+type = "ssh"
+env_files = ["provision/github.env"]
+scripts = ["provision/setup.sh"]
