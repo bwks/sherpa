@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.17] - 2026-11-01
+
+### Features
+
+- Add performance tuning for virtual machine nodes by @bwks ([7201458](https://github.com/bwks/sherpa/commit/72014584fbb4f145280922a33efc5652fe0ca859))
+
+### Miscellaneous
+
+- Merge pull request #405 from bwks/feat/402-vm-performance-settings
+
+feat: performance tuning for virtual machine nodes by @bwks in [#405](https://github.com/bwks/sherpa/pull/405) ([3dc9f6a](https://github.com/bwks/sherpa/commit/3dc9f6a86575ce0bc813ab133f830d1438b1122b))
+- Merge pull request #404 from bwks/changelog/v0.4.16
+
+chore(release): update changelog for v0.4.16 by @github-actions[bot] in [#404](https://github.com/bwks/sherpa/pull/404) ([9c454bb](https://github.com/bwks/sherpa/commit/9c454bb16280ae92bd0a3b8174714a7dbc144860))
 ## [0.4.16] - 2026-10-31
 
 ### Bug Fixes
