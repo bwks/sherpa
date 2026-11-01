@@ -2,7 +2,9 @@
 
 use anyhow::{Context, Result};
 use shared::data::{ClientConfig, LoginRequest, LoginResponse, ValidateResponse};
+use shared::konst::{SHERPA_USER_NAME_ENV, SHERPA_USER_PASSWORD_ENV};
 use shared::util::{emoji_error, emoji_success};
+use std::env;
 use std::io::{self, Write};
 use std::time::Duration;
 use uuid::Uuid;
@@ -12,24 +14,23 @@ use crate::ws_client::{WebSocketClient, messages::RpcRequest};
 
 /// Execute the login command
 ///
-/// Prompts for username and password, authenticates with server,
-/// and saves the JWT token to ~/.sherpa/token
+/// Takes the username and password from `SHERPA_USER_NAME` and `SHERPA_USER_PASSWORD`, or
+/// prompts for them, authenticates with server, and saves the JWT token to ~/.sherpa/token
 pub async fn login(server_url: &str, insecure: bool, config: &ClientConfig) -> Result<()> {
-    // Prompt for username
-    print!("Username: ");
-    io::stdout().flush()?;
-    let mut username = String::new();
-    io::stdin()
-        .read_line(&mut username)
-        .context("Failed to read username")?;
-    let username = username.trim().to_string();
+    let username = match env::var(SHERPA_USER_NAME_ENV) {
+        Ok(username) => username.trim().to_string(),
+        Err(_) => prompt_username()?,
+    };
 
     if username.is_empty() {
         anyhow::bail!("Username cannot be empty");
     }
 
     // Prompt for password (without echo)
-    let password = rpassword::prompt_password("Password: ").context("Failed to read password")?;
+    let password = match env::var(SHERPA_USER_PASSWORD_ENV) {
+        Ok(password) => password,
+        Err(_) => rpassword::prompt_password("Password: ").context("Failed to read password")?,
+    };
 
     if password.is_empty() {
         anyhow::bail!("Password cannot be empty");
@@ -197,4 +198,14 @@ pub async fn whoami(server_url: &str, insecure: bool, config: &ClientConfig) -> 
     rpc_client.close().await.ok();
 
     Ok(())
+}
+
+fn prompt_username() -> Result<String> {
+    print!("Username: ");
+    io::stdout().flush()?;
+    let mut username = String::new();
+    io::stdin()
+        .read_line(&mut username)
+        .context("Failed to read username")?;
+    Ok(username.trim().to_string())
 }

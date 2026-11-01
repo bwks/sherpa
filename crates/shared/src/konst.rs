@@ -106,6 +106,11 @@ pub const ADMIN_USERNAME: &str = "admin";
 /// User documentation on generating and registering SSH keys, linked from errors.
 pub const SSH_KEYS_DOCS_URL: &str = "https://docs.sherpalabs.net/architecture/ssh-keys/";
 pub const SHERPA_ADMIN_PASSWORD_ENV: &str = "SHERPA_ADMIN_PASSWORD";
+/// The first user account for unattended `sherpad init`, and the account `sherpa login` uses.
+pub const SHERPA_USER_NAME_ENV: &str = "SHERPA_USER_NAME";
+pub const SHERPA_USER_PASSWORD_ENV: &str = "SHERPA_USER_PASSWORD";
+pub const SHERPA_USER_IS_ADMIN_ENV: &str = "SHERPA_USER_IS_ADMIN";
+pub const SHERPA_USER_SSH_KEY_ENV: &str = "SHERPA_USER_SSH_KEY";
 pub const ADMIN_LAB_START_MESSAGE: &str =
     "the built-in admin account cannot start, resume or redeploy labs; use a personal account";
 pub const ADMIN_PROTECTED_MESSAGE: &str =

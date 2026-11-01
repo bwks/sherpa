@@ -53,8 +53,13 @@ personal accounts, which may also be administrators.
 
 - `sherpad init` (`crates/server/src/init.rs`) creates `admin` if it is missing, with the
   password from `SHERPA_ADMIN_PASSWORD` (environment, then `/opt/sherpa/env/sherpa.env`) or a
-  prompt. It then asks for the first user account, unless a non-`admin` user exists. It never
-  changes an existing account, so it is safe to re-run.
+  prompt. It then asks for the first user account, unless a non-`admin` user exists; each answer
+  comes from its `SHERPA_USER_*` variable (`NAME`, `PASSWORD`, `IS_ADMIN`, `SSH_KEY`) when set,
+  so `init` can run unattended. Those are read from the environment only, not the env file, so
+  the user's password is never stored. It never changes an existing account, so it is safe to
+  re-run.
+- `sherpa login` (`crates/client/src/cmd/login.rs`) takes `SHERPA_USER_NAME` and
+  `SHERPA_USER_PASSWORD` from the environment when set, otherwise it prompts.
 - At startup, `daemon::state::ensure_admin_account` seeds `admin` when `SHERPA_ADMIN_PASSWORD`
   is set and the account is missing, and otherwise refuses to start without it.
 - `db::create_admin_user` is the only way to create `admin`; `db::create_user` rejects it as a
