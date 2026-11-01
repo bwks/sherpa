@@ -92,6 +92,17 @@
 
 ---
 
+## Transparent Hugepages (`configure_transparent_hugepages`)
+
+**What to test:**
+- `never`: writes `madvise` now and a tmpfiles boot rule `[unit]` **P1**
+- `always`: left as it is, no boot rule `[unit]` **P1**
+- No THP in the kernel: warns and continues `[unit]` **P2**
+- After install, THP is `madvise` or `always`, with the boot rule unless `always`; it survives a
+  reboot `[integration]` **P1**
+
+---
+
 ## Docker Installation (`install_docker`)
 
 **What to test:**
@@ -181,6 +192,7 @@ server removal retains the CLI; full removal removes both binaries. Docker,
 libvirt, their images and resources, and users/groups are retained in all modes.
 
 - Remove the server service, binary and its owned symlink `[e2e]` **P0**
+- Remove the transparent hugepages boot rule; leave the running setting `[e2e]` **P1**
 - Keep data: retain the database, server configuration and SSH identity, then
   reinstall and authenticate the persisted test admin `[e2e]` **P0**
 - Remove data: empty the database while retaining configuration and identity `[e2e]` **P0**

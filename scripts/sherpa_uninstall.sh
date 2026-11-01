@@ -25,6 +25,7 @@ set -e  # Exit on error
 CONTAINER_NAME="sherpa-db"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
+THP_TMPFILES_CONF="/etc/tmpfiles.d/sherpa-thp.conf"
 
 # Color codes for output
 RED='\033[0;31m'
@@ -282,6 +283,20 @@ remove_binary_symlink() {
     fi
 }
 
+# The installer's boot rule for transparent hugepages. The running setting is
+# left as it is; the kernel's own default applies from the next boot.
+remove_thp_boot_rule() {
+    if [ -f "${THP_TMPFILES_CONF}" ]; then
+        if rm -f "${THP_TMPFILES_CONF}"; then
+            print_success "Removed transparent hugepages boot rule: ${THP_TMPFILES_CONF}"
+        else
+            print_warning "Failed to remove ${THP_TMPFILES_CONF}"
+        fi
+    else
+        print_info "Transparent hugepages boot rule not found"
+    fi
+}
+
 ################################################################################
 # Data Removal
 ################################################################################
@@ -421,6 +436,7 @@ main() {
     local actions=""
     actions="${actions}\n  - Stop and remove sherpad systemd service"
     actions="${actions}\n  - Remove sherpad binary"
+    actions="${actions}\n  - Remove the transparent hugepages boot rule"
     actions="${actions}\n  - Stop and remove ${CONTAINER_NAME} container"
     
     if [ "$REMOVE_ALL" = true ]; then
@@ -453,6 +469,7 @@ main() {
     
     # Remove binary
     remove_sherpad_binary
+    remove_thp_boot_rule
     
     # Handle Docker operations
     if check_docker_available; then

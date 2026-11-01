@@ -41,6 +41,8 @@ SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 MIN_PASSWORD_LENGTH=8
+THP_ENABLED_FILE="/sys/kernel/mm/transparent_hugepage/enabled"
+THP_TMPFILES_CONF="/etc/tmpfiles.d/sherpa-thp.conf"
 
 # GitHub release configuration
 GITHUB_REPO="bwks/sherpa"
@@ -302,6 +304,32 @@ enable_libvirtd() {
     systemctl enable libvirtd
     systemctl start libvirtd
     print_success "libvirtd enabled and started"
+}
+
+# QEMU asks for transparent hugepages for guest RAM, which the kernel only grants
+# when THP is madvise or always. Set madvise now and with a tmpfiles rule on boot,
+# unless THP is already always.
+configure_transparent_hugepages() {
+    print_header "Configuring Transparent Hugepages"
+
+    if [ ! -f "${THP_ENABLED_FILE}" ]; then
+        print_warning "Transparent hugepages are not available in this kernel — skipping"
+        return 0
+    fi
+
+    if grep -q '\[always\]' "${THP_ENABLED_FILE}"; then
+        print_info "Transparent hugepages are already always — leaving them as they are"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${THP_TMPFILES_CONF}")"
+    cat > "${THP_TMPFILES_CONF}" << EOF
+# Installed by Sherpa: let QEMU back guest RAM with transparent hugepages.
+w ${THP_ENABLED_FILE} - - - - madvise
+EOF
+    echo madvise > "${THP_ENABLED_FILE}"
+
+    print_success "Transparent hugepages set to madvise (boot rule: ${THP_TMPFILES_CONF})"
 }
 
 install_docker() {
@@ -1119,6 +1147,7 @@ main() {
     check_port_available
     install_system_packages
     enable_libvirtd
+    configure_transparent_hugepages
     install_docker
     setup_sherpa_user
     setup_directories

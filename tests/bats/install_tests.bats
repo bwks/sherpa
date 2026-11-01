@@ -515,6 +515,58 @@ time.sleep(60)
 }
 
 # ============================================================
+# Transparent hugepages
+# ============================================================
+
+@test "configure_transparent_hugepages: sets madvise now and on boot when THP is never" {
+    THP_FILE="$(mktemp)"
+    RULE_FILE="$(mktemp -u)"
+    echo "always madvise [never]" > "${THP_FILE}"
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        THP_ENABLED_FILE='${THP_FILE}'
+        THP_TMPFILES_CONF='${RULE_FILE}'
+        configure_transparent_hugepages
+    "
+    [ "$status" -eq 0 ]
+    [ "$(cat "${THP_FILE}")" = "madvise" ]
+    grep -q "^w ${THP_FILE} - - - - madvise$" "${RULE_FILE}"
+    rm -f "${THP_FILE}" "${RULE_FILE}"
+}
+
+@test "configure_transparent_hugepages: leaves always alone and adds no boot rule" {
+    THP_FILE="$(mktemp)"
+    RULE_FILE="$(mktemp -u)"
+    echo "[always] madvise never" > "${THP_FILE}"
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        THP_ENABLED_FILE='${THP_FILE}'
+        THP_TMPFILES_CONF='${RULE_FILE}'
+        configure_transparent_hugepages
+    "
+    [ "$status" -eq 0 ]
+    [ "$(cat "${THP_FILE}")" = "[always] madvise never" ]
+    [ ! -e "${RULE_FILE}" ]
+    rm -f "${THP_FILE}"
+}
+
+@test "configure_transparent_hugepages: warns and continues when the kernel has no THP" {
+    RULE_FILE="$(mktemp -u)"
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        THP_ENABLED_FILE='/nonexistent/transparent_hugepage/enabled'
+        THP_TMPFILES_CONF='${RULE_FILE}'
+        configure_transparent_hugepages
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Transparent hugepages are not available"* ]]
+    [ ! -e "${RULE_FILE}" ]
+}
+
+# ============================================================
 # Post-install Integration Tests
 # (skipped unless /opt/sherpa exists — requires completed install as root)
 # ============================================================
@@ -540,6 +592,20 @@ _require_container() {
         # Container doesn't exist at all — real failure, don't skip.
         return 0
     fi
+}
+
+@test "integration: transparent hugepages are madvise or always" {
+    _require_install
+    grep -qE '\[(madvise|always)\]' /sys/kernel/mm/transparent_hugepage/enabled
+}
+
+@test "integration: transparent hugepages boot rule sets madvise unless THP is always" {
+    _require_install
+    if grep -q '\[always\]' /sys/kernel/mm/transparent_hugepage/enabled; then
+        skip "THP is always; the installer adds no boot rule"
+    fi
+    grep -q '^w /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise$' \
+        /etc/tmpfiles.d/sherpa-thp.conf
 }
 
 @test "integration: sherpa user exists" {

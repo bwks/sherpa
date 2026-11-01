@@ -66,6 +66,8 @@ FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)
 # Tests that return early when their host requirement is missing; in a test environment
 # the requirement is guaranteed, so the skip means the test did not run.
 REQUIRED_RUN_MARKERS = ("Skipping VM test",)
+THP_ENABLED = Path("/sys/kernel/mm/transparent_hugepage/enabled")
+THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
 
 
 def summarize_tests(output):
@@ -327,6 +329,12 @@ class Guest:
         require("RuntimeDirectory=sherpa\nRuntimeDirectoryMode=0700\nRuntimeDirectoryPreserve=yes" in unit,
                 "Missing private /run/sherpa for container secrets")
         require(Path("/etc/logrotate.d/sherpad").is_file(), "Missing logrotate configuration")
+        if selection == "candidate":
+            thp = THP_ENABLED.read_text()
+            require("[madvise]" in thp or "[always]" in thp, "Transparent hugepages are not madvise")
+            if "[always]" not in thp:
+                require(f"w {THP_ENABLED} - - - - madvise" in THP_BOOT_RULE.read_text(),
+                        "Missing transparent hugepages boot rule")
         _, image = self.command(["docker", "inspect", "--format",
                                 "{{.Config.Image}} {{.State.Running}} {{.HostConfig.RestartPolicy.Name}}",
                                 "sherpa-db"])
@@ -539,6 +547,7 @@ class Guest:
         print("PASS retained packages, users/groups, images, volumes and libvirt resources")
         require(not Path("/etc/systemd/system/sherpad.service").exists(), "Service unit remains")
         require(not Path("/etc/logrotate.d/sherpad").exists(), "Logrotate entry remains")
+        require(not THP_BOOT_RULE.exists(), "Transparent hugepages boot rule remains")
         binaries = ("sherpa", "sherpad") if mode == "--remove-all" else ("sherpad",)
         for binary in binaries:
             require(not (self.base / "bin" / binary).exists(), f"{binary} binary remains")
