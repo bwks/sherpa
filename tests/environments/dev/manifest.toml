@@ -26,3 +26,8 @@ interface_queues = 4
 type = "ssh"
 env_files = ["provision/github.env"]
 scripts = ["provision/setup.sh"]
+
+[[nodes.provisioners.files]]
+src = "provision/mise.toml"
+dst = "~/.config/mise/config.toml"
+mode = 644

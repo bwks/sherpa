@@ -24,10 +24,13 @@ node 1. On another host, change `performance_tuning` to match `lscpu -e`.
 `provision/setup.sh` runs through the SSH provisioner as the node's login user, after the node
 is up. It is safe to run again with `sherpa provision`. It:
 
-1. installs build packages: `libvirt-dev`, `clang`, `llvm`, `gh`, `shellcheck`, `bats` and others;
-2. installs Rust with rustup: stable with `rustfmt`, `clippy` and `llvm-tools`, nightly with
-   `rust-src`, and `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a system LLVM
-   that Ubuntu 24.04 does not ship);
+1. installs system libraries and compilers with apt: `build-essential`, `libvirt-dev`, `clang`,
+   `llvm` and others;
+2. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
+   provisioner copies to `~/.config/mise/config.toml`: Rust stable with `rustfmt`, `clippy` and
+   `llvm-tools`, nightly with `rust-src`, `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a
+   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck` and `bats`. mise follows the
+   repository's `rust-toolchain.toml` files, and login shells put its tools on the `PATH`;
 3. sets up git to authenticate with `GH_TOKEN` through `gh`, committing as the token's GitHub
    account with its no-reply address;
 4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
@@ -90,7 +93,9 @@ Do not add SSH config to `~/.ssh` or mount the guest on the host; use the genera
 
 ### Developing
 
-Everything runs in the guest, as its login user `sherpa`, which has passwordless `sudo`:
+Everything runs in the guest, as its login user `sherpa`, which has passwordless `sudo`. The
+tools from mise are on the `PATH` of login shells, so run commands through one:
+`ssh -F sherpa_ssh_direct_config dev 'bash -lc "cargo --version"'`.
 
 - **Code:** the checkouts are `~/code/rust/sherpa` and `~/code/rust/sherpa-docs`. They are the
   only working copies: commit and push from there. Git authenticates through `gh` with
