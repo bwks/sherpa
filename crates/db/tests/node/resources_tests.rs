@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    create_lab, create_node, create_node_image, create_user, get_node, list_vnc_ports,
-    update_node_host_key, update_node_resources, update_node_state,
+    create_lab, create_node, create_node_image, create_user, get_node, list_pinned_nodes,
+    list_vnc_ports, update_node_host_key, update_node_resources, update_node_state,
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
@@ -59,6 +59,7 @@ async fn test_node_resources_are_stored() -> Result<()> {
         cpu_count: Some(16),
         memory: Some(32768),
         vnc_port: Some(5901),
+        ..NodeResources::default()
     };
     let updated = update_node_resources(&db, id.clone(), &resources).await?;
     assert_eq!(updated.cpu_count, Some(16));
@@ -69,6 +70,34 @@ async fn test_node_resources_are_stored() -> Result<()> {
     assert_eq!(read.cpu_count, Some(16));
     assert_eq!(read.memory, Some(32768));
     assert_eq!(read.vnc_port, Some(5901));
+
+    teardown_db(&db).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pinned_cpus_are_stored_and_listed() -> Result<()> {
+    let db = setup_db("test_node_pinned_cpus").await?;
+    let nodes = lab_with_nodes(&db, 2).await?;
+    let id = nodes[0].id.clone().unwrap();
+    assert!(list_pinned_nodes(&db).await?.is_empty());
+
+    let resources = NodeResources {
+        cpu_count: Some(2),
+        cpu_pinning: Some(vec![9, 25]),
+        qemu_thread_cpus: Some(vec![8, 24]),
+        ..NodeResources::default()
+    };
+    update_node_resources(&db, id.clone(), &resources).await?;
+    let read = get_node(&db, id).await?;
+    assert_eq!(read.cpu_pinning, Some(vec![9, 25]));
+    assert_eq!(read.qemu_thread_cpus, Some(vec![8, 24]));
+
+    // Only nodes with pins are listed.
+    let pinned = list_pinned_nodes(&db).await?;
+    assert_eq!(pinned.len(), 1);
+    assert_eq!(pinned[0].name, nodes[0].name);
 
     teardown_db(&db).await?;
     Ok(())

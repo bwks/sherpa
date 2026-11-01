@@ -42,6 +42,7 @@ pub fn process_manifest_nodes(manifest_nodes: &[topology::Node]) -> Vec<topology
             user_scripts: node.user_scripts_data.clone(),
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
+            performance_tuning: node.performance_tuning.clone(),
         })
         .collect()
 }

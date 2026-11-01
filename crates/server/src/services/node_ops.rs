@@ -2712,13 +2712,20 @@ pub fn build_domain_template(
     let vnc_port = resources
         .vnc_port
         .with_context(|| format!("Node '{}' has no VNC port reserved", node.name))?;
+    let tuning = node.performance_tuning.as_ref();
+    let cpu_model = match tuning.and_then(|tuning| tuning.cpu_mode) {
+        Some(mode) => data::CpuModels::from(mode),
+        None => node_image.cpu_model.clone(),
+    };
+    let management_interface_type =
+        management_interface_type_for_model(&node_image.model, &node_image.interface_type);
 
     Ok(template::DomainTemplate {
         qemu_bin: qemu_bin.to_string(),
         name: node_name_with_lab,
         memory,
         cpu_architecture: node_image.cpu_architecture.clone(),
-        cpu_model: node_image.cpu_model.clone(),
+        cpu_model,
         machine_type: node_image.machine_type.clone(),
         cpu_count,
         vmx_enabled: node_image.vmx_enabled,
@@ -2726,10 +2733,8 @@ pub fn build_domain_template(
         disks,
         interfaces,
         interface_type: node_image.interface_type.clone(),
-        management_interface_type: management_interface_type_for_model(
-            &node_image.model,
-            &node_image.interface_type,
-        ),
+        tuning: template::DomainTuning::from_tuning(tuning, &management_interface_type),
+        management_interface_type,
         reserved_interface_type: reserved_interface_type_for_model(
             &node_image.model,
             &node_image.interface_type,
@@ -4066,6 +4071,7 @@ mod tests {
                 cpu_count: Some(2),
                 memory: Some(4096),
                 vnc_port: Some(5900),
+                ..data::NodeResources::default()
             },
         )
         .unwrap();

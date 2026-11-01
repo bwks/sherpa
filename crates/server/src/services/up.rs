@@ -35,7 +35,9 @@ use crate::validate::{
     validate_node_secrets,
 };
 use shared::data;
-use shared::data::{LabSubnets, LinkImpairment, NodeSshUsername, NodeState, StatusKind};
+use shared::data::{
+    LabSubnets, LinkImpairment, NodeCpuPins, NodeSshUsername, NodeState, StatusKind,
+};
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES,
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE,
@@ -52,9 +54,9 @@ use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
 use topology::validate::{
-    check_bridge_device, check_device_count, check_duplicate_device,
+    check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -280,6 +282,7 @@ pub(crate) fn process_manifest_nodes(
             user_scripts: node.user_scripts_data.clone(),
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
+            performance_tuning: node.performance_tuning.clone(),
         })
         .collect()
 }
@@ -773,7 +776,25 @@ pub async fn up_lab(
             "Interface bounds validation failed for node: {}",
             node.name
         ))?;
+
+        check_performance_tuning(node, &node_image).context(format!(
+            "Performance tuning validation failed for node: {}",
+            node.name
+        ))?;
     }
+    let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
+        .iter()
+        .filter_map(|node| {
+            node.performance_tuning
+                .as_ref()
+                .map(|tuning| NodeCpuPins::of(&node.name, tuning))
+        })
+        .collect();
+    check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
+    let tuned_nodes: Vec<&topology::NodeExpanded> = nodes_expanded.iter().collect();
+    node_resources::check_cpu_pins_on_server(&db, &qemu_conn, &tuned_nodes, None)
+        .await
+        .context("CPU pinning validation failed")?;
 
     // Connection Validators
     if !links_detailed.is_empty() {

@@ -45,7 +45,7 @@ pub use cloudbase_init::{
 };
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;
-pub use domain::{BootServer, DomainTemplate, UnikernelDomainTemplate};
+pub use domain::{BootServer, DomainTemplate, DomainTuning, UnikernelDomainTemplate};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
     IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents, IgnitionFileParams,

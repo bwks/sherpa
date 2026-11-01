@@ -526,7 +526,7 @@ impl MachineType {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum InterfaceType {
     // VM

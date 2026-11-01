@@ -173,6 +173,18 @@ pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
     Ok(count.unwrap_or(0))
 }
 
+/// Nodes with host CPUs pinned to their vCPUs or QEMU threads, in every lab.
+#[instrument(skip(db), level = "debug")]
+pub async fn list_pinned_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
+    let mut response = db
+        .query("SELECT * FROM node WHERE cpu_pinning != NONE OR qemu_thread_cpus != NONE")
+        .await
+        .context("Failed to list nodes with pinned CPUs")?;
+
+    let nodes: Vec<NodeRow> = response.take(0)?;
+    nodes.into_iter().map(DbNode::try_from).collect()
+}
+
 /// The VNC ports held by nodes, in ascending order.
 #[instrument(skip(db), level = "debug")]
 pub async fn list_vnc_ports(db: &Arc<Surreal<Client>>) -> Result<Vec<u16>> {

@@ -71,7 +71,7 @@ impl fmt::Display for DiskDevices {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema)]
+#[derive(Clone, Debug, Deserialize, Default, Serialize, EnumIter, JsonSchema, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DiskBuses {
     Ide,

@@ -6,6 +6,7 @@
 
 mod device;
 mod link;
+mod performance_tuning;
 mod provisioner;
 mod tailscale;
 mod talos_cluster;
@@ -15,6 +16,7 @@ pub use link::{
     check_bridge_device, check_duplicate_interface_link, check_interface_bounds, check_link_device,
     check_mgmt_usage, check_no_p2p_field,
 };
+pub use performance_tuning::{check_cpu_pin_overlap, check_performance_tuning};
 pub use provisioner::validate_provisioners;
 pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;

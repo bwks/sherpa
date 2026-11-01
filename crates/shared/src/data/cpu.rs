@@ -32,6 +32,8 @@ pub enum CpuModels {
     #[default]
     #[serde(rename(serialize = "host-model", deserialize = "host-model"))]
     HostModel,
+    #[serde(rename(serialize = "host-passthrough", deserialize = "host-passthrough"))]
+    HostPassthrough,
     #[serde(rename(serialize = "IvyBridge", deserialize = "IvyBridge"))]
     IvyBridge,
     #[serde(rename(serialize = "SandyBridge", deserialize = "SandyBridge"))]
@@ -41,6 +43,7 @@ impl fmt::Display for CpuModels {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CpuModels::HostModel => write!(f, "host-model"),
+            CpuModels::HostPassthrough => write!(f, "host-passthrough"),
             CpuModels::IvyBridge => write!(f, "IvyBridge"),
             CpuModels::SandyBridge => write!(f, "SandyBridge"),
         }
@@ -82,6 +85,11 @@ mod tests {
     }
 
     #[test]
+    fn test_cpu_models_display_host_passthrough() {
+        assert_eq!(CpuModels::HostPassthrough.to_string(), "host-passthrough");
+    }
+
+    #[test]
     fn test_cpu_models_default_is_host_model() {
         assert_eq!(CpuModels::default(), CpuModels::HostModel);
     }
@@ -89,8 +97,13 @@ mod tests {
     #[test]
     fn test_cpu_models_to_vec_contains_all_variants() {
         let models = CpuModels::to_vec();
-        assert_eq!(models.len(), 3);
+        assert_eq!(models.len(), 4);
         assert!(models.iter().any(|m| matches!(m, CpuModels::HostModel)));
+        assert!(
+            models
+                .iter()
+                .any(|m| matches!(m, CpuModels::HostPassthrough))
+        );
         assert!(models.iter().any(|m| matches!(m, CpuModels::IvyBridge)));
         assert!(models.iter().any(|m| matches!(m, CpuModels::SandyBridge)));
     }
