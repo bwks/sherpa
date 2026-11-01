@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.18] - 2026-11-01
+
+### Features
+
+- Unattended sherpad init and sherpa login by @bwks ([ee11212](https://github.com/bwks/sherpa/commit/ee11212997912d0e93c61f00bcb6b2707d76aa6f))
+- Set transparent hugepages to madvise by @bwks ([2048891](https://github.com/bwks/sherpa/commit/20488914f38f46184cbe9065afbc6937c11876aa))
+
+### Miscellaneous
+
+- Merge pull request #409 from bwks/feat/init-first-user-env
+
+feat: unattended sherpad init and sherpa login by @bwks in [#409](https://github.com/bwks/sherpa/pull/409) ([943ff3b](https://github.com/bwks/sherpa/commit/943ff3b59ef82a31ee8494b823dd584a6e4e2107))
+- Merge pull request #408 from bwks/feat/402-dev-environment
+
+test: Sherpa dev server environment by @bwks in [#408](https://github.com/bwks/sherpa/pull/408) ([19fbd94](https://github.com/bwks/sherpa/commit/19fbd943603a4fe7798f58c6199f329c86dea815))
+- Merge pull request #407 from bwks/feat/402-installer-thp
+
+feat(install): set transparent hugepages to madvise by @bwks in [#407](https://github.com/bwks/sherpa/pull/407) ([b33c275](https://github.com/bwks/sherpa/commit/b33c27508975dd9979f59bee17b1918d4437ff07))
+- Merge pull request #406 from bwks/changelog/v0.4.17
+
+chore(release): update changelog for v0.4.17 by @github-actions[bot] in [#406](https://github.com/bwks/sherpa/pull/406) ([39caa29](https://github.com/bwks/sherpa/commit/39caa292950ee72d6303451d1a5dfaed1702c232))
+
+### Testing
+
+- Add the Sherpa dev server environment by @bwks ([1b43540](https://github.com/bwks/sherpa/commit/1b435402b50a7b800b3c1f28078d2a51662f8728))
 ## [0.4.17] - 2026-11-01
 
 ### Features
