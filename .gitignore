@@ -30,6 +30,7 @@ srl-config.json
 .cargo/config.toml
 test_*.toml
 sherpa_ssh_*
+sherpa_known_hosts
 .claude/*
 !.claude/skills/
 .ruff_cache
@@ -39,6 +40,8 @@ lab-info.toml
 kubeconfig-*
 talosconfig-*
 *.env
+# Provisioner env files that hold only `$NAME` references, filled in by the CLI.
+!tests/environments/*/provision/*.env
 manifest*.toml*
 !dev/integration-test/manifest.toml
 !tests/environments/*/manifest.toml
