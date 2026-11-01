@@ -3,12 +3,11 @@ use anyhow::Result;
 use db::{create_node_image, get_node_image_by_id, update_node_image};
 use shared::data::{NodeModel, RecordId};
 
-use crate::{create_test_config, setup_db, teardown_db};
+use crate::{create_test_config, setup_db};
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_update_node_image_success() -> Result<()> {
-    let db = setup_db("test_update_node_image_success").await?;
+    let db = setup_db().await?;
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
@@ -34,14 +33,12 @@ async fn test_update_node_image_success() -> Result<()> {
     assert_eq!(result.id, original_id, "ID should remain unchanged");
     assert_eq!(result.model, NodeModel::AristaVeos, "Model unchanged");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_update_node_image_without_id_fails() -> Result<()> {
-    let db = setup_db("test_update_node_image_without_id_fails").await?;
+    let db = setup_db().await?;
 
     // Create a config without an ID
     let mut test_config = create_test_config(NodeModel::CiscoAsav);
@@ -58,14 +55,12 @@ async fn test_update_node_image_without_id_fails() -> Result<()> {
         err
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_update_nonexistent_config_fails() -> Result<()> {
-    let db = setup_db("test_update_nonexistent_config_fails").await?;
+    let db = setup_db().await?;
 
     // Create a config with a fake/nonexistent ID
     let mut test_config = create_test_config(NodeModel::JuniperVrouter);
@@ -82,14 +77,12 @@ async fn test_update_nonexistent_config_fails() -> Result<()> {
         err
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_update_preserves_id() -> Result<()> {
-    let db = setup_db("test_update_preserves_id").await?;
+    let db = setup_db().await?;
 
     // Create a config
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
@@ -129,6 +122,5 @@ async fn test_update_preserves_id() -> Result<()> {
     );
     assert_eq!(retrieved.memory, 3072, "Final memory value should be 3072");
 
-    teardown_db(&db).await?;
     Ok(())
 }

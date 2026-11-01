@@ -273,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // This test writes to filesystem
+    #[ignore = "writes the JWT secret file to the server's filesystem"]
     fn test_generate_secret() {
         use tempfile::TempDir;
 

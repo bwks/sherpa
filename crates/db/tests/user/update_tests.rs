@@ -4,12 +4,11 @@ use db::{create_user, get_user, update_user};
 use jiff::Timestamp;
 use shared::data::{DbUser, RecordId};
 
-use crate::{setup_db, teardown_db};
+use crate::setup_db;
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_update_user_success() -> Result<()> {
-    let db = setup_db("test_update_user_success").await?;
+    let db = setup_db().await?;
 
     // Create a user
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
@@ -28,14 +27,12 @@ async fn test_update_user_success() -> Result<()> {
     let fetched = get_user(&db, "alice").await?;
     assert_eq!(fetched.ssh_keys.len(), 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_user_ssh_keys() -> Result<()> {
-    let db = setup_db("test_update_user_ssh_keys").await?;
+    let db = setup_db().await?;
 
     let initial_keys = vec!["key1".to_string()];
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, initial_keys).await?;
@@ -47,14 +44,12 @@ async fn test_update_user_ssh_keys() -> Result<()> {
     let result = update_user(&db, updated_user).await?;
     assert_eq!(result.ssh_keys.len(), 3);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_user_remove_all_ssh_keys() -> Result<()> {
-    let db = setup_db("test_update_user_remove_keys").await?;
+    let db = setup_db().await?;
 
     let user = create_user(
         &db,
@@ -72,14 +67,12 @@ async fn test_update_user_remove_all_ssh_keys() -> Result<()> {
     let result = update_user(&db, updated_user).await?;
     assert_eq!(result.ssh_keys.len(), 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_user_without_id_fails() -> Result<()> {
-    let db = setup_db("test_update_user_no_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "dave".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -97,14 +90,12 @@ async fn test_update_user_without_id_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_nonexistent_user_fails() -> Result<()> {
-    let db = setup_db("test_update_nonexistent_user").await?;
+    let db = setup_db().await?;
 
     let fake_user = DbUser {
         id: Some(RecordId::new("user", "nonexistent")),
@@ -126,14 +117,12 @@ async fn test_update_nonexistent_user_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_user_preserves_id() -> Result<()> {
-    let db = setup_db("test_update_user_preserves_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let original_id = user.id.clone().unwrap();
@@ -146,14 +135,12 @@ async fn test_update_user_preserves_id() -> Result<()> {
 
     assert_eq!(result.id, Some(original_id), "ID should be preserved");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_username() -> Result<()> {
-    let db = setup_db("test_update_username").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -173,14 +160,12 @@ async fn test_update_username() -> Result<()> {
     let new_user = get_user(&db, "franklin").await?;
     assert_eq!(new_user.username, "franklin");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_username_conflict_fails() -> Result<()> {
-    let db = setup_db("test_update_username_conflict").await?;
+    let db = setup_db().await?;
 
     // Create two users
     create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
@@ -197,6 +182,5 @@ async fn test_update_username_conflict_fails() -> Result<()> {
         "Should fail when username conflicts with existing user"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }

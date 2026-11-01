@@ -4,6 +4,7 @@
 pub mod bridge;
 mod connect;
 mod helpers;
+pub mod import;
 pub mod lab;
 pub mod link;
 pub mod node;
@@ -11,9 +12,11 @@ pub mod node_image;
 mod persistence;
 pub mod schema;
 pub mod seed;
+mod sql;
 pub mod user;
 
-pub use connect::{Database, connect};
+pub use connect::{Database, open, open_in_memory};
+pub use import::{ImportSummary, SurrealSource, import_from_surrealdb};
 pub use shared::data::{DbBridge, DbLab, DbLink, DbNode, DbUser, NodeConfig};
 
 // Helper functions for extracting IDs safely
@@ -53,7 +56,7 @@ pub use link::{
     get_link_by_peers, list_links, list_links_by_lab, list_links_by_node, update_link,
 };
 
-pub use schema::apply_schema;
+pub use schema::{SCHEMA_VERSION, apply_schema};
 pub use seed::admin_user::seed_admin_user;
 
 // User CRUD operations

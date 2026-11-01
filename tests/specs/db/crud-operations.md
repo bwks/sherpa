@@ -1,7 +1,7 @@
 # Database CRUD Operations — Test Specifications
 
 > **Crate:** `crates/db/`
-> **External Dependencies:** Running SurrealDB instance
+> **External Dependencies:** None (in-memory embedded database)
 > **Existing Tests:** 28 integration test files covering CRUD for all tables
 
 ---

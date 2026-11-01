@@ -6,14 +6,11 @@ use db::{
 };
 use shared::data::{NodeModel, RecordId};
 
-use crate::{
-    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db,
-};
+use crate::{create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_delete_node_image_success() -> Result<()> {
-    let db = setup_db("test_delete_node_image_success").await?;
+    let db = setup_db().await?;
 
     // Create a config
     let test_config = create_test_config(NodeModel::AristaVeos);
@@ -27,14 +24,12 @@ async fn test_delete_node_image_success() -> Result<()> {
     let result = get_node_image_by_id(&db, created_id).await?;
     assert!(result.is_none(), "Config should be deleted");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_delete_nonexistent_config_fails() -> Result<()> {
-    let db = setup_db("test_delete_nonexistent_config_fails").await?;
+    let db = setup_db().await?;
 
     // Attempt to delete a config with fake/nonexistent ID
     let fake_id = RecordId::new("node_image", "nonexistent_id_99999");
@@ -48,14 +43,12 @@ async fn test_delete_nonexistent_config_fails() -> Result<()> {
         err
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_delete_and_verify_count_decreases() -> Result<()> {
-    let db = setup_db("test_delete_and_verify_count_decreases").await?;
+    let db = setup_db().await?;
 
     // Get initial count
     let initial_count = count_node_images(&db).await?;
@@ -83,14 +76,12 @@ async fn test_delete_and_verify_count_decreases() -> Result<()> {
         "Count should return to initial value after deletion"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
-    let db = setup_db("test_delete_config_referenced_by_node_behavior").await?;
+    let db = setup_db().await?;
 
     // Use a unique username with timestamp to avoid collisions
     let unique_username = format!(
@@ -146,6 +137,5 @@ async fn test_delete_config_referenced_by_node_behavior() -> Result<()> {
     assert!(result.is_err(), "Referenced images must never be deleted");
     assert!(get_node_image_by_id(&db, config_id).await?.is_some());
 
-    teardown_db(&db).await?;
     Ok(())
 }

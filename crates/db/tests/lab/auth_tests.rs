@@ -2,12 +2,11 @@
 use anyhow::Result;
 use db::{create_lab, create_user, get_lab_owner_username};
 
-use crate::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_get_lab_owner_username() -> Result<()> {
-    let db = setup_db("test_get_lab_owner_username").await?;
+    let db = setup_db().await?;
 
     // Create a user
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
@@ -31,20 +30,17 @@ async fn test_get_lab_owner_username() -> Result<()> {
     let username = get_lab_owner_username(&db, &lab.lab_id).await?;
     assert_eq!(username, "testuser");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_owner_username_not_found() -> Result<()> {
-    let db = setup_db("test_get_lab_owner_username_not_found").await?;
+    let db = setup_db().await?;
 
     // Try to get owner of non-existent lab
     let result = get_lab_owner_username(&db, "no-exist").await;
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("not found"));
 
-    teardown_db(&db).await?;
     Ok(())
 }

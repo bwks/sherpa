@@ -1,107 +1,38 @@
-//! Lab table schema definition
+//! Lab table schema
 //!
-//! The lab table stores network lab configurations. Each lab represents
-//! a collection of network nodes and links that form a virtual network topology.
-//! Labs are owned by users and identified by both a unique 8-character ID
-//! and a name that must be unique per user.
-//!
-//! ## Fields
-//! - `lab_id`: 8-character unique identifier (business key)
-//! - `name`: Human-readable lab name
-//! - `user`: Foreign key reference to the owning user
-//!
-//! ## Constraints
-//! - `lab_id` must be at least 1 character (validated as exactly 8 in application)
-//! - `lab_id` must be globally unique
-//! - `name` must be unique per user (composite unique constraint)
-//! - Each allocated subnet (`loopback_network`, `management_network`,
-//!   `management_network_v6`, `loopback_network_v6`) belongs to at most one lab.
-//!   Labs without IPv6 subnets do not conflict: absent values are not indexed.
-//!
-//! ## Computed Fields
-//! - `nodes`: Reverse reference to all nodes in this lab (`<~(node FIELD lab)`)
-//! - `links`: Reverse reference to all links in this lab (`<~(link FIELD lab)`)
-//! - `bridges`: Reverse reference to all bridges in this lab (`<~(bridge FIELD lab)`)
-//!
-//! ## Relationships
-//! - Many-to-one with `user` table (each lab has one owner)
-//! - One-to-many with `node` table (lab contains multiple nodes)
-//! - One-to-many with `link` table (lab contains multiple links between nodes)
-//!
-//! ## Owner Deletion
-//! The `user` field uses `REFERENCE ON DELETE REJECT`, so a user who owns labs cannot be
-//! deleted. Deleting only the records would leave the labs' VMs, containers and networks
-//! running with nothing to manage them; the labs must be destroyed first.
-
+//! - `lab_id` is unique, as are `(name, user)` and each of the lab's networks.
+//! - `user` refers to the owner, who cannot be deleted while the lab exists.
+//! - Deleting a lab deletes its nodes, links and bridges (their `lab` columns cascade).
+use anyhow::Result;
 use shared::data::LabState;
 
-/// Generate the lab table schema.
-///
-/// Creates the lab table with unique constraints on both the lab_id (business key)
-/// and the (name, user) combination to ensure labs are uniquely identifiable
-/// and users cannot create duplicate lab names.
-///
-/// # Returns
-///
-/// A string containing the complete SurrealDB schema definition for the lab table.
-///
-/// # Schema Details
-///
-/// - **Table**: `lab` (SCHEMAFULL)
-/// - **Fields**:
-///   - `lab_id`: string with minimum length validation
-///   - `name`: string (lab name)
-///   - `user`: record reference to user table
-/// - **Indexes**:
-///   - `unique_lab_id`: Ensures lab_id uniqueness (business key)
-///   - `unique_lab_name_user`: Ensures name is unique per user
-///   - `unique_lab_*network*`: Each allocated subnet belongs to at most one lab
-///
-/// # Owner Deletion
-///
-/// The `user` field uses `REFERENCE ON DELETE REJECT`, so the database refuses to delete
-/// a user who still owns labs.
-///
-pub(crate) fn generate_lab_schema() -> String {
-    let lab_states = super::helpers::vec_to_str(LabState::to_vec());
+use super::helpers::{enum_rule, rule_triggers};
 
-    format!(
-        r#"
-DEFINE TABLE OVERWRITE lab SCHEMAFULL;
-DEFINE FIELD OVERWRITE lab_id ON TABLE lab TYPE string
-    ASSERT string::len($value) >= 1;
-DEFINE FIELD OVERWRITE name ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE user ON TABLE lab TYPE record<user> REFERENCE ON DELETE REJECT;
-DEFINE FIELD OVERWRITE loopback_network ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE management_network ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE gateway_ipv4 ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE router_ipv4 ON TABLE lab TYPE string;
-DEFINE FIELD OVERWRITE tailscale_container_id ON TABLE lab TYPE option<string>;
-DEFINE FIELD OVERWRITE management_network_v6 ON TABLE lab TYPE option<string>;
-DEFINE FIELD OVERWRITE loopback_network_v6 ON TABLE lab TYPE option<string>;
-DEFINE FIELD OVERWRITE gateway_ipv6 ON TABLE lab TYPE option<string>;
-DEFINE FIELD OVERWRITE router_ipv6 ON TABLE lab TYPE option<string>;
-DEFINE FIELD OVERWRITE status ON TABLE lab TYPE string
-    ASSERT $value IN [{lab_states}]
-    DEFAULT "unknown";
+const TABLE: &str = "lab";
 
-DEFINE FIELD OVERWRITE nodes ON TABLE lab COMPUTED <~(node FIELD lab);
-DEFINE FIELD OVERWRITE links ON TABLE lab COMPUTED <~(link FIELD lab);
-DEFINE FIELD OVERWRITE bridges ON TABLE lab COMPUTED <~(bridge FIELD lab);
+pub(crate) const TABLES: &str = "
+CREATE TABLE lab (
+    id TEXT PRIMARY KEY,
+    lab_id TEXT NOT NULL UNIQUE CHECK (length(lab_id) >= 1),
+    name TEXT NOT NULL,
+    user TEXT NOT NULL REFERENCES user(id) ON DELETE RESTRICT,
+    loopback_network TEXT NOT NULL UNIQUE,
+    management_network TEXT NOT NULL UNIQUE,
+    gateway_ipv4 TEXT NOT NULL,
+    router_ipv4 TEXT NOT NULL,
+    tailscale_container_id TEXT,
+    management_network_v6 TEXT UNIQUE,
+    gateway_ipv6 TEXT,
+    router_ipv6 TEXT,
+    loopback_network_v6 TEXT UNIQUE,
+    status TEXT NOT NULL,
+    UNIQUE (name, user)
+) STRICT;
+CREATE INDEX lab_user ON lab (user);
+";
 
-DEFINE INDEX OVERWRITE unique_lab_id ON TABLE lab FIELDS lab_id UNIQUE;
-
-DEFINE INDEX OVERWRITE unique_lab_name_user
-  ON TABLE lab FIELDS name, user UNIQUE;
-
-DEFINE INDEX OVERWRITE unique_lab_loopback_network
-  ON TABLE lab FIELDS loopback_network UNIQUE;
-DEFINE INDEX OVERWRITE unique_lab_management_network
-  ON TABLE lab FIELDS management_network UNIQUE;
-DEFINE INDEX OVERWRITE unique_lab_management_network_v6
-  ON TABLE lab FIELDS management_network_v6 UNIQUE;
-DEFINE INDEX OVERWRITE unique_lab_loopback_network_v6
-  ON TABLE lab FIELDS loopback_network_v6 UNIQUE;
-"#
-    )
+/// The triggers checking the enum columns against the current Rust enums.
+pub(crate) fn rules() -> Result<String> {
+    let rules = [enum_rule(TABLE, "status", LabState::to_vec(), false)?];
+    Ok(rule_triggers(TABLE, &rules))
 }

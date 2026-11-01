@@ -16,7 +16,7 @@ cargo test -p shared -p container -p topology -p sherpad --lib
 ```
 
 The tests use mock Docker API responses and do not require a live Docker daemon,
-SurrealDB, or a Tailscale credential. They cover ordinary containers with
+database server, or a Tailscale credential. They cover ordinary containers with
 Tailscale-like names, gateway ownership protection, failed gateway and volume
 cleanup with retained metadata and successful retries, and status checks when the
 full tailnet peer inventory exceeds the Docker exec output limit. They also cover

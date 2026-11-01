@@ -2,12 +2,11 @@
 use anyhow::Result;
 use db::{create_admin_user, create_user, get_user, list_users};
 
-use crate::{setup_db, teardown_db};
+use crate::setup_db;
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_create_user_success() -> Result<()> {
-    let db = setup_db("test_create_user_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -15,14 +14,12 @@ async fn test_create_user_success() -> Result<()> {
     assert!(user.id.is_some(), "Created user should have an ID");
     assert_eq!(user.ssh_keys.len(), 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_with_ssh_keys() -> Result<()> {
-    let db = setup_db("test_create_user_with_ssh_keys").await?;
+    let db = setup_db().await?;
 
     let ssh_keys = vec![
         "ssh-rsa AAAAB3NzaC1yc2EAAA...".to_string(),
@@ -41,14 +38,12 @@ async fn test_create_user_with_ssh_keys() -> Result<()> {
     assert_eq!(user.username, "bob");
     assert_eq!(user.ssh_keys, ssh_keys);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_duplicate_username_fails() -> Result<()> {
-    let db = setup_db("test_create_user_duplicate_username").await?;
+    let db = setup_db().await?;
 
     // Create first user
     create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
@@ -67,14 +62,12 @@ async fn test_create_user_duplicate_username_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_username_too_short() -> Result<()> {
-    let db = setup_db("test_create_user_username_too_short").await?;
+    let db = setup_db().await?;
 
     let result = create_user(&db, "ab".to_string(), "TestPass123!", false, vec![]).await;
 
@@ -86,14 +79,12 @@ async fn test_create_user_username_too_short() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_invalid_username_chars() -> Result<()> {
-    let db = setup_db("test_create_user_invalid_username").await?;
+    let db = setup_db().await?;
 
     // Test space
     let result = create_user(&db, "user name".to_string(), "TestPass123!", false, vec![]).await;
@@ -103,14 +94,12 @@ async fn test_create_user_invalid_username_chars() -> Result<()> {
     let result = create_user(&db, "user#name".to_string(), "TestPass123!", false, vec![]).await;
     assert!(result.is_err(), "Should fail on # in username");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_allows_hyphen_and_underscore() -> Result<()> {
-    let db = setup_db("test_create_user_allows_hyphen_and_underscore").await?;
+    let db = setup_db().await?;
 
     let user = create_user(
         &db,
@@ -122,28 +111,24 @@ async fn test_create_user_allows_hyphen_and_underscore() -> Result<()> {
     .await?;
     assert_eq!(user.username, "test-user_01");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_rejects_names_invalid_on_guests() -> Result<()> {
-    let db = setup_db("test_create_user_rejects_names_invalid_on_guests").await?;
+    let db = setup_db().await?;
 
     for username in ["user@example.com", "a.b.c", "1brad", "-brad", "josé"] {
         let result = create_user(&db, username.to_string(), "TestPass123!", false, vec![]).await;
         assert!(result.is_err(), "Should reject '{username}'");
     }
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_stores_lowercase_username() -> Result<()> {
-    let db = setup_db("test_create_user_stores_lowercase_username").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, " BRadmin ".to_string(), "TestPass123!", false, vec![]).await?;
     assert_eq!(user.username, "bradmin");
@@ -151,14 +136,12 @@ async fn test_create_user_stores_lowercase_username() -> Result<()> {
     let found = get_user(&db, "BRADMIN").await?;
     assert_eq!(found.id, user.id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_rejects_case_variant_of_existing_user() -> Result<()> {
-    let db = setup_db("test_create_user_rejects_case_variant").await?;
+    let db = setup_db().await?;
 
     create_user(&db, "brad".to_string(), "TestPass123!", false, vec![]).await?;
     let result = create_user(&db, "bRad".to_string(), "TestPass123!", false, vec![]).await;
@@ -168,14 +151,12 @@ async fn test_create_user_rejects_case_variant_of_existing_user() -> Result<()> 
     );
     assert_eq!(list_users(&db).await?.len(), 1);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_user_rejects_reserved_usernames() -> Result<()> {
-    let db = setup_db("test_create_user_rejects_reserved_usernames").await?;
+    let db = setup_db().await?;
 
     for username in [
         "admin",
@@ -193,49 +174,17 @@ async fn test_create_user_rejects_reserved_usernames() -> Result<()> {
     }
     assert!(list_users(&db).await?.is_empty());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_admin_user_creates_reserved_admin() -> Result<()> {
-    let db = setup_db("test_create_admin_user_creates_reserved_admin").await?;
+    let db = setup_db().await?;
 
     let admin = create_admin_user(&db, "AdminPass123!").await?;
     assert_eq!(admin.username, "admin");
     assert!(admin.is_admin);
     assert!(admin.ssh_keys.is_empty());
 
-    teardown_db(&db).await?;
-    Ok(())
-}
-
-#[tokio::test]
-#[ignore]
-async fn test_schema_rejects_username_written_directly() -> Result<()> {
-    let db = setup_db("test_schema_rejects_username_written_directly").await?;
-
-    for username in ["Brad", "brad.searle", "ab", "1brad"] {
-        let result = db
-            .query(
-                "CREATE user CONTENT { username: $username, password_hash: 'x', \
-                 created_at: time::now(), updated_at: time::now() }",
-            )
-            .bind(("username", username))
-            .await?
-            .check();
-        assert!(result.is_err(), "Schema should reject '{username}'");
-    }
-
-    // The same statement succeeds for a valid name, so the rejections come from the username.
-    db.query(
-        "CREATE user CONTENT { username: 'brad', password_hash: 'x', \
-         created_at: time::now(), updated_at: time::now() }",
-    )
-    .await?
-    .check()?;
-
-    teardown_db(&db).await?;
     Ok(())
 }

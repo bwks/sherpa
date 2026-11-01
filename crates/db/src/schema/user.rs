@@ -1,90 +1,177 @@
-//! User table schema definition
+//! User account table schema
 //!
-//! The user table stores user accounts with password authentication and optional SSH keys.
-//! Each user can own multiple labs and has a unique username.
-//!
-//! ## Fields
-//! - `username`: Unique lower-case username, also used as the guest login name on lab nodes
-//! - `password_hash`: Argon2id password hash for authentication
-//! - `is_admin`: Boolean flag indicating admin privileges
-//! - `ssh_keys`: Array of SSH public keys for authentication
-//! - `created_at`: Timestamp when user was created (set by application)
-//! - `updated_at`: Timestamp of last update (set by application)
-//!
-//! ## Constraints
-//! - Username must be 3–32 characters long
-//! - Username must match pattern: `[a-z_][a-z0-9_-]*`
-//! - Username must be unique across all users
-//!
-//! Reserved names are enforced by `shared::validators::validate_username`, not the schema,
-//! because server bootstrap creates the reserved `admin` account.
-//!
-//! ## Built-in `admin` protection
-//! - The `username` and `is_admin` field assertions refuse renaming `admin` or clearing its
-//!   admin flag, and refuse any `admin` record without the flag.
-//! - The `protect_admin` event throws on deleting, renaming or demoting `admin`, which aborts
-//!   the whole statement, including bulk deletes.
-//!
-//! These guard against application bugs and ordinary queries. A database root user can still
-//! remove the definitions.
-//!
-//! ## Computed Fields
-//! - `labs`: Reverse reference to all labs owned by this user (`<~(lab FIELD user)`)
-//!
-//! ## Relationships
-//! - One-to-many with `lab` table (user owns multiple labs)
-
+//! - `username` is unique and follows the guest-safe username rules: 3 to 32 characters of
+//!   `a-z`, `0-9`, `_` and `-`, starting with a letter or `_`.
+//! - A user who owns labs cannot be deleted (`lab.user` is `ON DELETE RESTRICT`).
+//! - Triggers protect the built-in `admin` account: it cannot be deleted, renamed or lose its
+//!   administrator flag, and no `admin` row can exist without the flag.
 use shared::konst::{ADMIN_PROTECTED_MESSAGE, ADMIN_USERNAME};
 
-/// Generate the user table schema.
-///
-/// Creates the user table with username validation, password authentication, and SSH key storage.
-///
-/// # Returns
-///
-/// A string containing the complete SurrealDB schema definition for the user table.
-///
-/// # Schema Details
-///
-/// - **Table**: `user` (SCHEMAFULL)
-/// - **Fields**:
-///   - `username`: lower-case string, 3–32 characters, with pattern validation
-///   - `password_hash`: string containing Argon2id hash
-///   - `is_admin`: boolean flag for admin privileges (default: false)
-///   - `ssh_keys`: array of strings (default: empty array)
-///   - `created_at`: datetime timestamp (set by application on creation)
-///   - `updated_at`: datetime timestamp (set by application on updates)
-/// - **Indexes**:
-///   - `unique_username`: Ensures username uniqueness
-/// - **Events**:
-///   - `protect_admin`: Refuses deleting, renaming or demoting the built-in `admin` account
-///
-pub(crate) fn generate_user_schema() -> String {
+use crate::sql::sql_text;
+
+pub(crate) const TABLES: &str = "
+CREATE TABLE user (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE
+        CHECK (length(username) BETWEEN 3 AND 32
+            AND substr(username, 1, 1) GLOB '[a-z_]'
+            AND username NOT GLOB '*[^a-z0-9_-]*'),
+    password_hash TEXT NOT NULL,
+    is_admin INTEGER NOT NULL CHECK (is_admin IN (0, 1)),
+    ssh_keys TEXT NOT NULL CHECK (json_valid(ssh_keys)),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+) STRICT;
+";
+
+/// The triggers protecting the built-in admin account.
+pub(crate) fn rules() -> String {
+    let admin = sql_text(ADMIN_USERNAME);
+    let message = sql_text(ADMIN_PROTECTED_MESSAGE);
     format!(
-        r#"
-DEFINE TABLE OVERWRITE user SCHEMAFULL;
-DEFINE FIELD OVERWRITE username ON TABLE user TYPE string
-    ASSERT string::len($value) >= 3
-    AND string::len($value) <= 32
-    AND $value = /^[a-z_][a-z0-9_-]*$/
-    AND ($before IS NONE OR $before != '{ADMIN_USERNAME}' OR $value = '{ADMIN_USERNAME}');
-DEFINE FIELD OVERWRITE password_hash ON TABLE user TYPE string;
-DEFINE FIELD OVERWRITE is_admin ON TABLE user TYPE bool DEFAULT false
-    ASSERT $this.username != '{ADMIN_USERNAME}' OR $value = true;
-DEFINE FIELD OVERWRITE ssh_keys ON TABLE user TYPE array<string> DEFAULT [];
-DEFINE FIELD OVERWRITE created_at ON TABLE user TYPE datetime;
-DEFINE FIELD OVERWRITE updated_at ON TABLE user TYPE datetime;
-
-DEFINE FIELD OVERWRITE labs ON TABLE user COMPUTED <~(lab FIELD user);
-
-DEFINE INDEX OVERWRITE unique_username
-  ON TABLE user FIELDS username UNIQUE;
-
-DEFINE EVENT OVERWRITE protect_admin ON TABLE user
-    WHEN ($before.username = '{ADMIN_USERNAME}'
-        AND ($event = 'DELETE' OR $after.username != '{ADMIN_USERNAME}' OR $after.is_admin != true))
-    OR ($after.username = '{ADMIN_USERNAME}' AND $after.is_admin != true)
-    THEN {{ THROW '{ADMIN_PROTECTED_MESSAGE}' }};
-"#
+        "DROP TRIGGER IF EXISTS user_protect_admin_insert;
+CREATE TRIGGER user_protect_admin_insert BEFORE INSERT ON user
+    WHEN NEW.username = {admin} AND NEW.is_admin != 1
+    BEGIN SELECT RAISE(ABORT, {message}); END;
+DROP TRIGGER IF EXISTS user_protect_admin_update;
+CREATE TRIGGER user_protect_admin_update BEFORE UPDATE ON user
+    WHEN (OLD.username = {admin} AND (NEW.username != {admin} OR NEW.is_admin != 1))
+        OR (NEW.username = {admin} AND NEW.is_admin != 1)
+    BEGIN SELECT RAISE(ABORT, {message}); END;
+DROP TRIGGER IF EXISTS user_protect_admin_delete;
+CREATE TRIGGER user_protect_admin_delete BEFORE DELETE ON user
+    WHEN OLD.username = {admin}
+    BEGIN SELECT RAISE(ABORT, {message}); END;
+"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use anyhow::Result;
+    use shared::konst::ADMIN_PROTECTED_MESSAGE;
+
+    use crate::sql::query_count;
+    use crate::{Database, apply_schema, create_admin_user, create_user, open_in_memory};
+
+    async fn setup() -> Result<Database> {
+        let db = open_in_memory().await?;
+        apply_schema(&db).await?;
+        Ok(db)
+    }
+
+    /// Insert a user row directly, below the db functions' validation.
+    async fn insert_raw(db: &Database, username: &str, is_admin: bool) -> Result<u64> {
+        let writer = db.writer().await?;
+        Ok(writer
+            .conn
+            .execute(
+                "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, created_at, \
+                 updated_at) VALUES (?1, ?1, 'x', ?2, '[]', '2026-01-01T00:00:00Z', \
+                 '2026-01-01T00:00:00Z')",
+                (username, is_admin),
+            )
+            .await?)
+    }
+
+    async fn execute_raw(db: &Database, sql: &str) -> Result<u64> {
+        let writer = db.writer().await?;
+        Ok(writer.conn.execute(sql, ()).await?)
+    }
+
+    async fn user_count(db: &Database) -> Result<usize> {
+        let conn = db.reader().await?;
+        query_count(&conn, "SELECT count(*) FROM user", ()).await
+    }
+
+    #[tokio::test]
+    async fn bulk_delete_is_refused_while_admin_exists() -> Result<()> {
+        let db = setup().await?;
+        create_admin_user(&db, "AdminPass123!").await?;
+        create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
+
+        let error = execute_raw(&db, "DELETE FROM user").await.unwrap_err();
+        assert!(
+            error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
+            "{error}"
+        );
+        assert_eq!(user_count(&db).await?, 2, "No user may be deleted");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn raw_updates_cannot_rename_or_demote_admin() -> Result<()> {
+        let db = setup().await?;
+        create_admin_user(&db, "AdminPass123!").await?;
+
+        for statement in [
+            "UPDATE user SET is_admin = 0 WHERE username = 'admin'",
+            "UPDATE user SET username = 'former_admin' WHERE username = 'admin'",
+        ] {
+            let error = execute_raw(&db, statement).await.unwrap_err();
+            assert!(
+                error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
+                "{statement}: {error}"
+            );
+        }
+        let conn = db.reader().await?;
+        let admins = query_count(
+            &conn,
+            "SELECT count(*) FROM user WHERE username = 'admin' AND is_admin = 1",
+            (),
+        )
+        .await?;
+        assert_eq!(admins, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn admin_row_without_admin_flag_is_refused() -> Result<()> {
+        let db = setup().await?;
+
+        let error = insert_raw(&db, "admin", false).await.unwrap_err();
+        assert!(
+            error.to_string().contains(ADMIN_PROTECTED_MESSAGE),
+            "{error}"
+        );
+        assert_eq!(user_count(&db).await?, 0);
+
+        insert_raw(&db, "admin", true).await?;
+        assert_eq!(user_count(&db).await?, 1);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn schema_rejects_username_written_directly() -> Result<()> {
+        let db = setup().await?;
+
+        for username in ["Brad", "brad.searle", "ab", "1brad", "brad searle"] {
+            assert!(
+                insert_raw(&db, username, false).await.is_err(),
+                "Schema should reject '{username}'"
+            );
+        }
+        // The same statement succeeds for valid names, so the rejections come from the username.
+        for username in ["brad", "_svc", "brad-searle_2"] {
+            insert_raw(&db, username, false).await?;
+        }
+        assert_eq!(user_count(&db).await?, 3);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn usernames_are_unique() -> Result<()> {
+        let db = setup().await?;
+        insert_raw(&db, "brad", false).await?;
+        let error = execute_raw(
+            &db,
+            "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, created_at, \
+             updated_at) VALUES ('other', 'brad', 'x', 0, '[]', '2026-01-01T00:00:00Z', \
+             '2026-01-01T00:00:00Z')",
+        )
+        .await
+        .unwrap_err();
+        assert!(error.to_string().contains("UNIQUE"), "{error}");
+        Ok(())
+    }
 }

@@ -13,18 +13,20 @@ use crate::auth::middleware;
 use crate::daemon::state::AppState;
 use crate::services::error::ServiceError;
 use crate::services::{
-    cancel, clean, container_pull, delete, destroy, down, download, host_keys, impairment, import,
-    inspect, list_labs, node_secrets, progress, redeploy, resume, up, user_delete, user_ssh_keys,
+    backup, cancel, clean, container_pull, delete, destroy, down, download, host_keys, impairment,
+    import, inspect, list_labs, node_secrets, progress, redeploy, resume, up, user_delete,
+    user_ssh_keys,
 };
 use shared::auth::password;
 use shared::data;
 use shared::error::RpcErrorCode;
 use shared::konst::{
     JWT_TOKEN_EXPIRY_SECONDS, RPC_MSG_ACCESS_DENIED_OWN_INFO, RPC_MSG_ACCESS_DENIED_OWN_PASSWORD,
-    RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE,
-    RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD, RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT,
-    RPC_MSG_ADMIN_ONLY_IMAGE_SCAN, RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR,
-    RPC_MSG_AUTH_INVALID, RPC_MSG_AUTH_REQUIRED, RPC_MSG_CONTAINER_PULL_FAILED,
+    RPC_MSG_ADMIN_ONLY_BACKUP, RPC_MSG_ADMIN_ONLY_CLEAN, RPC_MSG_ADMIN_ONLY_CONTAINER_PULL,
+    RPC_MSG_ADMIN_ONLY_IMAGE_DELETE, RPC_MSG_ADMIN_ONLY_IMAGE_DOWNLOAD,
+    RPC_MSG_ADMIN_ONLY_IMAGE_IMPORT, RPC_MSG_ADMIN_ONLY_IMAGE_SCAN,
+    RPC_MSG_ADMIN_ONLY_IMAGE_SET_DEFAULT, RPC_MSG_AUTH_ERROR, RPC_MSG_AUTH_INVALID,
+    RPC_MSG_AUTH_REQUIRED, RPC_MSG_BACKUP_FAILED, RPC_MSG_CONTAINER_PULL_FAILED,
     RPC_MSG_IMAGE_DELETE_FAILED, RPC_MSG_IMAGE_DOWNLOAD_FAILED, RPC_MSG_IMAGE_IMPORT_FAILED,
     RPC_MSG_IMAGE_LIST_FAILED, RPC_MSG_IMAGE_SCAN_FAILED, RPC_MSG_IMAGE_SET_DEFAULT_FAILED,
     RPC_MSG_IMAGE_SHOW_FAILED, RPC_MSG_IMPAIRMENT_UPDATE_FAILED,
@@ -231,6 +233,12 @@ pub async fn handle_rpc_request(
             Ok(auth_ctx) => handle_clean(id, params, state, auth_ctx).await,
             Err(e) => e,
         },
+        "server.backup" => {
+            match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_BACKUP).await {
+                Ok(auth_ctx) => handle_server_backup(id, state, auth_ctx).await,
+                Err(e) => e,
+            }
+        }
         // Note: "image.import" is handled separately via handle_streaming_rpc_request
         "image.delete" => {
             match require_admin(&id, &params, state, RPC_MSG_ADMIN_ONLY_IMAGE_DELETE).await {
@@ -1419,6 +1427,46 @@ async fn handle_clean(
             id,
             result: None,
             error: Some(service_error(&e, RPC_MSG_LAB_CLEAN_FAILED)),
+        },
+    }
+}
+
+/// Handle "server.backup" RPC call (admin-only)
+///
+/// Expected params: {"token": "string"}
+async fn handle_server_backup(
+    id: String,
+    state: &AppState,
+    auth_ctx: AuthContext,
+) -> ServerMessage {
+    match backup::backup_database(&auth_ctx, state).await {
+        Ok(response) => match serde_json::to_value(&response) {
+            Ok(result) => {
+                tracing::info!(
+                    "Admin '{}' backed up the database to '{}'",
+                    auth_ctx.username,
+                    response.path
+                );
+                ServerMessage::RpcResponse {
+                    id,
+                    result: Some(result),
+                    error: None,
+                }
+            }
+            Err(e) => ServerMessage::RpcResponse {
+                id,
+                result: None,
+                error: Some(RpcError {
+                    code: RpcErrorCode::InternalError,
+                    message: RPC_MSG_SERIALIZE_FAILED.to_string(),
+                    context: Some(format!("{:?}", e)),
+                }),
+            },
+        },
+        Err(e) => ServerMessage::RpcResponse {
+            id,
+            result: None,
+            error: Some(service_error(&e, RPC_MSG_BACKUP_FAILED)),
         },
     }
 }

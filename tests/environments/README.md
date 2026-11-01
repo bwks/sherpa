@@ -22,8 +22,8 @@ where they make sense; it is not disposable and installs more than cloud-init ne
   `ubuntu_linux` image must never silently change a test environment.
 - Record the Canonical build and SHA-256 of each image in the environment's
   README. An image without a verified checksum is not a test baseline.
-- Install nothing beyond what cloud-init needs for guest access. Docker, libvirt
-  and SurrealDB must come from Sherpa's installer, so the installer is tested too.
+- Install nothing beyond what cloud-init needs for guest access. Docker and libvirt
+  must come from Sherpa's installer, so the installer is tested too.
 - `sherpa up` writes `lab-info.toml`, `sherpa_ssh_config` and `sherpa_ssh_key`
   into the environment directory. Git ignores them; never commit them.
 
@@ -35,7 +35,7 @@ guest and runs them with passwordless sudo. A passing environment has:
 
 - cloud-init finished without errors,
 - the Ubuntu release, vCPU count and disk size from its manifest,
-- no Sherpa, Docker, libvirt or SurrealDB commands and no `/opt/sherpa`,
+- no Sherpa, Docker or libvirt commands and no `/opt/sherpa`,
 - working nested KVM (`/dev/kvm` reports API version 12 and creates a VM handle),
 - Sherpa's cloud-init login account with passwordless sudo,
 - HTTPS access to the Ubuntu archive, the GitHub release API and the Docker

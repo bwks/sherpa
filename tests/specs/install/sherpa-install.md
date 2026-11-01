@@ -15,7 +15,8 @@
 - Missing `--version` value fails before any system changes `[unit]` **P0**
 - `SHERPA_ARTIFACT_DIR` selects local release archives with an explicit version `[e2e]` **P0**
 - A missing required local artifact fails before package or container changes `[unit]` **P0**
-- Env vars populate defaults: `SHERPA_DB_PASSWORD`, `SHERPA_DB_PORT`, `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT`, `SHERPA_SERVER_HTTP_PORT` `[unit]` **P0**
+- Env vars populate defaults: `SHERPA_SERVER_IPV4`, `SHERPA_SERVER_WS_PORT`, `SHERPA_SERVER_HTTP_PORT` `[unit]` **P0**
+- `--help` documents no database password or port: sherpad embeds its database `[unit]` **P0**
 
 ---
 
@@ -57,16 +58,12 @@
 
 ---
 
-## Password Handling (`get_database_password`)
+## Upgrade Check (`check_legacy_database`)
 
 **What to test:**
-- Accepts password from `SHERPA_DB_PASSWORD` env var (via `DB_PASSWORD`) `[unit]` **P0**
-- Rejects empty password `[unit]` **P0**
-- Rejects password shorter than 8 chars `[unit]` **P0**
-- Rejects password of exactly 7 chars (boundary) `[unit]` **P0**
-- Accepts password of exactly 8 chars `[unit]` **P0**
-- Accepts password longer than 8 chars `[unit]` **P1**
-- Interactive prompt requires confirmation match `[manual]` **P1**
+- Refuses, pointing to `sherpa_update.sh`, when the `sherpa-db` SurrealDB container of a release before 0.5.0 exists `[unit]` **P0**
+- Passes when no `sherpa-db` container exists `[unit]` **P0**
+- Passes when Docker is not installed yet `[unit]` **P1**
 
 ---
 
@@ -139,35 +136,19 @@
 
 ---
 
-## Container Management
+## Container Images
 
-### Stop Existing (`stop_existing_container`)
-
-**What to test:**
-- Stops and removes existing container before creating new one `[integration]` **P1**
-- No-op when no existing container `[integration]` **P1**
-
-### Pull Images (`pull_surrealdb_image`, `pull_sherpa_router_image`)
+### Pull Images (`pull_sherpa_router_image`)
 
 **What to test:**
-- Pulls SurrealDB image at correct version (v3.0.0) `[integration]` **P0**
 - Pulls Sherpa Router image `[integration]` **P0**
 - Exits on pull failure `[integration]` **P1**
 
-### Start Container (`start_container`)
+## Database
 
 **What to test:**
-- Starts container with correct port mapping (DB_PORT:8000) `[integration]` **P0**
-- Mounts SHERPA_DB_DIR as /data volume `[integration]` **P0**
-- Runs as sherpa UID/GID `[integration]` **P0**
-- Uses rocksdb backend `[integration]` **P1**
-
-### Health Check (`wait_for_database`)
-
-**What to test:**
-- Succeeds within 30s for healthy DB `[integration]` **P0**
-- Fails after 30 attempts if DB never healthy `[integration]` **P1**
-- Detects container that stopped unexpectedly `[integration]` **P1**
+- No database container is created and `sherpa.env` holds no `SHERPA_DB_PASSWORD` or `SHERPA_DB_PORT` `[integration]` **P0**
+- `/opt/sherpa/db` exists, owned by sherpa; `sherpad init` creates `sherpa.sqlite` in it `[integration]` **P0**
 
 ---
 

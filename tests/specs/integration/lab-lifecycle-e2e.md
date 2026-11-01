@@ -1,7 +1,7 @@
 # Lab Lifecycle End-to-End — Test Specifications
 
 > **Scope:** Cross-crate integration testing the full lab lifecycle
-> **External Dependencies:** SurrealDB, Docker, libvirt, Linux networking, filesystem
+> **External Dependencies:** Docker, libvirt, Linux networking, filesystem
 > **Existing Tests:** None
 
 ---

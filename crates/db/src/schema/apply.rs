@@ -1,105 +1,143 @@
-//! Schema application and orchestration
+//! Schema versions and their application
 //!
-//! This module handles the application of all database schemas to SurrealDB.
-//! It imports schema definitions from individual modules and applies them
-//! in the correct dependency order to ensure foreign key relationships
-//! are properly established.
+//! The database's `user_version` records how many entries of `MIGRATIONS` it has. Each entry
+//! is a list of SQL batches; an entry is never changed once released, and a later change to the
+//! schema is a new entry. The rule triggers derived from the Rust enums are not versioned: they
+//! are dropped and created again on every application.
 
-use anyhow::{Context, Result};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
+use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use super::bridge::generate_bridge_schema;
-use super::lab::generate_lab_schema;
-use super::link::generate_link_schema;
-use super::node::generate_node_schema;
-use super::node_image::generate_node_image_schema;
-use super::user::generate_user_schema;
+use super::{bridge, lab, link, node, node_image, user};
+use crate::Database;
+use crate::sql::query_count;
 
-/// Apply a single schema section to the database.
-///
-/// Executes the provided schema SQL against the database and provides
-/// contextual error messages if the operation fails.
-///
-/// # Parameters
-///
-/// * `db` - The SurrealDB client connection
-/// * `section_name` - Human-readable name of the schema section (for logging)
-/// * `schema` - The SQL schema definition to execute
-///
-/// # Returns
-///
-/// * `Ok(())` if the schema was applied successfully
-/// * `Err` if the schema application failed
-///
-async fn apply_schema_section(
-    db: &Arc<Surreal<Client>>,
-    section_name: &str,
-    schema: &str,
-) -> Result<()> {
-    tracing::debug!(table = %section_name, "Creating database table");
+/// Each entry brings the schema from version `index` to `index + 1`.
+const MIGRATIONS: &[&[&str]] = &[&[
+    user::TABLES,
+    node_image::TABLES,
+    lab::TABLES,
+    node::TABLES,
+    link::TABLES,
+    bridge::TABLES,
+]];
 
-    db.query(schema)
+/// The schema version this build of Sherpa writes.
+pub const SCHEMA_VERSION: usize = MIGRATIONS.len();
+
+/// Bring the database to the current schema version and recreate the rule triggers.
+///
+/// It runs in one transaction, so a failure leaves the database as it was. It is idempotent.
+///
+/// # Errors
+///
+/// - If the database has a newer schema version than this build knows, for example after a
+///   downgrade of Sherpa
+/// - If any statement fails
+///
+#[instrument(skip(db), level = "debug")]
+pub async fn apply_schema(db: &Database) -> Result<()> {
+    let mut writer = db.writer().await?;
+    let tx = writer
+        .conn
+        .transaction()
         .await
-        .context(format!("Failed to apply schema: {}", section_name))?;
+        .context("Failed to start the schema transaction")?;
 
+    let version = query_count(&tx, "PRAGMA user_version", ())
+        .await
+        .context("Failed to read the database schema version")?;
+    if version > SCHEMA_VERSION {
+        bail!(
+            "The database has schema version {version}, newer than {SCHEMA_VERSION} that this \
+             Sherpa build supports"
+        );
+    }
+
+    for (index, batches) in MIGRATIONS.iter().enumerate().skip(version) {
+        let target = index + 1;
+        tracing::info!(from = index, to = target, "Migrating database schema");
+        for batch in batches.iter() {
+            tx.execute_batch(batch)
+                .await
+                .context(format!("Failed to migrate the schema to version {target}"))?;
+        }
+        tx.execute(&format!("PRAGMA user_version = {target}"), ())
+            .await
+            .context("Failed to record the database schema version")?;
+    }
+
+    let rules = [
+        user::rules(),
+        node_image::rules()?,
+        lab::rules()?,
+        node::rules()?,
+        link::rules()?,
+    ];
+    for batch in rules.iter() {
+        tx.execute_batch(batch)
+            .await
+            .context("Failed to create the schema rule triggers")?;
+    }
+
+    tx.commit()
+        .await
+        .context("Failed to commit the schema transaction")?;
     Ok(())
 }
 
-/// Apply all database schemas in the correct dependency order.
-///
-/// This function creates all tables, fields, indexes, and constraints
-/// required by the Sherpa application. It is idempotent - safe to run
-/// multiple times without errors.
-///
-/// The schema constraints are automatically generated from Rust enums,
-/// ensuring type safety and preventing enum variant mismatches between
-/// the database schema and application code.
-///
-/// # Order of Execution
-///
-/// Tables are created in dependency order to satisfy foreign key relationships:
-/// 1. **user** (no dependencies)
-/// 2. **node_image** (no dependencies)
-/// 3. **lab** (depends on: user)
-/// 4. **node** (depends on: node_image, lab)
-/// 5. **link** (depends on: node, lab)
-///
-/// # Parameters
-///
-/// * `db` - The SurrealDB client connection
-///
-/// # Returns
-///
-/// * `Ok(())` if all schemas were applied successfully
-/// * `Err` if any schema application failed
-///
-/// # Error Handling
-///
-/// If any schema fails to apply, the function returns immediately with
-/// an error. Subsequent schemas will not be applied. Since SurrealDB
-/// schema operations are idempotent, you can safely retry the operation
-/// after fixing any issues.
-///
-#[instrument(skip(db), level = "debug")]
-pub async fn apply_schema(db: &Arc<Surreal<Client>>) -> Result<()> {
-    // Generate schemas dynamically from individual schema modules
-    let user_schema = generate_user_schema();
-    let node_image_schema = generate_node_image_schema();
-    let lab_schema = generate_lab_schema();
-    let node_schema = generate_node_schema();
-    let link_schema = generate_link_schema();
-    let bridge_schema = generate_bridge_schema();
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::open_in_memory;
 
-    // Apply schemas in dependency order
-    apply_schema_section(db, "user", &user_schema).await?;
-    apply_schema_section(db, "node_image", &node_image_schema).await?;
-    apply_schema_section(db, "lab", &lab_schema).await?;
-    apply_schema_section(db, "node", &node_schema).await?;
-    apply_schema_section(db, "link", &link_schema).await?;
-    apply_schema_section(db, "bridge", &bridge_schema).await?;
+    async fn version(db: &Database) -> usize {
+        let conn = db.reader().await.unwrap();
+        query_count(&conn, "PRAGMA user_version", ()).await.unwrap()
+    }
 
-    Ok(())
+    #[tokio::test]
+    async fn apply_schema_sets_the_current_version_and_is_idempotent() {
+        let db = open_in_memory().await.unwrap();
+        assert_eq!(version(&db).await, 0);
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    async fn apply_schema_refuses_a_newer_schema() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute(&format!("PRAGMA user_version = {}", SCHEMA_VERSION + 1), ())
+            .await
+            .unwrap();
+        drop(writer);
+
+        let error = apply_schema(&db).await.unwrap_err().to_string();
+        assert!(error.contains("newer"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn apply_schema_creates_the_rule_triggers() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        let conn = db.reader().await.unwrap();
+        let triggers = query_count(
+            &conn,
+            "SELECT count(*) FROM sqlite_schema WHERE type = 'trigger'",
+            (),
+        )
+        .await
+        .unwrap();
+        // Three admin protection triggers, and an insert and an update trigger for each of
+        // node_image, lab, node and link.
+        assert_eq!(triggers, 3 + 4 * 2);
+    }
 }

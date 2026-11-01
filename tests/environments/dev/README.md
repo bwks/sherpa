@@ -36,8 +36,7 @@ is up. It is safe to run again with `sherpa provision`. It:
 4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
    only fetches, so work in progress is never touched;
 5. creates a virtualenv for the docs at `~/.venvs/sherpa-docs`;
-6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`, with a generated
-   database password that only the guest keeps;
+6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
 7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
    `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
@@ -109,8 +108,8 @@ tools from mise are on the `PATH` of login shells, so run commands through one:
   ```
   `cargo build --release` at the workspace root does not rebuild `sherpad`.
 - **Update to a release:** `sudo bash ~/code/rust/sherpa/scripts/sherpa_update.sh --version vX.Y.Z`.
-- **Tests:** formatting, clippy, unit tests, the test database (`dev/testdb`) and the lab tests
-  all run in the guest, as described in [running tests](../../README.md). The guest's `sherpa`
+- **Tests:** formatting, clippy, unit and database tests, and the lab tests all run in the
+  guest, as described in [running tests](../../README.md). The guest's `sherpa`
   CLI is already logged in as `dev`.
 - **Images:** none are imported. Copy the ones a test needs from the host's image store and
   register them with `sherpa server image import`.
