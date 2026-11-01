@@ -41,6 +41,7 @@ use shared::konst::{
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
+use topology::validate::check_performance_tuning;
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -287,6 +288,19 @@ pub async fn redeploy_node(
             .connect()
             .context("Failed to connect to libvirt")?,
     );
+
+    // The node's performance tuning must still fit the server before the node is destroyed.
+    check_performance_tuning(&target_node, &node_image).context(format!(
+        "Performance tuning validation failed for node: {node_name}"
+    ))?;
+    node_resources::check_cpu_pins_on_server(
+        &db,
+        &qemu_conn,
+        &[&target_node],
+        Some(&node_record_id),
+    )
+    .await
+    .context("CPU pinning validation failed")?;
 
     // ========================================================================
     // Stage 2: Destroy existing node
@@ -1097,6 +1111,8 @@ mod tests {
             memory: None,
             vnc_port: None,
             ssh_host_key: None,
+            cpu_pinning: None,
+            qemu_thread_cpus: None,
         }
     }
 

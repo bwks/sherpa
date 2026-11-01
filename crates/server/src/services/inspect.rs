@@ -226,6 +226,8 @@ mod tests {
             memory: Some(32768),
             vnc_port: Some(5903),
             ssh_host_key: None,
+            cpu_pinning: None,
+            qemu_thread_cpus: None,
         }
     }
 

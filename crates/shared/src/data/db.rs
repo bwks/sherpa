@@ -58,6 +58,12 @@ pub struct DbNode {
     /// public key form (`ssh-ed25519 AAAA...`). `None` for nodes without SSH, or before then.
     #[serde(default)]
     pub ssh_host_key: Option<String>,
+    /// Host CPUs the node's vCPUs are pinned to, in vCPU order. `None` when unpinned.
+    #[serde(default)]
+    pub cpu_pinning: Option<Vec<u16>>,
+    /// Host CPUs the node's QEMU and I/O threads are pinned to. `None` when unpinned.
+    #[serde(default)]
+    pub qemu_thread_cpus: Option<Vec<u16>>,
 }
 
 /// What a node was given when it was created or redeployed.
@@ -66,6 +72,8 @@ pub struct NodeResources {
     pub cpu_count: Option<u8>,
     pub memory: Option<u16>,
     pub vnc_port: Option<u16>,
+    pub cpu_pinning: Option<Vec<u16>>,
+    pub qemu_thread_cpus: Option<Vec<u16>>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

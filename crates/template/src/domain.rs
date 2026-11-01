@@ -1,8 +1,9 @@
 use askama::Template;
 
 use shared::data::{
-    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, DiskBuses,
-    DiskDevices, Interface, InterfaceType, MachineType, NodeDisk, QemuCommand, UnikernelBootMode,
+    BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology,
+    DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeDisk,
+    PerformanceTuning, QemuCommand, UnikernelBootMode, cpuset,
 };
 
 #[derive(Debug, Template)]
@@ -35,6 +36,60 @@ pub struct DomainTemplate {
     pub cpu_features: Vec<CpuFeature>,
     /// The VNC console port on the server, reserved for the node in the database.
     pub vnc_port: u16,
+    pub tuning: DomainTuning,
+}
+
+/// A node's performance tuning, as the domain renders it. The default renders no tuning.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DomainTuning {
+    pub cpu_topology: Option<CpuTopology>,
+    /// The host CPU for each vCPU, in vCPU order.
+    pub cpu_pinning: Vec<u16>,
+    pub qemu_cpuset: Option<String>,
+    /// The cpuset of the disks' I/O thread. Set, the domain has one I/O thread for its disks.
+    pub io_thread_cpuset: Option<String>,
+    pub numa_node: Option<u8>,
+    pub disk_cache: Option<DiskCache>,
+    pub disk_io: Option<DiskIo>,
+    /// Queues on the data interfaces.
+    pub interface_queues: Option<u8>,
+    /// Queues on the management interface, when it is virtio.
+    pub management_interface_queues: Option<u8>,
+}
+
+impl DomainTuning {
+    /// The domain tuning for a node's performance tuning.
+    pub fn from_tuning(
+        tuning: Option<&PerformanceTuning>,
+        management_interface_type: &InterfaceType,
+    ) -> Self {
+        let Some(tuning) = tuning else {
+            return Self::default();
+        };
+        let management_interface_queues = if *management_interface_type == InterfaceType::Virtio {
+            tuning.interface_queues
+        } else {
+            None
+        };
+        Self {
+            cpu_topology: tuning.cpu_topology,
+            cpu_pinning: tuning.cpu_pinning.clone().unwrap_or_default(),
+            qemu_cpuset: tuning.qemu_cpus.as_deref().map(cpuset),
+            io_thread_cpuset: tuning.disk_io_thread_cpus.as_deref().map(cpuset),
+            numa_node: tuning.numa_node,
+            disk_cache: tuning.disk_cache,
+            disk_io: tuning.disk_io,
+            interface_queues: tuning.interface_queues,
+            management_interface_queues,
+        }
+    }
+
+    /// Whether the domain pins any of its threads.
+    pub fn has_cputune(&self) -> bool {
+        !self.cpu_pinning.is_empty()
+            || self.qemu_cpuset.is_some()
+            || self.io_thread_cpuset.is_some()
+    }
 }
 
 pub struct BootServer {
@@ -72,6 +127,35 @@ mod tests {
     use super::*;
     use askama::Template;
     use shared::data::{DiskDrivers, DiskFormats, DiskTargets};
+
+    #[test]
+    fn test_domain_tuning_from_performance_tuning() {
+        let tuning = PerformanceTuning {
+            cpu_pinning: Some(vec![9, 25]),
+            qemu_cpus: Some(vec![8, 24]),
+            disk_io_thread_cpus: Some(vec![8]),
+            numa_node: Some(1),
+            interface_queues: Some(4),
+            ..PerformanceTuning::default()
+        };
+        let domain = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::Virtio);
+        assert_eq!(domain.cpu_pinning, vec![9, 25]);
+        assert_eq!(domain.qemu_cpuset.as_deref(), Some("8,24"));
+        assert_eq!(domain.io_thread_cpuset.as_deref(), Some("8"));
+        assert_eq!(domain.numa_node, Some(1));
+        assert_eq!(domain.interface_queues, Some(4));
+        assert_eq!(domain.management_interface_queues, Some(4));
+        assert!(domain.has_cputune());
+
+        // An e1000 management interface has no queues to set.
+        let e1000 = DomainTuning::from_tuning(Some(&tuning), &InterfaceType::E1000);
+        assert_eq!(e1000.management_interface_queues, None);
+        assert_eq!(e1000.interface_queues, Some(4));
+
+        let untuned = DomainTuning::from_tuning(None, &InterfaceType::Virtio);
+        assert_eq!(untuned, DomainTuning::default());
+        assert!(!untuned.has_cputune());
+    }
 
     fn base_unikernel_template(boot_mode: UnikernelBootMode) -> UnikernelDomainTemplate {
         UnikernelDomainTemplate {

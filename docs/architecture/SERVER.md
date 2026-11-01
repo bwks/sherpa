@@ -469,7 +469,7 @@ flowchart TB
         subgraph reserve["reserve_lab_networks (retried while concurrent labs win a subnet)"]
             hostnets["read host interface networks (IPv4 and IPv6)"] --> mgmtsubnets["allocate IPv4/IPv6 management subnets<br/>(not in DB, not overlapping host)"] --> loopsubnets["allocate IPv4/IPv6 loopback subnets (not in DB)"] --> createlab["db::create_lab: unique subnet indexes make the insert the reservation"]
         end
-        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port)<br/>create the node's isolated and reserved libvirt networks and bridges"]
+        createlab --> createnode["for each node:<br/>db::create_node<br/>node_resources::reserve_node_resources (vCPUs, memory, VNC port, pinned CPUs)<br/>create the node's isolated and reserved libvirt networks and bridges"]
     end
     createnode --> labfiles
     subgraph phase4["4. LabNetworkSetup"]
@@ -938,6 +938,35 @@ hypervisor, by `services::node_resources`:
   agree. The domain has `port='N' autoport='no'`, so libvirt never moves the console, also
   across down/resume.
 - `inspect` and the web UI node page read them from the record, with no domain lookup.
+
+### VM performance tuning
+
+A node's `[nodes.performance_tuning]` (`shared::data::PerformanceTuning`) reaches the domain as
+`template::DomainTuning`, built in `node_ops::build_domain_template`. The domain then renders:
+- `<cputune>` with `vcpupin`, `emulatorpin` and `iothreadpin`;
+- `<numatune>`;
+- `<iothreads>`;
+- the CPU mode and `<topology>`;
+- the disk driver's `cache`, `io` and `iothread`;
+- `<driver queues>` on virtio interfaces.
+
+The checks run in three places:
+- **`topology::validate::check_performance_tuning`** (client `validate` and server `up` and
+  `redeploy`): the node's own settings against its image. VMs only; topology and pinning
+  match `cpu_count`; I/O threads need virtio disks; queues need virtio interfaces.
+- **`topology::validate::check_cpu_pin_overlap`**: a host CPU pinned to a vCPU belongs to one
+  node, and no node runs QEMU or I/O threads on it. QEMU and I/O threads may share CPUs.
+- **`node_resources::check_cpu_pins_on_server`** (`up` and `redeploy`, before anything is
+  created or destroyed): every CPU and the NUMA node exist on the server, from
+  `libvirt::host_cpus`. The pins also must not overlap those stored on any node of any lab
+  (`db::list_pinned_nodes`). A redeployed node's own stored pins are skipped.
+
+`planned_resources` stores the pins on the node (`cpu_pinning`, and `qemu_thread_cpus` for the
+QEMU and I/O threads), so later labs see them. Two labs started at the same moment could both
+pass the check before either stores its pins; unlike VNC ports, pins have no unique index.
+
+Huge pages come from the host's transparent hugepages, which QEMU requests for guest RAM.
+There is no `memoryBacking` setting.
 
 ### Container data interfaces
 

@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::{DiskImageCloneMethod, NodeModel};
+use shared::data::{DiskImageCloneMethod, NodeModel, PerformanceTuning};
 
 use crate::provisioner::Provisioner;
 
@@ -42,6 +42,8 @@ pub struct Node {
     pub text_files_data: Option<Vec<TextFileData>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
+    /// `[nodes.performance_tuning]`: CPU, memory, disk and interface tuning for a VM.
+    pub performance_tuning: Option<PerformanceTuning>,
     /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
     /// the client never sends them to the server and the server never stores them.
     #[serde(default, skip_serializing)]
@@ -79,6 +81,7 @@ pub struct NodeExpanded {
     pub user_scripts: Option<Vec<StartupScript>>,
     pub kernel_cmdline: Option<String>,
     pub ready_port: Option<u16>,
+    pub performance_tuning: Option<PerformanceTuning>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]

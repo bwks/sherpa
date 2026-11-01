@@ -1,10 +1,11 @@
 use askama::Template;
 
 use shared::data::{
-    BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, DiskBuses, DiskDevices, DiskDrivers,
-    DiskFormats, DiskTargets, Interface, InterfaceType, MachineType, NodeDisk,
+    BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, CpuTopology, DiskBuses, DiskCache,
+    DiskDevices, DiskDrivers, DiskFormats, DiskIo, DiskTargets, Interface, InterfaceType,
+    MachineType, NodeDisk,
 };
-use template::DomainTemplate;
+use template::{DomainTemplate, DomainTuning};
 
 // ============================================================================
 // Helpers
@@ -51,6 +52,17 @@ fn base_domain_template() -> DomainTemplate {
         video_vram: Some(16384),
         cpu_features: vec![],
         vnc_port: 5905,
+        tuning: DomainTuning::default(),
+    }
+}
+
+fn p2p_interface() -> Interface {
+    Interface {
+        name: "tpa0-a10736e8".to_string(),
+        num: 1,
+        mtu: 9600,
+        mac_address: "52:54:00:aa:bb:01".to_string(),
+        connection_type: ConnectionTypes::P2p,
     }
 }
 
@@ -164,4 +176,95 @@ fn test_domain_cpu_has_no_arch_element() {
     // architecture is set on <os><type>.
     assert!(!xml.contains("<arch>"), "{xml}");
     assert!(xml.contains("<type arch='x86_64'"), "{xml}");
+}
+
+#[test]
+fn test_domain_without_tuning_has_no_tuning_elements() {
+    let xml = base_domain_template().render().expect("renders domain XML");
+    for element in [
+        "<cputune>",
+        "<numatune>",
+        "<iothreads>",
+        "<topology",
+        "queues=",
+        "cache=",
+        "io=",
+        "iothread=",
+    ] {
+        assert!(!xml.contains(element), "{element} in {xml}");
+    }
+}
+
+#[test]
+fn test_domain_pins_vcpus_qemu_and_io_threads() {
+    let mut domain = base_domain_template();
+    domain.tuning = DomainTuning {
+        cpu_pinning: vec![9, 25],
+        qemu_cpuset: Some("8,24".to_string()),
+        io_thread_cpuset: Some("8,24".to_string()),
+        ..DomainTuning::default()
+    };
+    let xml = domain.render().expect("renders domain XML");
+    assert!(xml.contains("<iothreads>1</iothreads>"), "{xml}");
+    assert!(xml.contains("<vcpupin vcpu='0' cpuset='9'/>"), "{xml}");
+    assert!(xml.contains("<vcpupin vcpu='1' cpuset='25'/>"), "{xml}");
+    assert!(xml.contains("<emulatorpin cpuset='8,24'/>"), "{xml}");
+    assert!(
+        xml.contains("<iothreadpin iothread='1' cpuset='8,24'/>"),
+        "{xml}"
+    );
+    assert!(
+        xml.contains("<driver name='qemu' type='qcow2' iothread='1'/>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_holds_memory_on_a_numa_node() {
+    let mut domain = base_domain_template();
+    domain.tuning.numa_node = Some(1);
+    let xml = domain.render().expect("renders domain XML");
+    assert!(
+        xml.contains("<numatune>\n    <memory mode='strict' nodeset='1'/>\n  </numatune>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_host_passthrough_cpu_with_topology() {
+    let mut domain = base_domain_template();
+    domain.cpu_model = CpuModels::HostPassthrough;
+    domain.tuning.cpu_topology = Some(CpuTopology {
+        sockets: 1,
+        cores: 1,
+        threads: 2,
+    });
+    let xml = domain.render().expect("renders domain XML");
+    assert!(xml.contains("<cpu mode='host-passthrough'>"), "{xml}");
+    assert!(
+        xml.contains("<topology sockets='1' dies='1' cores='1' threads='2'/>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_disk_cache_and_io() {
+    let mut domain = base_domain_template();
+    domain.tuning.disk_cache = Some(DiskCache::None);
+    domain.tuning.disk_io = Some(DiskIo::IoUring);
+    let xml = domain.render().expect("renders domain XML");
+    assert!(
+        xml.contains("<driver name='qemu' type='qcow2' cache='none' io='io_uring'/>"),
+        "{xml}"
+    );
+}
+
+#[test]
+fn test_domain_interface_queues() {
+    let mut domain = base_domain_template();
+    domain.interfaces.push(p2p_interface());
+    domain.tuning.interface_queues = Some(4);
+    domain.tuning.management_interface_queues = Some(4);
+    let xml = domain.render().expect("renders domain XML");
+    assert_eq!(xml.matches("<driver queues='4'/>").count(), 2, "{xml}");
 }

@@ -18,6 +18,7 @@ mod lab;
 mod mapping;
 mod network;
 mod node;
+mod performance;
 mod provider;
 mod provision;
 mod record_id;
@@ -77,6 +78,9 @@ pub use network::{BridgeKind, LabSubnets, NetworkV4, NetworkV6, SherpaNetwork};
 pub use node::{
     BiosTypes, CpuArchitecture, InterfaceType, MachineType, NodeConfig, NodeKind, NodeModel,
     NodeState, OsVariant, UnikernelBootMode, ZtpMethod,
+};
+pub use performance::{
+    CpuMode, CpuTopology, DiskCache, DiskIo, NodeCpuPins, PerformanceTuning, cpuset,
 };
 pub use provider::VmProviders;
 pub use provision::{ProvisionResult, ProvisionStatus};

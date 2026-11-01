@@ -4,8 +4,29 @@
   <name>{{ name }}</name>
 
   <vcpu placement='static'>{{ cpu_count }}</vcpu>
+  {% if tuning.io_thread_cpuset.is_some() %}
+  <iothreads>1</iothreads>
+  {% endif %}
+  {% if tuning.has_cputune() %}
+  <cputune>
+    {% for cpu in tuning.cpu_pinning %}
+    <vcpupin vcpu='{{ loop.index0 }}' cpuset='{{ cpu }}'/>
+    {% endfor %}
+    {% if let Some(cpuset) = tuning.qemu_cpuset %}
+    <emulatorpin cpuset='{{ cpuset }}'/>
+    {% endif %}
+    {% if let Some(cpuset) = tuning.io_thread_cpuset %}
+    <iothreadpin iothread='1' cpuset='{{ cpuset }}'/>
+    {% endif %}
+  </cputune>
+  {% endif %}
 
   <memory unit='MiB'>{{ memory }}</memory>
+  {% if let Some(node) = tuning.numa_node %}
+  <numatune>
+    <memory mode='strict' nodeset='{{ node }}'/>
+  </numatune>
+  {% endif %}
 
   <resource>
     <partition>/machine</partition>
@@ -34,11 +55,16 @@
   {% match cpu_model %}
   {%   when CpuModels::HostModel %}
   <cpu mode='{{ cpu_model }}'>
+  {%   when CpuModels::HostPassthrough %}
+  <cpu mode='{{ cpu_model }}'>
   {%   else %}
   <!-- Match any other cpu model -->
   <cpu>
     <model>{{ cpu_model }}</model>
   {% endmatch %}
+    {% if let Some(topology) = tuning.cpu_topology %}
+    <topology sockets='{{ topology.sockets }}' dies='1' cores='{{ topology.cores }}' threads='{{ topology.threads }}'/>
+    {% endif %}
     {% if vmx_enabled %}
     <feature name="vmx" policy="require"/>
     {% endif %}
@@ -122,7 +148,7 @@
     </disk>
     {%         else %}
     <disk type='file' device='disk'>
-      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'/>
+      <driver name='{{ disk.driver_name }}' type='{{ disk.driver_format }}'{% if let Some(cache) = tuning.disk_cache %} cache='{{ cache }}'{% endif %}{% if let Some(io) = tuning.disk_io %} io='{{ io }}'{% endif %}{% if tuning.io_thread_cpuset.is_some() %} iothread='1'{% endif %}/>
       <source file='{{ disk.src_file }}'/>
       <target dev='{{ disk.target_dev }}' bus='{{ disk.target_bus }}'/>
     </disk>
@@ -149,6 +175,9 @@
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ management_network }}'/>
       <model type='{{ management_interface_type }}'/>
+      {% if let Some(queues) = tuning.management_interface_queues %}
+      <driver queues='{{ queues }}'/>
+      {% endif %}
     </interface>
 
     {%     when ConnectionTypes::Reserved %}
@@ -168,6 +197,9 @@
       <mac address='{{ interface.mac_address }}'/>
       <source network='{{ isolated_network }}'/>
       <model type='{{ interface_type }}'/>
+      {% if let Some(queues) = tuning.interface_queues %}
+      <driver queues='{{ queues }}'/>
+      {% endif %}
       <link state='down'/>
     </interface>
 
@@ -177,6 +209,9 @@
       <mac address='{{ interface.mac_address }}'/>
       <source bridge='{{ interface.name }}'/>
       <model type='{{ interface_type }}'/>
+      {% if let Some(queues) = tuning.interface_queues %}
+      <driver queues='{{ queues }}'/>
+      {% endif %}
     </interface>
 
     {%     when ConnectionTypes::P2p %}
@@ -187,6 +222,9 @@
       <target dev='{{ interface.name }}'/>
       <script path=''/>
       <model type='{{ interface_type }}'/>
+      {% if let Some(queues) = tuning.interface_queues %}
+      <driver queues='{{ queues }}'/>
+      {% endif %}
     </interface>
 
     {%   endmatch %}

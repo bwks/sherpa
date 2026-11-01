@@ -243,7 +243,7 @@ pub async fn update_node_host_key(
         .ok_or_else(|| anyhow!("Node host key update failed: {}", node.name))
 }
 
-/// Record what a node was given: its vCPUs, memory and VNC port.
+/// Record what a node was given: its vCPUs, memory, VNC port and pinned host CPUs.
 ///
 /// # Errors
 /// - If the node doesn't exist
@@ -259,6 +259,8 @@ pub async fn update_node_resources(
     node.cpu_count = resources.cpu_count;
     node.memory = resources.memory;
     node.vnc_port = resources.vnc_port;
+    node.cpu_pinning = resources.cpu_pinning.clone();
+    node.qemu_thread_cpus = resources.qemu_thread_cpus.clone();
 
     let row = NodeRow::try_from(&node)?;
     let updated: Option<NodeRow> = db

@@ -3,14 +3,15 @@ use anyhow::{Context, Result};
 use super::manifest_processing::{
     get_node_image, process_manifest_bridges, process_manifest_links, process_manifest_nodes,
 };
-use shared::data::{NodeConfig, NodeModel};
+use shared::data::{NodeConfig, NodeCpuPins, NodeModel};
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::Manifest;
 use topology::validate::{
-    check_bridge_device, check_device_count, check_duplicate_device,
+    check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, validate_provisioners, validate_tailscale, validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, validate_provisioners, validate_tailscale,
+    validate_talos_clusters,
 };
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
@@ -78,6 +79,22 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
         )?;
     }
     println!("  ✓ All interface configurations valid");
+
+    println!("→ Checking performance tuning...");
+    for node in &nodes_expanded {
+        let node_image = get_node_image(&node.model, &node_images)?;
+        check_performance_tuning(node, &node_image)?;
+    }
+    let pins: Vec<NodeCpuPins> = nodes_expanded
+        .iter()
+        .filter_map(|node| {
+            node.performance_tuning
+                .as_ref()
+                .map(|tuning| NodeCpuPins::of(&node.name, tuning))
+        })
+        .collect();
+    check_cpu_pin_overlap(&pins)?;
+    println!("  ✓ Performance tuning is valid");
 
     // Connection validators
     if !links_detailed.is_empty() || !bridges_detailed.is_empty() {
