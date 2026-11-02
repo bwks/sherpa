@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.1] - 2026-11-02
+
+### Bug Fixes
+
+- Read sherpa.env only through systemd by @bwks ([6348c36](https://github.com/bwks/sherpa/commit/6348c362ac57fc7aef5a2a20f7d307ea016dd5d1))
+
+### Miscellaneous
+
+- Merge pull request #422 from bwks/fix/env-file-systemd
+
+fix: read sherpa.env only through systemd by @bwks in [#422](https://github.com/bwks/sherpa/pull/422) ([a10ebc8](https://github.com/bwks/sherpa/commit/a10ebc8da2b0c8efa7e9bf2054d7ea91405cc151))
+- Merge pull request #420 from bwks/changelog/v0.5.0
+
+chore(release): update changelog for v0.5.0 by @github-actions[bot] in [#420](https://github.com/bwks/sherpa/pull/420) ([cde327c](https://github.com/bwks/sherpa/commit/cde327c0bce1b3dd91251c24625e57029c7073b4))
 ## [0.5.0] - 2026-11-02
 
 ### Documentation
