@@ -685,3 +685,20 @@ _require_install() {
     run bash -c "SHERPA_SERVER_IPV4='${SHERPA_SERVER_IPV4}' bash '${SCRIPT}'"
     [ "$status" -eq 0 ]
 }
+
+# ============================================================
+# Success Message
+# ============================================================
+
+@test "print_success_message: shows the init command with the address and ports chosen" {
+    run bash -c "
+        set +e
+        source '${STRIPPED_SCRIPT}'
+        SERVER_IP=192.0.2.10
+        WS_PORT=4030
+        HTTP_PORT=4031
+        print_success_message
+    "
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"sherpad init --server-ipv4 192.0.2.10 --ws-port 4030 --http-port 4031"* ]]
+}

@@ -149,6 +149,7 @@
 **What to test:**
 - No database container is created and `sherpa.env` holds no `SHERPA_DB_PASSWORD` or `SHERPA_DB_PORT` `[integration]` **P0**
 - `/opt/sherpa/db` exists, owned by sherpa; `sherpad init` creates `sherpa.sqlite` in it `[integration]` **P0**
+- The success message shows `sherpad init` with the chosen `--server-ipv4`, `--ws-port` and `--http-port` `[unit]` **P1**
 
 ---
 

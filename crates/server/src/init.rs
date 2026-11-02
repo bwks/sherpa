@@ -1,7 +1,7 @@
 use std::env;
 use std::fs;
 use std::io::{self, Write};
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -14,55 +14,25 @@ use shared::konst::{
     ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
     SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_BACKUP_PATH,
-    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH,
-    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT, SHERPA_SSH_PATH,
+    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_IMAGES_PATH, SHERPA_SSH_PATH,
     SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
     SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
 };
 use shared::util::{
     create_config, create_dir, default_config, file_exists, generate_ssh_keypair,
-    normalize_username, read_env_file_value, term_msg_highlight, term_msg_surround,
-    term_msg_underline,
+    normalize_username, term_msg_highlight, term_msg_surround, term_msg_underline,
 };
 use shared::validators::{validate_ssh_key, validate_username};
 use ssh_key::Algorithm;
 
 pub async fn init(
     force: bool,
-    server_ipv4: Option<&str>,
-    ws_port: Option<u16>,
-    http_port: Option<u16>,
+    server_ipv4: Ipv4Addr,
+    server_ipv6: Option<Ipv6Addr>,
+    ws_port: u16,
+    http_port: u16,
 ) -> Result<()> {
-    let env_file = Path::new(SHERPA_ENV_FILE_PATH);
-
-    let server_ipv4 = match server_ipv4 {
-        Some(ip) => ip.to_string(),
-        None => read_env_file_value(env_file, "SHERPA_SERVER_IPV4")
-            .unwrap_or_else(|| SHERPA_SERVER_IPV4.to_string()),
-    };
-
-    let ws_port = match ws_port {
-        Some(p) => p,
-        None => read_env_file_value(env_file, "SHERPA_SERVER_WS_PORT")
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(SHERPA_SERVER_WS_PORT),
-    };
-
-    let http_port = match http_port {
-        Some(p) => p,
-        None => read_env_file_value(env_file, "SHERPA_SERVER_HTTP_PORT")
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(SHERPA_SERVER_HTTP_PORT),
-    };
-
-    let server_ipv4_addr: Ipv4Addr = server_ipv4
-        .parse()
-        .context("Invalid server IP address. Expected format: x.x.x.x")?;
-
-    let server_ipv6_addr: Option<std::net::Ipv6Addr> =
-        read_env_file_value(env_file, "SHERPA_SERVER_IPV6").and_then(|v| v.parse().ok());
-
     term_msg_surround("Sherpa Server Initializing");
 
     // Create server directories
@@ -103,8 +73,8 @@ pub async fn init(
     } else {
         term_msg_underline("Writing Server Config");
         let mut config = default_config();
-        config.server_ipv4 = server_ipv4_addr;
-        config.server_ipv6 = server_ipv6_addr;
+        config.server_ipv4 = server_ipv4;
+        config.server_ipv6 = server_ipv6;
         config.ws_port = ws_port;
         config.http_port = http_port;
         create_config(&config, SHERPA_CONFIG_FILE_PATH)?;
@@ -152,7 +122,7 @@ pub async fn init(
     apply_schema(&db).await?;
     println!("Database schema applied");
 
-    create_admin_account(&db, env_file).await?;
+    create_admin_account(&db).await?;
     create_first_user(&db).await?;
 
     term_msg_surround("Sherpa Server Initialized");
@@ -161,10 +131,10 @@ pub async fn init(
 
 /// Create the built-in `admin` account unless it already exists.
 ///
-/// The password comes from `SHERPA_ADMIN_PASSWORD` in the environment or the env file, or is
-/// prompted for. An existing `admin` is left untouched, so `init` is safe to re-run.
-#[instrument(skip(db, env_file))]
-async fn create_admin_account(db: &Database, env_file: &Path) -> Result<()> {
+/// The password comes from `SHERPA_ADMIN_PASSWORD` in the environment, or is prompted for. An
+/// existing `admin` is left untouched, so `init` is safe to re-run.
+#[instrument(skip(db))]
+async fn create_admin_account(db: &Database) -> Result<()> {
     term_msg_underline("Creating Admin Account");
     if find_user(db, ADMIN_USERNAME)
         .await
@@ -175,10 +145,7 @@ async fn create_admin_account(db: &Database, env_file: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let password = match env::var(SHERPA_ADMIN_PASSWORD_ENV)
-        .ok()
-        .or_else(|| read_env_file_value(env_file, SHERPA_ADMIN_PASSWORD_ENV))
-    {
+    let password = match env::var(SHERPA_ADMIN_PASSWORD_ENV).ok() {
         Some(password) => {
             println!("Using the admin password from {SHERPA_ADMIN_PASSWORD_ENV}");
             password

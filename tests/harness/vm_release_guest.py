@@ -380,8 +380,16 @@ class Guest:
         """After an upgrade from a release before 0.5.0, the data lives in sherpad's file."""
         require((self.base / "db/sherpa.sqlite").is_file(), "Embedded database file missing")
 
+    def init_command(self):
+        """sherpad init with the address and ports the installer was given, as the installer
+        tells users to run it."""
+        return ["sudo", "-u", "sherpa", "-H", str(self.base / "bin/sherpad"), "init",
+                "--server-ipv4", self.settings["listen_ip"],
+                "--ws-port", str(self.settings["ws_port"]),
+                "--http-port", str(self.settings["http_port"])]
+
     def initialize(self):
-        command = ["sudo", "-u", "sherpa", "-H", str(self.base / "bin/sherpad"), "init"]
+        command = self.init_command()
         # The built-in admin account, then the first user account, a personal administrator.
         prompts = [(b"Password for admin: ", self.credentials["admin_password"]),
                    (b"Confirm password: ", self.credentials["admin_password"]),
@@ -534,7 +542,23 @@ class Guest:
         state["users"] = [json.dumps(entry, sort_keys=True) for entry in selected]
         return state
 
+    def quote_legacy_db_password(self):
+        """Quote the SurrealDB password in sherpa.env, as hand-edited servers have it. systemd
+        strips the quotes, so the old sherpad still signs in, and the migration must too."""
+        env_file = self.base / "env/sherpa.env"
+        lines = env_file.read_text().splitlines(keepends=True)
+        prefix = "SHERPA_DB_PASSWORD="
+        matches = [index for index, line in enumerate(lines) if line.startswith(prefix)]
+        require(len(matches) == 1, "Expected one SHERPA_DB_PASSWORD line in sherpa.env")
+        value = lines[matches[0]][len(prefix):].rstrip("\n")
+        lines[matches[0]] = f'{prefix}"{value}"\n'
+        env_file.write_text("".join(lines))
+
     def seed_upgrade(self):
+        if self.upgraded_from_legacy():
+            self.quote_legacy_db_password()
+            self.command(["systemctl", "restart", "sherpad"])
+            self.authenticate()
         admin = self.login(self.credentials["admin_username"])
         username = "persist-" + self.config["identity"]["nonce"][:8]
         created = self.request("/api/v1/admin/users",
@@ -1003,6 +1027,7 @@ class GuestTests(unittest.TestCase):
         guest = Guest.__new__(Guest)
         guest.base = Path("/unused-test-guest")
         guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
+        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
         guest.timeouts = {"initialize": 1, "poll": 1}
         guest.passwords = []
         guest.snapshot = lambda: None
@@ -1022,10 +1047,33 @@ class GuestTests(unittest.TestCase):
             guest.initialize()
             terminate.assert_not_called()
 
+    def test_initialization_passes_the_chosen_address_and_ports(self):
+        guest = Guest.__new__(Guest)
+        guest.base = Path("/opt/sherpa")
+        guest.settings = {"listen_ip": "192.0.2.10", "ws_port": 4030, "http_port": 4031}
+        self.assertEqual(guest.init_command(),
+                         ["sudo", "-u", "sherpa", "-H", "/opt/sherpa/bin/sherpad", "init",
+                          "--server-ipv4", "192.0.2.10", "--ws-port", "4030", "--http-port", "4031"])
+
+    def test_legacy_database_password_is_quoted_like_a_hand_edited_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            guest = Guest.__new__(Guest)
+            guest.base = Path(directory)
+            (guest.base / "env").mkdir()
+            env_file = guest.base / "env/sherpa.env"
+            env_file.write_text("SHERPA_SERVER_IPV4=127.0.0.1\nSHERPA_DB_PASSWORD=test-db\nSHERPA_DB_PORT=8000\n")
+            guest.quote_legacy_db_password()
+            self.assertEqual(env_file.read_text(),
+                             'SHERPA_SERVER_IPV4=127.0.0.1\nSHERPA_DB_PASSWORD="test-db"\nSHERPA_DB_PORT=8000\n')
+            env_file.write_text("SHERPA_SERVER_IPV4=127.0.0.1\n")
+            with self.assertRaises(RuntimeError):
+                guest.quote_legacy_db_password()
+
     def test_initialization_timeout_reports_timeout_after_reaping_child(self):
         guest = Guest.__new__(Guest)
         guest.base = Path("/unused-test-guest")
         guest.credentials = {"admin_username": "test-admin", "admin_password": "test-only"}
+        guest.settings = {"listen_ip": "127.0.0.1", "ws_port": 3030, "http_port": 3031}
         guest.timeouts = {"initialize": 1, "poll": 1}
         guest.passwords = []
         with patch.object(pty, "fork", return_value=(1234, 99)), \

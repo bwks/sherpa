@@ -101,7 +101,10 @@ release tag in the recorded checkout (`git show <baseline>:scripts/sherpa_instal
 as users of that release installed it. The upgrade then runs the recorded
 checkout's `sherpa_update.sh` with the candidate archives (`SHERPA_ARTIFACT_DIR`),
 as users upgrade. From a baseline older than 0.5.0 that includes moving the data
-out of SurrealDB with `sherpad migrate-db`; the checks below then confirm every
+out of SurrealDB with `sherpad migrate-db`. Before recording the baseline state, the
+scenario quotes `SHERPA_DB_PASSWORD` in `sherpa.env`, as hand-edited servers have it,
+restarts the baseline `sherpad` and authenticates again, so the move must read the
+password as systemd does. The checks below then confirm every
 user, setting and identity survived the move. Both input archive/binary hashes and
 the baseline installer hash/source are recorded. Equal versions, identical binary bytes or a missing
 local candidate selection are rejected before provisioning.

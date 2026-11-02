@@ -834,9 +834,12 @@ Useful Commands:
     Disable:       sudo systemctl disable sherpad
 
 Next Steps:
-  1. Run: 'exec sg libvirt -c "newgrp \$(id -gn)"'  -- to load new groups
-  2. Run: 'sherpad init'                                               -- to initialize the server environment
-  3. Run: 'sudo systemctl start sherpad'                   -- to start the service
+  1. Load the new groups:
+       exec sg libvirt -c "newgrp \$(id -gn)"
+  2. Initialize the server environment, with the address and ports chosen above:
+       sherpad init --server-ipv4 ${SERVER_IP} --ws-port ${WS_PORT} --http-port ${HTTP_PORT}
+  3. Start the service:
+       sudo systemctl start sherpad
 
 EOF
 

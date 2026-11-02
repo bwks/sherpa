@@ -104,6 +104,12 @@ versioned:
 (`crates/server/src/migrate.rs`) calls `import_from_surrealdb(&SurrealSource, &Database)`, and
 `scripts/sherpa_update.sh` runs it on the first update to 0.5.0.
 
+`migrate-db` takes the SurrealDB password and port only from its flags or the environment;
+`sherpad` never parses `/opt/sherpa/env/sherpa.env` itself. The update script runs it with
+`systemd-run` as the `sherpa` user and with the service's `EnvironmentFile=`, so systemd reads the
+password exactly as it did for the old `sherpad` (quotes, escapes, the last of repeated keys). The
+port comes from the host port Docker records for the `sherpa-db` container, passed as `--db-port`.
+
 - `source.rs` connects to the old SurrealDB container over WebSocket and reads every table.
 - `rows.rs` holds the rows as SurrealDB stored them, and their conversion to Sherpa's records,
   including the old link impairment and bridge member layouts.

@@ -33,13 +33,14 @@ async fn main() -> Result<()> {
         Commands::Init {
             force,
             server_ipv4,
+            server_ipv6,
             ws_port,
             http_port,
-        } => sherpad::init::init(force, server_ipv4.as_deref(), ws_port, http_port).await,
+        } => sherpad::init::init(force, server_ipv4, server_ipv6, ws_port, http_port).await,
         Commands::MigrateDb {
             db_password,
             db_port,
-        } => sherpad::migrate::migrate_db(db_password.as_deref(), db_port).await,
+        } => sherpad::migrate::migrate_db(&db_password, db_port).await,
         Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
     }
 }
