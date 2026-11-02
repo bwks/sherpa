@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, DbUser, LabState};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
+use turso::Connection;
 
+use crate::Database;
 use crate::helpers::get_user_id;
-use crate::persistence::{LabRow, to_surreal_id};
+use crate::persistence::{LAB_TABLE, key_of, lab_columns, lab_from_row, lab_values, new_key};
+use crate::sql::query_optional;
 
 /// The subnets and addresses allocated to one lab.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +67,7 @@ pub fn validate_lab_id(lab_id: &str) -> Result<()> {
 /// - If there's a database error during creation
 #[instrument(skip(db), level = "debug")]
 pub async fn create_lab(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     name: &str,
     lab_id: &str,
     user: &DbUser,
@@ -96,16 +96,12 @@ pub async fn create_lab(
         loopback_network_v6: networks.loopback_network_v6.clone(),
         status: LabState::default(),
     };
-    let created: Option<LabRow> = db
-        .create("lab")
-        .content(LabRow::try_from(&lab)?)
+    let writer = db.writer().await?;
+    let created = insert_lab(&writer.conn, &lab)
         .await
         .context(format!("Failed to create lab: '{}'", name))?;
 
-    created
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab was not created: '{}'", name))
+    created.ok_or_else(|| anyhow!("Lab was not created: '{}'", name))
 }
 
 /// Create a new lab or update existing lab (upsert operation)
@@ -126,29 +122,55 @@ pub async fn create_lab(
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn upsert_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
+pub async fn upsert_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(&lab.lab_id)?;
 
-    let row = LabRow::try_from(&lab)?;
-    let result: Option<LabRow> = if let Some(id) = &lab.id {
+    let writer = db.writer().await?;
+    let result = if let Some(id) = &lab.id {
         // Update existing lab
-        db.update(to_surreal_id(id))
-            .content(row)
-            .await
-            .context(format!("Failed to update lab: '{}'", lab.name))?
+        query_optional(
+            &writer.conn,
+            UPDATE_LAB,
+            lab_values(&lab, &key_of(id, LAB_TABLE)?)?,
+            lab_from_row,
+        )
+        .await
+        .context(format!("Failed to update lab: '{}'", lab.name))?
     } else {
         // Create new lab
-        db.create("lab")
-            .content(row)
+        insert_lab(&writer.conn, &lab)
             .await
             .context(format!("Failed to create lab: '{}'", lab.name))?
     };
 
-    result
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
+    result.ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
+}
+
+/// Replace every column of a lab except its id, returning the stored lab. Used by
+/// `upsert_lab` and `update_lab`.
+pub(crate) const UPDATE_LAB: &str = concat!(
+    "UPDATE lab SET lab_id = ?2, name = ?3, user = ?4, loopback_network = ?5, \
+     management_network = ?6, gateway_ipv4 = ?7, router_ipv4 = ?8, \
+     tailscale_container_id = ?9, management_network_v6 = ?10, gateway_ipv6 = ?11, \
+     router_ipv6 = ?12, loopback_network_v6 = ?13, status = ?14 WHERE id = ?1 RETURNING ",
+    lab_columns!()
+);
+
+/// Insert `lab` under a new key, returning the stored lab.
+async fn insert_lab(conn: &Connection, lab: &DbLab) -> Result<Option<DbLab>> {
+    query_optional(
+        conn,
+        concat!(
+            "INSERT INTO lab (",
+            lab_columns!(),
+            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING ",
+            lab_columns!()
+        ),
+        lab_values(lab, &new_key())?,
+        lab_from_row,
+    )
+    .await
 }
 
 #[cfg(test)]

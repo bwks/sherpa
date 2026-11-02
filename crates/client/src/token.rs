@@ -108,7 +108,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // This test writes to the filesystem and uses unsafe
+    #[ignore = "changes HOME for the whole process with unsafe set_var and writes files"]
     fn test_save_and_load_token() {
         // Save original HOME for cleanup
         let original_home = env::var("HOME").ok();
@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore] // Uses unsafe env::set_var
+    #[ignore = "changes HOME for the whole process with unsafe set_var"]
     fn test_load_token_not_found() {
         // Save original HOME
         let original_home = env::var("HOME").ok();

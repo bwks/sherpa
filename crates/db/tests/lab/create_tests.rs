@@ -2,12 +2,11 @@ use anyhow::Result;
 use db::{LabNetworks, count_labs, create_lab, create_user, get_lab, upsert_lab, validate_lab_id};
 use shared::data::{DbLab, LabState};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_success() -> Result<()> {
-    let db = setup_db("test_create_lab").await?;
+    let db = setup_db().await?;
 
     // Create a user first
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
@@ -32,14 +31,12 @@ async fn test_create_lab_success() -> Result<()> {
     assert_eq!(lab.user, user.id.unwrap());
     assert!(lab.id.is_some(), "Lab should have an ID");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_with_user() -> Result<()> {
-    let db = setup_db("test_create_lab_user").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -59,14 +56,12 @@ async fn test_create_lab_with_user() -> Result<()> {
     // Verify lab is associated with user
     assert_eq!(lab.user, user.id.unwrap());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
-    let db = setup_db("test_create_lab_dup_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -109,14 +104,12 @@ async fn test_create_lab_duplicate_lab_id_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
-    let db = setup_db("test_create_lab_dup_name").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -162,14 +155,12 @@ async fn test_create_lab_duplicate_name_per_user_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
-    let db = setup_db("test_create_lab_diff_users").await?;
+    let db = setup_db().await?;
 
     let user1 = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
@@ -206,14 +197,12 @@ async fn test_create_lab_same_name_different_users_succeeds() -> Result<()> {
     assert_eq!(lab2.name, "Shared Name");
     assert_ne!(lab1.user, lab2.user, "Labs should have different owners");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
-    let db = setup_db("test_create_lab_invalid_short").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -240,14 +229,12 @@ async fn test_create_lab_invalid_lab_id_too_short() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
-    let db = setup_db("test_create_lab_invalid_long").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -274,14 +261,12 @@ async fn test_create_lab_invalid_lab_id_too_long() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
-    let db = setup_db("test_create_lab_invalid_chars").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -308,7 +293,6 @@ async fn test_create_lab_invalid_lab_id_chars() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
@@ -329,9 +313,8 @@ fn test_validate_lab_id_invalid() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_upsert_lab_creates_new() -> Result<()> {
-    let db = setup_db("test_upsert_creates").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "judy".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.unwrap();
@@ -360,14 +343,12 @@ async fn test_upsert_lab_creates_new() -> Result<()> {
     assert_eq!(result.lab_id, "lab-0009");
     assert_eq!(result.name, "Upsert Test");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_upsert_lab_updates_existing() -> Result<()> {
-    let db = setup_db("test_upsert_updates").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "karl".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -414,14 +395,12 @@ async fn test_upsert_lab_updates_existing() -> Result<()> {
     let fetched = get_lab(&db, "lab-0010").await?;
     assert_eq!(fetched.name, "Updated Name");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_increases_count() -> Result<()> {
-    let db = setup_db("test_create_increases_count").await?;
+    let db = setup_db().await?;
 
     let count_before = count_labs(&db).await?;
 
@@ -444,7 +423,6 @@ async fn test_create_lab_increases_count() -> Result<()> {
 
     assert_eq!(count_after, count_before + 1, "Count should increase by 1");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
@@ -462,9 +440,8 @@ fn dual_stack_networks(index: u8) -> LabNetworks {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
-    let db = setup_db("test_create_lab_dup_mgmt").await?;
+    let db = setup_db().await?;
     let user = create_user(&db, "mia".to_string(), "TestPass123!", false, vec![]).await?;
 
     create_lab(
@@ -518,14 +495,12 @@ async fn test_create_lab_duplicate_management_network_fails() -> Result<()> {
         "Rejected labs must not be created"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
-    let db = setup_db("test_create_lab_ipv6").await?;
+    let db = setup_db().await?;
     let user = create_user(&db, "noah".to_string(), "TestPass123!", false, vec![]).await?;
 
     let networks = dual_stack_networks(1);
@@ -546,14 +521,12 @@ async fn test_create_lab_stores_and_reserves_ipv6() -> Result<()> {
         "An IPv6 management subnet must belong to one lab"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
-    let db = setup_db("test_create_lab_no_ipv6").await?;
+    let db = setup_db().await?;
     let user = create_user(&db, "olga".to_string(), "TestPass123!", false, vec![]).await?;
 
     create_lab(
@@ -585,6 +558,5 @@ async fn test_labs_without_ipv6_do_not_conflict() -> Result<()> {
     create_lab(&db, "Lab Three", "lab-0123", &user, &dual_stack_networks(3)).await?;
     assert_eq!(count_labs(&db).await?, 3);
 
-    teardown_db(&db).await?;
     Ok(())
 }

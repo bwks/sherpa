@@ -1,12 +1,9 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use shared::data::RecordId;
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::link::read::get_link;
-use crate::persistence::{LinkRow, to_surreal_id};
+use crate::Database;
+use crate::persistence::{LAB_TABLE, LINK_TABLE, NODE_TABLE, key_of};
 
 /// Delete a link by its RecordId (surrogate key)
 ///
@@ -19,14 +16,17 @@ use crate::persistence::{LinkRow, to_surreal_id};
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
-    // Verify link exists
-    let _ = get_link(db, id.clone()).await?;
-
-    let _deleted: Option<LinkRow> = db
-        .delete(to_surreal_id(&id))
+pub async fn delete_link(db: &Database, id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    let deleted = writer
+        .conn
+        .execute("DELETE FROM link WHERE id = ?1", [key_of(&id, LINK_TABLE)?])
         .await
         .context(format!("Failed to delete link: {:?}", id))?;
+
+    if deleted == 0 {
+        return Err(anyhow!("Link not found with id: {:?}", id));
+    }
 
     Ok(())
 }
@@ -41,7 +41,7 @@ pub async fn delete_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 /// - If link not found
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
+pub async fn delete_link_by_id(db: &Database, id: RecordId) -> Result<()> {
     delete_link(db, id).await
 }
 
@@ -57,13 +57,16 @@ pub async fn delete_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Resul
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
-    let _deleted: Vec<LinkRow> = db
-        .query("DELETE link WHERE lab = $lab_id")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
+pub async fn delete_links_by_lab(db: &Database, lab_id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM link WHERE lab = ?1",
+            [key_of(&lab_id, LAB_TABLE)?],
+        )
         .await
-        .context(format!("Failed to delete links for lab: {:?}", lab_id))?
-        .take(0)?;
+        .context(format!("Failed to delete links for lab: {:?}", lab_id))?;
 
     Ok(())
 }
@@ -71,7 +74,7 @@ pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// Delete all links associated with a node
 ///
 /// This deletes all links where the node appears as either node_a or node_b.
-/// This is typically called before deleting a node to prevent foreign key violations.
+/// Deleting the node itself also deletes its links (`ON DELETE CASCADE`).
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -81,13 +84,16 @@ pub async fn delete_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
-    let _deleted: Vec<LinkRow> = db
-        .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", to_surreal_id(&node_id)))
+pub async fn delete_links_by_node(db: &Database, node_id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM link WHERE node_a = ?1 OR node_b = ?1",
+            [key_of(&node_id, NODE_TABLE)?],
+        )
         .await
-        .context(format!("Failed to delete links for node: {:?}", node_id))?
-        .take(0)?;
+        .context(format!("Failed to delete links for node: {:?}", node_id))?;
 
     Ok(())
 }

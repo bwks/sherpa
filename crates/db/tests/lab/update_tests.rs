@@ -2,12 +2,11 @@ use anyhow::Result;
 use db::{create_lab, create_user, get_lab, update_lab, update_lab_state};
 use shared::data::{DbLab, LabState, RecordId};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_update_lab_success() -> Result<()> {
-    let db = setup_db("test_update_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(
@@ -31,14 +30,12 @@ async fn test_update_lab_success() -> Result<()> {
     assert_eq!(updated.name, "Updated Name");
     assert_eq!(updated.lab_id, "lab-0001");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_lab_without_id_fails() -> Result<()> {
-    let db = setup_db("test_update_no_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.unwrap();
@@ -65,14 +62,12 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
     assert!(result.is_err(), "Should fail without ID");
     assert!(result.unwrap_err().to_string().contains("without id field"));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_nonexistent_lab_fails() -> Result<()> {
-    let db = setup_db("test_update_nonexistent").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let fake_id = RecordId::new("lab", "nonexistent");
@@ -98,14 +93,12 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
 
     assert!(result.is_err(), "Should fail on nonexistent lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_preserves_id() -> Result<()> {
-    let db = setup_db("test_update_preserves_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(
@@ -128,14 +121,12 @@ async fn test_update_preserves_id() -> Result<()> {
 
     assert_eq!(updated.id, original_id, "ID should not change");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_lab_id() -> Result<()> {
-    let db = setup_db("test_update_lab_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(
@@ -162,14 +153,12 @@ async fn test_update_lab_id() -> Result<()> {
     let fetched = get_lab(&db, "lab-0099").await?;
     assert_eq!(fetched.id, updated.id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_cannot_change_owner() -> Result<()> {
-    let db = setup_db("test_update_owner_immutable").await?;
+    let db = setup_db().await?;
 
     let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
@@ -200,14 +189,12 @@ async fn test_update_cannot_change_owner() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_lab_name_constraint() -> Result<()> {
-    let db = setup_db("test_update_name_constraint").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -248,14 +235,12 @@ async fn test_update_lab_name_constraint() -> Result<()> {
         "Should fail on duplicate (name, user) constraint"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_lab_invalid_lab_id() -> Result<()> {
-    let db = setup_db("test_update_invalid_lab_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
     let mut lab = create_lab(
@@ -284,49 +269,41 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
             .contains("exactly 8 characters")
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn tailnet_inventory_survives_lab_state_updates() -> Result<()> {
-    let database = setup_db("tailnet_inventory").await?;
-    let result: Result<()> = async {
-        let user = create_user(
-            &database,
-            "tailnet-owner".into(),
-            "TestPass123!",
-            false,
-            vec![],
-        )
-        .await?;
-        let mut lab = create_lab(
-            &database,
-            "tailnet",
-            "tailnet1",
-            &user,
-            &ipv4_lab_networks(
-                "192.0.2.0/24",
-                "198.51.100.0/24",
-                "198.51.100.1",
-                "198.51.100.2",
-            ),
-        )
-        .await?;
-        assert!(lab.tailscale_container_id.is_none());
-        lab.tailscale_container_id = Some("exact-docker-id".into());
-        let updated = update_lab(&database, lab).await?;
-        update_lab_state(&database, updated.id.unwrap(), LabState::default()).await?;
-        let loaded = get_lab(&database, "tailnet1").await?;
-        assert_eq!(
-            loaded.tailscale_container_id.as_deref(),
-            Some("exact-docker-id")
-        );
-        Ok(())
-    }
-    .await;
-    let cleanup = teardown_db(&database).await;
-    result?;
-    cleanup
+    let database = setup_db().await?;
+    let user = create_user(
+        &database,
+        "tailnet-owner".into(),
+        "TestPass123!",
+        false,
+        vec![],
+    )
+    .await?;
+    let mut lab = create_lab(
+        &database,
+        "tailnet",
+        "tailnet1",
+        &user,
+        &ipv4_lab_networks(
+            "192.0.2.0/24",
+            "198.51.100.0/24",
+            "198.51.100.1",
+            "198.51.100.2",
+        ),
+    )
+    .await?;
+    assert!(lab.tailscale_container_id.is_none());
+    lab.tailscale_container_id = Some("exact-docker-id".into());
+    let updated = update_lab(&database, lab).await?;
+    update_lab_state(&database, updated.id.unwrap(), LabState::default()).await?;
+    let loaded = get_lab(&database, "tailnet1").await?;
+    assert_eq!(
+        loaded.tailscale_container_id.as_deref(),
+        Some("exact-docker-id")
+    );
+    Ok(())
 }

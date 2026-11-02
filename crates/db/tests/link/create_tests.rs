@@ -5,12 +5,11 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_success() -> Result<()> {
-    let db = setup_db("test_create_link").await?;
+    let db = setup_db().await?;
 
     // Setup dependencies
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
@@ -69,14 +68,12 @@ async fn test_create_link_success() -> Result<()> {
     assert_eq!(link.lab, lab.id.unwrap());
     assert!(link.id.is_some(), "Link should have an ID");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_with_lab() -> Result<()> {
-    let db = setup_db("test_create_link_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -128,14 +125,12 @@ async fn test_create_link_with_lab() -> Result<()> {
     // Verify link is associated with lab
     assert_eq!(link.lab, lab.id.unwrap());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_duplicate_peers_fails() -> Result<()> {
-    let db = setup_db("test_create_link_dup_peers").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -212,14 +207,12 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
-    let db = setup_db("test_create_link_diff_ints").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -289,14 +282,12 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
     assert_eq!(link1.node_b, link2.node_b);
     assert_ne!(link1.int_a, link2.int_a);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_with_bridge_kinds() -> Result<()> {
-    let db = setup_db("test_create_link_bridge_kinds").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -372,14 +363,12 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
     assert!(matches!(link2.kind, BridgeKind::P2p));
     assert!(matches!(link3.kind, BridgeKind::SharedBridge));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_increments_count() -> Result<()> {
-    let db = setup_db("test_create_link_count").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -451,14 +440,12 @@ async fn test_create_link_increments_count() -> Result<()> {
     assert_eq!(final_count, initial_count + 2);
     assert_eq!(final_lab_count, initial_lab_count + 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
-    let db = setup_db("test_create_link_retrieve").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -521,14 +508,12 @@ async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
     assert_eq!(created_link.id, retrieved_link.id);
     assert_eq!(created_link.index, retrieved_link.index);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_link_can_retrieve_by_id() -> Result<()> {
-    let db = setup_db("test_create_link_retrieve_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -587,6 +572,5 @@ async fn test_create_link_can_retrieve_by_id() -> Result<()> {
     assert_eq!(created_link.node_a, retrieved_link.node_a);
     assert_eq!(created_link.node_b, retrieved_link.node_b);
 
-    teardown_db(&db).await?;
     Ok(())
 }

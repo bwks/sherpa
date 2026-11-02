@@ -1,118 +1,40 @@
-//! Node table schema definition
+//! Node table schema
 //!
-//! The node table stores individual network devices (nodes) within a lab.
-//! Each node represents a virtual machine, container, or unikernel that
-//! participates in the network topology. Nodes reference an imported image
-//! from the node_image table and belong to a specific lab.
-//!
-//! ## Fields
-//! - `name`: Node name (unique within lab)
-//! - `index`: Node index for ordering (unique within lab, 0-65535)
-//! - `image`: Foreign key reference to node_image record
-//! - `lab`: Foreign key reference to owning lab
-//! - `mgmt_ipv4`: Management IPv4 address (optional, set during lab setup)
-//! - `mgmt_mac`: Management MAC address (optional, set during lab setup)
-//! - `cpu_count`, `memory`: vCPUs and memory (MB) the node was given (optional; none for
-//!   containers, which Sherpa does not limit)
-//! - `vnc_port`: The VM's VNC console port on the server (optional, fixed for the node's life)
-//!
-//! ## Constraints
-//! - Node name must be unique per lab
-//! - Node index must be unique per lab
-//! - Index must be between 0 and 65535 (inclusive)
-//! - Index must be an integer (no decimals)
-//! - A VNC port belongs to at most one node across all labs; nodes without one do not
-//!   conflict, as absent values are not indexed
-//!
-//! ## Computed Fields
-//! - `links`: Reverse reference to all links connected to this node (`array::union(<~(link FIELD node_a), <~(link FIELD node_b))`)
-//! - `bridges`: Reverse reference to all bridges this node connects to (`<~(bridge FIELD nodes)`)
-//!
-//! ## Relationships
-//! - Many-to-one with `node_image` table (multiple nodes can use same image)
-//! - Many-to-one with `lab` table (each node belongs to one lab)
-//! - One-to-many with `link` table (node can have multiple links to other nodes)
-//!
-//! ## Referential Integrity
-//! - `image` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
-//!   node_image that is still referenced by nodes.
-//! - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
-//!   all its nodes are automatically deleted by the database.
-
+//! - Node names and indexes are unique within a lab, and VNC ports across all labs.
+//! - `image` refers to the node image, which cannot be deleted while a node uses it.
+//! - Deleting a lab deletes its nodes; deleting a node deletes its links and bridge memberships.
+use anyhow::Result;
 use shared::data::NodeState;
 
-use super::helpers::vec_to_str;
+use super::helpers::{enum_rule, rule_triggers};
 
-/// Generate the node table schema.
-///
-/// Creates the node table with unique constraints to ensure nodes within a lab
-/// have unique names and indexes. Each node references an imported image
-/// and belongs to a specific lab.
-///
-/// # Returns
-///
-/// A string containing the complete SurrealDB schema definition for the node table.
-///
-/// # Schema Details
-///
-/// - **Table**: `node` (SCHEMAFULL)
-/// - **Fields**:
-///   - `name`: string (node name)
-///   - `index`: number (0-65535, integer only)
-///   - `image`: record reference to node_image table
-///   - `lab`: record reference to lab table
-///   - `mgmt_ipv4`: optional string (management IPv4 address)
-///   - `mgmt_mac`: optional string (management MAC address)
-/// - **Indexes**:
-///   - `unique_node_name_per_lab`: Ensures node names are unique within each lab
-///   - `unique_node_index_per_lab`: Ensures node indexes are unique within each lab
-///   - `unique_node_vnc_port`: Ensures a VNC port belongs to one node across all labs
-///
-/// # Referential Integrity
-///
-/// - `image` uses `REFERENCE ON DELETE REJECT` to prevent deletion of a
-///   node_image that is still referenced by nodes.
-/// - `lab` uses `REFERENCE ON DELETE CASCADE` so that when a lab is deleted,
-///   all its nodes are automatically removed by the database.
-///
-pub(crate) fn generate_node_schema() -> String {
-    let node_states = vec_to_str(NodeState::to_vec());
+const TABLE: &str = "node";
 
-    format!(
-        r#"
-DEFINE TABLE OVERWRITE node SCHEMAFULL;
-DEFINE FIELD OVERWRITE name ON TABLE node TYPE string;
-DEFINE FIELD OVERWRITE index ON TABLE node TYPE number
-    ASSERT $value >= 0 AND $value <= 65535 AND $value == math::floor($value);
-DEFINE FIELD OVERWRITE image ON TABLE node TYPE record<node_image> REFERENCE ON DELETE REJECT;
-DEFINE FIELD OVERWRITE lab ON TABLE node TYPE record<lab> REFERENCE ON DELETE CASCADE;
-DEFINE FIELD OVERWRITE mgmt_ipv4 ON TABLE node TYPE option<string>;
-DEFINE FIELD OVERWRITE mgmt_ipv6 ON TABLE node TYPE option<string>;
-DEFINE FIELD OVERWRITE mgmt_mac ON TABLE node TYPE option<string>;
-DEFINE FIELD OVERWRITE state ON TABLE node TYPE string
-    ASSERT $value IN [{node_states}]
-    DEFAULT "unknown";
-DEFINE FIELD OVERWRITE cpu_count ON TABLE node TYPE option<number>
-    ASSERT $value == NONE OR ($value >= 1 AND $value <= 255 AND $value == math::floor($value));
-DEFINE FIELD OVERWRITE memory ON TABLE node TYPE option<number>
-    ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
-DEFINE FIELD OVERWRITE vnc_port ON TABLE node TYPE option<number>
-    ASSERT $value == NONE OR ($value >= 1 AND $value <= 65535 AND $value == math::floor($value));
-DEFINE FIELD OVERWRITE ssh_host_key ON TABLE node TYPE option<string>;
-DEFINE FIELD OVERWRITE cpu_pinning ON TABLE node TYPE option<array<int>>;
-DEFINE FIELD OVERWRITE qemu_thread_cpus ON TABLE node TYPE option<array<int>>;
+pub(crate) const TABLES: &str = "
+CREATE TABLE node (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    \"index\" INTEGER NOT NULL CHECK (\"index\" BETWEEN 0 AND 65535),
+    image TEXT NOT NULL REFERENCES node_image(id) ON DELETE RESTRICT,
+    lab TEXT NOT NULL REFERENCES lab(id) ON DELETE CASCADE,
+    mgmt_ipv4 TEXT,
+    mgmt_ipv6 TEXT,
+    mgmt_mac TEXT,
+    state TEXT NOT NULL,
+    cpu_count INTEGER CHECK (cpu_count IS NULL OR cpu_count BETWEEN 1 AND 255),
+    memory INTEGER CHECK (memory IS NULL OR memory BETWEEN 1 AND 65535),
+    vnc_port INTEGER UNIQUE CHECK (vnc_port IS NULL OR vnc_port BETWEEN 1 AND 65535),
+    ssh_host_key TEXT,
+    cpu_pinning TEXT CHECK (cpu_pinning IS NULL OR json_valid(cpu_pinning)),
+    qemu_thread_cpus TEXT CHECK (qemu_thread_cpus IS NULL OR json_valid(qemu_thread_cpus)),
+    UNIQUE (lab, name),
+    UNIQUE (lab, \"index\")
+) STRICT;
+CREATE INDEX node_image_ref ON node (image);
+";
 
-DEFINE FIELD OVERWRITE links ON TABLE node COMPUTED array::union(<~(link FIELD node_a), <~(link FIELD node_b));
-DEFINE FIELD OVERWRITE bridges ON TABLE node COMPUTED <~(bridge FIELD nodes);
-
-DEFINE INDEX OVERWRITE unique_node_name_per_lab
-  ON TABLE node FIELDS lab, name UNIQUE;
-
-DEFINE INDEX OVERWRITE unique_node_index_per_lab
-  ON TABLE node FIELDS lab, index UNIQUE;
-
-DEFINE INDEX OVERWRITE unique_node_vnc_port
-  ON TABLE node FIELDS vnc_port UNIQUE;
-"#
-    )
+/// The triggers checking the enum columns against the current Rust enums.
+pub(crate) fn rules() -> Result<String> {
+    let rules = [enum_rule(TABLE, "state", NodeState::to_vec(), false)?];
+    Ok(rule_triggers(TABLE, &rules))
 }

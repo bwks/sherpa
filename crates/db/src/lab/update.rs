@@ -1,12 +1,12 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLab, LabState, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
+use crate::Database;
+use crate::lab::create::UPDATE_LAB;
 use crate::lab::validate_lab_id;
-use crate::persistence::{LabRow, to_surreal_id};
+use crate::persistence::{LAB_TABLE, enum_text, key_of, lab_columns, lab_from_row, lab_values};
+use crate::sql::query_optional;
 
 /// Update an existing lab in the database
 ///
@@ -29,7 +29,7 @@ use crate::persistence::{LabRow, to_surreal_id};
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> {
+pub async fn update_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
     // Require id field for updates
     let id = lab
         .id
@@ -39,16 +39,21 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
     // Validate lab_id format
     validate_lab_id(&lab.lab_id)?;
 
-    // Verify the lab exists and check if user is being changed
-    let existing_lab: Option<LabRow> = db
-        .select(to_surreal_id(id))
-        .await
-        .context(format!("Failed to fetch existing lab: {:?}", id))?;
+    let key = key_of(id, LAB_TABLE)?;
 
-    let existing = existing_lab
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
+    // Hold the write lock across the check and the update, so the owner cannot change between.
+    let writer = db.writer().await?;
+
+    // Verify the lab exists and check if user is being changed
+    let existing = query_optional(
+        &writer.conn,
+        concat!("SELECT ", lab_columns!(), " FROM lab WHERE id = ?1"),
+        [key.as_str()],
+        lab_from_row,
+    )
+    .await
+    .context(format!("Failed to fetch existing lab: {:?}", id))?
+    .ok_or_else(|| anyhow!("Lab not found: {:?}", id))?;
 
     // Verify owner (user) is not being changed - it's immutable
     if existing.user != lab.user {
@@ -60,17 +65,16 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
     }
 
     // Perform update
-    let row = LabRow::try_from(&lab)?;
-    let updated: Option<LabRow> = db
-        .update(to_surreal_id(id))
-        .content(row)
-        .await
-        .context(format!("Failed to update lab: {}", lab.name))?;
+    let updated = query_optional(
+        &writer.conn,
+        UPDATE_LAB,
+        lab_values(&lab, &key)?,
+        lab_from_row,
+    )
+    .await
+    .context(format!("Failed to update lab: {}", lab.name))?;
 
-    updated
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
+    updated.ok_or_else(|| anyhow!("Lab update failed: {}", lab.name))
 }
 
 /// Update the status field of an existing lab
@@ -83,29 +87,19 @@ pub async fn update_lab(db: &Arc<Surreal<Client>>, lab: DbLab) -> Result<DbLab> 
 /// # Returns
 /// The updated DbLab record
 #[instrument(skip(db), level = "debug")]
-pub async fn update_lab_state(
-    db: &Arc<Surreal<Client>>,
-    lab_id: RecordId,
-    state: LabState,
-) -> Result<DbLab> {
-    let row: LabRow = db
-        .select(to_surreal_id(&lab_id))
-        .await
-        .context(format!("Failed to fetch lab: {:?}", lab_id))?
-        .ok_or_else(|| anyhow!("Lab not found: {:?}", lab_id))?;
-    let mut lab = DbLab::try_from(row)?;
+pub async fn update_lab_state(db: &Database, lab_id: RecordId, state: LabState) -> Result<DbLab> {
+    let writer = db.writer().await?;
+    let updated = query_optional(
+        &writer.conn,
+        concat!(
+            "UPDATE lab SET status = ?2 WHERE id = ?1 RETURNING ",
+            lab_columns!()
+        ),
+        [key_of(&lab_id, LAB_TABLE)?, enum_text(&state, "status")?],
+        lab_from_row,
+    )
+    .await
+    .context(format!("Failed to update state for lab: {:?}", lab_id))?;
 
-    lab.status = state;
-
-    let row = LabRow::try_from(&lab)?;
-    let updated: Option<LabRow> = db
-        .update(to_surreal_id(&lab_id))
-        .content(row)
-        .await
-        .context(format!("Failed to update state for lab: {}", lab.name))?;
-
-    updated
-        .map(DbLab::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Lab state update failed: {}", lab.name))
+    updated.ok_or_else(|| anyhow!("Lab not found: {:?}", lab_id))
 }

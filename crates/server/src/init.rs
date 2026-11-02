@@ -7,16 +7,16 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use tracing::instrument;
 
-use db::{Database, apply_schema, connect, create_admin_user, create_user, find_user, list_users};
+use db::{Database, apply_schema, create_admin_user, create_user, find_user, list_users, open};
 use libvirt::{BridgeNetwork, Qemu, SherpaStoragePool};
 use shared::data::{NodeConfig, NodeModel};
 use shared::konst::{
     ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_BASE_DIR, SHERPA_BINS_PATH,
     SHERPA_BLANK_DISK_DIR, SHERPA_BRIDGE_NETWORK_BRIDGE, SHERPA_BRIDGE_NETWORK_NAME,
-    SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_NAME,
-    SHERPA_DB_NAMESPACE, SHERPA_DB_PORT, SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
-    SHERPA_IMAGES_PATH, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
-    SHERPA_SSH_PATH, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
+    SHERPA_CONFIG_FILE_PATH, SHERPA_CONFIG_PATH, SHERPA_CONTAINERS_PATH, SHERPA_DB_BACKUP_PATH,
+    SHERPA_DB_FILE_PATH, SHERPA_DB_PATH, SHERPA_ENV_FILE_PATH, SHERPA_IMAGES_PATH,
+    SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT, SHERPA_SSH_PATH,
+    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USER_IS_ADMIN_ENV, SHERPA_USER_NAME_ENV,
     SHERPA_USER_PASSWORD_ENV, SHERPA_USER_SSH_KEY_ENV,
 };
@@ -30,26 +30,11 @@ use ssh_key::Algorithm;
 
 pub async fn init(
     force: bool,
-    db_password: Option<&str>,
     server_ipv4: Option<&str>,
     ws_port: Option<u16>,
     http_port: Option<u16>,
-    db_port: Option<u16>,
 ) -> Result<()> {
     let env_file = Path::new(SHERPA_ENV_FILE_PATH);
-
-    let db_password = match db_password {
-        Some(p) => p.to_string(),
-        None => read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
-            anyhow::anyhow!(
-                "Database password not provided. Supply it via:\n  \
-                     1. --db-pass flag\n  \
-                     2. SHERPA_DB_PASSWORD environment variable\n  \
-                     3. SHERPA_DB_PASSWORD entry in {}",
-                env_file.display()
-            )
-        })?,
-    };
 
     let server_ipv4 = match server_ipv4 {
         Some(ip) => ip.to_string(),
@@ -71,13 +56,6 @@ pub async fn init(
             .unwrap_or(SHERPA_SERVER_HTTP_PORT),
     };
 
-    let db_port = match db_port {
-        Some(p) => p,
-        None => read_env_file_value(env_file, "SHERPA_DB_PORT")
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(SHERPA_DB_PORT),
-    };
-
     let server_ipv4_addr: Ipv4Addr = server_ipv4
         .parse()
         .context("Invalid server IP address. Expected format: x.x.x.x")?;
@@ -94,6 +72,8 @@ pub async fn init(
     create_dir(SHERPA_SSH_PATH)?;
     create_dir(SHERPA_CONTAINERS_PATH)?;
     create_dir(SHERPA_BINS_PATH)?;
+    create_dir(SHERPA_DB_PATH)?;
+    create_dir(SHERPA_DB_BACKUP_PATH)?;
     create_dir(SHERPA_IMAGES_PATH)?;
     create_dir(&format!("{SHERPA_IMAGES_PATH}/{SHERPA_BLANK_DISK_DIR}"))?;
 
@@ -165,14 +145,8 @@ pub async fn init(
 
     // Database initialization
     term_msg_highlight("Initializing Database");
-    let db = connect(
-        SHERPA_DB_SERVER,
-        db_port,
-        SHERPA_DB_NAMESPACE,
-        SHERPA_DB_NAME,
-        &db_password,
-    )
-    .await?;
+    let db = open(Path::new(SHERPA_DB_FILE_PATH)).await?;
+    println!("Database: {SHERPA_DB_FILE_PATH}");
 
     term_msg_underline("Applying Database Schema");
     apply_schema(&db).await?;

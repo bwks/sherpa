@@ -5,12 +5,11 @@ use db::{
 };
 use shared::data::RecordId;
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_by_lab_id() -> Result<()> {
-    let db = setup_db("test_get_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let created = create_lab(
@@ -33,27 +32,23 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
     assert_eq!(fetched.name, "Test Lab");
     assert_eq!(fetched.lab_id, "lab-0001");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_not_found() -> Result<()> {
-    let db = setup_db("test_get_lab_not_found").await?;
+    let db = setup_db().await?;
 
     let result = get_lab(&db, "invalid").await;
 
     assert!(result.is_err(), "Should error on non-existent lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_by_id() -> Result<()> {
-    let db = setup_db("test_get_lab_by_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let created = create_lab(
@@ -76,28 +71,24 @@ async fn test_get_lab_by_id() -> Result<()> {
     assert_eq!(fetched.id, created.id);
     assert_eq!(fetched.name, "Test Lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_by_id_not_found() -> Result<()> {
-    let db = setup_db("test_get_lab_by_id_not_found").await?;
+    let db = setup_db().await?;
 
     let fake_id = RecordId::new("lab", "nonexistent");
     let result = get_lab_by_id(&db, fake_id).await;
 
     assert!(result.is_err(), "Should error on non-existent lab ID");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_by_name_and_user() -> Result<()> {
-    let db = setup_db("test_get_lab_by_name_user").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.as_ref().unwrap().clone();
@@ -121,14 +112,12 @@ async fn test_get_lab_by_name_and_user() -> Result<()> {
     assert_eq!(fetched.id, created.id);
     assert_eq!(fetched.name, "My Lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_lab_by_name_and_user_not_found() -> Result<()> {
-    let db = setup_db("test_get_lab_name_user_not_found").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.unwrap();
@@ -137,14 +126,12 @@ async fn test_get_lab_by_name_and_user_not_found() -> Result<()> {
 
     assert!(result.is_err(), "Should error when lab not found");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_labs() -> Result<()> {
-    let db = setup_db("test_list_labs").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -192,27 +179,23 @@ async fn test_list_labs() -> Result<()> {
 
     assert_eq!(labs.len(), 3, "Should return all 3 labs");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_labs_empty() -> Result<()> {
-    let db = setup_db("test_list_labs_empty").await?;
+    let db = setup_db().await?;
 
     let labs = list_labs(&db).await?;
 
     assert_eq!(labs.len(), 0, "Should return empty list");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_labs_by_user() -> Result<()> {
-    let db = setup_db("test_list_labs_by_user").await?;
+    let db = setup_db().await?;
 
     let user1 = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
@@ -263,14 +246,12 @@ async fn test_list_labs_by_user() -> Result<()> {
     assert_eq!(user1_labs.len(), 2, "User1 should have 2 labs");
     assert_eq!(user2_labs.len(), 1, "User2 should have 1 lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_labs_returns_all_fields() -> Result<()> {
-    let db = setup_db("test_list_labs_fields").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
     let user_id = user.id.as_ref().unwrap().clone();
@@ -298,14 +279,12 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
     assert_eq!(lab.lab_id, "lab-0010");
     assert_eq!(lab.user, user_id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_labs() -> Result<()> {
-    let db = setup_db("test_count_labs").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "ivan".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -342,14 +321,12 @@ async fn test_count_labs() -> Result<()> {
     let count_after = count_labs(&db).await?;
     assert_eq!(count_after, 2, "Should have 2 labs");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_labs_by_user() -> Result<()> {
-    let db = setup_db("test_count_labs_by_user").await?;
+    let db = setup_db().await?;
 
     let user1 = create_user(&db, "judy".to_string(), "TestPass123!", false, vec![]).await?;
     let user2 = create_user(&db, "karl".to_string(), "TestPass123!", false, vec![]).await?;
@@ -413,14 +390,12 @@ async fn test_count_labs_by_user() -> Result<()> {
     assert_eq!(user1_count, 3, "User1 should have 3 labs");
     assert_eq!(user2_count, 1, "User2 should have 1 lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_used_management_networks() -> Result<()> {
-    let db = setup_db("test_used_mgmt_nets").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
 
@@ -464,14 +439,12 @@ async fn test_get_used_management_networks() -> Result<()> {
     assert!(used.contains(&net1), "Should contain 172.31.1.0/24");
     assert!(used.contains(&net2), "Should contain 172.31.2.0/24");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
-    let db = setup_db("find_lab_returns_none").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let created = create_lab(
@@ -492,6 +465,5 @@ async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
     assert_eq!(found.id, created.id);
     assert!(find_lab(&db, "invalid").await?.is_none());
 
-    teardown_db(&db).await?;
     Ok(())
 }

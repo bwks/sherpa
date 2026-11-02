@@ -1,166 +1,77 @@
-//! Node image table schema definition
+//! Node image table schema
 //!
-//! The node_image table stores imported/scanned disk images and container images
-//! for different types of network nodes (routers, switches, servers, etc.).
-//! Each record defines the virtual hardware specifications and boot parameters
-//! for a specific node model version that has been imported.
-//!
-//! ## Fields
-//! - Model identification: `model`, `version`, `repo`
-//! - OS configuration: `os_variant`, `kind`, `bios`
-//! - CPU configuration: `cpu_count`, `cpu_architecture`, `cpu_model`, `machine_type`, `vmx_enabled`
-//! - Memory: `memory` (in MB)
-//! - Storage: `hdd_bus`, `cdrom`, `cdrom_bus`
-//! - Zero Touch Provisioning: `ztp_enable`, `ztp_method`, `ztp_username`, `ztp_password`, `ztp_password_auth`
-//! - Network interfaces: `data_interface_count`, `interface_prefix`, `interface_type`, `interface_mtu`,
-//!   `first_interface_index`, `dedicated_management_interface`, `management_interface`, `reserved_interface_count`
-//! - Version control: `default` (boolean indicating if this is the default version for the model/kind)
-//!
-//! ## Constraints
-//! - All enum fields are validated against their respective Rust enum variants
-//! - Numeric fields have min/max bounds and must be integers
-//! - Unique constraint on (model, kind, version) combination
-//! - Only one configuration per (model, kind) can have default=true (enforced by application logic)
-//!
-//! ## Computed Fields
-//! - `nodes`: Reverse reference to all nodes using this image (`<~(node FIELD image)`)
-//!
-//! ## Relationships
-//! - One-to-many with `node` table (one image can be used by many nodes)
-
+//! One row per imported image version of a node model. `(model, kind, version)` is unique.
+//! A node image used by a node cannot be deleted (`node.image` is `ON DELETE RESTRICT`).
+use anyhow::Result;
 use shared::data::{
     BiosTypes, CpuArchitecture, CpuModels, DiskBuses, InterfaceType, MachineType, MgmtInterfaces,
     NodeKind, NodeModel, OsVariant, UnikernelBootMode, ZtpMethod,
 };
 
-use super::helpers::vec_to_str;
+use super::helpers::{enum_rule, rule_triggers};
 
-/// Generate the node_image table schema with enum-driven constraints.
-///
-/// Creates the node_image table with comprehensive validation rules that are
-/// automatically derived from Rust enums. This ensures type safety between the
-/// database schema and application code.
-///
-/// # Returns
-///
-/// A string containing the complete SurrealDB schema definition for the node_image table.
-///
-/// # Schema Details
-///
-/// - **Table**: `node_image` (SCHEMAFULL)
-/// - **Fields**: 29 fields covering model, hardware, and network configuration
-/// - **Indexes**:
-///   - `unique_node_image_model_kind_version`: Ensures unique (model, kind, version) combinations
-///
-/// # Enum-Driven Validation
-///
-/// The schema uses ASSERT IN clauses populated from Rust enums:
-/// - `NodeModel`: Valid node models (e.g., AristaVeos, CiscoNexus9300v)
-/// - `OsVariant`: Operating system variants
-/// - `NodeKind`: Node types (vm, container, unikernel)
-/// - `BiosTypes`: BIOS types (bios, uefi)
-/// - `CpuArchitecture`: CPU architectures (x86_64, aarch64)
-/// - `CpuModels`: CPU models for emulation
-/// - `MachineType`: QEMU machine types
-/// - `DiskBuses`: Storage bus types (virtio, sata, ide)
-/// - `ZtpMethod`: Zero-touch provisioning methods
-/// - `InterfaceType`: Network interface types (virtio, e1000, etc.)
-/// - `MgmtInterfaces`: Management interface types
-///
-pub(crate) fn generate_node_image_schema() -> String {
-    // Generate ASSERT lists from enums using their to_vec() methods
-    let models = vec_to_str(NodeModel::to_vec());
-    let os_variants = vec_to_str(OsVariant::to_vec());
-    let kinds = vec_to_str(NodeKind::to_vec());
-    let bios_types = vec_to_str(BiosTypes::to_vec());
-    let cpu_archs = vec_to_str(CpuArchitecture::to_vec());
-    let cpu_models = vec_to_str(CpuModels::to_vec());
-    let machine_types = vec_to_str(MachineType::to_vec());
-    let disk_buses = vec_to_str(DiskBuses::to_vec());
-    let ztp_methods = vec_to_str(ZtpMethod::to_vec());
-    let interface_types = vec_to_str(InterfaceType::to_vec());
-    let mgmt_interfaces = vec_to_str(MgmtInterfaces::to_vec());
-    let boot_modes = vec_to_str(UnikernelBootMode::to_vec());
+const TABLE: &str = "node_image";
 
-    format!(
-        r#"
-DEFINE TABLE OVERWRITE node_image SCHEMAFULL;
+pub(crate) const TABLES: &str = "
+CREATE TABLE node_image (
+    id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    version TEXT NOT NULL,
+    repo TEXT,
+    os_variant TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    bios TEXT NOT NULL,
+    cpu_count INTEGER NOT NULL CHECK (cpu_count BETWEEN 1 AND 255),
+    cpu_architecture TEXT NOT NULL,
+    cpu_model TEXT NOT NULL,
+    machine_type TEXT NOT NULL,
+    vmx_enabled INTEGER NOT NULL CHECK (vmx_enabled IN (0, 1)),
+    memory INTEGER NOT NULL CHECK (memory BETWEEN 64 AND 65535),
+    hdd_bus TEXT NOT NULL,
+    cdrom TEXT,
+    cdrom_bus TEXT NOT NULL,
+    ztp_enable INTEGER NOT NULL CHECK (ztp_enable IN (0, 1)),
+    ztp_method TEXT NOT NULL,
+    ztp_username TEXT,
+    ztp_password TEXT,
+    ztp_password_auth INTEGER NOT NULL CHECK (ztp_password_auth IN (0, 1)),
+    data_interface_count INTEGER NOT NULL CHECK (data_interface_count BETWEEN 0 AND 255),
+    interface_prefix TEXT NOT NULL,
+    interface_type TEXT NOT NULL,
+    interface_mtu INTEGER NOT NULL CHECK (interface_mtu BETWEEN 576 AND 9600),
+    first_interface_index INTEGER NOT NULL CHECK (first_interface_index BETWEEN 0 AND 255),
+    dedicated_management_interface INTEGER NOT NULL
+        CHECK (dedicated_management_interface IN (0, 1)),
+    management_interface TEXT NOT NULL,
+    reserved_interface_count INTEGER NOT NULL
+        CHECK (reserved_interface_count BETWEEN 0 AND 255),
+    \"default\" INTEGER NOT NULL CHECK (\"default\" IN (0, 1)),
+    boot_mode TEXT,
+    UNIQUE (model, kind, version)
+) STRICT;
+";
 
-DEFINE FIELD OVERWRITE model ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE version ON TABLE node_image TYPE string;
-DEFINE FIELD OVERWRITE repo ON TABLE node_image TYPE option<string>;
-
-DEFINE FIELD OVERWRITE os_variant ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE kind ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE bios ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-
-DEFINE FIELD OVERWRITE cpu_count ON TABLE node_image TYPE number
-    ASSERT $value >= 1 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD OVERWRITE cpu_architecture ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE cpu_model ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE machine_type ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE vmx_enabled ON TABLE node_image TYPE bool;
-
-DEFINE FIELD OVERWRITE memory ON TABLE node_image TYPE number
-    ASSERT $value >= 64 AND $value <= 65535 AND $value == math::floor($value);
-
-DEFINE FIELD OVERWRITE hdd_bus ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE cdrom ON TABLE node_image TYPE option<string>;
-DEFINE FIELD OVERWRITE cdrom_bus ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-
-DEFINE FIELD OVERWRITE ztp_enable ON TABLE node_image TYPE bool;
-DEFINE FIELD OVERWRITE ztp_method ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE ztp_username ON TABLE node_image TYPE option<string>;
-DEFINE FIELD OVERWRITE ztp_password ON TABLE node_image TYPE option<string>;
-DEFINE FIELD OVERWRITE ztp_password_auth ON TABLE node_image TYPE bool;
-
-DEFINE FIELD OVERWRITE data_interface_count ON TABLE node_image TYPE number
-    ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD OVERWRITE interface_prefix ON TABLE node_image TYPE string;
-DEFINE FIELD OVERWRITE interface_type ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE interface_mtu ON TABLE node_image TYPE number
-    ASSERT $value >= 576 AND $value <= 9600 AND $value == math::floor($value);
-DEFINE FIELD OVERWRITE first_interface_index ON TABLE node_image TYPE number
-    ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
-DEFINE FIELD OVERWRITE dedicated_management_interface ON TABLE node_image TYPE bool;
-DEFINE FIELD OVERWRITE management_interface ON TABLE node_image TYPE string
-    ASSERT $value IN [{}];
-DEFINE FIELD OVERWRITE reserved_interface_count ON TABLE node_image TYPE number
-    ASSERT $value >= 0 AND $value <= 255 AND $value == math::floor($value);
-
-DEFINE FIELD OVERWRITE default ON TABLE node_image TYPE bool;
-
-DEFINE FIELD OVERWRITE boot_mode ON TABLE node_image TYPE option<string>
-    ASSERT $value == NONE OR $value IN [{}];
-
-DEFINE FIELD OVERWRITE nodes ON TABLE node_image COMPUTED <~(node FIELD image);
-
-DEFINE INDEX OVERWRITE unique_node_image_model_kind_version
-  ON TABLE node_image FIELDS model, kind, version UNIQUE;
-"#,
-        models,
-        os_variants,
-        kinds,
-        bios_types,
-        cpu_archs,
-        cpu_models,
-        machine_types,
-        disk_buses,
-        disk_buses, // cdrom_bus uses same enum
-        ztp_methods,
-        interface_types,
-        mgmt_interfaces,
-        boot_modes,
-    )
+/// The triggers checking the enum columns against the current Rust enums.
+pub(crate) fn rules() -> Result<String> {
+    let rules = [
+        enum_rule(TABLE, "model", NodeModel::to_vec(), false)?,
+        enum_rule(TABLE, "os_variant", OsVariant::to_vec(), false)?,
+        enum_rule(TABLE, "kind", NodeKind::to_vec(), false)?,
+        enum_rule(TABLE, "bios", BiosTypes::to_vec(), false)?,
+        enum_rule(TABLE, "cpu_architecture", CpuArchitecture::to_vec(), false)?,
+        enum_rule(TABLE, "cpu_model", CpuModels::to_vec(), false)?,
+        enum_rule(TABLE, "machine_type", MachineType::to_vec(), false)?,
+        enum_rule(TABLE, "hdd_bus", DiskBuses::to_vec(), false)?,
+        enum_rule(TABLE, "cdrom_bus", DiskBuses::to_vec(), false)?,
+        enum_rule(TABLE, "ztp_method", ZtpMethod::to_vec(), false)?,
+        enum_rule(TABLE, "interface_type", InterfaceType::to_vec(), false)?,
+        enum_rule(
+            TABLE,
+            "management_interface",
+            MgmtInterfaces::to_vec(),
+            false,
+        )?,
+        enum_rule(TABLE, "boot_mode", UnikernelBootMode::to_vec(), true)?,
+    ];
+    Ok(rule_triggers(TABLE, &rules))
 }

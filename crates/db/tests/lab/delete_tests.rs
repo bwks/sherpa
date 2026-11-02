@@ -5,12 +5,11 @@ use db::{
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_success() -> Result<()> {
-    let db = setup_db("test_delete_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -34,14 +33,12 @@ async fn test_delete_lab_success() -> Result<()> {
     let result = get_lab(&db, "lab-0001").await;
     assert!(result.is_err(), "Lab should not exist after deletion");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_by_id() -> Result<()> {
-    let db = setup_db("test_delete_lab_by_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -66,27 +63,23 @@ async fn test_delete_lab_by_id() -> Result<()> {
     let result = get_lab(&db, "lab-0002").await;
     assert!(result.is_err(), "Lab should not exist after deletion");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_nonexistent_lab_fails() -> Result<()> {
-    let db = setup_db("test_delete_nonexistent").await?;
+    let db = setup_db().await?;
 
     let result = delete_lab(&db, "invalid").await;
 
     assert!(result.is_err(), "Should error on nonexistent lab");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_decreases_count() -> Result<()> {
-    let db = setup_db("test_delete_decreases_count").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     create_lab(
@@ -124,14 +117,12 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
 
     assert_eq!(count_after, count_before - 1, "Count should decrease by 1");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
-    let db = setup_db("test_delete_cascade_nodes").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -166,14 +157,12 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
     // Note: With CASCADE DELETE in schema, nodes should be automatically deleted
     // This test verifies the cascade function works correctly
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
-    let db = setup_db("test_delete_safe_nodes_fail").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "eve".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -211,14 +200,12 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
     let lab_check = get_lab(&db, "lab-0006").await;
     assert!(lab_check.is_ok(), "Lab should still exist");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_safe_empty_succeeds() -> Result<()> {
-    let db = setup_db("test_delete_safe_empty").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -242,14 +229,12 @@ async fn test_delete_lab_safe_empty_succeeds() -> Result<()> {
     let result = get_lab(&db, "lab-0007").await;
     assert!(result.is_err(), "Lab should be deleted");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_cascade_full() -> Result<()> {
-    let db = setup_db("test_delete_cascade_full").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -286,14 +271,12 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
     let result = get_lab(&db, "lab-0008").await;
     assert!(result.is_err(), "Lab should be deleted");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
-    let db = setup_db("test_schema_cascade").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "heidi".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -328,14 +311,12 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
     // With CASCADE DELETE in schema, nodes should be automatically deleted
     // This is handled by the database, not application code
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_lab_nonexistent_by_id() -> Result<()> {
-    let db = setup_db("test_delete_nonexistent_id").await?;
+    let db = setup_db().await?;
 
     let fake_id = RecordId::new("lab", "nonexistent");
     let result = delete_lab_by_id(&db, fake_id).await;
@@ -344,6 +325,5 @@ async fn test_delete_lab_nonexistent_by_id() -> Result<()> {
     // Just verify it doesn't panic
     let _ = result;
 
-    teardown_db(&db).await?;
     Ok(())
 }

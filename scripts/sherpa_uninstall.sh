@@ -1,18 +1,19 @@
 #!/bin/bash
 
 ################################################################################
-# Sherpa Uninstall Script - SurrealDB Container Removal
+# Sherpa Uninstall Script
 ################################################################################
 #
-# This script removes the SurrealDB container and optionally removes data.
+# This script removes the sherpad service and binary, the SurrealDB container
+# left by releases before 0.5.0 if there is one, and optionally the data.
 # It must be executed with root/sudo privileges.
 #
 # Usage:
 #   sudo ./sherpa_uninstall.sh [OPTIONS]
 #
 # Options:
-#   --keep-data      Keep database files (default)
-#   --remove-data    Remove database files
+#   --keep-data      Keep the database and its backups (default)
+#   --remove-data    Remove the database and its backups
 #   --remove-all     Remove everything including /opt/sherpa
 #   --force          Don't prompt for confirmation
 #   -h, --help       Show help message
@@ -22,6 +23,7 @@
 set -e  # Exit on error
 
 # Script configuration
+# The SurrealDB container of releases before 0.5.0.
 CONTAINER_NAME="sherpa-db"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
@@ -71,20 +73,21 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Remove SurrealDB container and optionally clean up data.
+Remove the sherpad service and binary, the SurrealDB container of a release
+before 0.5.0 if there is one, and optionally the data.
 
 Options:
-  --keep-data      Keep database files in ${SHERPA_DB_DIR} (default)
-  --remove-data    Remove database files
+  --keep-data      Keep the database and its backups in ${SHERPA_DB_DIR} (default)
+  --remove-data    Remove the database and its backups
   --remove-all     Remove everything including ${SHERPA_BASE_DIR}
   --force          Don't prompt for confirmation
   -h, --help       Show this help message
 
 Examples:
-  # Remove container only (keep data)
+  # Remove the service (keep data)
   sudo $0
-  
-  # Remove container and database files
+
+  # Remove the service and the database
   sudo $0 --remove-data
   
   # Remove everything without confirmation
@@ -265,6 +268,9 @@ remove_sherpad_binary() {
         print_info "Binary not found"
     fi
 
+    # The copy sherpa_update.sh keeps for rolling back a failed database move.
+    rm -f "${SHERPA_BASE_DIR}/bin/sherpad.previous"
+
     remove_binary_symlink /usr/local/bin/sherpad "${SHERPA_BASE_DIR}/bin/sherpad"
     if [ "$REMOVE_ALL" = true ]; then
         remove_binary_symlink /usr/local/bin/sherpa "${SHERPA_BASE_DIR}/bin/sherpa"
@@ -364,13 +370,13 @@ print_completion_message() {
     print_header "Uninstall Complete"
     
     cat << EOF
-SurrealDB container has been removed.
+The sherpad service has been removed.
 
 EOF
 
     if [ "$KEEP_DATA" = true ] && [ "$REMOVE_ALL" = false ]; then
         cat << EOF
-Database files were preserved:
+The database and its backups were preserved:
   Location: ${SHERPA_DB_DIR}
   
 To remove data later, run:
@@ -427,7 +433,7 @@ main() {
     done
     
     # Print header
-    print_header "Sherpa Uninstall - SurrealDB Removal"
+    print_header "Sherpa Uninstall"
     
     # Check prerequisites
     check_root_privileges
@@ -437,12 +443,12 @@ main() {
     actions="${actions}\n  - Stop and remove sherpad systemd service"
     actions="${actions}\n  - Remove sherpad binary"
     actions="${actions}\n  - Remove the transparent hugepages boot rule"
-    actions="${actions}\n  - Stop and remove ${CONTAINER_NAME} container"
+    actions="${actions}\n  - Stop and remove the ${CONTAINER_NAME} container of a release before 0.5.0, if present"
     
     if [ "$REMOVE_ALL" = true ]; then
         actions="${actions}\n  - Remove all data in ${SHERPA_BASE_DIR}"
     elif [ "$KEEP_DATA" = false ]; then
-        actions="${actions}\n  - Remove database data in ${SHERPA_DB_DIR}"
+        actions="${actions}\n  - Remove the database and its backups in ${SHERPA_DB_DIR}"
     else
         actions="${actions}\n  - Keep database data (--keep-data)"
     fi
@@ -454,9 +460,9 @@ main() {
     if [ "$REMOVE_ALL" = true ]; then
         confirm_action "WARNING: This will remove ALL data in ${SHERPA_BASE_DIR}!"
     elif [ "$KEEP_DATA" = false ]; then
-        confirm_action "WARNING: This will remove database files in ${SHERPA_DB_DIR}!"
+        confirm_action "WARNING: This will remove the database and its backups in ${SHERPA_DB_DIR}!"
     else
-        confirm_action "This will remove the container but keep your data."
+        confirm_action "This will remove the service but keep your data."
     fi
     
     # Perform uninstall

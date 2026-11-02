@@ -1,582 +1,589 @@
-use anyhow::{Context, Result, anyhow};
+//! Mapping between the `shared::data` records and database rows.
+//!
+//! Each table has a column-list macro, so a query and the mapper that reads its rows always agree
+//! on the column order. Record ids are stored as their key; the table is implied by the column.
+use anyhow::{Context, Result, bail};
+use jiff::Timestamp;
+use rand::Rng;
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use turso::{Row, Value};
+
 use shared::data::{
     BridgeMember, DbBridge, DbLab, DbLink, DbNode, DbUser, LinkImpairment, NodeConfig, RecordId,
-    RecordIdKey,
 };
-use surrealdb_types::{
-    Datetime, RecordId as SurrealRecordId, RecordIdKey as SurrealRecordIdKey, SurrealValue,
-};
+use shared::konst::{SHERPA_DB_KEY_CHARSET, SHERPA_DB_KEY_LENGTH};
 
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct UserRow {
-    pub id: Option<SurrealRecordId>,
-    pub username: String,
-    pub password_hash: String,
-    pub is_admin: bool,
-    pub ssh_keys: Vec<String>,
-    pub created_at: Datetime,
-    pub updated_at: Datetime,
-}
+pub(crate) const USER_TABLE: &str = "user";
+pub(crate) const LAB_TABLE: &str = "lab";
+pub(crate) const NODE_TABLE: &str = "node";
+pub(crate) const NODE_IMAGE_TABLE: &str = "node_image";
+pub(crate) const LINK_TABLE: &str = "link";
+pub(crate) const BRIDGE_TABLE: &str = "bridge";
 
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct LabRow {
-    pub id: Option<SurrealRecordId>,
-    pub lab_id: String,
-    pub name: String,
-    pub user: SurrealRecordId,
-    pub loopback_network: String,
-    pub management_network: String,
-    pub gateway_ipv4: String,
-    pub router_ipv4: String,
-    pub tailscale_container_id: Option<String>,
-    pub management_network_v6: Option<String>,
-    pub gateway_ipv6: Option<String>,
-    pub router_ipv6: Option<String>,
-    pub loopback_network_v6: Option<String>,
-    pub status: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct NodeRow {
-    pub id: Option<SurrealRecordId>,
-    pub name: String,
-    pub image: SurrealRecordId,
-    pub index: u16,
-    pub lab: SurrealRecordId,
-    pub mgmt_ipv4: Option<String>,
-    pub mgmt_ipv6: Option<String>,
-    pub mgmt_mac: Option<String>,
-    pub state: serde_json::Value,
-    pub cpu_count: Option<u8>,
-    pub memory: Option<u16>,
-    pub vnc_port: Option<u16>,
-    pub ssh_host_key: Option<String>,
-    pub cpu_pinning: Option<Vec<u16>>,
-    pub qemu_thread_cpus: Option<Vec<u16>>,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct LinkRow {
-    pub id: Option<SurrealRecordId>,
-    pub index: u16,
-    pub kind: serde_json::Value,
-    pub node_a: SurrealRecordId,
-    pub node_b: SurrealRecordId,
-    pub int_a: String,
-    pub int_b: String,
-    pub lab: SurrealRecordId,
-    pub tap_a: String,
-    pub tap_b: String,
-    pub impairment_a_to_b: LinkImpairmentRow,
-    pub impairment_b_to_a: LinkImpairmentRow,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct LinkImpairmentRow {
-    pub delay_us: u32,
-    pub jitter_us: u32,
-    pub loss_percent: f32,
-    pub reorder_percent: f32,
-    pub corrupt_percent: f32,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct BridgeRow {
-    pub id: Option<SurrealRecordId>,
-    pub index: u16,
-    pub bridge_name: String,
-    pub network_name: String,
-    pub lab: SurrealRecordId,
-    pub members: Vec<BridgeMemberRow>,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct BridgeMemberRow {
-    pub node: SurrealRecordId,
-    pub interface: String,
-}
-
-#[derive(Clone, Debug, Deserialize, SurrealValue)]
-pub(crate) struct NodeImageRow {
-    pub id: Option<SurrealRecordId>,
-    pub model: serde_json::Value,
-    pub version: String,
-    pub repo: Option<String>,
-    pub os_variant: serde_json::Value,
-    pub kind: serde_json::Value,
-    pub bios: serde_json::Value,
-    pub cpu_count: u8,
-    pub cpu_architecture: serde_json::Value,
-    pub cpu_model: serde_json::Value,
-    pub machine_type: serde_json::Value,
-    pub vmx_enabled: bool,
-    pub memory: u16,
-    pub hdd_bus: serde_json::Value,
-    pub cdrom: Option<String>,
-    pub cdrom_bus: serde_json::Value,
-    pub ztp_enable: bool,
-    pub ztp_method: serde_json::Value,
-    pub ztp_username: Option<String>,
-    pub ztp_password: Option<String>,
-    pub ztp_password_auth: bool,
-    pub data_interface_count: u8,
-    pub interface_prefix: String,
-    pub interface_type: serde_json::Value,
-    pub interface_mtu: u16,
-    pub first_interface_index: u8,
-    pub dedicated_management_interface: bool,
-    pub management_interface: serde_json::Value,
-    pub reserved_interface_count: u8,
-    pub default: bool,
-    pub boot_mode: Option<serde_json::Value>,
-}
-
-pub(crate) fn to_surreal_id(id: &RecordId) -> SurrealRecordId {
-    let key = match &id.key {
-        RecordIdKey::Number(value) => SurrealRecordIdKey::Number(*value),
-        RecordIdKey::String(value) => SurrealRecordIdKey::String(value.clone()),
+macro_rules! user_columns {
+    () => {
+        "id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
     };
-    SurrealRecordId::new(id.table.clone(), key)
 }
 
-pub(crate) fn from_surreal_id(id: SurrealRecordId) -> Result<RecordId> {
-    let key = match id.key {
-        SurrealRecordIdKey::Number(value) => RecordIdKey::Number(value),
-        SurrealRecordIdKey::String(value) => RecordIdKey::String(value),
-        unsupported => {
-            return Err(anyhow!(
-                "Unsupported SurrealDB record ID key: {unsupported:?}"
-            ));
+macro_rules! lab_columns {
+    () => {
+        "id, lab_id, name, user, loopback_network, management_network, gateway_ipv4, \
+         router_ipv4, tailscale_container_id, management_network_v6, gateway_ipv6, router_ipv6, \
+         loopback_network_v6, status"
+    };
+}
+
+macro_rules! node_columns {
+    () => {
+        "id, name, \"index\", image, lab, mgmt_ipv4, mgmt_ipv6, mgmt_mac, state, cpu_count, \
+         memory, vnc_port, ssh_host_key, cpu_pinning, qemu_thread_cpus"
+    };
+}
+
+macro_rules! link_columns {
+    () => {
+        "id, \"index\", kind, node_a, node_b, int_a, int_b, lab, tap_a, tap_b, \
+         a_to_b_delay_us, a_to_b_jitter_us, a_to_b_loss_percent, a_to_b_reorder_percent, \
+         a_to_b_corrupt_percent, b_to_a_delay_us, b_to_a_jitter_us, b_to_a_loss_percent, \
+         b_to_a_reorder_percent, b_to_a_corrupt_percent"
+    };
+}
+
+macro_rules! bridge_columns {
+    () => {
+        "id, \"index\", bridge_name, network_name, lab"
+    };
+}
+
+macro_rules! bridge_member_columns {
+    () => {
+        "bridge, position, node, interface"
+    };
+}
+
+macro_rules! node_image_columns {
+    () => {
+        "id, model, version, repo, os_variant, kind, bios, cpu_count, cpu_architecture, \
+         cpu_model, machine_type, vmx_enabled, memory, hdd_bus, cdrom, cdrom_bus, ztp_enable, \
+         ztp_method, ztp_username, ztp_password, ztp_password_auth, data_interface_count, \
+         interface_prefix, interface_type, interface_mtu, first_interface_index, \
+         dedicated_management_interface, management_interface, reserved_interface_count, \
+         \"default\", boot_mode"
+    };
+}
+
+pub(crate) use {
+    bridge_columns, bridge_member_columns, lab_columns, link_columns, node_columns,
+    node_image_columns, user_columns,
+};
+
+/// Reads a row's columns in order, naming each field in errors.
+pub(crate) struct Cells<'a> {
+    row: &'a Row,
+    index: usize,
+}
+
+impl<'a> Cells<'a> {
+    pub(crate) fn new(row: &'a Row) -> Self {
+        Self { row, index: 0 }
+    }
+
+    fn next(&mut self, field: &str) -> Result<Value> {
+        let value = self
+            .row
+            .get_value(self.index)
+            .with_context(|| format!("Database row has no column for field {field}"))?;
+        self.index += 1;
+        Ok(value)
+    }
+
+    pub(crate) fn text(&mut self, field: &str) -> Result<String> {
+        match self.next(field)? {
+            Value::Text(text) => Ok(text),
+            other => bail!("Database field {field} is not text: {other:?}"),
         }
-    };
-    Ok(RecordId::new(id.table.as_str(), key))
+    }
+
+    pub(crate) fn optional_text(&mut self, field: &str) -> Result<Option<String>> {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Text(text) => Ok(Some(text)),
+            other => bail!("Database field {field} is not text: {other:?}"),
+        }
+    }
+
+    pub(crate) fn integer<T>(&mut self, field: &str) -> Result<T>
+    where
+        T: TryFrom<i64>,
+        T::Error: std::error::Error + Send + Sync + 'static,
+    {
+        match self.next(field)? {
+            Value::Integer(value) => T::try_from(value)
+                .with_context(|| format!("Database field {field} is out of range: {value}")),
+            other => bail!("Database field {field} is not an integer: {other:?}"),
+        }
+    }
+
+    pub(crate) fn optional_integer<T>(&mut self, field: &str) -> Result<Option<T>>
+    where
+        T: TryFrom<i64>,
+        T::Error: std::error::Error + Send + Sync + 'static,
+    {
+        match self.next(field)? {
+            Value::Null => Ok(None),
+            Value::Integer(value) => T::try_from(value)
+                .map(Some)
+                .with_context(|| format!("Database field {field} is out of range: {value}")),
+            other => bail!("Database field {field} is not an integer: {other:?}"),
+        }
+    }
+
+    /// Percentages are `f32` in Sherpa and stored exactly as `REAL`.
+    pub(crate) fn real(&mut self, field: &str) -> Result<f32> {
+        match self.next(field)? {
+            Value::Real(value) => Ok(value as f32),
+            Value::Integer(value) => Ok(value as f32),
+            other => bail!("Database field {field} is not a number: {other:?}"),
+        }
+    }
+
+    pub(crate) fn boolean(&mut self, field: &str) -> Result<bool> {
+        match self.next(field)? {
+            Value::Integer(0) => Ok(false),
+            Value::Integer(1) => Ok(true),
+            other => bail!("Database field {field} is not a boolean: {other:?}"),
+        }
+    }
+
+    pub(crate) fn json<T: DeserializeOwned>(&mut self, field: &str) -> Result<T> {
+        let text = self.text(field)?;
+        serde_json::from_str(&text)
+            .with_context(|| format!("Failed to decode database field {field}"))
+    }
+
+    pub(crate) fn optional_json<T: DeserializeOwned>(&mut self, field: &str) -> Result<Option<T>> {
+        match self.optional_text(field)? {
+            Some(text) => serde_json::from_str(&text)
+                .map(Some)
+                .with_context(|| format!("Failed to decode database field {field}")),
+            None => Ok(None),
+        }
+    }
+
+    pub(crate) fn enumeration<T: DeserializeOwned>(&mut self, field: &str) -> Result<T> {
+        let text = self.text(field)?;
+        decode_enum(text, field)
+    }
+
+    pub(crate) fn optional_enumeration<T: DeserializeOwned>(
+        &mut self,
+        field: &str,
+    ) -> Result<Option<T>> {
+        match self.optional_text(field)? {
+            Some(text) => decode_enum(text, field).map(Some),
+            None => Ok(None),
+        }
+    }
+
+    pub(crate) fn timestamp(&mut self, field: &str) -> Result<Timestamp> {
+        self.text(field)?
+            .parse()
+            .with_context(|| format!("Failed to decode database timestamp field {field}"))
+    }
+
+    /// A record id stored as its key in a column that refers to `table`.
+    pub(crate) fn record(&mut self, table: &str, field: &str) -> Result<RecordId> {
+        Ok(RecordId::new(table, self.text(field)?))
+    }
 }
 
-fn encode<T: Serialize>(value: T, field: &str) -> Result<serde_json::Value> {
-    serde_json::to_value(value).with_context(|| format!("Failed to encode database field {field}"))
-}
-
-fn decode<T: DeserializeOwned>(value: serde_json::Value, field: &str) -> Result<T> {
-    serde_json::from_value(value)
+fn decode_enum<T: DeserializeOwned>(text: String, field: &str) -> Result<T> {
+    serde_json::from_value(serde_json::Value::String(text))
         .with_context(|| format!("Failed to decode database field {field}"))
 }
 
-fn to_datetime<T: std::fmt::Display>(value: T, field: &str) -> Result<Datetime> {
-    value
-        .to_string()
-        .parse()
-        .with_context(|| format!("Failed to encode database datetime field {field}"))
-}
-
-fn from_datetime<T: std::str::FromStr>(value: Datetime, field: &str) -> Result<T>
-where
-    T::Err: std::error::Error + Send + Sync + 'static,
-{
-    value
-        .to_string()
-        .parse()
-        .with_context(|| format!("Failed to decode database datetime field {field}"))
-}
-
-impl TryFrom<&DbUser> for UserRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &DbUser) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            username: value.username.clone(),
-            password_hash: value.password_hash.clone(),
-            is_admin: value.is_admin,
-            ssh_keys: value.ssh_keys.clone(),
-            created_at: to_datetime(value.created_at, "created_at")?,
-            updated_at: to_datetime(value.updated_at, "updated_at")?,
-        })
+/// The text a unit enum variant is stored as: its serde name.
+pub(crate) fn enum_text<T: Serialize>(value: &T, field: &str) -> Result<String> {
+    match serde_json::to_value(value)
+        .with_context(|| format!("Failed to encode database field {field}"))?
+    {
+        serde_json::Value::String(text) => Ok(text),
+        other => bail!("Database field {field} does not encode as text: {other}"),
     }
 }
 
-impl TryFrom<UserRow> for DbUser {
-    type Error = anyhow::Error;
-
-    fn try_from(value: UserRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            username: value.username,
-            password_hash: value.password_hash,
-            is_admin: value.is_admin,
-            ssh_keys: value.ssh_keys,
-            created_at: from_datetime(value.created_at, "created_at")?,
-            updated_at: from_datetime(value.updated_at, "updated_at")?,
-        })
-    }
+pub(crate) fn json_text<T: Serialize>(value: &T, field: &str) -> Result<String> {
+    serde_json::to_string(value).with_context(|| format!("Failed to encode database field {field}"))
 }
 
-impl TryFrom<&DbLab> for LabRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &DbLab) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            lab_id: value.lab_id.clone(),
-            name: value.name.clone(),
-            user: to_surreal_id(&value.user),
-            loopback_network: value.loopback_network.clone(),
-            management_network: value.management_network.clone(),
-            gateway_ipv4: value.gateway_ipv4.clone(),
-            router_ipv4: value.router_ipv4.clone(),
-            tailscale_container_id: value.tailscale_container_id.clone(),
-            management_network_v6: value.management_network_v6.clone(),
-            gateway_ipv6: value.gateway_ipv6.clone(),
-            router_ipv6: value.router_ipv6.clone(),
-            loopback_network_v6: value.loopback_network_v6.clone(),
-            status: encode(value.status, "status")?,
-        })
-    }
+/// A new random record key.
+pub(crate) fn new_key() -> String {
+    let mut rng = rand::thread_rng();
+    (0..SHERPA_DB_KEY_LENGTH)
+        .map(|_| char::from(SHERPA_DB_KEY_CHARSET[rng.gen_range(0..SHERPA_DB_KEY_CHARSET.len())]))
+        .collect()
 }
 
-impl TryFrom<LabRow> for DbLab {
-    type Error = anyhow::Error;
-
-    fn try_from(value: LabRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            lab_id: value.lab_id,
-            name: value.name,
-            user: from_surreal_id(value.user)?,
-            loopback_network: value.loopback_network,
-            management_network: value.management_network,
-            gateway_ipv4: value.gateway_ipv4,
-            router_ipv4: value.router_ipv4,
-            tailscale_container_id: value.tailscale_container_id,
-            management_network_v6: value.management_network_v6,
-            gateway_ipv6: value.gateway_ipv6,
-            router_ipv6: value.router_ipv6,
-            loopback_network_v6: value.loopback_network_v6,
-            status: decode(value.status, "status")?,
-        })
+/// The stored key of `id`, which must belong to `table`.
+pub(crate) fn key_of(id: &RecordId, table: &str) -> Result<String> {
+    if id.table != table {
+        bail!("Record {id} is not a {table} record");
     }
+    Ok(id.key.to_string())
 }
 
-impl TryFrom<&DbNode> for NodeRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &DbNode) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            name: value.name.clone(),
-            image: to_surreal_id(&value.image),
-            index: value.index,
-            lab: to_surreal_id(&value.lab),
-            mgmt_ipv4: value.mgmt_ipv4.clone(),
-            mgmt_ipv6: value.mgmt_ipv6.clone(),
-            mgmt_mac: value.mgmt_mac.clone(),
-            state: encode(value.state, "state")?,
-            cpu_count: value.cpu_count,
-            memory: value.memory,
-            vnc_port: value.vnc_port,
-            ssh_host_key: value.ssh_host_key.clone(),
-            cpu_pinning: value.cpu_pinning.clone(),
-            qemu_thread_cpus: value.qemu_thread_cpus.clone(),
-        })
-    }
+pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
+    let mut cells = Cells::new(row);
+    Ok(DbUser {
+        id: Some(cells.record(USER_TABLE, "id")?),
+        username: cells.text("username")?,
+        password_hash: cells.text("password_hash")?,
+        is_admin: cells.boolean("is_admin")?,
+        ssh_keys: cells.json("ssh_keys")?,
+        created_at: cells.timestamp("created_at")?,
+        updated_at: cells.timestamp("updated_at")?,
+    })
 }
 
-impl TryFrom<NodeRow> for DbNode {
-    type Error = anyhow::Error;
-
-    fn try_from(value: NodeRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            name: value.name,
-            image: from_surreal_id(value.image)?,
-            index: value.index,
-            lab: from_surreal_id(value.lab)?,
-            mgmt_ipv4: value.mgmt_ipv4,
-            mgmt_ipv6: value.mgmt_ipv6,
-            mgmt_mac: value.mgmt_mac,
-            state: decode(value.state, "state")?,
-            cpu_count: value.cpu_count,
-            memory: value.memory,
-            vnc_port: value.vnc_port,
-            ssh_host_key: value.ssh_host_key,
-            cpu_pinning: value.cpu_pinning,
-            qemu_thread_cpus: value.qemu_thread_cpus,
-        })
-    }
+/// A user's column values in `user_columns!` order, under `key`.
+pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<Vec<Value>> {
+    Ok(vec![
+        key.into(),
+        user.username.as_str().into(),
+        user.password_hash.as_str().into(),
+        user.is_admin.into(),
+        json_text(&user.ssh_keys, "ssh_keys")?.into(),
+        user.created_at.to_string().into(),
+        user.updated_at.to_string().into(),
+    ])
 }
 
-impl TryFrom<&DbLink> for LinkRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &DbLink) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            index: value.index,
-            kind: encode(&value.kind, "kind")?,
-            node_a: to_surreal_id(&value.node_a),
-            node_b: to_surreal_id(&value.node_b),
-            int_a: value.int_a.clone(),
-            int_b: value.int_b.clone(),
-            lab: to_surreal_id(&value.lab),
-            tap_a: value.tap_a.clone(),
-            tap_b: value.tap_b.clone(),
-            impairment_a_to_b: LinkImpairmentRow::from(&value.impairment_a_to_b),
-            impairment_b_to_a: LinkImpairmentRow::from(&value.impairment_b_to_a),
-        })
-    }
+pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
+    let mut cells = Cells::new(row);
+    Ok(DbLab {
+        id: Some(cells.record(LAB_TABLE, "id")?),
+        lab_id: cells.text("lab_id")?,
+        name: cells.text("name")?,
+        user: cells.record(USER_TABLE, "user")?,
+        loopback_network: cells.text("loopback_network")?,
+        management_network: cells.text("management_network")?,
+        gateway_ipv4: cells.text("gateway_ipv4")?,
+        router_ipv4: cells.text("router_ipv4")?,
+        tailscale_container_id: cells.optional_text("tailscale_container_id")?,
+        management_network_v6: cells.optional_text("management_network_v6")?,
+        gateway_ipv6: cells.optional_text("gateway_ipv6")?,
+        router_ipv6: cells.optional_text("router_ipv6")?,
+        loopback_network_v6: cells.optional_text("loopback_network_v6")?,
+        status: cells.enumeration("status")?,
+    })
 }
 
-impl TryFrom<LinkRow> for DbLink {
-    type Error = anyhow::Error;
-
-    fn try_from(value: LinkRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            index: value.index,
-            kind: decode(value.kind, "kind")?,
-            node_a: from_surreal_id(value.node_a)?,
-            node_b: from_surreal_id(value.node_b)?,
-            int_a: value.int_a,
-            int_b: value.int_b,
-            lab: from_surreal_id(value.lab)?,
-            tap_a: value.tap_a,
-            tap_b: value.tap_b,
-            impairment_a_to_b: LinkImpairment::from(value.impairment_a_to_b),
-            impairment_b_to_a: LinkImpairment::from(value.impairment_b_to_a),
-        })
-    }
+/// A lab's column values in `lab_columns!` order, under `key`.
+pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
+    Ok(vec![
+        key.into(),
+        lab.lab_id.as_str().into(),
+        lab.name.as_str().into(),
+        key_of(&lab.user, USER_TABLE)?.into(),
+        lab.loopback_network.as_str().into(),
+        lab.management_network.as_str().into(),
+        lab.gateway_ipv4.as_str().into(),
+        lab.router_ipv4.as_str().into(),
+        lab.tailscale_container_id.as_deref().into(),
+        lab.management_network_v6.as_deref().into(),
+        lab.gateway_ipv6.as_deref().into(),
+        lab.router_ipv6.as_deref().into(),
+        lab.loopback_network_v6.as_deref().into(),
+        enum_text(&lab.status, "status")?.into(),
+    ])
 }
 
-impl From<&LinkImpairment> for LinkImpairmentRow {
-    fn from(value: &LinkImpairment) -> Self {
-        Self {
-            delay_us: value.delay_us,
-            jitter_us: value.jitter_us,
-            loss_percent: value.loss_percent,
-            reorder_percent: value.reorder_percent,
-            corrupt_percent: value.corrupt_percent,
-        }
-    }
+pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
+    let mut cells = Cells::new(row);
+    Ok(DbNode {
+        id: Some(cells.record(NODE_TABLE, "id")?),
+        name: cells.text("name")?,
+        index: cells.integer("index")?,
+        image: cells.record(NODE_IMAGE_TABLE, "image")?,
+        lab: cells.record(LAB_TABLE, "lab")?,
+        mgmt_ipv4: cells.optional_text("mgmt_ipv4")?,
+        mgmt_ipv6: cells.optional_text("mgmt_ipv6")?,
+        mgmt_mac: cells.optional_text("mgmt_mac")?,
+        state: cells.enumeration("state")?,
+        cpu_count: cells.optional_integer("cpu_count")?,
+        memory: cells.optional_integer("memory")?,
+        vnc_port: cells.optional_integer("vnc_port")?,
+        ssh_host_key: cells.optional_text("ssh_host_key")?,
+        cpu_pinning: cells.optional_json("cpu_pinning")?,
+        qemu_thread_cpus: cells.optional_json("qemu_thread_cpus")?,
+    })
 }
 
-impl From<LinkImpairmentRow> for LinkImpairment {
-    fn from(value: LinkImpairmentRow) -> Self {
-        Self {
-            delay_us: value.delay_us,
-            jitter_us: value.jitter_us,
-            loss_percent: value.loss_percent,
-            reorder_percent: value.reorder_percent,
-            corrupt_percent: value.corrupt_percent,
-        }
-    }
+/// A node's column values in `node_columns!` order, under `key`.
+pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<Vec<Value>> {
+    Ok(vec![
+        key.into(),
+        node.name.as_str().into(),
+        node.index.into(),
+        key_of(&node.image, NODE_IMAGE_TABLE)?.into(),
+        key_of(&node.lab, LAB_TABLE)?.into(),
+        node.mgmt_ipv4.as_deref().into(),
+        node.mgmt_ipv6.as_deref().into(),
+        node.mgmt_mac.as_deref().into(),
+        enum_text(&node.state, "state")?.into(),
+        node.cpu_count.into(),
+        node.memory.into(),
+        node.vnc_port.into(),
+        node.ssh_host_key.as_deref().into(),
+        node.cpu_pinning
+            .as_ref()
+            .map(|cpus| json_text(cpus, "cpu_pinning"))
+            .transpose()?
+            .into(),
+        node.qemu_thread_cpus
+            .as_ref()
+            .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
+            .transpose()?
+            .into(),
+    ])
 }
 
-impl From<&BridgeMember> for BridgeMemberRow {
-    fn from(value: &BridgeMember) -> Self {
-        Self {
-            node: to_surreal_id(&value.node),
-            interface: value.interface.clone(),
-        }
-    }
+fn impairment_from_cells(cells: &mut Cells<'_>, direction: &str) -> Result<LinkImpairment> {
+    Ok(LinkImpairment {
+        delay_us: cells.integer(&format!("{direction}.delay_us"))?,
+        jitter_us: cells.integer(&format!("{direction}.jitter_us"))?,
+        loss_percent: cells.real(&format!("{direction}.loss_percent"))?,
+        reorder_percent: cells.real(&format!("{direction}.reorder_percent"))?,
+        corrupt_percent: cells.real(&format!("{direction}.corrupt_percent"))?,
+    })
 }
 
-impl TryFrom<BridgeMemberRow> for BridgeMember {
-    type Error = anyhow::Error;
-
-    fn try_from(value: BridgeMemberRow) -> Result<Self> {
-        Ok(Self {
-            node: from_surreal_id(value.node)?,
-            interface: value.interface,
-        })
-    }
+fn impairment_values(impairment: &LinkImpairment) -> [Value; 5] {
+    [
+        impairment.delay_us.into(),
+        impairment.jitter_us.into(),
+        impairment.loss_percent.into(),
+        impairment.reorder_percent.into(),
+        impairment.corrupt_percent.into(),
+    ]
 }
 
-impl TryFrom<&DbBridge> for BridgeRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &DbBridge) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            index: value.index,
-            bridge_name: value.bridge_name.clone(),
-            network_name: value.network_name.clone(),
-            lab: to_surreal_id(&value.lab),
-            members: value.members.iter().map(BridgeMemberRow::from).collect(),
-        })
-    }
+pub(crate) fn link_from_row(row: &Row) -> Result<DbLink> {
+    let mut cells = Cells::new(row);
+    Ok(DbLink {
+        id: Some(cells.record(LINK_TABLE, "id")?),
+        index: cells.integer("index")?,
+        kind: cells.enumeration("kind")?,
+        node_a: cells.record(NODE_TABLE, "node_a")?,
+        node_b: cells.record(NODE_TABLE, "node_b")?,
+        int_a: cells.text("int_a")?,
+        int_b: cells.text("int_b")?,
+        lab: cells.record(LAB_TABLE, "lab")?,
+        tap_a: cells.text("tap_a")?,
+        tap_b: cells.text("tap_b")?,
+        impairment_a_to_b: impairment_from_cells(&mut cells, "impairment_a_to_b")?,
+        impairment_b_to_a: impairment_from_cells(&mut cells, "impairment_b_to_a")?,
+    })
 }
 
-impl TryFrom<BridgeRow> for DbBridge {
-    type Error = anyhow::Error;
-
-    fn try_from(value: BridgeRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            index: value.index,
-            bridge_name: value.bridge_name,
-            network_name: value.network_name,
-            lab: from_surreal_id(value.lab)?,
-            members: value
-                .members
-                .into_iter()
-                .map(BridgeMember::try_from)
-                .collect::<Result<Vec<_>>>()?,
-        })
-    }
+/// A link's column values in `link_columns!` order, under `key`.
+pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
+    let mut values = vec![
+        key.into(),
+        link.index.into(),
+        enum_text(&link.kind, "kind")?.into(),
+        key_of(&link.node_a, NODE_TABLE)?.into(),
+        key_of(&link.node_b, NODE_TABLE)?.into(),
+        link.int_a.as_str().into(),
+        link.int_b.as_str().into(),
+        key_of(&link.lab, LAB_TABLE)?.into(),
+        link.tap_a.as_str().into(),
+        link.tap_b.as_str().into(),
+    ];
+    values.extend(impairment_values(&link.impairment_a_to_b));
+    values.extend(impairment_values(&link.impairment_b_to_a));
+    Ok(values)
 }
 
-impl TryFrom<&NodeConfig> for NodeImageRow {
-    type Error = anyhow::Error;
-
-    fn try_from(value: &NodeConfig) -> Result<Self> {
-        Ok(Self {
-            id: value.id.as_ref().map(to_surreal_id),
-            model: encode(value.model, "model")?,
-            version: value.version.clone(),
-            repo: value.repo.clone(),
-            os_variant: encode(&value.os_variant, "os_variant")?,
-            kind: encode(&value.kind, "kind")?,
-            bios: encode(&value.bios, "bios")?,
-            cpu_count: value.cpu_count,
-            cpu_architecture: encode(&value.cpu_architecture, "cpu_architecture")?,
-            cpu_model: encode(&value.cpu_model, "cpu_model")?,
-            machine_type: encode(&value.machine_type, "machine_type")?,
-            vmx_enabled: value.vmx_enabled,
-            memory: value.memory,
-            hdd_bus: encode(&value.hdd_bus, "hdd_bus")?,
-            cdrom: value.cdrom.clone(),
-            cdrom_bus: encode(&value.cdrom_bus, "cdrom_bus")?,
-            ztp_enable: value.ztp_enable,
-            ztp_method: encode(&value.ztp_method, "ztp_method")?,
-            ztp_username: value.ztp_username.clone(),
-            ztp_password: value.ztp_password.clone(),
-            ztp_password_auth: value.ztp_password_auth,
-            data_interface_count: value.data_interface_count,
-            interface_prefix: value.interface_prefix.clone(),
-            interface_type: encode(&value.interface_type, "interface_type")?,
-            interface_mtu: value.interface_mtu,
-            first_interface_index: value.first_interface_index,
-            dedicated_management_interface: value.dedicated_management_interface,
-            management_interface: encode(&value.management_interface, "management_interface")?,
-            reserved_interface_count: value.reserved_interface_count,
-            default: value.default,
-            boot_mode: value
-                .boot_mode
-                .as_ref()
-                .map(|mode| encode(mode, "boot_mode"))
-                .transpose()?,
-        })
-    }
+/// A bridge without its members, which live in their own table.
+pub(crate) fn bridge_from_row(row: &Row) -> Result<DbBridge> {
+    let mut cells = Cells::new(row);
+    Ok(DbBridge {
+        id: Some(cells.record(BRIDGE_TABLE, "id")?),
+        index: cells.integer("index")?,
+        bridge_name: cells.text("bridge_name")?,
+        network_name: cells.text("network_name")?,
+        lab: cells.record(LAB_TABLE, "lab")?,
+        members: Vec::new(),
+    })
 }
 
-impl TryFrom<NodeImageRow> for NodeConfig {
-    type Error = anyhow::Error;
+/// A bridge's column values in `bridge_columns!` order, under `key`.
+pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<Vec<Value>> {
+    Ok(vec![
+        key.into(),
+        bridge.index.into(),
+        bridge.bridge_name.as_str().into(),
+        bridge.network_name.as_str().into(),
+        key_of(&bridge.lab, LAB_TABLE)?.into(),
+    ])
+}
 
-    fn try_from(value: NodeImageRow) -> Result<Self> {
-        Ok(Self {
-            id: value.id.map(from_surreal_id).transpose()?,
-            model: decode(value.model, "model")?,
-            version: value.version,
-            repo: value.repo,
-            os_variant: decode(value.os_variant, "os_variant")?,
-            kind: decode(value.kind, "kind")?,
-            bios: decode(value.bios, "bios")?,
-            cpu_count: value.cpu_count,
-            cpu_architecture: decode(value.cpu_architecture, "cpu_architecture")?,
-            cpu_model: decode(value.cpu_model, "cpu_model")?,
-            machine_type: decode(value.machine_type, "machine_type")?,
-            vmx_enabled: value.vmx_enabled,
-            memory: value.memory,
-            hdd_bus: decode(value.hdd_bus, "hdd_bus")?,
-            cdrom: value.cdrom,
-            cdrom_bus: decode(value.cdrom_bus, "cdrom_bus")?,
-            ztp_enable: value.ztp_enable,
-            ztp_method: decode(value.ztp_method, "ztp_method")?,
-            ztp_username: value.ztp_username,
-            ztp_password: value.ztp_password,
-            ztp_password_auth: value.ztp_password_auth,
-            data_interface_count: value.data_interface_count,
-            interface_prefix: value.interface_prefix,
-            interface_type: decode(value.interface_type, "interface_type")?,
-            interface_mtu: value.interface_mtu,
-            first_interface_index: value.first_interface_index,
-            dedicated_management_interface: value.dedicated_management_interface,
-            management_interface: decode(value.management_interface, "management_interface")?,
-            reserved_interface_count: value.reserved_interface_count,
-            default: value.default,
-            boot_mode: value
-                .boot_mode
-                .map(|mode| decode(mode, "boot_mode"))
-                .transpose()?,
-        })
-    }
+/// A bridge member, from a row of `bridge_member_columns!` without the bridge and position.
+pub(crate) fn bridge_member_from_row(row: &Row) -> Result<BridgeMember> {
+    let mut cells = Cells::new(row);
+    Ok(BridgeMember {
+        node: cells.record(NODE_TABLE, "node")?,
+        interface: cells.text("interface")?,
+    })
+}
+
+/// A bridge member's column values in `bridge_member_columns!` order.
+pub(crate) fn bridge_member_values(
+    member: &BridgeMember,
+    bridge_key: &str,
+    position: usize,
+) -> Result<Vec<Value>> {
+    Ok(vec![
+        bridge_key.into(),
+        i64::try_from(position)
+            .context("Bridge member position is too large")?
+            .into(),
+        key_of(&member.node, NODE_TABLE)?.into(),
+        member.interface.as_str().into(),
+    ])
+}
+
+pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
+    let mut cells = Cells::new(row);
+    Ok(NodeConfig {
+        id: Some(cells.record(NODE_IMAGE_TABLE, "id")?),
+        model: cells.enumeration("model")?,
+        version: cells.text("version")?,
+        repo: cells.optional_text("repo")?,
+        os_variant: cells.enumeration("os_variant")?,
+        kind: cells.enumeration("kind")?,
+        bios: cells.enumeration("bios")?,
+        cpu_count: cells.integer("cpu_count")?,
+        cpu_architecture: cells.enumeration("cpu_architecture")?,
+        cpu_model: cells.enumeration("cpu_model")?,
+        machine_type: cells.enumeration("machine_type")?,
+        vmx_enabled: cells.boolean("vmx_enabled")?,
+        memory: cells.integer("memory")?,
+        hdd_bus: cells.enumeration("hdd_bus")?,
+        cdrom: cells.optional_text("cdrom")?,
+        cdrom_bus: cells.enumeration("cdrom_bus")?,
+        ztp_enable: cells.boolean("ztp_enable")?,
+        ztp_method: cells.enumeration("ztp_method")?,
+        ztp_username: cells.optional_text("ztp_username")?,
+        ztp_password: cells.optional_text("ztp_password")?,
+        ztp_password_auth: cells.boolean("ztp_password_auth")?,
+        data_interface_count: cells.integer("data_interface_count")?,
+        interface_prefix: cells.text("interface_prefix")?,
+        interface_type: cells.enumeration("interface_type")?,
+        interface_mtu: cells.integer("interface_mtu")?,
+        first_interface_index: cells.integer("first_interface_index")?,
+        dedicated_management_interface: cells.boolean("dedicated_management_interface")?,
+        management_interface: cells.enumeration("management_interface")?,
+        reserved_interface_count: cells.integer("reserved_interface_count")?,
+        default: cells.boolean("default")?,
+        boot_mode: cells.optional_enumeration("boot_mode")?,
+    })
+}
+
+/// A node image's column values in `node_image_columns!` order, under `key`.
+pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Value>> {
+    Ok(vec![
+        key.into(),
+        enum_text(&image.model, "model")?.into(),
+        image.version.as_str().into(),
+        image.repo.as_deref().into(),
+        enum_text(&image.os_variant, "os_variant")?.into(),
+        enum_text(&image.kind, "kind")?.into(),
+        enum_text(&image.bios, "bios")?.into(),
+        image.cpu_count.into(),
+        enum_text(&image.cpu_architecture, "cpu_architecture")?.into(),
+        enum_text(&image.cpu_model, "cpu_model")?.into(),
+        enum_text(&image.machine_type, "machine_type")?.into(),
+        image.vmx_enabled.into(),
+        image.memory.into(),
+        enum_text(&image.hdd_bus, "hdd_bus")?.into(),
+        image.cdrom.as_deref().into(),
+        enum_text(&image.cdrom_bus, "cdrom_bus")?.into(),
+        image.ztp_enable.into(),
+        enum_text(&image.ztp_method, "ztp_method")?.into(),
+        image.ztp_username.as_deref().into(),
+        image.ztp_password.as_deref().into(),
+        image.ztp_password_auth.into(),
+        image.data_interface_count.into(),
+        image.interface_prefix.as_str().into(),
+        enum_text(&image.interface_type, "interface_type")?.into(),
+        image.interface_mtu.into(),
+        image.first_interface_index.into(),
+        image.dedicated_management_interface.into(),
+        enum_text(&image.management_interface, "management_interface")?.into(),
+        image.reserved_interface_count.into(),
+        image.default.into(),
+        image
+            .boot_mode
+            .as_ref()
+            .map(|mode| enum_text(mode, "boot_mode"))
+            .transpose()?
+            .into(),
+    ])
 }
 
 #[cfg(test)]
 mod tests {
-    use jiff::Timestamp;
-    use shared::data::{NodeKind, NodeModel};
+    use shared::data::{LabState, NodeKind, NodeModel};
 
     use super::*;
 
     #[test]
-    fn record_id_round_trip_preserves_string_key() {
-        let original = RecordId::new("node", "abc123");
-        let converted = from_surreal_id(to_surreal_id(&original)).unwrap();
-
-        assert_eq!(converted, original);
+    fn new_keys_use_the_key_alphabet_and_length() {
+        let key = new_key();
+        assert_eq!(key.len(), SHERPA_DB_KEY_LENGTH);
+        assert!(
+            key.bytes()
+                .all(|byte| SHERPA_DB_KEY_CHARSET.contains(&byte))
+        );
+        assert_ne!(key, new_key());
     }
 
     #[test]
-    fn user_round_trip_preserves_timestamp_precision() {
+    fn key_of_refuses_a_record_of_another_table() {
+        let id = RecordId::new("node", "abc123");
+        assert_eq!(key_of(&id, NODE_TABLE).unwrap(), "abc123");
+        assert!(key_of(&id, LAB_TABLE).is_err());
+    }
+
+    #[test]
+    fn enums_are_stored_by_their_serde_names() {
+        assert_eq!(
+            enum_text(&NodeKind::Container, "kind").unwrap(),
+            serde_json::to_value(NodeKind::Container)
+                .unwrap()
+                .as_str()
+                .unwrap()
+        );
+        let model = enum_text(&NodeModel::AristaCeos, "model").unwrap();
+        assert_eq!(
+            decode_enum::<NodeModel>(model, "model").unwrap(),
+            NodeModel::AristaCeos
+        );
+        assert!(enum_text(&LabState::default(), "status").is_ok());
+    }
+
+    #[test]
+    fn timestamps_keep_nanosecond_precision_as_text() {
         let created_at = "2026-08-17T12:34:56.123456789Z"
             .parse::<Timestamp>()
             .unwrap();
-        let original = DbUser {
-            id: Some(RecordId::new("user", "alice")),
-            username: "alice".to_owned(),
-            password_hash: "hash".to_owned(),
-            is_admin: true,
-            ssh_keys: Vec::new(),
-            created_at,
-            updated_at: created_at,
-        };
-
-        let row = UserRow::try_from(&original).unwrap();
-        let converted = DbUser::try_from(row).unwrap();
-
-        assert_eq!(converted.created_at, original.created_at);
-        assert_eq!(converted.updated_at, original.updated_at);
-    }
-
-    #[test]
-    fn node_image_round_trip_preserves_enum_values() {
-        let original = NodeConfig {
-            model: NodeModel::AristaCeos,
-            kind: NodeKind::Container,
-            ..NodeConfig::default()
-        };
-        let row = NodeImageRow::try_from(&original).unwrap();
-        let converted = NodeConfig::try_from(row).unwrap();
-
-        assert_eq!(converted.model, original.model);
-        assert_eq!(converted.kind, original.kind);
-    }
-    #[test]
-    fn lab_gateway_inventory_round_trip_and_legacy_default() {
-        let json = serde_json::json!({
-            "id": null, "lab_id": "test1234", "name": "test", "user": {"table":"user","key":"alice"},
-            "loopback_network":"192.0.2.0/24", "management_network":"198.51.100.0/24",
-            "gateway_ipv4":"198.51.100.1", "router_ipv4":"198.51.100.2"
-        });
-        // Use a serialized RecordId so this fixture follows the public ID representation.
-        let mut json = json;
-        json["user"] = serde_json::to_value(RecordId::new("user", "alice")).unwrap();
-        let mut lab: DbLab = serde_json::from_value(json).unwrap();
-        assert!(lab.tailscale_container_id.is_none());
-        lab.tailscale_container_id = Some("docker-container-id".into());
-        let restored = DbLab::try_from(LabRow::try_from(&lab).unwrap()).unwrap();
-        assert_eq!(restored.tailscale_container_id, lab.tailscale_container_id);
+        assert_eq!(
+            created_at.to_string().parse::<Timestamp>().unwrap(),
+            created_at
+        );
     }
 }

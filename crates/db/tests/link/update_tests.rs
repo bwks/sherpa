@@ -5,12 +5,11 @@ use db::{
 };
 use shared::data::{BridgeKind, LinkImpairment, NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_success() -> Result<()> {
-    let db = setup_db("link_update_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -95,14 +94,12 @@ async fn test_update_link_success() -> Result<()> {
     assert_eq!(stored.impairment_a_to_b, a_to_b);
     assert_eq!(stored.impairment_b_to_a, b_to_a);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_without_id_fails() -> Result<()> {
-    let db = setup_db("link_update_without_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -161,14 +158,12 @@ async fn test_update_link_without_id_fails() -> Result<()> {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("ID") || err_msg.contains("id") || err_msg.contains("required"));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_change_lab_fails() -> Result<()> {
-    let db = setup_db("link_update_change_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -243,14 +238,12 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
             || err_msg.contains("lab")
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_change_node_a_fails() -> Result<()> {
-    let db = setup_db("link_update_change_node_a").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -321,14 +314,12 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
             || err_msg.contains("endpoint")
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_change_node_b_fails() -> Result<()> {
-    let db = setup_db("link_update_change_node_b").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -399,14 +390,12 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
             || err_msg.contains("endpoint")
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_duplicate_peers_fails() -> Result<()> {
-    let db = setup_db("link_update_duplicate_peers").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -477,9 +466,7 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
 
     let result = update_link(&db, link2).await;
 
-    // The update should fail due to unique constraint violation
-    // However, SurrealDB might not return a specific error message
-    // Let's check if it actually succeeds (which would be wrong)
+    // The update should fail due to the unique constraint on the link's peers
     if result.is_ok() {
         panic!("Update should have failed due to unique constraint violation, but it succeeded!");
     }
@@ -487,14 +474,12 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
     // If it fails, that's expected - the error message format may vary
     eprintln!("Update correctly failed with: {}", result.unwrap_err());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_preserves_id() -> Result<()> {
-    let db = setup_db("link_update_preserves_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -553,14 +538,12 @@ async fn test_update_link_preserves_id() -> Result<()> {
 
     assert_eq!(result.id, original_id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_can_change_interfaces() -> Result<()> {
-    let db = setup_db("link_update_change_interfaces").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -623,14 +606,12 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
     assert_eq!(retrieved.int_a, "eth10");
     assert_eq!(retrieved.int_b, "eth20");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_link_nonexistent_fails() -> Result<()> {
-    let db = setup_db("link_update_nonexistent").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -689,6 +670,5 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("not found") || err_msg.contains("does not exist"));
 
-    teardown_db(&db).await?;
     Ok(())
 }

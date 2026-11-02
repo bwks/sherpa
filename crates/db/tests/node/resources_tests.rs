@@ -5,7 +5,7 @@ use db::{
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::data::DbNode>> {
     let user = create_user(db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
@@ -47,9 +47,8 @@ fn vnc(vnc_port: Option<u16>) -> NodeResources {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_node_resources_are_stored() -> Result<()> {
-    let db = setup_db("test_node_resources_stored").await?;
+    let db = setup_db().await?;
     let nodes = lab_with_nodes(&db, 1).await?;
     let id = nodes[0].id.clone().unwrap();
     assert_eq!(nodes[0].cpu_count, None);
@@ -71,14 +70,12 @@ async fn test_node_resources_are_stored() -> Result<()> {
     assert_eq!(read.memory, Some(32768));
     assert_eq!(read.vnc_port, Some(5901));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_pinned_cpus_are_stored_and_listed() -> Result<()> {
-    let db = setup_db("test_node_pinned_cpus").await?;
+    let db = setup_db().await?;
     let nodes = lab_with_nodes(&db, 2).await?;
     let id = nodes[0].id.clone().unwrap();
     assert!(list_pinned_nodes(&db).await?.is_empty());
@@ -99,14 +96,12 @@ async fn test_pinned_cpus_are_stored_and_listed() -> Result<()> {
     assert_eq!(pinned.len(), 1);
     assert_eq!(pinned[0].name, nodes[0].name);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_vnc_port_belongs_to_one_node() -> Result<()> {
-    let db = setup_db("test_vnc_port_unique").await?;
+    let db = setup_db().await?;
     let nodes = lab_with_nodes(&db, 3).await?;
     update_node_resources(&db, nodes[0].id.clone().unwrap(), &vnc(Some(5900))).await?;
     let taken = update_node_resources(&db, nodes[1].id.clone().unwrap(), &vnc(Some(5900))).await;
@@ -118,14 +113,12 @@ async fn test_vnc_port_belongs_to_one_node() -> Result<()> {
 
     assert_eq!(list_vnc_ports(&db).await?, vec![5900]);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
-    let db = setup_db("test_node_host_key").await?;
+    let db = setup_db().await?;
     let nodes = lab_with_nodes(&db, 2).await?;
     let id = nodes[0].id.clone().unwrap();
     assert_eq!(nodes[0].ssh_host_key, None);
@@ -146,6 +139,5 @@ async fn test_node_host_key_is_stored_and_cleared() -> Result<()> {
     update_node_host_key(&db, id.clone(), None).await?;
     assert_eq!(get_node(&db, id).await?.ssh_host_key, None);
 
-    teardown_db(&db).await?;
     Ok(())
 }

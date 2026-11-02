@@ -1,15 +1,15 @@
 use anyhow::{Context, Result};
 use shared::data::RecordId;
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::persistence::to_surreal_id;
+use crate::Database;
+use crate::persistence::{BRIDGE_TABLE, LAB_TABLE, key_of};
 
 /// Delete a bridge
 ///
-/// This function deletes a bridge record.
+/// This function deletes a bridge record. Its members are deleted with it
+/// (`bridge_member.bridge` is `ON DELETE CASCADE`). Deleting a bridge that does not
+/// exist is not an error.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -19,12 +19,16 @@ use crate::persistence::to_surreal_id;
 /// Ok(()) if successful
 ///
 /// # Errors
-/// - If the bridge doesn't exist
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> Result<()> {
-    let _: Option<surrealdb_types::RecordId> = db
-        .delete::<Option<surrealdb_types::RecordId>>(to_surreal_id(bridge_id))
+pub async fn delete_bridge(db: &Database, bridge_id: &RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM bridge WHERE id = ?1",
+            [key_of(bridge_id, BRIDGE_TABLE)?],
+        )
         .await
         .context(format!(
             "Failed to delete bridge: bridge_id={:?}",
@@ -36,7 +40,7 @@ pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> R
 
 /// Delete all bridges for a lab
 ///
-/// This function deletes all bridges for a given lab.
+/// This function deletes all bridges for a given lab, and their members.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -48,9 +52,14 @@ pub async fn delete_bridge(db: &Arc<Surreal<Client>>, bridge_id: &RecordId) -> R
 /// # Errors
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_lab_bridges(db: &Arc<Surreal<Client>>, lab_id: &RecordId) -> Result<()> {
-    db.query("DELETE FROM bridge WHERE lab = $lab_id")
-        .bind(("lab_id", to_surreal_id(lab_id)))
+pub async fn delete_lab_bridges(db: &Database, lab_id: &RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM bridge WHERE lab = ?1",
+            [key_of(lab_id, LAB_TABLE)?],
+        )
         .await
         .context(format!(
             "Failed to delete bridges for lab: lab_id={:?}",

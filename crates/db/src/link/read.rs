@@ -1,11 +1,10 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbLink, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::persistence::{LinkRow, to_surreal_id};
+use crate::Database;
+use crate::persistence::{LAB_TABLE, LINK_TABLE, NODE_TABLE, key_of, link_columns, link_from_row};
+use crate::sql::{query_all, query_count, query_optional};
 
 /// Get a link by its RecordId (surrogate key)
 ///
@@ -21,15 +20,18 @@ use crate::persistence::{LinkRow, to_surreal_id};
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
-    let link: Option<LinkRow> = db
-        .select(to_surreal_id(&id))
-        .await
-        .context(format!("Failed to get link by id: {:?}", id))?;
+pub async fn get_link(db: &Database, id: RecordId) -> Result<DbLink> {
+    let conn = db.reader().await?;
+    let link = query_optional(
+        &conn,
+        concat!("SELECT ", link_columns!(), " FROM link WHERE id = ?1"),
+        [key_of(&id, LINK_TABLE)?],
+        link_from_row,
+    )
+    .await
+    .context(format!("Failed to get link by id: {:?}", id))?;
 
-    link.map(DbLink::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Link not found with id: {:?}", id))
+    link.ok_or_else(|| anyhow!("Link not found with id: {:?}", id))
 }
 
 /// Alias for get_link - kept for compatibility
@@ -45,7 +47,7 @@ pub async fn get_link(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink>
 /// - If link with id not found
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbLink> {
+pub async fn get_link_by_id(db: &Database, id: RecordId) -> Result<DbLink> {
     get_link(db, id).await
 }
 
@@ -67,28 +69,35 @@ pub async fn get_link_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_link_by_peers(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_a_id: RecordId,
     node_b_id: RecordId,
     int_a: &str,
     int_b: &str,
 ) -> Result<DbLink> {
-    let mut response = db
-        .query(
-            "SELECT * FROM ONLY link WHERE node_a = $node_a AND node_b = $node_b AND int_a = $int_a AND int_b = $int_b",
-        )
-        .bind(("node_a", to_surreal_id(&node_a_id)))
-        .bind(("node_b", to_surreal_id(&node_b_id)))
-        .bind(("int_a", int_a.to_string()))
-        .bind(("int_b", int_b.to_string()))
-        .await
-        .context(format!(
-            "Failed to query link by peers: node_a={:?}, node_b={:?}, int_a={}, int_b={}",
-            node_a_id, node_b_id, int_a, int_b
-        ))?;
+    let conn = db.reader().await?;
+    let link = query_optional(
+        &conn,
+        concat!(
+            "SELECT ",
+            link_columns!(),
+            " FROM link WHERE node_a = ?1 AND node_b = ?2 AND int_a = ?3 AND int_b = ?4"
+        ),
+        [
+            key_of(&node_a_id, NODE_TABLE)?,
+            key_of(&node_b_id, NODE_TABLE)?,
+            int_a.to_string(),
+            int_b.to_string(),
+        ],
+        link_from_row,
+    )
+    .await
+    .context(format!(
+        "Failed to query link by peers: node_a={:?}, node_b={:?}, int_a={}, int_b={}",
+        node_a_id, node_b_id, int_a, int_b
+    ))?;
 
-    let link: Option<LinkRow> = response.take(0)?;
-    link.map(DbLink::try_from).transpose()?.ok_or_else(|| {
+    link.ok_or_else(|| {
         anyhow!(
             "Link not found with peers: node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             node_a_id,
@@ -111,13 +120,16 @@ pub async fn get_link_by_peers(
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
-    let links: Vec<LinkRow> = db
-        .select("link")
-        .await
-        .context("Failed to list links from database")?;
-
-    links.into_iter().map(DbLink::try_from).collect()
+pub async fn list_links(db: &Database) -> Result<Vec<DbLink>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!("SELECT ", link_columns!(), " FROM link"),
+        (),
+        link_from_row,
+    )
+    .await
+    .context("Failed to list links from database")
 }
 
 /// List all links in a specific lab
@@ -133,15 +145,16 @@ pub async fn list_links(db: &Arc<Surreal<Client>>) -> Result<Vec<DbLink>> {
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbLink>> {
-    let mut response = db
-        .query("SELECT * FROM link WHERE lab = $lab_id")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
-        .await
-        .context(format!("Failed to list links for lab: {:?}", lab_id))?;
-
-    let links: Vec<LinkRow> = response.take(0)?;
-    links.into_iter().map(DbLink::try_from).collect()
+pub async fn list_links_by_lab(db: &Database, lab_id: RecordId) -> Result<Vec<DbLink>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!("SELECT ", link_columns!(), " FROM link WHERE lab = ?1"),
+        [key_of(&lab_id, LAB_TABLE)?],
+        link_from_row,
+    )
+    .await
+    .context(format!("Failed to list links for lab: {:?}", lab_id))
 }
 
 /// List all links associated with a specific node
@@ -159,18 +172,20 @@ pub async fn list_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn list_links_by_node(
-    db: &Arc<Surreal<Client>>,
-    node_id: RecordId,
-) -> Result<Vec<DbLink>> {
-    let mut response = db
-        .query("SELECT * FROM link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", to_surreal_id(&node_id)))
-        .await
-        .context(format!("Failed to list links for node: {:?}", node_id))?;
-
-    let links: Vec<LinkRow> = response.take(0)?;
-    links.into_iter().map(DbLink::try_from).collect()
+pub async fn list_links_by_node(db: &Database, node_id: RecordId) -> Result<Vec<DbLink>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!(
+            "SELECT ",
+            link_columns!(),
+            " FROM link WHERE node_a = ?1 OR node_b = ?1"
+        ),
+        [key_of(&node_id, NODE_TABLE)?],
+        link_from_row,
+    )
+    .await
+    .context(format!("Failed to list links for node: {:?}", node_id))
 }
 
 /// Count total number of links in the database
@@ -185,14 +200,11 @@ pub async fn list_links_by_node(
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
-    let mut response = db
-        .query("SELECT count() FROM link GROUP ALL")
+pub async fn count_links(db: &Database) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(&conn, "SELECT count(*) FROM link", ())
         .await
-        .context("Failed to count links")?;
-
-    let count: Option<usize> = response.take("count")?;
-    Ok(count.unwrap_or(0))
+        .context("Failed to count links")
 }
 
 /// Count number of links in a specific lab
@@ -208,15 +220,15 @@ pub async fn count_links(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
-    let mut response = db
-        .query("SELECT count() FROM link WHERE lab = $lab_id GROUP ALL")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
-        .await
-        .context("Failed to count links for lab")?;
-
-    let count: Option<usize> = response.take("count")?;
-    Ok(count.unwrap_or(0))
+pub async fn count_links_by_lab(db: &Database, lab_id: RecordId) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(
+        &conn,
+        "SELECT count(*) FROM link WHERE lab = ?1",
+        [key_of(&lab_id, LAB_TABLE)?],
+    )
+    .await
+    .context("Failed to count links for lab")
 }
 
 /// Count number of links associated with a specific node
@@ -234,13 +246,13 @@ pub async fn count_links_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> 
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn count_links_by_node(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<usize> {
-    let mut response = db
-        .query("SELECT count() FROM link WHERE node_a = $node_id OR node_b = $node_id GROUP ALL")
-        .bind(("node_id", to_surreal_id(&node_id)))
-        .await
-        .context("Failed to count links for node")?;
-
-    let count: Option<usize> = response.take("count")?;
-    Ok(count.unwrap_or(0))
+pub async fn count_links_by_node(db: &Database, node_id: RecordId) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(
+        &conn,
+        "SELECT count(*) FROM link WHERE node_a = ?1 OR node_b = ?1",
+        [key_of(&node_id, NODE_TABLE)?],
+    )
+    .await
+    .context("Failed to count links for node")
 }

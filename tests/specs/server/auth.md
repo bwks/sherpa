@@ -1,7 +1,7 @@
 # Server Authentication — Test Specifications
 
 > **Crate:** `crates/server/` (`auth/`, `api/extractors.rs`)
-> **External Dependencies:** Running SurrealDB
+> **External Dependencies:** None for the database (the test server opens an in-memory database)
 > **Existing Tests:** None
 
 ---
@@ -71,15 +71,11 @@
 - An admin who owns the lab may redeploy; other admin operations retain their access rules `[unit]` `[integration]` **P0**
 
 The ignored `redeploy_only_allows_current_owner_on_all_transports` test in
-`lab_lifecycle_tests.rs` uses the disposable test database and local API sockets.
+`lab_lifecycle_tests.rs` uses an in-memory database and local API sockets.
 It creates database metadata only and does not start or destroy lab resources.
 
-Start the disposable database with `SHERPA_DEV_DB_USER=sherpa`, matching the
-account used by the DB client, and supply its test password to the test runner:
-
 ```sh
-SHERPA_DEV_DB_USER=sherpa dev/testdb start
-SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_owner_on_all_transports -- --ignored --nocapture
+cargo test -p sherpad --test lab_lifecycle_tests redeploy_only_allows_current_owner_on_all_transports -- --ignored --nocapture
 ```
 
 ## Database-backed identity
@@ -99,12 +95,11 @@ Tests: `demoted_admin_token_loses_admin_rights_on_all_transports` and
 - A web job page and stream are served only to the job's creator or an admin, and a refused request does not consume the job `[unit]` `[integration]` **P0**
 
 Tests: `lab_authorization_tests.rs`, `auth::policy` unit tests, `api::errors` unit tests and
-`daemon::state` unit tests. The integration tests seed lab records only; they need the
-disposable test database and local Docker and libvirt sockets, but no root.
+`daemon::state` unit tests. The integration tests seed lab records only, in an in-memory
+database; they need local Docker and libvirt sockets, but no root.
 
 ```sh
-SHERPA_DEV_DB_USER=sherpa dev/testdb start
-SHERPA_DB_PASSWORD="${SHERPA_DEV_DB_PASS:-root}" cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads=1
+cargo test -p sherpad --test lab_authorization_tests -- --ignored --test-threads=1
 ```
 
 ## User deletion

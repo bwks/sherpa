@@ -1,4 +1,5 @@
 mod auth;
+mod backup;
 mod cluster;
 mod config;
 mod container;
@@ -33,6 +34,7 @@ mod ws;
 mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
+pub use backup::BackupResponse;
 pub use cluster::ClusterRole;
 
 pub use config::{

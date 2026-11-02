@@ -3,11 +3,9 @@ use bollard::Docker;
 use dashmap::DashMap;
 use libvirt::Qemu;
 use shared::data::{Config, UpRequest};
-use shared::konst::{
-    ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PORT,
-    SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
-};
+use shared::konst::{ADMIN_USERNAME, SHERPA_ADMIN_PASSWORD_ENV, SHERPA_DB_FILE_PATH};
 use std::env;
+use std::path::Path;
 use std::sync::Arc;
 use tracing::instrument;
 
@@ -81,28 +79,12 @@ impl AppState {
             jwt::load_or_generate_secret().context("Failed to load or generate JWT secret")?;
         tracing::info!("JWT secret loaded successfully");
 
-        // Connect to SurrealDB
-        let db_password = std::env::var("SHERPA_DB_PASSWORD").context(format!(
-            "SHERPA_DB_PASSWORD environment variable is not set (check {})",
-            SHERPA_ENV_FILE_PATH
-        ))?;
+        // Open the embedded database
+        let db = db::open(Path::new(SHERPA_DB_FILE_PATH))
+            .await
+            .context("Failed to open the database")?;
 
-        let db_port = std::env::var("SHERPA_DB_PORT")
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or(SHERPA_DB_PORT);
-
-        let db = db::connect(
-            SHERPA_DB_SERVER,
-            db_port,
-            SHERPA_DB_NAMESPACE,
-            SHERPA_DB_NAME,
-            &db_password,
-        )
-        .await
-        .context("Failed to connect to SurrealDB")?;
-
-        tracing::info!("Connected to SurrealDB at {}:{}", SHERPA_DB_SERVER, db_port);
+        tracing::info!("Opened database at {}", SHERPA_DB_FILE_PATH);
 
         // Apply database schema
         db::apply_schema(&db)

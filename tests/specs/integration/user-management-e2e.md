@@ -1,7 +1,7 @@
 # User Management End-to-End — Test Specifications
 
 > **Scope:** Cross-crate integration testing user workflows
-> **External Dependencies:** SurrealDB, running server
+> **External Dependencies:** Running server (in-memory database in tests)
 > **Existing Tests:** None
 
 ---

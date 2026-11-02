@@ -6,12 +6,11 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_link_success() -> Result<()> {
-    let db = setup_db("link_delete_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -69,14 +68,12 @@ async fn test_delete_link_success() -> Result<()> {
     let result = get_link_by_id(&db, link_id).await;
     assert!(result.is_err());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_link_by_id_success() -> Result<()> {
-    let db = setup_db("link_delete_by_id_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -134,14 +131,12 @@ async fn test_delete_link_by_id_success() -> Result<()> {
     let result = get_link_by_id(&db, link_id).await;
     assert!(result.is_err());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_link_nonexistent_fails() -> Result<()> {
-    let db = setup_db("link_delete_nonexistent").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -202,14 +197,12 @@ async fn test_delete_link_nonexistent_fails() -> Result<()> {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("not found") || err_msg.contains("does not exist"));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_link_decrements_count() -> Result<()> {
-    let db = setup_db("link_delete_decrements_count").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -287,14 +280,12 @@ async fn test_delete_link_decrements_count() -> Result<()> {
     let count_after_two = count_links(&db).await?;
     assert_eq!(count_after_two, 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_links_by_lab_success() -> Result<()> {
-    let db = setup_db("link_delete_by_lab_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -389,14 +380,12 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
     let count_after = count_links_by_lab(&db, lab.id.clone().unwrap()).await?;
     assert_eq!(count_after, 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
-    let db = setup_db("link_delete_by_lab_isolation").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -524,14 +513,12 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
     // lab2 should still have 1 link
     assert_eq!(count_lab2_after, 1);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_links_by_node_success() -> Result<()> {
-    let db = setup_db("link_delete_by_node_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -633,14 +620,12 @@ async fn test_delete_links_by_node_success() -> Result<()> {
     assert_eq!(count_node2, 1);
     assert_eq!(count_node3, 1);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
-    let db = setup_db("link_delete_by_node_isolation").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -778,6 +763,5 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
     let total_after = count_links(&db).await?;
     assert_eq!(total_after, 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
