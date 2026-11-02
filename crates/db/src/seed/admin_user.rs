@@ -1,12 +1,10 @@
 use anyhow::{Context, Result};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
 use shared::konst::ADMIN_USERNAME;
 
-use crate::user::{create_admin_user, get_user};
+use crate::Database;
+use crate::user::{create_admin_user, find_user};
 
 /// Seed the database with an admin user
 ///
@@ -28,15 +26,16 @@ use crate::user::{create_admin_user, get_user};
 /// provided via secure means (environment variable, not config file).
 ///
 #[instrument(skip(db, password), level = "debug")]
-pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Result<bool> {
+pub async fn seed_admin_user(db: &Database, password: &str) -> Result<bool> {
     // Check if admin user already exists
-    match get_user(db, ADMIN_USERNAME).await {
-        Ok(_) => {
+    // A failed lookup is an error, not a missing admin: seeding must not mask a broken database.
+    match find_user(db, ADMIN_USERNAME).await? {
+        Some(_) => {
             tracing::debug!("Admin user seeding skipped (admin user already exists)");
             return Ok(false);
         }
-        Err(_) => {
-            // Admin user doesn't exist, proceed with creation
+        None => {
+            tracing::debug!("Admin user not found, creating it");
         }
     }
 
@@ -53,41 +52,10 @@ pub async fn seed_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Resul
 mod tests {
     use super::*;
     use crate::user::{count_users, create_user, get_user};
-    use shared::konst::SHERPA_PASSWORD;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn test_db_port() -> u16 {
-        std::env::var("SHERPA_DEV_DB_PORT")
-            .unwrap_or_else(|_| "42069".to_string())
-            .parse()
-            .expect("SHERPA_DEV_DB_PORT must be a valid port number")
-    }
-
-    /// Matches the integration test helper: the test database password may be overridden.
-    fn test_db_password() -> String {
-        std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string())
-    }
-
-    /// Generate a unique namespace per test invocation to avoid index collisions
-    fn unique_ns(test_name: &str) -> String {
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_nanos();
-        format!("test_ns_{ts}_{test_name}")
-    }
 
     #[tokio::test]
-    #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_empty() -> Result<()> {
-        let db = crate::connect(
-            "localhost",
-            test_db_port(),
-            &unique_ns("seed_admin_empty"),
-            "test_db",
-            &test_db_password(),
-        )
-        .await?;
+        let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 
         let created = seed_admin_user(&db, "AdminPass123!").await?;
@@ -102,16 +70,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_creates_when_other_users_exist() -> Result<()> {
-        let db = crate::connect(
-            "localhost",
-            test_db_port(),
-            &unique_ns("seed_admin_others"),
-            "test_db",
-            &test_db_password(),
-        )
-        .await?;
+        let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 
         // Create a regular user first
@@ -133,16 +93,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_validates_password() -> Result<()> {
-        let db = crate::connect(
-            "localhost",
-            test_db_port(),
-            &unique_ns("seed_admin_validate"),
-            "test_db",
-            &test_db_password(),
-        )
-        .await?;
+        let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 
         // Try with invalid password
@@ -160,16 +112,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore] // Requires running SurrealDB instance
     async fn test_seed_admin_user_idempotent() -> Result<()> {
-        let db = crate::connect(
-            "localhost",
-            test_db_port(),
-            &unique_ns("seed_admin_idem"),
-            "test_db",
-            &test_db_password(),
-        )
-        .await?;
+        let db = crate::open_in_memory().await?;
         crate::schema::apply_schema(&db).await?;
 
         // First call should create

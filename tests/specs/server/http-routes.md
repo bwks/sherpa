@@ -1,7 +1,7 @@
 # Server HTTP Routes — Test Specifications
 
 > **Crate:** `crates/server/` (`api/router.rs`, `api/handlers.rs`)
-> **External Dependencies:** Running server with SurrealDB
+> **External Dependencies:** Running server (in-memory database in tests)
 > **Existing Tests:** None
 
 ---

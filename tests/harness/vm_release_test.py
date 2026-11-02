@@ -366,7 +366,7 @@ class Runner:
         self.report["candidate"]["dirty"] = bool(self.command(
             "source-status", ["git", "-C", str(ROOT), "status", "--porcelain"],
             self.config["timeouts"]["command"])[1].strip())
-        for name in ("sherpa_install.sh", "sherpa_uninstall.sh"):
+        for name in ("sherpa_install.sh", "sherpa_update.sh", "sherpa_uninstall.sh"):
             source = ROOT / candidate["scripts_directory"] / name
             (self.directory / name).write_bytes(source.read_bytes())
             self.report["scripts"][name.replace(".", "_")] = sha256(self.directory / name)
@@ -381,9 +381,16 @@ class Runner:
             baseline = {**candidate, **self.config["baseline"]}
             baseline_directory = self.directory / "baseline"
             baseline_directory.mkdir(mode=0o700)
+            # The baseline is installed by its own release's installer: the candidate's may no
+            # longer install it (from 0.5.0 it refuses to set up SurrealDB).
+            baseline_installer = baseline_directory / "sherpa_install.sh"
+            baseline_installer.write_text(self.command(
+                "baseline-installer",
+                ["git", "-C", str(ROOT), "show", f"{baseline['version']}:scripts/sherpa_install.sh"],
+                self.config["timeouts"]["command"])[1])
             self.report["baseline"] = {**baseline,
-                "installer_sha256": self.report["scripts"]["sherpa_install_sh"],
-                "installer_source": "recorded-checkout",
+                "installer_sha256": sha256(baseline_installer),
+                "installer_source": f"release-tag {baseline['version']}",
                 **self.prepare_artifacts(baseline, baseline_directory)}
             validate_upgrade_artifacts(self.report["baseline"], self.report["artifacts"])
         self.save()
@@ -547,7 +554,8 @@ class Runner:
         payload_path.write_text(encode_toml(payload))
         payload_path.chmod(0o600)
         files = [str(payload_path), str(self.directory / "vm_release_guest.py"),
-                 str(self.directory / "sherpa_install.sh"), str(self.directory / "sherpa_uninstall.sh")]
+                 str(self.directory / "sherpa_install.sh"), str(self.directory / "sherpa_update.sh"),
+                 str(self.directory / "sherpa_uninstall.sh")]
         if self.config["candidate"]["artifact_directory"]:
             files.extend(str(path) for path in self.directory.glob("*.tar.gz"))
         if "baseline" in payload:

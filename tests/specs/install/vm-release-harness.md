@@ -96,10 +96,14 @@ The runner downloads the previous release on the controller and transfers it
 separately from the candidate. Use `--baseline-artifact-dir /path/to/previous-artifacts`
 to supply the previous release locally. The optional TOML `[baseline]` section has
 `version` and `artifact_directory` settings; the CLI flags override them.
-Both installations use the recorded checkout's real installer. This verifies a
-binary upgrade using that installer; it does not test the previous release's
-historical installer. Both input archive/binary hashes and the baseline installer
-hash/source are recorded. Equal versions, identical binary bytes or a missing
+The baseline is installed with its own release's installer, taken from the
+release tag in the recorded checkout (`git show <baseline>:scripts/sherpa_install.sh`),
+as users of that release installed it. The upgrade then runs the recorded
+checkout's `sherpa_update.sh` with the candidate archives (`SHERPA_ARTIFACT_DIR`),
+as users upgrade. From a baseline older than 0.5.0 that includes moving the data
+out of SurrealDB with `sherpad migrate-db`; the checks below then confirm every
+user, setting and identity survived the move. Both input archive/binary hashes and
+the baseline installer hash/source are recorded. Equal versions, identical binary bytes or a missing
 local candidate selection are rejected before provisioning.
 
 The upgrade scenario creates a fresh guest, installs and initializes the baseline,

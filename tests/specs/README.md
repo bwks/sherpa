@@ -21,7 +21,7 @@ This cycle applies whether you are adding new functionality, fixing a bug, or ex
 - **Test behavior, not implementation.** Tests should verify what a function does, not how it does it. This makes tests resilient to refactoring.
 - **One assertion per concern.** Each test should validate a single behavior or invariant. If a test name needs "and" in it, consider splitting it.
 - **Tests are documentation.** A well-named test communicates intent. Someone reading the test suite should understand the system's expected behavior without reading the source code.
-- **Isolate external dependencies.** Unit tests must not require Docker, libvirt, SurrealDB, or network access. Use integration tests (gated behind feature flags or `#[ignore]`) for real service interactions.
+- **Isolate external dependencies.** Unit tests must not require Docker, libvirt, a database server, or network access; database tests use in-memory databases. Use integration tests (gated behind feature flags or `#[ignore]`) for real service interactions.
 - **Deterministic and repeatable.** Tests must produce the same result every run. No reliance on global state, ordering, or timing (except where explicitly testing timeouts).
 - **Fast feedback.** Unit tests should run in milliseconds. Keep the unit test suite fast so it can run on every change. Integration tests are slower by nature but should still avoid unnecessary waits.
 - **Test at the right level.** Use the test pyramid: many unit tests, fewer integration tests, fewest e2e tests. Push testing as low in the stack as possible.
@@ -33,7 +33,7 @@ This cycle applies whether you are adding new functionality, fixing a bug, or ex
 When populating spec files, follow this structure:
 
 - **Scope**: Brief description of what the spec covers
-- **External Dependencies**: Services, permissions, or environment required (e.g., SurrealDB, Docker, libvirt, root access)
+- **External Dependencies**: Services, permissions, or environment required (e.g., Docker, libvirt, root access)
 - **What To Test**: High-level list of functional areas and behaviors grouped by operation or concern
   - Success paths
   - Error/failure paths
@@ -133,9 +133,9 @@ Manages containers via the Bollard library (Docker API). All operations require 
 | `image-management.md` | What to test for Docker image operations: pulling from registries with progress tracking, listing local images, saving images to tar.gz, handling image-not-found errors, and network failures during pull. |
 | `networking.md` | What to test for Docker network operations: creating bridge networks, macvlan networks, macvlan bridge networks, deleting networks, listing networks. Covers duplicate network names, network-in-use deletion, and filter behavior. |
 
-### `db/` — Database Layer (SurrealDB)
+### `db/` — Database Layer (embedded Turso)
 
-CRUD operations and schema management for 6 tables: lab, node, link, bridge, user, node_image. Requires a running SurrealDB instance.
+CRUD operations and schema management for 6 tables: lab, node, link, bridge, user, node_image. Tests use in-memory databases; only the importer test needs the SurrealDB test database (`dev/testdb`).
 
 | File | Purpose |
 |------|---------|
@@ -214,7 +214,7 @@ The main installation script that deploys Sherpa on Ubuntu 24.04+ systems.
 
 | File | Purpose |
 |------|---------|
-| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, port, virtualization), password and IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, SurrealDB container management, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
+| `sherpa-install.md` | What to test for `scripts/sherpa_install.sh`: CLI argument parsing, pre-flight checks (Ubuntu version, root, curl, virtualization, pre-0.5.0 SurrealDB container), IP validation, system package installation, Docker/libvirt setup, sherpa user/group creation, directory structure, SurrealDB container management, health checks, binary download/install from GitHub releases, systemd service/env file/logrotate setup, and error cleanup. |
 
 ### `integration/` — Cross-Crate End-to-End Tests
 

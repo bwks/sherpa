@@ -9,8 +9,8 @@ use tabled::{
 
 use super::ssh::{SshConfigInspectionEntry, ssh_key_fingerprint};
 use crate::data::{
-    BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo, ProvisionResult,
-    ScannedImage, TailnetStatus,
+    BackupResponse, BridgeInfo, DeviceInfo, ImageSummary, LabInfo, LinkInfo, NodeConfig, NodeInfo,
+    ProvisionResult, ScannedImage, TailnetStatus,
 };
 
 /// Represents a row in the SSH config inspection table
@@ -646,6 +646,25 @@ pub fn render_server_status_table(server: &str, status: &str, tls: &str) -> Stri
         .with(Style::modern())
         .with(BorderCorrection::span())
         .to_string()
+}
+
+/// Render how many records of each kind a database migration imported.
+pub fn render_migration_table(counts: &[(&str, usize)]) -> String {
+    let mut builder = Builder::default();
+    builder.push_record(["Records", "Imported"]);
+    for (kind, count) in counts {
+        builder.push_record([kind.to_string(), count.to_string()]);
+    }
+    builder.build().with(Style::modern()).to_string()
+}
+
+/// Render where a database backup was written on the server.
+pub fn render_backup_table(backup: &BackupResponse) -> String {
+    let mut builder = Builder::default();
+    builder.push_record(["Backup", "Details"]);
+    builder.push_record(["File on the server", backup.path.as_str()]);
+    builder.push_record(["Size (bytes)", backup.size_bytes.to_string().as_str()]);
+    builder.build().with(Style::modern()).to_string()
 }
 
 /// Show connection and approval separately; connected does not imply reachable.

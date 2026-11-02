@@ -1,7 +1,7 @@
 # Database Relationships — Test Specifications
 
 > **Crate:** `crates/db/`
-> **External Dependencies:** Running SurrealDB instance
+> **External Dependencies:** None (in-memory embedded database)
 > **Existing Tests:** Cascade deletes partially tested via CRUD tests
 
 ---

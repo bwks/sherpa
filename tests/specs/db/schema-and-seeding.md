@@ -1,7 +1,7 @@
 # Database Schema & Seeding — Test Specifications
 
 > **Crate:** `crates/db/`
-> **External Dependencies:** Running SurrealDB instance
+> **External Dependencies:** None (in-memory embedded database)
 > **Existing Tests:** Schema applied as part of all integration test setup, but no dedicated schema tests
 
 ---
@@ -53,7 +53,9 @@ Tests: `crates/db/tests/user/admin_protection_tests.rs`.
 ## Database Connection
 
 **What to test:**
-- `connect()` establishes connection to SurrealDB `[integration]` **P0**
-- Connection with invalid credentials fails `[integration]` **P0**
-- Connection to unreachable server fails with timeout `[integration]` **P1**
-- Namespace and database selection after auth `[integration]` **P1**
+- `open()` creates the database file, and reopening it keeps the data `[unit]` **P0**
+- `open_in_memory()` gives each call its own empty database `[unit]` **P0**
+- `apply_schema()` sets `PRAGMA user_version` to `SCHEMA_VERSION` and is idempotent `[unit]` **P0**
+- `apply_schema()` refuses a database with a newer schema version `[unit]` **P0**
+- `Database::backup()` copies an open database and refuses an existing file `[unit]` **P0**
+- Writes from many tasks through one `Database` all succeed (the write lock queues them) `[unit]` **P0**

@@ -49,10 +49,6 @@ pub enum Commands {
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
 
-        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
-        db_password: Option<String>,
-
         /// Server listen IP address (also reads from SHERPA_SERVER_IPV4 env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "server-ipv4", env = "SHERPA_SERVER_IPV4")]
         server_ipv4: Option<String>,
@@ -64,6 +60,14 @@ pub enum Commands {
         /// HTTP port for certificate endpoint (also reads from SHERPA_SERVER_HTTP_PORT env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT")]
         http_port: Option<u16>,
+    },
+
+    /// Import the data of a server older than 0.5.0 from its SurrealDB container into the
+    /// embedded database. Run it once, with sherpad stopped and the SurrealDB container running.
+    MigrateDb {
+        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
+        #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
+        db_password: Option<String>,
 
         /// SurrealDB port (also reads from SHERPA_DB_PORT env var or /opt/sherpa/env/sherpa.env)
         #[arg(long = "db-port", env = "SHERPA_DB_PORT")]

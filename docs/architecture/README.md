@@ -10,6 +10,7 @@ Do not document user-facing behaviour here; document it there.
 | Document | Covers |
 |---|---|
 | [`ACCOUNTS.md`](ACCOUNTS.md) | Server usernames: the shared rule, reserved names, case-insensitive storage and lookup, enforcement points; the built-in `admin` account; owner SSH keys. |
+| [`DATABASE.md`](DATABASE.md) | The embedded Turso database in `crates/db`: the `Database` handle, connections and the write lock, row mapping and record keys, schema versions, rule triggers, backups, the SurrealDB importer. |
 | [`GUEST_PROVISIONING.md`](GUEST_PROVISIONING.md) | How a VM node's login, environment variables, text files, scripts and certificates reach the guest: cloud-init staging, Ignition, native tools per OS, per-OS cloud-init adjustments. |
 | [`PROVISIONERS.md`](PROVISIONERS.md) | Client-side provisioners: the never-serialized manifest field, validation and server refusal, the SSH provisioner's remote steps and transport, and when the CLI runs them. |
 | [`SSH_CLIENT.md`](SSH_CLIENT.md) | `sherpa ssh` through the Jato library: connecting through the server, the host key prompt, raw terminal pass-through, `~.`, resizes and exit codes. |

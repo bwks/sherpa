@@ -5,42 +5,36 @@
 ################################################################################
 #
 # This script installs all required dependencies (QEMU/KVM, libvirt, Docker)
-# and sets up SurrealDB as a Docker container for the Sherpa application.
+# and the Sherpa binaries. sherpad keeps its database in a file it manages
+# itself, so no database server is installed.
 # It must be executed with root/sudo privileges on an Ubuntu system.
 #
 # Requirements:
 #   - Ubuntu (uses apt for package installation)
 #   - Root/sudo access
 #   - curl installed
-#   - Port 8000 available
 #
 # Usage:
-#   export SHERPA_DB_PASSWORD="YourPassword"
-#   sudo -E ./sherpa_install.sh
+#   sudo ./sherpa_install.sh
 #
 #   # Or install a specific version:
-#   sudo -E ./sherpa_install.sh --version v0.3.4
+#   sudo ./sherpa_install.sh --version v0.3.4
 #
 ################################################################################
 
 set -e  # Exit on error
 
 # Script configuration
-CONTAINER_NAME="sherpa-db"
-SURREALDB_VERSION="v3.0.0"
-SURREALDB_IMAGE="surrealdb/surrealdb:${SURREALDB_VERSION}"
+# The SurrealDB container of releases before 0.5.0. sherpa_update.sh moves its data.
+LEGACY_DB_CONTAINER="sherpa-db"
 SHERPA_ROUTER_IMAGE="ghcr.io/bwks/sherpa-router:latest"
-DB_PORT=8000
-DB_USER="sherpa"
-DB_NAMESPACE="sherpa"
-DB_DATABASE="sherpa"
 SHERPA_BASE_DIR="/opt/sherpa"
 SHERPA_DB_DIR="${SHERPA_BASE_DIR}/db"
+SHERPA_DB_FILE="${SHERPA_DB_DIR}/sherpa.sqlite"
 SHERPA_CONFIG_DIR="${SHERPA_BASE_DIR}/config"
 SHERPA_ENV_DIR="${SHERPA_BASE_DIR}/env"
 SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
-MIN_PASSWORD_LENGTH=8
 THP_ENABLED_FILE="/sys/kernel/mm/transparent_hugepage/enabled"
 THP_TMPFILES_CONF="/etc/tmpfiles.d/sherpa-thp.conf"
 
@@ -92,13 +86,14 @@ show_usage() {
     cat << EOF
 Usage: $0 [OPTIONS]
 
-Install all Sherpa dependencies and set up SurrealDB container.
+Install all Sherpa dependencies and the Sherpa binaries.
 
-Installs QEMU/KVM, libvirt, Docker, and supporting tools, then pulls and
-starts a SurrealDB container and installs Sherpa binaries from GitHub releases.
+Installs QEMU/KVM, libvirt, Docker, and supporting tools, then installs the
+Sherpa binaries from GitHub releases. sherpad keeps its database in
+${SHERPA_DB_FILE}; no database server is installed.
 
-The script will prompt for the SurrealDB password during installation.
-You can also set it via the SHERPA_DB_PASSWORD environment variable.
+To upgrade a server older than 0.5.0, use sherpa_update.sh instead: it moves
+the data out of the old SurrealDB container.
 
 Options:
   --version VERSION     Install a specific version (e.g. v0.3.4)
@@ -109,28 +104,20 @@ Environment Variables:
   SHERPA_SERVER_IPV4   Server listen IP address
   SHERPA_SERVER_WS_PORT   Server listen port (default: 3030)
   SHERPA_SERVER_HTTP_PORT     HTTP certificate endpoint port (default: 3031)
-  SHERPA_DB_PASSWORD   SurrealDB password
-  SHERPA_DB_PORT       SurrealDB port (default: 8000)
   SHERPA_ARTIFACT_DIR  Local release archives instead of GitHub downloads
                       Requires --version; expects the normal release filenames
 
 Examples:
-  # Interactive (will prompt for password)
+  # Install the latest release
   sudo $0
 
   # Install a specific version
   sudo $0 --version v0.3.4
 
-  # Non-interactive via environment variable
-  export SHERPA_DB_PASSWORD="MySecurePassword123"
-  sudo -E $0
-
 Requirements:
   - Ubuntu system (uses apt for package installation)
   - curl must be installed
   - Script must be run as root/sudo
-  - Port ${DB_PORT} must be available
-  - Password must be at least ${MIN_PASSWORD_LENGTH} characters
 
 EOF
 }
@@ -202,46 +189,6 @@ check_curl_installed() {
     fi
 
     print_success "curl is installed"
-}
-
-check_port_available() {
-    print_info "Checking if port ${DB_PORT} is available..."
-
-    # If the sherpa-db container itself holds the port, that's fine — the installer
-    # will stop and recreate it later. Only fail for other processes.
-    if command -v docker >/dev/null 2>&1; then
-        if docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null | grep -q "^${CONTAINER_NAME} .*:${DB_PORT}->"; then
-            print_info "Port ${DB_PORT} is held by existing ${CONTAINER_NAME} container (will be replaced)"
-            return 0
-        fi
-    fi
-
-    # Check if port is in use (works on most Linux systems)
-    if command -v ss >/dev/null 2>&1; then
-        if ss -tuln | grep -q ":${DB_PORT} "; then
-            print_error "Port ${DB_PORT} is already in use"
-            echo ""
-            echo "Process using port ${DB_PORT}:"
-            ss -tulnp | grep ":${DB_PORT} " || true
-            echo ""
-            echo "Please stop the conflicting service or change SHERPA_DB_PORT"
-            exit 1
-        fi
-    elif command -v netstat >/dev/null 2>&1; then
-        if netstat -tuln | grep -q ":${DB_PORT} "; then
-            print_error "Port ${DB_PORT} is already in use"
-            echo ""
-            echo "Process using port ${DB_PORT}:"
-            netstat -tulnp | grep ":${DB_PORT} " || true
-            echo ""
-            echo "Please stop the conflicting service or change SHERPA_DB_PORT"
-            exit 1
-        fi
-    else
-        print_warning "Cannot verify port availability (ss/netstat not found)"
-    fi
-
-    print_success "Port ${DB_PORT} is available"
 }
 
 check_virtualization() {
@@ -351,45 +298,25 @@ install_docker() {
 }
 
 ################################################################################
-# Password Handling
+# Upgrade Check
 ################################################################################
 
-get_database_password() {
-    print_info "Validating database password..."
+check_legacy_database() {
+    print_info "Checking for a server older than 0.5.0..."
 
-    # Use environment variable if already set
-    if [ -n "$DB_PASSWORD" ]; then
-        print_info "Using password from environment"
-    else
-        # Prompt interactively
+    if command -v docker >/dev/null 2>&1 && \
+        docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${LEGACY_DB_CONTAINER}"; then
+        print_error "Found the ${LEGACY_DB_CONTAINER} SurrealDB container of a Sherpa server older than 0.5.0"
         echo ""
-        while true; do
-            read -r -s -p "Enter SurrealDB password: " DB_PASSWORD
-            echo ""
-            read -r -s -p "Confirm password: " DB_PASSWORD_CONFIRM
-            echo ""
-
-            if [ "$DB_PASSWORD" != "$DB_PASSWORD_CONFIRM" ]; then
-                print_error "Passwords do not match, please try again"
-                continue
-            fi
-
-            if [ -z "$DB_PASSWORD" ]; then
-                print_error "Password cannot be empty"
-                continue
-            fi
-
-            break
-        done
-    fi
-
-    # Validate password length
-    if [ ${#DB_PASSWORD} -lt $MIN_PASSWORD_LENGTH ]; then
-        print_error "Password must be at least ${MIN_PASSWORD_LENGTH} characters long"
+        echo "Its users, images and labs must be moved into the embedded database, and"
+        echo "reinstalling would replace the settings that move needs. Upgrade with"
+        echo "sherpa_update.sh instead, which moves the data and keeps the container"
+        echo "for rollback."
+        echo ""
         exit 1
     fi
 
-    print_success "Password validated"
+    print_success "No SurrealDB container from an older release"
 }
 
 get_server_ip() {
@@ -544,40 +471,8 @@ setup_directories() {
 }
 
 ################################################################################
-# Container Management
+# Container Images
 ################################################################################
-
-stop_existing_container() {
-    print_info "Checking for existing container..."
-    
-    if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-        print_warning "Found existing ${CONTAINER_NAME} container"
-        
-        # Stop if running
-        if docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-            print_info "Stopping container..."
-            docker stop "${CONTAINER_NAME}" >/dev/null
-        fi
-        
-        # Remove container
-        print_info "Removing container..."
-        docker rm "${CONTAINER_NAME}" >/dev/null
-        print_success "Removed old container"
-    else
-        print_info "No existing container found"
-    fi
-}
-
-pull_surrealdb_image() {
-    print_info "Pulling SurrealDB image (${SURREALDB_VERSION})..."
-    
-    if docker image pull "${SURREALDB_IMAGE}"; then
-        print_success "Image pulled successfully"
-    else
-        print_error "Failed to pull SurrealDB image"
-        exit 1
-    fi
-}
 
 pull_sherpa_router_image() {
     print_info "Pulling Sherpa Router image..."
@@ -588,76 +483,6 @@ pull_sherpa_router_image() {
         print_error "Failed to pull Sherpa Router image"
         exit 1
     fi
-}
-
-start_container() {
-    print_info "Starting SurrealDB container..."
-    
-    # Get sherpa user UID/GID
-    SHERPA_UID=$(id -u sherpa)
-    SHERPA_GID=$(id -g sherpa)
-    
-    # Start container
-    if docker run -d \
-        --name "${CONTAINER_NAME}" \
-        --restart unless-stopped \
-        -p ${DB_PORT}:8000 \
-        -v "${SHERPA_DB_DIR}:/data" \
-        --user "${SHERPA_UID}:${SHERPA_GID}" \
-        "${SURREALDB_IMAGE}" \
-        start --log info --user "${DB_USER}" --pass "${DB_PASSWORD}" rocksdb:/data/sherpa.db \
-        >/dev/null; then
-        print_success "Container started successfully"
-    else
-        print_error "Failed to start container"
-        echo ""
-        echo "Container logs:"
-        docker logs "${CONTAINER_NAME}" 2>&1 || true
-        exit 1
-    fi
-}
-
-################################################################################
-# Health Check
-################################################################################
-
-wait_for_database() {
-    print_info "Waiting for database to be ready..."
-    
-    local max_attempts=30
-    local attempt=0
-    
-    while [ $attempt -lt $max_attempts ]; do
-        # Check if container is still running
-        if ! docker ps --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
-            print_error "Container stopped unexpectedly"
-            echo ""
-            echo "Container logs:"
-            docker logs "${CONTAINER_NAME}" 2>&1 || true
-            exit 1
-        fi
-        
-        # Check health endpoint
-        if curl -sf http://localhost:${DB_PORT}/health >/dev/null 2>&1; then
-            echo ""
-            print_success "Database is healthy and ready"
-            return 0
-        fi
-        
-        attempt=$((attempt + 1))
-        printf "."
-        sleep 1
-    done
-    
-    echo ""
-    print_error "Database failed to become ready within ${max_attempts} seconds"
-    echo ""
-    echo "Container status:"
-    docker ps -a | grep "${CONTAINER_NAME}" || true
-    echo ""
-    echo "Container logs:"
-    docker logs "${CONTAINER_NAME}" 2>&1 || true
-    exit 1
 }
 
 ################################################################################
@@ -881,11 +706,7 @@ UNIT
 # This is an example file. The actual environment file is at:
 #   /opt/sherpa/env/sherpa.env
 #
-# The environment file is automatically created during installation
-# with the database password you provided.
-
-# Database password (required)
-SHERPA_DB_PASSWORD=YourSecurePasswordHere
+# The environment file is automatically created during installation.
 
 # Server listen IP address (0.0.0.0 for all interfaces)
 SHERPA_SERVER_IPV4=0.0.0.0
@@ -895,9 +716,6 @@ SHERPA_SERVER_IPV4=0.0.0.0
 
 # HTTP certificate endpoint port (default: 3031)
 # SHERPA_SERVER_HTTP_PORT=3031
-
-# SurrealDB port (default: 8000)
-# SHERPA_DB_PORT=8000
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -921,11 +739,11 @@ RUST_LOG=info
 # from dependencies while keeping detailed logs for sherpad itself.
 #
 # Example: Set sherpad to debug, but reduce dependency verbosity:
-# RUST_LOG=sherpad=debug,bollard=warn,surrealdb=warn,virt=warn
+# RUST_LOG=sherpad=debug,bollard=warn,turso_core=warn,virt=warn
 #
 # Common dependencies to consider filtering:
 #   - bollard:    Docker client library
-#   - surrealdb:  Database client
+#   - turso_core: Embedded database
 #   - virt:       Libvirt client
 #   - tower_http: HTTP server middleware
 
@@ -935,14 +753,11 @@ ENVEXAMPLE
     chmod 640 "${SHERPA_ENV_DIR}/sherpa.env.example"
     chown sherpa:sherpa "${SHERPA_ENV_DIR}/sherpa.env.example"
 
-    # Create actual environment file with database password
-    print_info "Creating environment file with database password..."
+    # Create actual environment file
+    print_info "Creating environment file..."
     cat > "${SHERPA_ENV_DIR}/sherpa.env" << EOF
 # Sherpa Environment Configuration
 # Generated by sherpa_install.sh on $(date)
-
-# Database password
-SHERPA_DB_PASSWORD=${DB_PASSWORD}
 
 # Server listen IP address
 SHERPA_SERVER_IPV4=${SERVER_IP}
@@ -952,9 +767,6 @@ SHERPA_SERVER_WS_PORT=${WS_PORT}
 
 # HTTP certificate endpoint port
 SHERPA_SERVER_HTTP_PORT=${HTTP_PORT}
-
-# SurrealDB port
-SHERPA_DB_PORT=${DB_PORT}
 
 # Libvirt connection URI
 LIBVIRT_DEFAULT_URI=qemu:///system
@@ -1007,28 +819,11 @@ print_success_message() {
     cat << EOF
 Sherpa Version: ${INSTALLED_VERSION:-unknown}
 
-Database Details:
-  Container Name: ${CONTAINER_NAME}
-  Status:         Running
-  Port:           ${DB_PORT}
-  Data Location:  ${SHERPA_DB_DIR}/sherpa.db
-  Restart Policy: unless-stopped (auto-start on boot)
-
-Connection Info:
-  Host:      localhost:${DB_PORT}
-  User:      ${DB_USER}
-  Namespace: ${DB_NAMESPACE}
-  Database:  ${DB_DATABASE}
+Database:
+  File:     ${SHERPA_DB_FILE} (created by 'sherpad init', used only by sherpad)
+  Backups:  sherpa server backup  -- writes a copy to ${SHERPA_DB_DIR}/backups
 
 Useful Commands:
-  Database:
-    Check status:  docker ps | grep ${CONTAINER_NAME}
-    View logs:     docker logs ${CONTAINER_NAME}
-    Follow logs:   docker logs -f ${CONTAINER_NAME}
-    Stop:          docker stop ${CONTAINER_NAME}
-    Start:         docker start ${CONTAINER_NAME}
-    Restart:       docker restart ${CONTAINER_NAME}
-    
   Sherpad Service:
     Start:         sudo systemctl start sherpad
     Stop:          sudo systemctl stop sherpad
@@ -1064,17 +859,7 @@ cleanup_on_error() {
     
     if [ $exit_code -ne 0 ]; then
         print_error "Installation failed (exit code: ${exit_code})"
-        
-        # Stop and remove container if docker is available and the container exists
-        if command -v docker >/dev/null 2>&1; then
-            if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER_NAME}$"; then
-                print_info "Cleaning up container..."
-                docker stop "${CONTAINER_NAME}" 2>/dev/null || true
-                docker rm "${CONTAINER_NAME}" 2>/dev/null || true
-                print_info "Container removed"
-            fi
-        fi
-        
+
         echo ""
         print_info "Note: Directories and user accounts were not removed"
         print_info "      Run sherpa_uninstall.sh to complete cleanup"
@@ -1090,8 +875,6 @@ main() {
     SERVER_IP="${SHERPA_SERVER_IPV4:-}"
     WS_PORT="${SHERPA_SERVER_WS_PORT:-3030}"
     HTTP_PORT="${SHERPA_SERVER_HTTP_PORT:-3031}"
-    DB_PASSWORD="${SHERPA_DB_PASSWORD:-}"
-    DB_PORT="${SHERPA_DB_PORT:-${DB_PORT}}"
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1137,25 +920,20 @@ main() {
     check_root_privileges
     check_virtualization
     check_curl_installed
-    get_database_password
+    check_legacy_database
     get_server_ip
 
     echo ""
     print_info "Starting installation..."
     echo ""
 
-    check_port_available
     install_system_packages
     enable_libvirtd
     configure_transparent_hugepages
     install_docker
     setup_sherpa_user
     setup_directories
-    stop_existing_container
-    pull_surrealdb_image
     pull_sherpa_router_image
-    start_container
-    wait_for_database
     
     # Install binaries and systemd service
     install_binaries

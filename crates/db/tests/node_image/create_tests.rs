@@ -3,12 +3,11 @@ use anyhow::Result;
 use db::{create_node_image, list_node_images, upsert_node_image};
 use shared::data::NodeModel;
 
-use crate::{create_test_config, setup_db, teardown_db};
+use crate::{create_test_config, setup_db};
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_create_and_list_node_images() -> Result<()> {
-    let db = setup_db("test_create_and_list_node_images").await?;
+    let db = setup_db().await?;
 
     // Create a test config
     let test_config = create_test_config(NodeModel::AristaVeos);
@@ -29,15 +28,13 @@ async fn test_create_and_list_node_images() -> Result<()> {
     assert!(found, "Created config should be in the list");
 
     // Cleanup
-    teardown_db(&db).await?;
 
     Ok(())
 }
 
 #[tokio::test]
-#[ignore] // Requires running SurrealDB instance
 async fn test_upsert_node_image() -> Result<()> {
-    let db = setup_db("test_upsert_node_image").await?;
+    let db = setup_db().await?;
 
     // First upsert - should create
     let test_config = create_test_config(NodeModel::NokiaSrlinux);
@@ -56,7 +53,6 @@ async fn test_upsert_node_image() -> Result<()> {
     );
 
     // Cleanup
-    teardown_db(&db).await?;
 
     Ok(())
 }

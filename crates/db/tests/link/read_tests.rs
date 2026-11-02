@@ -6,12 +6,11 @@ use db::{
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_get_link_by_id_success() -> Result<()> {
-    let db = setup_db("link_read_get_by_id_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -67,14 +66,12 @@ async fn test_get_link_by_id_success() -> Result<()> {
     assert_eq!(retrieved.node_a, node1.id.unwrap());
     assert_eq!(retrieved.node_b, node2.id.unwrap());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_link_not_found() -> Result<()> {
-    let db = setup_db("link_read_get_not_found").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let _lab = create_lab(
@@ -99,14 +96,12 @@ async fn test_get_link_not_found() -> Result<()> {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("not found") || err_msg.contains("No link found"));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_link_by_peers_success() -> Result<()> {
-    let db = setup_db("link_read_get_by_peers_success").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -168,14 +163,12 @@ async fn test_get_link_by_peers_success() -> Result<()> {
     assert_eq!(retrieved.int_a, "eth0");
     assert_eq!(retrieved.int_b, "eth1");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_get_link_by_peers_not_found() -> Result<()> {
-    let db = setup_db("link_read_get_by_peers_not_found").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -223,27 +216,23 @@ async fn test_get_link_by_peers_not_found() -> Result<()> {
     let err_msg = result.unwrap_err().to_string();
     assert!(err_msg.contains("not found") || err_msg.contains("No link found"));
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_links_empty() -> Result<()> {
-    let db = setup_db("link_read_list_empty").await?;
+    let db = setup_db().await?;
 
     let links = list_links(&db).await?;
 
     assert_eq!(links.len(), 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_links_returns_all() -> Result<()> {
-    let db = setup_db("link_read_list_returns_all").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -318,14 +307,12 @@ async fn test_list_links_returns_all() -> Result<()> {
 
     assert_eq!(links.len(), 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_links_by_lab_empty() -> Result<()> {
-    let db = setup_db("link_read_list_by_lab_empty").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -346,14 +333,12 @@ async fn test_list_links_by_lab_empty() -> Result<()> {
 
     assert_eq!(links.len(), 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
-    let db = setup_db("link_read_list_by_lab_filters").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -478,14 +463,12 @@ async fn test_list_links_by_lab_filters_correctly() -> Result<()> {
         assert_eq!(link.lab, lab2.id.clone().unwrap());
     }
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
-    let db = setup_db("link_read_list_by_node").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -586,27 +569,23 @@ async fn test_list_links_by_node_returns_all_connections() -> Result<()> {
     // node3 should have 2 links (to node1 and node2)
     assert_eq!(links_node3.len(), 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_links_zero() -> Result<()> {
-    let db = setup_db("link_read_count_zero").await?;
+    let db = setup_db().await?;
 
     let count = count_links(&db).await?;
 
     assert_eq!(count, 0);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_links_accurate() -> Result<()> {
-    let db = setup_db("link_read_count_accurate").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -661,14 +640,12 @@ async fn test_count_links_accurate() -> Result<()> {
     let count_after = count_links(&db).await?;
     assert_eq!(count_after, 1);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_links_by_lab_accurate() -> Result<()> {
-    let db = setup_db("link_read_count_by_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -799,14 +776,12 @@ async fn test_count_links_by_lab_accurate() -> Result<()> {
     assert_eq!(count_lab1, 1);
     assert_eq!(count_lab2, 3);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_count_links_by_node_accurate() -> Result<()> {
-    let db = setup_db("link_read_count_by_node").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -902,6 +877,5 @@ async fn test_count_links_by_node_accurate() -> Result<()> {
     assert_eq!(count_node2, 2);
     assert_eq!(count_node3, 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }

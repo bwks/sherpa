@@ -14,15 +14,15 @@ instead of repeating these instructions.
 | `tests/labs/` | Labs under test, driven by the `sherpa` CLI against an installed server ([README](labs/README.md)) |
 | `tests/bats/` | Supplementary installer BATS tests |
 | `tests/web/` | Web UI JavaScript tests |
-| `dev/testdb` | Local SurrealDB container for integration tests |
+| `dev/testdb` | Local SurrealDB container, only for the importer test that moves a pre-0.5.0 server's data |
 
 ## Quick reference
 
 | Test | Command | Needs | Time |
 |---|---|---|---|
 | Format and lint | `cargo fmt --check && cargo clippy --workspace -- -D warnings` | Rust toolchain | about 1–5 min |
-| Unit tests | `cargo test --workspace` | Nothing external | about 1–3 min |
-| db integration | `cargo test -p db -- --ignored --test-threads=1` | `dev/testdb` | about 3 min |
+| Unit and database tests | `cargo test --workspace` | Nothing external | about 1–3 min |
+| db importer | `cargo test -p db --test mod import -- --ignored` | `dev/testdb` | seconds |
 | Other crate integration | see [Crate integration tests](#crate-integration-tests) | Docker, libvirt, sudo | minutes |
 | VM code suite | `python3 tests/harness/test_env.py run [ubuntu-2404] [ubuntu-2604]` | Sherpa host, logged-in CLI | about 40 min per release, in parallel |
 | Installer suite | `./tests/harness/test_install.sh --config tests/environments/<env>/release-test.toml` | Sherpa host, logged-in CLI | about 20–30 min |
@@ -51,14 +51,16 @@ cargo clippy --workspace -- -D warnings
 cargo test --workspace
 ```
 
-Unit tests need no database, Docker, libvirt or network access. Integration tests are
-marked `#[ignore]` and are skipped here.
+Unit tests need no Docker, libvirt or network access. The database tests run here too:
+sherpad embeds its database, and each test opens its own in-memory database
+(`db::open_in_memory`). Integration tests are marked `#[ignore]` and are skipped here.
 
 ## Crate integration tests
 
 Integration tests are `#[ignore]` tests that talk to real services. They need a host with
 the services each crate uses; the [VM code suite](#vm-code-suite) provides one
-automatically. To run them directly, start the test database:
+automatically. The db crate's only integration test is the importer's, which reads a
+SurrealDB like a server older than 0.5.0. To run it, start the test database:
 
 ```sh
 SHERPA_DEV_DB_USER=sherpa SHERPA_DEV_DB_PASS="$PASSWORD" dev/testdb restart
@@ -69,7 +71,7 @@ Then run the crates you need:
 
 | Crate | Command | Needs |
 |---|---|---|
-| db | `cargo test -p db -- --ignored --test-threads=1` | Test database |
+| db (importer) | `cargo test -p db --test mod import -- --ignored` | Test database |
 | container | `cargo test -p container -- --ignored --test-threads=1` | Docker, `alpine:latest` |
 | network | `sudo -E env PATH="$HOME/.cargo/bin:$PATH" cargo test -p network -- --ignored --test-threads=1` | root (rtnetlink) |
 | libvirt | `cargo test -p libvirt -- --ignored --test-threads=1` | libvirtd, `sherpa-pool` |
@@ -87,7 +89,7 @@ Opt-in live tests read these environment variables:
 | `SHERPA_TEST_TAILSCALE_*` | The live tailnet enrollment test; deferred, see `PROJECT.md` |
 
 Test database commands: `dev/testdb start | stop | restart | status | logs | destroy`.
-It listens on `ws://localhost:42069`.
+It listens on `ws://localhost:42069`. Only the importer test uses it.
 
 ## VM code suite
 
@@ -140,6 +142,7 @@ The BATS tests are supplementary:
 
 ```sh
 bats tests/bats/install_tests.bats
+bats tests/bats/update_tests.bats
 ```
 
 Skipped BATS integration checks do not count as installer coverage.
@@ -198,6 +201,6 @@ These are guidelines, not gates: none of them blocks a commit, a version bump or
 
 - Integration tests use `#[ignore]` and run with `-- --ignored`.
 - Tests that share host state run with `--test-threads=1`.
-- Database tests use a unique namespace per test.
+- Database tests open their own in-memory database (`db::open_in_memory`).
 - Container tests prefix resources with `sherpa-test-`.
 - Tests that create labs always clean them up, including on failure.

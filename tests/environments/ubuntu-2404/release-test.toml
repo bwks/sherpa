@@ -37,8 +37,10 @@ listen_ip = "127.0.0.1"
 client_host = "localhost"
 ws_port = 3030
 http_port = 3031
-db_port = 8000
 admin_prefix = "release-admin-"
+# Only for an upgrade baseline older than 0.5.0, whose installer runs SurrealDB in a container.
+# From 0.5.0 sherpad embeds its database and the installer takes no database settings.
+db_port = 8000
 surrealdb_image = "surrealdb/surrealdb:v3.0.0"
 router_image = "ghcr.io/bwks/sherpa-router:latest"
 
@@ -78,6 +80,8 @@ vm_image_model = "ubuntu_linux"
 vm_image_version = "26.04"
 vm_image_url = "https://cloud-images.ubuntu.com/releases/resolute/release-20260927/ubuntu-26.04-server-cloudimg-amd64.img"
 vm_image_sha256 = "8800651811af9a85465ad1d552add729947bb16488dddb4a9b5305a3d97332b2"
+# A SurrealDB test database (dev/testdb) for the importer's ignored test, which moves a
+# pre-0.5.0 server's data. The other database tests use in-memory databases.
 # The test database password is generated per run.
 test_db_user = "sherpa"
 test_db_port = 42069

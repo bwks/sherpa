@@ -106,12 +106,8 @@ install_sherpa_server() {
         log "Sherpa server already installed"
         return 0
     fi
-    local db_password
-    # The guest's own database; the installer keeps it in /opt/sherpa/env/sherpa.env.
-    db_password="$(openssl rand -hex 24)"
     log "Installing the Sherpa server on ${SERVER_IP}"
-    sudo SHERPA_DB_PASSWORD="${db_password}" SHERPA_SERVER_IPV4="${SERVER_IP}" \
-        bash "${CODE_DIR}/sherpa/scripts/sherpa_install.sh"
+    sudo SHERPA_SERVER_IPV4="${SERVER_IP}" bash "${CODE_DIR}/sherpa/scripts/sherpa_install.sh"
 }
 
 # Random, with every character class the server's password rules ask for.

@@ -1,3 +1,4 @@
+pub mod backup;
 pub mod cancel;
 pub mod clean;
 pub(crate) mod container_networks;

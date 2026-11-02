@@ -1,24 +1,23 @@
 //! Database schema definitions
 //!
-//! This module contains the SurrealDB schema definitions for all tables
-//! used by the Sherpa application. Each table schema is defined in its own
-//! file for better organization and maintainability.
+//! Each table's schema is in its own file. A file holds the table's `CREATE` statements and,
+//! for tables with enum columns or protected rows, the triggers that enforce those rules.
 //!
 //! ## Schema Organization
 //!
-//! - `helpers`: Utility functions for schema generation (enum serialization)
-//! - `user`: User account table schema
-//! - `node_image`: Node image table schema
-//! - `lab`: Network lab table schema
-//! - `node`: Network node table schema
-//! - `link`: Network link (connection) table schema
-//! - `apply`: Schema application and orchestration
+//! - `helpers`: SQL text, enum value lists and rule triggers
+//! - `user`: User account table
+//! - `node_image`: Node image table
+//! - `lab`: Network lab table
+//! - `node`: Network node table
+//! - `link`: Network link table
+//! - `bridge`: Private bridge and bridge member tables
+//! - `apply`: Schema versions and their application
 //!
 //! ## Usage
 //!
-//! The primary entry point is the `apply_schema` function, which creates
-//! all tables in the correct dependency order:
-//!
+//! The entry point is `apply_schema`, which brings a database to the current schema version
+//! and recreates the rule triggers.
 
 mod apply;
 mod bridge;
@@ -30,4 +29,4 @@ mod node_image;
 mod user;
 
 // Public API - only schema application function is exposed outside the crate
-pub use apply::apply_schema;
+pub use apply::{SCHEMA_VERSION, apply_schema};

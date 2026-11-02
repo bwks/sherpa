@@ -2,12 +2,11 @@ use anyhow::Result;
 use db::{create_lab, create_node, create_node_image, create_user, get_node, update_node};
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_success() -> Result<()> {
-    let db = setup_db("test_update_node").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "alice".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -48,14 +47,12 @@ async fn test_update_node_success() -> Result<()> {
     assert_eq!(updated.index, 10);
     assert_eq!(updated.image, config2_id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_without_id_fails() -> Result<()> {
-    let db = setup_db("test_update_node_no_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -90,14 +87,12 @@ async fn test_update_node_without_id_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_change_lab_fails() -> Result<()> {
-    let db = setup_db("test_update_node_change_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -154,14 +149,12 @@ async fn test_update_node_change_lab_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_duplicate_name_fails() -> Result<()> {
-    let db = setup_db("test_update_node_dup_name").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -207,14 +200,12 @@ async fn test_update_node_duplicate_name_fails() -> Result<()> {
         "Should fail on duplicate (name, lab) combination"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_duplicate_index_fails() -> Result<()> {
-    let db = setup_db("test_update_node_dup_index").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -260,14 +251,12 @@ async fn test_update_node_duplicate_index_fails() -> Result<()> {
         "Should fail on duplicate (index, lab) combination"
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_preserves_id() -> Result<()> {
-    let db = setup_db("test_update_node_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -297,14 +286,12 @@ async fn test_update_node_preserves_id() -> Result<()> {
 
     assert_eq!(updated.id, original_id, "ID should not change");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_can_change_config() -> Result<()> {
-    let db = setup_db("test_update_node_config").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -344,14 +331,12 @@ async fn test_update_node_can_change_config() -> Result<()> {
     let retrieved = get_node(&db, updated.id.unwrap()).await?;
     assert_eq!(retrieved.image, config2_id);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_update_node_nonexistent_fails() -> Result<()> {
-    let db = setup_db("test_update_node_nonexistent").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -386,6 +371,5 @@ async fn test_update_node_nonexistent_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }

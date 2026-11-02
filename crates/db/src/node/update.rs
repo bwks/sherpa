@@ -1,12 +1,14 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, NodeResources, NodeState, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
+use turso::Value;
 
-use crate::node::read::get_node;
-use crate::persistence::{NodeRow, to_surreal_id};
+use crate::Database;
+use crate::node::read::select_node;
+use crate::persistence::{
+    NODE_TABLE, enum_text, json_text, key_of, node_columns, node_from_row, node_values,
+};
+use crate::sql::query_optional;
 
 /// Update an existing node in the database
 ///
@@ -29,15 +31,17 @@ use crate::persistence::{NodeRow, to_surreal_id};
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNode> {
+pub async fn update_node(db: &Database, node: DbNode) -> Result<DbNode> {
     // Require id field for updates
     let id = node
         .id
         .as_ref()
         .ok_or_else(|| anyhow!("Cannot update node without id field"))?;
+    let key = key_of(id, NODE_TABLE)?;
 
-    // Verify the node exists and check if lab is being changed
-    let existing = get_node(db, id.clone()).await?;
+    // Read and write under one write lock, so the lab check holds for the update.
+    let writer = db.writer().await?;
+    let existing = select_node(&writer.conn, id).await?;
 
     // Verify lab is not being changed - it's immutable
     if existing.lab != node.lab {
@@ -48,23 +52,40 @@ pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNo
         ));
     }
 
-    // Perform update
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(id))
-        .content(row)
-        .await
-        .context(format!("Failed to update node: {}", node.name))?;
+    query_optional(
+        &writer.conn,
+        concat!(
+            "UPDATE node SET name = ?2, \"index\" = ?3, image = ?4, lab = ?5, mgmt_ipv4 = ?6, \
+             mgmt_ipv6 = ?7, mgmt_mac = ?8, state = ?9, cpu_count = ?10, memory = ?11, \
+             vnc_port = ?12, ssh_host_key = ?13, cpu_pinning = ?14, qemu_thread_cpus = ?15 \
+             WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        node_values(&node, &key)?,
+        node_from_row,
+    )
+    .await
+    .context(format!("Failed to update node: {}", node.name))?
+    .ok_or_else(|| anyhow!("Node update failed: {}", node.name))
+}
 
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node update failed: {}", node.name))
+/// Set columns of one node with `sql`, whose `?1` is the node's key, and return the node.
+async fn update_columns(
+    db: &Database,
+    node_id: &RecordId,
+    sql: &str,
+    mut values: Vec<Value>,
+    what: &str,
+) -> Result<DbNode> {
+    values.insert(0, key_of(node_id, NODE_TABLE)?.into());
+    let writer = db.writer().await?;
+    query_optional(&writer.conn, sql, values, node_from_row)
+        .await
+        .context(format!("Failed to update {what} for node: {:?}", node_id))?
+        .ok_or_else(|| anyhow!("Node not found with id: {:?}", node_id))
 }
 
 /// Update a node's management IPv4 address.
-///
-/// Fetches the existing node, sets the `mgmt_ipv4` field, and writes it back.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -79,32 +100,24 @@ pub async fn update_node(db: &Arc<Surreal<Client>>, node: DbNode) -> Result<DbNo
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_ipv4(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     mgmt_ipv4: &str,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.mgmt_ipv4 = Some(mgmt_ipv4.to_string());
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!(
-            "Failed to update mgmt_ipv4 for node: {}",
-            node.name
-        ))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node mgmt_ipv4 update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET mgmt_ipv4 = ?2 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![mgmt_ipv4.into()],
+        "mgmt_ipv4",
+    )
+    .await
 }
 
 /// Update a node's management IPv6 address.
-///
-/// Fetches the existing node, sets the `mgmt_ipv6` field, and writes it back.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -119,32 +132,24 @@ pub async fn update_node_mgmt_ipv4(
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_ipv6(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     mgmt_ipv6: &str,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.mgmt_ipv6 = Some(mgmt_ipv6.to_string());
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!(
-            "Failed to update mgmt_ipv6 for node: {}",
-            node.name
-        ))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node mgmt_ipv6 update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET mgmt_ipv6 = ?2 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![mgmt_ipv6.into()],
+        "mgmt_ipv6",
+    )
+    .await
 }
 
 /// Update a node's management MAC address.
-///
-/// Fetches the existing node, sets the `mgmt_mac` field, and writes it back.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -159,29 +164,24 @@ pub async fn update_node_mgmt_ipv6(
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_mgmt_mac(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     mgmt_mac: &str,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.mgmt_mac = Some(mgmt_mac.to_string());
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!("Failed to update mgmt_mac for node: {}", node.name))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node mgmt_mac update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET mgmt_mac = ?2 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![mgmt_mac.into()],
+        "mgmt_mac",
+    )
+    .await
 }
 
 /// Update a node's runtime state.
-///
-/// Fetches the existing node, sets the `state` field, and writes it back.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -196,24 +196,21 @@ pub async fn update_node_mgmt_mac(
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_state(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     state: NodeState,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.state = state;
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!("Failed to update state for node: {}", node.name))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node state update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET state = ?2 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![enum_text(&state, "state")?.into()],
+        "state",
+    )
+    .await
 }
 
 /// Record the SSH host key a node offered, or clear it with `None`.
@@ -223,24 +220,21 @@ pub async fn update_node_state(
 /// - If the database update fails
 #[instrument(skip(db, key), level = "debug")]
 pub async fn update_node_host_key(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     key: Option<&str>,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.ssh_host_key = key.map(str::to_owned);
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!("Failed to update host key for node: {}", node.name))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node host key update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET ssh_host_key = ?2 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![key.into()],
+        "host key",
+    )
+    .await
 }
 
 /// Record what a node was given: its vCPUs, memory, VNC port and pinned host CPUs.
@@ -251,29 +245,36 @@ pub async fn update_node_host_key(
 /// - If the database update fails
 #[instrument(skip(db), level = "debug")]
 pub async fn update_node_resources(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     node_id: RecordId,
     resources: &NodeResources,
 ) -> Result<DbNode> {
-    let mut node = get_node(db, node_id.clone()).await?;
-    node.cpu_count = resources.cpu_count;
-    node.memory = resources.memory;
-    node.vnc_port = resources.vnc_port;
-    node.cpu_pinning = resources.cpu_pinning.clone();
-    node.qemu_thread_cpus = resources.qemu_thread_cpus.clone();
-
-    let row = NodeRow::try_from(&node)?;
-    let updated: Option<NodeRow> = db
-        .update(to_surreal_id(&node_id))
-        .content(row)
-        .await
-        .context(format!(
-            "Failed to update resources for node: {}",
-            node.name
-        ))?;
-
-    updated
-        .map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node resources update failed: {}", node.name))
+    update_columns(
+        db,
+        &node_id,
+        concat!(
+            "UPDATE node SET cpu_count = ?2, memory = ?3, vnc_port = ?4, cpu_pinning = ?5, \
+             qemu_thread_cpus = ?6 WHERE id = ?1 RETURNING ",
+            node_columns!()
+        ),
+        vec![
+            resources.cpu_count.into(),
+            resources.memory.into(),
+            resources.vnc_port.into(),
+            resources
+                .cpu_pinning
+                .as_ref()
+                .map(|cpus| json_text(cpus, "cpu_pinning"))
+                .transpose()?
+                .into(),
+            resources
+                .qemu_thread_cpus
+                .as_ref()
+                .map(|cpus| json_text(cpus, "qemu_thread_cpus"))
+                .transpose()?
+                .into(),
+        ],
+        "resources",
+    )
+    .await
 }

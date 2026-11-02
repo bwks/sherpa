@@ -1,11 +1,10 @@
 use anyhow::{Context, Result};
 use shared::data::{BridgeKind, DbLink, LinkImpairment, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::persistence::LinkRow;
+use crate::Database;
+use crate::persistence::{link_columns, link_from_row, link_values, new_key};
+use crate::sql::query_optional;
 
 /// Create a new link between two nodes
 ///
@@ -29,7 +28,7 @@ use crate::persistence::LinkRow;
 #[allow(clippy::too_many_arguments)]
 #[instrument(skip(db), level = "debug")]
 pub async fn create_link(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     index: u16,
     kind: BridgeKind,
     node_a_id: RecordId,
@@ -43,27 +42,38 @@ pub async fn create_link(
     let domain = DbLink {
         id: None,
         index,
-        kind: kind.clone(),
+        kind,
         node_a: node_a_id.clone(),
         node_b: node_b_id.clone(),
         int_a: int_a.clone(),
         int_b: int_b.clone(),
-        lab: lab_id.clone(),
-        tap_a: tap_a.clone(),
-        tap_b: tap_b.clone(),
+        lab: lab_id,
+        tap_a,
+        tap_b,
         impairment_a_to_b: LinkImpairment::default(),
         impairment_b_to_a: LinkImpairment::default(),
     };
-    let link: Option<LinkRow> = db
-        .create("link")
-        .content(LinkRow::try_from(&domain)?)
-        .await
-        .context(format!(
-            "Failed to create link: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
-            index, node_a_id, node_b_id, int_a, int_b
-        ))?;
 
-    link.map(DbLink::try_from).transpose()?.ok_or_else(|| {
+    let writer = db.writer().await?;
+    let link = query_optional(
+        &writer.conn,
+        concat!(
+            "INSERT INTO link (",
+            link_columns!(),
+            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
+             ?17, ?18, ?19, ?20) RETURNING ",
+            link_columns!()
+        ),
+        link_values(&domain, &new_key())?,
+        link_from_row,
+    )
+    .await
+    .context(format!(
+        "Failed to create link: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
+        index, node_a_id, node_b_id, int_a, int_b
+    ))?;
+
+    link.ok_or_else(|| {
         anyhow::anyhow!(
             "Link was not created: index={}, node_a={:?}, node_b={:?}, int_a={}, int_b={}",
             index,

@@ -1,7 +1,7 @@
 # Image Management End-to-End — Test Specifications
 
 > **Scope:** Cross-crate integration testing image workflows
-> **External Dependencies:** SurrealDB, Docker, filesystem, OCI registries
+> **External Dependencies:** Docker, filesystem, OCI registries
 > **Existing Tests:** None
 
 ---

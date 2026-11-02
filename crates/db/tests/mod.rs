@@ -1,80 +1,38 @@
+//! Integration tests for the db crate.
+//!
+//! Each test opens its own in-memory database (`helper::setup_db`), so the tests need no
+//! running database server, are isolated from each other and run in parallel.
+//!
+//! To run them:
+//! - All db tests: `cargo test --package db`
+//! - One group: `cargo test --package db --test mod lab::`
+//! - One test: `cargo test --package db --test mod test_get_node_image_by_id`
 mod helper;
-/// Integration tests for node_image CRUD operations
-///
-/// These tests require a running SurrealDB instance.
-/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
-///
-/// Each test uses a unique namespace for isolation, preventing test data pollution.
-///
-/// To run these tests:
-/// - All node_image tests: cargo test --package db --test node_image
-/// - Only CREATE tests: cargo test --package db create_tests
-/// - Only READ tests: cargo test --package db read_tests
-/// - Specific test: cargo test --package db test_get_node_image_by_id
+
+/// Node image CRUD operations
 mod node_image;
 
-/// Integration tests for lab CRUD operations
-///
-/// These tests require a running SurrealDB instance.
-/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
-///
-/// To run these tests:
-/// - All lab tests: cargo test --package db lab -- --ignored
-/// - Only CREATE tests: cargo test --package db lab::create_tests -- --ignored
-/// - Only READ tests: cargo test --package db lab::read_tests -- --ignored
-/// - Only UPDATE tests: cargo test --package db lab::update_tests -- --ignored
-/// - Only DELETE tests: cargo test --package db lab::delete_tests -- --ignored
+/// Lab CRUD operations
 mod lab;
 
-/// Integration tests for user CRUD operations
-///
-/// These tests require a running SurrealDB instance.
-/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
-///
-/// To run these tests:
-/// - All user tests: cargo test --package db --test user
-/// - Only CREATE tests: cargo test --package db user::create_tests
-/// - Only READ tests: cargo test --package db user::read_tests
-/// - Only UPDATE tests: cargo test --package db user::update_tests
-/// - Only DELETE tests: cargo test --package db user::delete_tests
+/// User CRUD operations
 mod user;
 
-/// Integration tests for node CRUD operations
-///
-/// These tests require a running SurrealDB instance.
-/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
-///
-/// To run these tests:
-/// - All node tests: cargo test --package db node -- --ignored --test-threads=1
-/// - Only CREATE tests: cargo test --package db node::create_tests -- --ignored --test-threads=1
-/// - Only READ tests: cargo test --package db node::read_tests -- --ignored --test-threads=1
-/// - Only UPDATE tests: cargo test --package db node::update_tests -- --ignored --test-threads=1
-/// - Only DELETE tests: cargo test --package db node::delete_tests -- --ignored --test-threads=1
+/// Node CRUD operations
 mod node;
 
-/// Integration tests for link CRUD operations
-///
-/// These tests require a running SurrealDB instance.
-/// Run: surreal start --log trace --user sherpa --pass 'Everest1953!' memory
-///
-/// To run these tests:
-/// - All link tests: cargo test --package db link -- --ignored --test-threads=1
-/// - Only CREATE tests: cargo test --package db link::create_tests -- --ignored --test-threads=1
-/// - Only READ tests: cargo test --package db link::read_tests -- --ignored --test-threads=1
-/// - Only UPDATE tests: cargo test --package db link::update_tests -- --ignored --test-threads=1
-/// - Only DELETE tests: cargo test --package db link::delete_tests -- --ignored --test-threads=1
+/// Link CRUD operations
 mod link;
 
-/// Schema and seeding tests
-///
-/// To run: cargo test --package db schema -- --ignored
+/// Schema and seeding
 mod schema;
 
-/// Cross-table relationship tests (cascade deletes, query isolation)
-///
-/// To run: cargo test --package db relationships -- --ignored --test-threads=1
+/// Cross-table relationships: cascade and restrict deletes, transactions, concurrency
 mod relationships;
 
-use helper::{
-    create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db, teardown_db,
-};
+use helper::{create_test_config, create_test_node_with_model, ipv4_lab_networks, setup_db};
+
+/// The one-time SurrealDB importer, against the test SurrealDB
+///
+/// To run: cargo test --package db import -- --ignored
+mod import;

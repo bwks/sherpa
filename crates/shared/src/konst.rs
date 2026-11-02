@@ -194,6 +194,27 @@ pub const TAP_PREFIX: &str = "tp";
 /// Host side of a P2p container's private bridge member veth; it joins the bridge.
 pub const BRIDGE_MEMBER_HOST_VETH_PREFIX: &str = "cb";
 
+/// Directory of Sherpa's embedded database and its backups.
+pub const SHERPA_DB_PATH: &str = "/opt/sherpa/db";
+/// Sherpa's embedded database file.
+pub const SHERPA_DB_FILE_PATH: &str = "/opt/sherpa/db/sherpa.sqlite";
+/// Where database backups taken by the server are written.
+pub const SHERPA_DB_BACKUP_PATH: &str = "/opt/sherpa/db/backups";
+/// Backup files are named `<prefix><UTC time><extension>`.
+pub const SHERPA_DB_BACKUP_PREFIX: &str = "sherpa-";
+pub const SHERPA_DB_BACKUP_TIME_FORMAT: &str = "%Y%m%dT%H%M%SZ";
+pub const SHERPA_DB_BACKUP_EXTENSION: &str = ".sqlite";
+/// Opens a database that lives only in memory, for tests.
+pub const SHERPA_DB_MEMORY: &str = ":memory:";
+/// The database and its backups hold password hashes: only sherpad's user may read them.
+pub const SHERPA_DB_FILE_MODE: u32 = 0o600;
+/// How long a connection waits for a lock held by another connection.
+pub const SHERPA_DB_BUSY_TIMEOUT_SECS: u64 = 5;
+/// Generated record keys: the length and alphabet SurrealDB used, so imported keys look alike.
+pub const SHERPA_DB_KEY_LENGTH: usize = 20;
+pub const SHERPA_DB_KEY_CHARSET: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+
+// The SurrealDB server that releases before 0.5.0 used. Only the importer reads these.
 pub const SHERPA_DB_NAME: &str = "sherpa";
 pub const SHERPA_DB_NAMESPACE: &str = "sherpa";
 pub const SHERPA_DB_USER: &str = "sherpa";
@@ -560,6 +581,9 @@ pub const RPC_MSG_NODE_HOST_KEYS_FAILED: &str = "Reading the node's SSH host key
 // Admin-only operations
 pub const RPC_MSG_ADMIN_ONLY_CLEAN: &str =
     "Access denied: only administrators can run clean operations";
+pub const RPC_MSG_ADMIN_ONLY_BACKUP: &str =
+    "Access denied: only administrators can back up the database";
+pub const RPC_MSG_BACKUP_FAILED: &str = "Database backup failed";
 
 // Image operations
 pub const RPC_MSG_IMAGE_IMPORT_FAILED: &str = "Image import operation failed";

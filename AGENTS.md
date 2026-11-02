@@ -6,7 +6,7 @@
 
 You are working on a Rust application that manages virtual machines, containers, and unikernels.  
 The app talks to libvirt/KVM/QEMU for VMs and unikernels, and to Docker for containers. The
-database in use is SurrealDB.
+database is Turso, embedded in sherpad as a single file (see `docs/architecture/DATABASE.md`).
 
 ## Agent Hints
 - In planning mode, don't generate implementation code. Stick to high level implementation plan only.
@@ -100,7 +100,8 @@ that owns the rule:
 - `scripts/` holds install, update and uninstall tooling.
 - `tests/` holds test tooling, specs and environments. `tests/README.md` is the single reference
   for running every kind of test.
-- `dev/` holds helper scripts for local development, such as `dev/testdb`.
+- `dev/` holds helper scripts for local development, such as `dev/testdb`, the SurrealDB
+  container the importer's test reads from.
 
 ## Project goals
 
@@ -238,13 +239,17 @@ Use these preferred libraries for the listed functions.
 - `clap` - CLI utilities.
 - `reqwest` - Web client.
 - `axum` - Web server.
-- `surrealdb` - Database.
+- `turso` - Database, embedded. Only the `db` crate uses it.
+  `surrealdb` stays only for the importer that moves pre-0.5.0 data, until that is removed.
 - `anyhow` - Errors.
 - `serde` - Serialization/Deserialization.
 - `tabled` - Display information in the terminal
 
 ## Test Database
-The following commands can be used to create a database for running tests:
+Database tests need no database server: each opens its own in-memory database with
+`db::open_in_memory()`, and `cargo test -p db` runs them.
+
+The importer's test is `#[ignore]` and reads from a SurrealDB container, managed with:
 - `dev/testdb start`   — spin up an in-memory SurrealDB v3.0.0 container
 - `dev/testdb stop`    — stop the container
 - `dev/testdb restart` — destroy and recreate (fresh database)

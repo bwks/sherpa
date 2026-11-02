@@ -9,9 +9,9 @@ Items to address as the test suite matures. None are blockers for writing tests 
 Document how to actually run tests across the project. Currently the db test setup lives in AGENTS.md but there's no central reference covering:
 
 - How to run unit tests vs integration tests (feature flags, `#[ignore]`, `--ignored`)
-- External service requirements per crate (Docker, libvirt, SurrealDB)
+- External service requirements per crate (Docker, libvirt)
 - Test isolation patterns (e.g., the db crate's namespace-per-test + teardown approach)
-- Environment variables needed (`SHERPA_DB_PASSWORD`, etc.)
+- Environment variables needed (`SHERPA_GUEST_TEST_KEY`, etc.)
 - CI considerations for tests requiring privileged access or running services
 
 **Where:** Add a `tests/specs/infrastructure.md` or similar.

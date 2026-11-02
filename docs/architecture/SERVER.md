@@ -15,7 +15,7 @@ flowchart LR
     apiclients["API clients"]
     sherpad["sherpad<br/>crates/server<br/>Axum router<br/>REST handlers<br/>WebSocket RPC<br/>SSE progress streams<br/>service layer<br/>scanner task"]
     subgraph backends["Backend APIs"]
-        surreal["SurrealDB:<br/>users, labs, nodes, links, image records"]
+        database["Embedded Turso database<br/>(in-process, /opt/sherpa/db/sherpa.sqlite):<br/>users, labs, nodes, links, image records"]
         libvirt["libvirt/QEMU:<br/>VM/unikernel domains, networks, disks"]
         docker["Docker daemon:<br/>containers, images, Docker networks"]
         linuxhost["Linux host:<br/>bridges, veths, taps, impairment plumbing"]
@@ -46,7 +46,7 @@ flowchart TB
         serviceduties["Responsibilities:<br/>orchestrate db/libvirt/docker/network/template/topology/validate<br/>emit progress updates for long-running operations<br/>maintain operation-level rollback/best-effort cleanup semantics<br/>return shared request/response models"]
     end
     subgraph infra["Infrastructure and domain crates"]
-        crates["db: SurrealDB schema and CRUD<br/>libvirt: QEMU/libvirt domain, network, storage operations<br/>container: Docker/Bollard operations<br/>network: Linux bridges, veths, taps, impairment helpers<br/>topology: manifest transformation<br/>topology::validate: validation of caller-provided manifest data<br/>template: generated configs/XML/scripts<br/>shared: public models, constants, utilities, API spec"]
+        crates["db: embedded Turso schema and CRUD<br/>libvirt: QEMU/libvirt domain, network, storage operations<br/>container: Docker/Bollard operations<br/>network: Linux bridges, veths, taps, impairment helpers<br/>topology: manifest transformation<br/>topology::validate: validation of caller-provided manifest data<br/>template: generated configs/XML/scripts<br/>shared: public models, constants, utilities, API spec"]
     end
     transport --> boundary
     boundary --> servicelayer
@@ -112,7 +112,7 @@ flowchart TB
     signals --> envoverrides["apply env overrides<br/>SHERPA_SERVER_IPV4<br/>SHERPA_SERVER_IPV6<br/>SHERPA_SERVER_WS_PORT<br/>SHERPA_SERVER_HTTP_PORT"]
     envoverrides --> jwt
     subgraph appstate["AppState::new(config, metrics)"]
-        jwt["load/generate JWT secret"] --> surreal["connect SurrealDB"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab storage directories<br/>(daemon::storage::secure_lab_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
+        jwt["load/generate JWT secret"] --> database["open the database file"] --> schema["apply DB schema"] --> seed["optionally seed admin user"] --> storage["restrict lab storage directories<br/>(daemon::storage::secure_lab_storage)"] --> qemu["initialize Qemu wrapper"] --> docker["connect Docker client"] --> registry["create WebSocket registry and pending-job map"]
     end
     registry --> cancel["create CancellationToken for background services"]
     cancel --> scanner["if scanner enabled:<br/>spawn services::scanner::run_scanner(...)"]
@@ -178,7 +178,7 @@ readable by other server users or the `sherpa` group.
 ```mermaid
 flowchart TB
     appstate["AppState"]
-    db["db<br/>Arc#lt;Surreal#gt;<br/>users/labs<br/>nodes/images"]
+    db["db<br/>db::Database<br/>users/labs<br/>nodes/images"]
     qemu["qemu<br/>Arc#lt;Qemu#gt;<br/>domains<br/>networks/disks"]
     docker["docker<br/>Arc#lt;Docker#gt;<br/>containers<br/>images/networks"]
     other["Other shared state<br/>config, jwt_secret, WebSocket connections, metrics, pending SSE jobs"]
@@ -195,7 +195,7 @@ The state object deliberately holds clients rather than opening new connections 
 | Field | Architectural role |
 |---|---|
 | `connections` | Active WebSocket connection registry. Used for connection lifecycle and log/status subscriptions. |
-| `db` | Shared SurrealDB remote WebSocket client. All persistent user/lab/node/image state flows through this. |
+| `db` | Shared handle to the embedded database (`db::Database`). Each operation takes its own connection, and writes queue on its write lock (`DATABASE.md`). All persistent user/lab/node/image state flows through this. |
 | `qemu` | Shared QEMU/libvirt wrapper. Service modules call into the `libvirt` crate for VM, unikernel, storage, and network operations. |
 | `docker` | Shared Bollard Docker client. Container services use this instead of shelling out to Docker. |
 | `config` | Immutable runtime configuration loaded from `sherpa.toml` after env overrides. |
@@ -416,7 +416,7 @@ The services directory is the orchestration layer. Each service is built around 
 ```mermaid
 flowchart TB
     services["services/*.rs<br/>orchestration, progress reporting, rollback, best-effort cleanup, summaries"]
-    persistence["Persistence<br/>db crate<br/>SurrealDB records<br/>schema + CRUD"]
+    persistence["Persistence<br/>db crate<br/>embedded Turso records<br/>schema + CRUD"]
     runtime["Runtime I/O<br/>libvirt crate: domains, disks, networks<br/>container crate: Docker/Bollard<br/>network crate: bridges, veths, taps"]
     transform["Transformation and generation<br/>topology crate: manifest expansion<br/>topology::validate: manifest checks<br/>template crate: configs/XML/scripts"]
     shared["shared crate: public request/response models, constants, utility helpers, spec"]
@@ -444,7 +444,7 @@ The services are not symmetrical. Some are short CRUD-style orchestrators, and s
 | | `container_pull.rs` | Docker/OCI image pull with progress |
 | | `clean.rs` | admin force-clean path |
 | Network mutation services | `impairment.rs` | update delay/jitter/loss/reorder/corrupt settings on P2P links |
-| Background service | `scanner.rs` | reconcile runtime state from Docker/libvirt into SurrealDB |
+| Background service | `scanner.rs` | reconcile runtime state from Docker/libvirt into the database |
 | Shared helpers | `node_ops.rs` | common node setup/building helpers |
 | | `progress.rs` | progress message abstraction |
 
@@ -907,13 +907,13 @@ A running lab is spread across several systems. The DB is the desired/known stat
 ```mermaid
 flowchart LR
     lab["Lab {lab_id}"]
-    surreal["SurrealDB<br/>user record<br/>lab record<br/>node records<br/>link records<br/>image records"]
+    database["Database<br/>user record<br/>lab record<br/>node records<br/>link records<br/>image records"]
     ram["RAM: /run/sherpa/secrets/{lab_id}/{node}<br/>(container secret files)"]
     fs["Filesystem: /opt/sherpa/labs/{lab_id}<br/>lab info file<br/>saved manifest<br/>generated node configs<br/>ZTP/TFTP assets<br/>cert material where needed<br/>SSH/helper config files"]
     libvirt["libvirt/QEMU<br/>VM domains<br/>unikernel domains<br/>NAT/isolated/reserved networks<br/>cloned/resized disks in Sherpa storage pool"]
     docker["Docker<br/>containers<br/>bridge/macvlan networks<br/>pulled/imported container images"]
     host["Linux host networking<br/>bridges<br/>veth pairs<br/>tap devices<br/>impairment/eBPF/netns wiring where applicable"]
-    lab --> surreal
+    lab --> database
     lab --> ram
     lab --> fs
     lab --> libvirt
@@ -1040,7 +1040,7 @@ flowchart TB
         dockernets["Step 3: Docker networks"]
         libvirtnets["Step 4: libvirt networks"]
         interfaces["Step 5: Linux host interfaces"]
-        records["Step 6: SurrealDB lab/link/node records"]
+        records["Step 6: database lab/link/node records"]
         labdir["Step 7: /opt/sherpa/labs/{lab_id} directory"]
         containers --> domains --> dockernets --> libvirtnets --> interfaces --> records --> labdir
     end

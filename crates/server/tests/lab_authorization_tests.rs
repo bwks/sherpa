@@ -159,7 +159,7 @@ fn http_client() -> Result<Client> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database, Docker and libvirt"]
+#[ignore = "requires Docker and libvirt"]
 async fn lab_operations_allow_owner_and_admins_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -281,7 +281,6 @@ async fn lab_operations_allow_owner_and_admins_on_all_transports() -> Result<()>
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn admin_destroy_over_rest_reaches_the_service() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -315,7 +314,6 @@ async fn admin_destroy_over_rest_reaches_the_service() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -383,7 +381,6 @@ async fn job_stream_is_served_only_to_its_creator_or_an_admin() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -433,7 +430,7 @@ async fn lab_listing_requires_login_and_admin_for_other_users() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database, Docker and libvirt"]
+#[ignore = "requires Docker and libvirt"]
 async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -527,7 +524,7 @@ async fn built_in_admin_cannot_start_lab_work_on_any_transport() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database and libvirt"]
+#[ignore = "requires libvirt"]
 async fn starting_a_lab_requires_a_registered_ssh_key() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

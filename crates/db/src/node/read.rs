@@ -1,11 +1,25 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
+use turso::{Connection, Row};
 
-use crate::persistence::{NodeRow, to_surreal_id};
+use crate::Database;
+use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of, node_columns, node_from_row};
+use crate::sql::{query_all, query_count, query_optional};
+
+/// Read a node on `conn`, so writers can read under the write lock.
+#[instrument(skip(conn), level = "debug")]
+pub(super) async fn select_node(conn: &Connection, id: &RecordId) -> Result<DbNode> {
+    query_optional(
+        conn,
+        concat!("SELECT ", node_columns!(), " FROM node WHERE id = ?1"),
+        [key_of(id, NODE_TABLE)?],
+        node_from_row,
+    )
+    .await
+    .context(format!("Failed to get node by id: {:?}", id))?
+    .ok_or_else(|| anyhow!("Node not found with id: {:?}", id))
+}
 
 /// Get a node by its RecordId (surrogate key)
 ///
@@ -21,15 +35,9 @@ use crate::persistence::{NodeRow, to_surreal_id};
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
-    let node: Option<NodeRow> = db
-        .select(to_surreal_id(&id))
-        .await
-        .context(format!("Failed to get node by id: {:?}", id))?;
-
-    node.map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node not found with id: {:?}", id))
+pub async fn get_node(db: &Database, id: RecordId) -> Result<DbNode> {
+    let conn = db.reader().await?;
+    select_node(&conn, &id).await
 }
 
 /// Alias for get_node - kept for compatibility
@@ -45,7 +53,7 @@ pub async fn get_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode>
 /// - If node with id not found
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<DbNode> {
+pub async fn get_node_by_id(db: &Database, id: RecordId) -> Result<DbNode> {
     get_node(db, id).await
 }
 
@@ -65,21 +73,24 @@ pub async fn get_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<D
 ///
 #[instrument(skip(db), level = "debug")]
 pub async fn get_node_by_name_and_lab(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     name: &str,
     lab_id: RecordId,
 ) -> Result<DbNode> {
-    let mut response = db
-        .query("SELECT * FROM ONLY node WHERE name = $name AND lab = $lab_id")
-        .bind(("name", name.to_string()))
-        .bind(("lab_id", to_surreal_id(&lab_id)))
-        .await
-        .context(format!("Failed to query node by name and lab: {}", name))?;
-
-    let node: Option<NodeRow> = response.take(0)?;
-    node.map(DbNode::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {:?}", name, lab_id))
+    let conn = db.reader().await?;
+    query_optional(
+        &conn,
+        concat!(
+            "SELECT ",
+            node_columns!(),
+            " FROM node WHERE name = ?1 AND lab = ?2"
+        ),
+        [name.to_string(), key_of(&lab_id, LAB_TABLE)?],
+        node_from_row,
+    )
+    .await
+    .context(format!("Failed to query node by name and lab: {}", name))?
+    .ok_or_else(|| anyhow!("Node not found with name '{}' in lab: {:?}", name, lab_id))
 }
 
 /// List all nodes in the database
@@ -94,13 +105,16 @@ pub async fn get_node_by_name_and_lab(
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
-    let nodes: Vec<NodeRow> = db
-        .select("node")
-        .await
-        .context("Failed to list nodes from database")?;
-
-    nodes.into_iter().map(DbNode::try_from).collect()
+pub async fn list_nodes(db: &Database) -> Result<Vec<DbNode>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!("SELECT ", node_columns!(), " FROM node"),
+        (),
+        node_from_row,
+    )
+    .await
+    .context("Failed to list nodes from database")
 }
 
 /// List all nodes in a specific lab
@@ -116,15 +130,20 @@ pub async fn list_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<Vec<DbNode>> {
-    let mut response = db
-        .query("SELECT * FROM node WHERE lab = $lab_id ORDER BY name ASC")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
-        .await
-        .context(format!("Failed to list nodes for lab: {:?}", lab_id))?;
-
-    let nodes: Vec<NodeRow> = response.take(0)?;
-    nodes.into_iter().map(DbNode::try_from).collect()
+pub async fn list_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<Vec<DbNode>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!(
+            "SELECT ",
+            node_columns!(),
+            " FROM node WHERE lab = ?1 ORDER BY name ASC"
+        ),
+        [key_of(&lab_id, LAB_TABLE)?],
+        node_from_row,
+    )
+    .await
+    .context(format!("Failed to list nodes for lab: {:?}", lab_id))
 }
 
 /// Count total number of nodes in the database
@@ -139,14 +158,11 @@ pub async fn list_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> R
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
-    let mut response = db
-        .query("SELECT count() FROM node GROUP ALL")
+pub async fn count_nodes(db: &Database) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(&conn, "SELECT count(*) FROM node", ())
         .await
-        .context("Failed to count nodes")?;
-
-    let count: Option<usize> = response.take("count")?;
-    Ok(count.unwrap_or(0))
+        .context("Failed to count nodes")
 }
 
 /// Count number of nodes in a specific lab
@@ -162,38 +178,49 @@ pub async fn count_nodes(db: &Arc<Surreal<Client>>) -> Result<usize> {
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn count_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<usize> {
-    let mut response = db
-        .query("SELECT count() FROM node WHERE lab = $lab_id GROUP ALL")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
-        .await
-        .context("Failed to count nodes for lab")?;
-
-    let count: Option<usize> = response.take("count")?;
-    Ok(count.unwrap_or(0))
+pub async fn count_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<usize> {
+    let conn = db.reader().await?;
+    query_count(
+        &conn,
+        "SELECT count(*) FROM node WHERE lab = ?1",
+        [key_of(&lab_id, LAB_TABLE)?],
+    )
+    .await
+    .context("Failed to count nodes for lab")
 }
 
 /// Nodes with host CPUs pinned to their vCPUs or QEMU threads, in every lab.
 #[instrument(skip(db), level = "debug")]
-pub async fn list_pinned_nodes(db: &Arc<Surreal<Client>>) -> Result<Vec<DbNode>> {
-    let mut response = db
-        .query("SELECT * FROM node WHERE cpu_pinning != NONE OR qemu_thread_cpus != NONE")
-        .await
-        .context("Failed to list nodes with pinned CPUs")?;
+pub async fn list_pinned_nodes(db: &Database) -> Result<Vec<DbNode>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        concat!(
+            "SELECT ",
+            node_columns!(),
+            " FROM node WHERE cpu_pinning IS NOT NULL OR qemu_thread_cpus IS NOT NULL"
+        ),
+        (),
+        node_from_row,
+    )
+    .await
+    .context("Failed to list nodes with pinned CPUs")
+}
 
-    let nodes: Vec<NodeRow> = response.take(0)?;
-    nodes.into_iter().map(DbNode::try_from).collect()
+fn vnc_port_from_row(row: &Row) -> Result<u16> {
+    Cells::new(row).integer("vnc_port")
 }
 
 /// The VNC ports held by nodes, in ascending order.
 #[instrument(skip(db), level = "debug")]
-pub async fn list_vnc_ports(db: &Arc<Surreal<Client>>) -> Result<Vec<u16>> {
-    let mut response = db
-        .query("SELECT VALUE vnc_port FROM node WHERE vnc_port != NONE")
-        .await
-        .context("Failed to list node VNC ports")?;
-
-    let mut ports: Vec<u16> = response.take(0)?;
-    ports.sort_unstable();
-    Ok(ports)
+pub async fn list_vnc_ports(db: &Database) -> Result<Vec<u16>> {
+    let conn = db.reader().await?;
+    query_all(
+        &conn,
+        "SELECT vnc_port FROM node WHERE vnc_port IS NOT NULL ORDER BY vnc_port ASC",
+        (),
+        vnc_port_from_row,
+    )
+    .await
+    .context("Failed to list node VNC ports")
 }

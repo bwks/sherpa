@@ -7,6 +7,7 @@ pub mod cli;
 pub mod daemon;
 pub mod doctor;
 pub mod init;
+pub mod migrate;
 pub mod services;
 pub mod templates;
 pub mod tls;

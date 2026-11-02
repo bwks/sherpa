@@ -35,17 +35,13 @@ disks, ordinary QCOW2 copies, and byte-identical auxiliary media. Cleanup remove
 only volumes and domains created by the test. A failed cleanup reports the
 remaining resource and preserves its backing volumes.
 
-For the image reference integration tests, start `dev/testdb` with the `sherpa`
-root login expected by `db::connect`, and provide its password through
-`SHERPA_DB_PASSWORD`:
+The image reference tests need no database server:
 
 ```sh
-SHERPA_DEV_DB_USER=sherpa dev/testdb start
-cargo test -p db node_image::delete_tests -- --ignored
+cargo test -p db node_image::delete_tests
 ```
 
-These tests use isolated database namespaces, never the server's application
-namespace. Referenced image deletion must fail and leave the image record intact.
+Each test opens its own in-memory database, never the server's database file. Referenced image deletion must fail and leave the image record intact.
 
 Full Sherpa lab acceptance additionally exercises `up`, `down`, `resume`,
 `redeploy`, and `destroy` through the authenticated application API: resume must

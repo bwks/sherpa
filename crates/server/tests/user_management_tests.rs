@@ -17,7 +17,6 @@ const USER_DELETE_ERROR_TARGET: &str = "#user-delete-error";
 // ── User Creation ──
 
 #[tokio::test]
-#[ignore]
 async fn test_admin_creates_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -52,7 +51,6 @@ async fn test_admin_creates_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_duplicate_username_rejected() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -93,7 +91,6 @@ async fn test_duplicate_username_rejected() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_non_admin_cannot_create_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -143,7 +140,6 @@ async fn test_non_admin_cannot_create_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_usernames_are_lowercased_and_case_insensitive() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -199,7 +195,6 @@ async fn test_usernames_are_lowercased_and_case_insensitive() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_invalid_and_reserved_usernames_rejected() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -252,7 +247,6 @@ async fn test_invalid_and_reserved_usernames_rejected() -> Result<()> {
 // ── User Info ──
 
 #[tokio::test]
-#[ignore]
 async fn test_user_gets_own_info() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -280,7 +274,6 @@ async fn test_user_gets_own_info() -> Result<()> {
 // ── Password Change ──
 
 #[tokio::test]
-#[ignore]
 async fn test_user_changes_own_password() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -342,7 +335,6 @@ async fn test_user_changes_own_password() -> Result<()> {
 // ── User Listing ──
 
 #[tokio::test]
-#[ignore]
 async fn test_admin_lists_users() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -379,7 +371,6 @@ async fn test_admin_lists_users() -> Result<()> {
 // ── User Deletion ──
 
 #[tokio::test]
-#[ignore]
 async fn test_admin_deletes_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -430,7 +421,6 @@ async fn test_admin_deletes_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_last_admin_cannot_be_deleted() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -456,7 +446,6 @@ async fn test_last_admin_cannot_be_deleted() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_non_admin_cannot_delete_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -505,7 +494,6 @@ async fn test_non_admin_cannot_delete_user() -> Result<()> {
 // ── DB-Backed Verification via RPC ──
 
 #[tokio::test]
-#[ignore]
 async fn test_db_reflects_user_operations() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -609,7 +597,6 @@ async fn ensure_web_refusal(response: Response, expected: &str) -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -683,7 +670,6 @@ async fn deleting_a_user_who_owns_labs_is_refused_on_all_transports() -> Result<
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn self_delete_is_refused_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -731,7 +717,6 @@ async fn self_delete_is_refused_on_all_transports() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -782,7 +767,6 @@ async fn built_in_admin_delete_is_refused_on_all_transports() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn startup_requires_the_admin_account() -> Result<()> {
     let db = empty_database().await?;
 
@@ -805,7 +789,6 @@ async fn startup_requires_the_admin_account() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn users_manage_their_own_ssh_keys_on_rpc_and_rest() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

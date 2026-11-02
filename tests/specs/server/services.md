@@ -1,7 +1,7 @@
 # Server Services — Test Specifications
 
 > **Crate:** `crates/server/` (`services/`)
-> **External Dependencies:** SurrealDB, Docker, libvirt, Linux networking, filesystem
+> **External Dependencies:** Embedded database (in-memory in tests), Docker, libvirt, Linux networking, filesystem
 > **Existing Tests:** None
 
 ---

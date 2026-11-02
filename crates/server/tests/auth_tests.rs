@@ -15,7 +15,6 @@ use http_client::TestHttpClient;
 // ── JWT Authentication Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_login_valid_credentials() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -43,7 +42,6 @@ async fn test_auth_login_valid_credentials() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_login_invalid_password() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -65,7 +63,6 @@ async fn test_auth_login_invalid_password() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_login_nonexistent_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -86,7 +83,6 @@ async fn test_auth_login_nonexistent_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_login_missing_params() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -100,7 +96,6 @@ async fn test_auth_login_missing_params() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_validate_valid_token() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -122,7 +117,6 @@ async fn test_auth_validate_valid_token() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_validate_invalid_token() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -138,7 +132,6 @@ async fn test_auth_validate_invalid_token() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_auth_validate_missing_token() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -154,7 +147,6 @@ async fn test_auth_validate_missing_token() -> Result<()> {
 // ── Authenticated Request Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_requires_auth_token() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -172,7 +164,6 @@ async fn test_rpc_requires_auth_token() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -209,7 +200,6 @@ async fn test_admin_rpc_denied_for_non_admin() -> Result<()> {
 // ── Cookie Session Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_cookie_login_valid() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -240,7 +230,6 @@ async fn test_cookie_login_valid() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_cookie_login_invalid() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -260,7 +249,6 @@ async fn test_cookie_login_invalid() -> Result<()> {
 // ── HTTP Route Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_health_check() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -272,7 +260,6 @@ async fn test_health_check() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_login_page_renders() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -290,7 +277,6 @@ async fn test_login_page_renders() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -308,7 +294,6 @@ async fn test_protected_route_redirects_unauthenticated() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_api_spec_returns_json() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -322,7 +307,6 @@ async fn test_api_spec_returns_json() -> Result<()> {
 // ── HTTP REST API Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_http_bearer_auth_list_users() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -342,7 +326,6 @@ async fn test_http_bearer_auth_list_users() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_http_bearer_auth_create_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -373,7 +356,6 @@ async fn test_http_bearer_auth_create_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_http_bearer_auth_delete_user() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -406,7 +388,6 @@ async fn test_http_bearer_auth_delete_user() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<()> {
     let server = TestServer::start().await?;
     let client = TestHttpClient::new(server.addr);
@@ -485,7 +466,6 @@ async fn test_stale_cookie_login_recovery_and_duplicate_replacement() -> Result<
 // ── Database-backed identity ──
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -530,7 +510,6 @@ async fn demoted_admin_token_loses_admin_rights_on_all_transports() -> Result<()
 }
 
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn deleted_user_token_is_rejected_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

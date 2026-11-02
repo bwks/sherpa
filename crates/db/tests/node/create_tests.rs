@@ -5,12 +5,11 @@ use db::{
 };
 use shared::data::{NodeConfig, NodeModel};
 
-use crate::helper::{ipv4_lab_networks, setup_db, teardown_db};
+use crate::helper::{ipv4_lab_networks, setup_db};
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_success() -> Result<()> {
-    let db = setup_db("test_create_node").await?;
+    let db = setup_db().await?;
 
     // Setup dependencies
     let user = create_user(&db, "testuser".to_string(), "TestPass123!", false, vec![]).await?;
@@ -45,14 +44,12 @@ async fn test_create_node_success() -> Result<()> {
     assert_eq!(node.lab, lab.id.unwrap());
     assert!(node.id.is_some(), "Node should have an ID");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_with_lab() -> Result<()> {
-    let db = setup_db("test_create_node_lab").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "bob".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -83,14 +80,12 @@ async fn test_create_node_with_lab() -> Result<()> {
     assert_eq!(node.lab, lab.id.unwrap());
     assert_eq!(node.image, config.id.unwrap());
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
-    let db = setup_db("test_create_node_dup_name").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "charlie".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -140,14 +135,12 @@ async fn test_create_node_duplicate_name_per_lab_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
-    let db = setup_db("test_create_node_dup_index").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "diana".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -197,14 +190,12 @@ async fn test_create_node_duplicate_index_per_lab_fails() -> Result<()> {
         error_msg
     );
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
-    let db = setup_db("test_create_node_diff_labs").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "emily".to_string(), "TestPass123!", false, vec![]).await?;
     let lab1 = create_lab(
@@ -259,14 +250,12 @@ async fn test_create_node_same_name_different_labs_succeeds() -> Result<()> {
     assert_eq!(node2.name, "node1");
     assert_ne!(node1.lab, node2.lab, "Nodes should be in different labs");
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_with_index_boundaries() -> Result<()> {
-    let db = setup_db("test_create_node_index").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "frank".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -306,14 +295,12 @@ async fn test_create_node_with_index_boundaries() -> Result<()> {
     .await?;
     assert_eq!(node2.index, 65535);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_increments_count() -> Result<()> {
-    let db = setup_db("test_create_node_count").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "grace".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -358,14 +345,12 @@ async fn test_create_node_increments_count() -> Result<()> {
     assert_eq!(final_count, initial_count + 2);
     assert_eq!(final_lab_count, initial_lab_count + 2);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
-    let db = setup_db("test_create_node_retrieve").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "hannah".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -400,14 +385,12 @@ async fn test_create_node_can_retrieve_by_name_and_lab() -> Result<()> {
     assert_eq!(created_node.name, retrieved_node.name);
     assert_eq!(created_node.index, retrieved_node.index);
 
-    teardown_db(&db).await?;
     Ok(())
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_create_node_can_retrieve_by_id() -> Result<()> {
-    let db = setup_db("test_create_node_retrieve_id").await?;
+    let db = setup_db().await?;
 
     let user = create_user(&db, "ian".to_string(), "TestPass123!", false, vec![]).await?;
     let lab = create_lab(
@@ -443,6 +426,5 @@ async fn test_create_node_can_retrieve_by_id() -> Result<()> {
     assert_eq!(created_node.name, retrieved_node.name);
     assert_eq!(created_node.index, retrieved_node.index);
 
-    teardown_db(&db).await?;
     Ok(())
 }

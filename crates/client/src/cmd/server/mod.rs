@@ -3,12 +3,14 @@ use clap::Subcommand;
 
 use shared::data::ClientConfig;
 
+mod backup;
 mod clean;
 mod image;
 mod rpc;
 mod status;
 mod user;
 
+use backup::backup;
 use clean::clean;
 use image::{ServerImageCommands, image_commands};
 pub use rpc::{rpc_call, rpc_call_streaming};
@@ -43,6 +45,9 @@ pub enum ServerCommands {
         /// Lab ID to clean
         lab_id: String,
     },
+
+    /// Back up the server's database to a file on the server (admin-only)
+    Backup,
 }
 
 /// Run a server subcommand.
@@ -74,6 +79,9 @@ pub async fn run_server(
         }
         ServerCommands::Clean { lab_id } => {
             clean(lab_id, server_url, &server_connection).await?;
+        }
+        ServerCommands::Backup => {
+            backup(server_url, &server_connection, output).await?;
         }
     }
 

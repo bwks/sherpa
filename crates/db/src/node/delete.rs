@@ -1,20 +1,35 @@
 use anyhow::{Context, Result, anyhow};
 use shared::data::RecordId;
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
+use turso::{Connection, Row};
 
-use crate::node::read::get_node;
-use crate::persistence::{LinkRow, NodeRow, to_surreal_id};
+use crate::Database;
+use crate::node::read::select_node;
+use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of};
+use crate::sql::{query_count, query_optional};
+
+fn deleted_key_from_row(row: &Row) -> Result<String> {
+    Cells::new(row).text("id")
+}
+
+/// Delete the node `id` on `conn`, failing when it does not exist.
+async fn delete_node_row(conn: &Connection, id: &RecordId) -> Result<()> {
+    query_optional(
+        conn,
+        "DELETE FROM node WHERE id = ?1 RETURNING id",
+        [key_of(id, NODE_TABLE)?],
+        deleted_key_from_row,
+    )
+    .await
+    .context(format!("Failed to delete node: {:?}", id))?
+    .ok_or_else(|| anyhow!("Node not found with id: {:?}", id))?;
+    Ok(())
+}
 
 /// Delete a node by its RecordId (surrogate key)
 ///
-/// **WARNING:** This function only deletes the node record itself.
-/// If the node has associated links, this will fail due to foreign key constraints.
-///
-/// For explicit control over deletion order, use `delete_node_cascade()`.
-/// To check for dependencies before deletion, use `delete_node_safe()`.
+/// Deleting a node also deletes its links and its bridge memberships: their node columns
+/// are `ON DELETE CASCADE`. To refuse deletion while links exist, use `delete_node_safe()`.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -22,20 +37,12 @@ use crate::persistence::{LinkRow, NodeRow, to_surreal_id};
 ///
 /// # Errors
 /// - If node not found
-/// - If node has associated links
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
-    // Verify node exists
-    let _ = get_node(db, id.clone()).await?;
-
-    let _deleted: Option<NodeRow> = db
-        .delete(to_surreal_id(&id))
-        .await
-        .context(format!("Failed to delete node: {:?}", id))?;
-
-    Ok(())
+pub async fn delete_node(db: &Database, id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    delete_node_row(&writer.conn, &id).await
 }
 
 /// Alias for delete_node - kept for API consistency
@@ -46,45 +53,42 @@ pub async fn delete_node(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> 
 ///
 /// # Errors
 /// - If node not found
-/// - If node has associated links
 /// - If there's a database error
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node_by_id(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
+pub async fn delete_node_by_id(db: &Database, id: RecordId) -> Result<()> {
     delete_node(db, id).await
 }
 
 /// Delete all nodes for a lab
 ///
-/// **WARNING:** This function deletes all nodes in a lab.
-/// If any node has associated links, this will fail due to foreign key constraints.
-/// Use `delete_lab_cascade()` from the lab module for proper cleanup.
+/// The nodes' links and bridge memberships are deleted with them.
 ///
 /// # Arguments
 /// * `db` - Database connection
 /// * `lab_id` - The RecordId of the lab
 ///
 /// # Errors
-/// - If lab not found
-/// - If any node has associated links
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) -> Result<()> {
-    let _deleted: Vec<NodeRow> = db
-        .query("DELETE node WHERE lab = $lab_id")
-        .bind(("lab_id", to_surreal_id(&lab_id)))
+pub async fn delete_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM node WHERE lab = ?1",
+            [key_of(&lab_id, LAB_TABLE)?],
+        )
         .await
-        .context(format!("Failed to delete nodes for lab: {:?}", lab_id))?
-        .take(0)?;
+        .context(format!("Failed to delete nodes for lab: {:?}", lab_id))?;
 
     Ok(())
 }
 
 /// Delete all links associated with a node
 ///
-/// This is a helper function that deletes all links where the node
-/// appears as either node_a or node_b. This should be called before
-/// deleting a node to prevent foreign key constraint violations.
+/// Deletes all links where the node appears as either node_a or node_b, leaving the
+/// node itself in place.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -94,22 +98,24 @@ pub async fn delete_nodes_by_lab(db: &Arc<Surreal<Client>>, lab_id: RecordId) ->
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> Result<()> {
-    let _deleted: Vec<LinkRow> = db
-        .query("DELETE link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", to_surreal_id(&node_id)))
+pub async fn delete_node_links(db: &Database, node_id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+    writer
+        .conn
+        .execute(
+            "DELETE FROM link WHERE node_a = ?1 OR node_b = ?1",
+            [key_of(&node_id, NODE_TABLE)?],
+        )
         .await
-        .context(format!("Failed to delete links for node: {:?}", node_id))?
-        .take(0)?;
+        .context(format!("Failed to delete links for node: {:?}", node_id))?;
 
     Ok(())
 }
 
 /// Delete a node and cascade delete all dependent records.
 ///
-/// Deletes the node record. The database automatically cascade deletes
-/// all associated links via `REFERENCE ON DELETE CASCADE` constraints
-/// defined in the schema.
+/// Deletes the node record. The database deletes its links and bridge memberships through
+/// the `ON DELETE CASCADE` foreign keys defined in the schema.
 ///
 /// # Arguments
 /// * `db` - Database connection
@@ -120,7 +126,7 @@ pub async fn delete_node_links(db: &Arc<Surreal<Client>>, node_id: RecordId) -> 
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
+pub async fn delete_node_cascade(db: &Database, id: RecordId) -> Result<()> {
     delete_node(db, id).await
 }
 
@@ -128,6 +134,7 @@ pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Res
 ///
 /// This function checks if the node has any associated links before deletion.
 /// If links exist, it returns an error with details about what's blocking deletion.
+/// The check and the deletion run under one write lock.
 ///
 /// Use this when you want to prevent accidental deletion of nodes that still have
 /// active network connections.
@@ -142,27 +149,30 @@ pub async fn delete_node_cascade(db: &Arc<Surreal<Client>>, id: RecordId) -> Res
 /// - If there's a database error
 ///
 #[instrument(skip(db), level = "debug")]
-pub async fn delete_node_safe(db: &Arc<Surreal<Client>>, id: RecordId) -> Result<()> {
+pub async fn delete_node_safe(db: &Database, id: RecordId) -> Result<()> {
+    let writer = db.writer().await?;
+
     // Get the node to verify it exists
-    let node = get_node(db, id.clone()).await?;
+    let node = select_node(&writer.conn, &id).await?;
 
     // Check for links (where node appears as either node_a or node_b)
-    let links: Vec<LinkRow> = db
-        .query("SELECT * FROM link WHERE node_a = $node_id OR node_b = $node_id")
-        .bind(("node_id", to_surreal_id(&id)))
-        .await
-        .context("Failed to check for links")?
-        .take(0)?;
+    let links = query_count(
+        &writer.conn,
+        "SELECT count(*) FROM link WHERE node_a = ?1 OR node_b = ?1",
+        [key_of(&id, NODE_TABLE)?],
+    )
+    .await
+    .context("Failed to check for links")?;
 
-    if !links.is_empty() {
+    if links > 0 {
         return Err(anyhow!(
             "Cannot delete node '{}' ({:?}): node has {} associated link(s). Delete links first or use delete_node_cascade()",
             node.name,
             id,
-            links.len()
+            links
         ));
     }
 
     // Safe to delete - node has no links
-    delete_node(db, id).await
+    delete_node_row(&writer.conn, &id).await
 }

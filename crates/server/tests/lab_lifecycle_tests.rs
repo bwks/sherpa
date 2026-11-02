@@ -214,7 +214,7 @@ async fn lab_up(
 // ── Container Lab Lifecycle ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_container_lab_up_and_inspect() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -253,7 +253,7 @@ async fn test_container_lab_up_and_inspect() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_container_lab_down_and_resume() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -294,7 +294,7 @@ async fn test_container_lab_down_and_resume() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_container_lab_destroy() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -341,7 +341,7 @@ async fn test_container_lab_destroy() -> Result<()> {
 
 /// Concurrent `up` requests must get distinct subnets.
 #[tokio::test]
-#[ignore]
+#[ignore = "requires Docker and host network administration rights (CAP_NET_ADMIN)"]
 async fn test_concurrent_lab_up_allocates_distinct_subnets() -> Result<()> {
     let server = TestServer::start().await?;
     let mut first = TestWsClient::connect(&server).await?;
@@ -442,7 +442,6 @@ async fn test_vm_lab_up_and_destroy() -> Result<()> {
 // ── Error Cases ──
 
 #[tokio::test]
-#[ignore]
 async fn test_lab_up_missing_image() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -481,7 +480,6 @@ async fn test_lab_up_missing_image() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_lab_up_invalid_manifest() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -510,7 +508,6 @@ async fn test_lab_up_invalid_manifest() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_lab_up_requires_auth() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -535,7 +532,6 @@ async fn test_lab_up_requires_auth() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -692,7 +688,6 @@ async fn current_user_vm_login_sudo_resume_and_owner_redeploy() -> Result<()> {
 
 /// Database and local API sockets only; no VM, container or lab files are created.
 #[tokio::test]
-#[ignore = "requires the disposable SurrealDB test database"]
 async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

@@ -1,7 +1,7 @@
 # WebSocket RPC — Test Specifications
 
 > **Crate:** `crates/server/` (`api/websocket/`)
-> **External Dependencies:** Running server with SurrealDB, Docker, libvirt
+> **External Dependencies:** Running server (in-memory database in tests), Docker, libvirt
 > **Existing Tests:** None
 
 ---

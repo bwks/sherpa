@@ -10,7 +10,6 @@ use helpers::ws_client::TestWsClient;
 // ── Connection Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_ws_connected_message() -> Result<()> {
     let server = TestServer::start().await?;
     let ws = TestWsClient::connect(&server).await?;
@@ -26,7 +25,6 @@ async fn test_ws_connected_message() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_ws_multiple_connections() -> Result<()> {
     let server = TestServer::start().await?;
 
@@ -44,7 +42,6 @@ async fn test_ws_multiple_connections() -> Result<()> {
 // ── RPC Dispatch Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_unknown_method() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -66,7 +63,6 @@ async fn test_rpc_unknown_method() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_response_id_matches_request() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -104,7 +100,6 @@ async fn test_rpc_response_id_matches_request() -> Result<()> {
 // ── Streaming RPC Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_streaming_returns_final_response() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -135,7 +130,6 @@ async fn test_rpc_streaming_returns_final_response() -> Result<()> {
 // ── Auth Method Tests ──
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_auth_login_returns_jwt() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -150,7 +144,6 @@ async fn test_rpc_auth_login_returns_jwt() -> Result<()> {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_rpc_auth_validate_returns_user_info() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

@@ -5,12 +5,11 @@ use shared::data::DbUser;
 use shared::konst::ADMIN_USERNAME;
 use shared::util::normalize_username;
 use shared::validators::validate_username;
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::persistence::UserRow;
+use crate::Database;
+use crate::persistence::{new_key, user_columns, user_from_row, user_values};
+use crate::sql::query_optional;
 
 /// Create a new user in the database
 ///
@@ -32,7 +31,7 @@ use crate::persistence::UserRow;
 ///
 #[instrument(skip(db, password), level = "debug")]
 pub async fn create_user(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     username: String,
     password: &str,
     is_admin: bool,
@@ -53,12 +52,12 @@ pub async fn create_user(
 /// - If `admin` already exists (unique constraint violation)
 /// - If there's a database error during creation
 #[instrument(skip(db, password), level = "debug")]
-pub async fn create_admin_user(db: &Arc<Surreal<Client>>, password: &str) -> Result<DbUser> {
+pub async fn create_admin_user(db: &Database, password: &str) -> Result<DbUser> {
     insert_user(db, ADMIN_USERNAME.to_string(), password, true, vec![]).await
 }
 
 async fn insert_user(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     username: String,
     password: &str,
     is_admin: bool,
@@ -79,16 +78,20 @@ async fn insert_user(
         updated_at: now,
     };
 
-    // Create user record
-    let row = UserRow::try_from(&db_user)?;
-    let created: Option<UserRow> = db
-        .create("user")
-        .content(row)
-        .await
-        .context(format!("Failed to create user: '{}'", username))?;
+    let writer = db.writer().await?;
+    let created = query_optional(
+        &writer.conn,
+        concat!(
+            "INSERT INTO user (",
+            user_columns!(),
+            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING ",
+            user_columns!()
+        ),
+        user_values(&db_user, &new_key())?,
+        user_from_row,
+    )
+    .await
+    .context(format!("Failed to create user: '{}'", username))?;
 
-    created
-        .map(DbUser::try_from)
-        .transpose()?
-        .ok_or_else(|| anyhow!("User was not created: '{}'", username))
+    created.ok_or_else(|| anyhow!("User was not created: '{}'", username))
 }

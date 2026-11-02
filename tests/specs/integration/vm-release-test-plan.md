@@ -69,8 +69,8 @@ Completed on 2026-10-03 using the existing configured Sherpa server:
   SSH, sudo, cloud-init and any necessary guest agent. Record any additional
   installer prerequisite packages, such as curl.
 - [x] Boot the VM, wait for cloud-init completion and verify SSH access.
-- [x] Assert Ubuntu 26.04 is running and Sherpa, Docker, libvirt and SurrealDB
-  are absent before installation begins.
+- [x] Assert Ubuntu 26.04 is running and Sherpa, Docker and libvirt are absent
+  before installation begins.
 - [x] Verify the guest can reach package repositories and required registries.
 
 Manifest: [`tests/environments/ubuntu-2604/manifest.toml`](../../environments/ubuntu-2604/manifest.toml).
@@ -119,7 +119,9 @@ and produces an unambiguous pass or fail result without manual intervention.
 - [x] Fresh installation: verify exit status, binary versions, symlinks,
   account/group setup, directory ownership and permissions.
 - [x] Runtime setup: verify Docker and libvirt availability, required images,
-  SurrealDB persistence and database health.
+  and the database: from 0.5.0 no database container and no database settings in
+  `sherpa.env`; for an upgrade baseline older than 0.5.0, SurrealDB persistence and
+  health, and after the upgrade the embedded `sherpa.sqlite` with the users kept.
 - [x] Service setup: verify the systemd unit, environment file permissions and
   enablement. Account for the installer leaving startup until initialization.
 - [x] Server startup: complete initialization, start the service and verify

@@ -7,10 +7,8 @@ use shared::data::{
     Config, OtelConfig, ScannerConfig, ServerConnection, TailscaleGatewaySettings, TlsConfig,
     VmProviders, ZtpServer,
 };
-use shared::konst::SHERPA_PASSWORD;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::net::TcpListener;
 
 use sherpad::api::build_router;
@@ -34,26 +32,17 @@ pub struct TestServer {
     /// Used by lab_lifecycle_tests but not all test binaries, triggering a false positive warning.
     #[allow(dead_code)]
     pub db: db::Database,
-    _namespace: String,
 }
 
 impl TestServer {
-    /// Start a new test server with a unique DB namespace
+    /// Start a new test server with its own in-memory database
     pub async fn start() -> Result<Self> {
         Self::start_with_config(None).await
     }
 
     /// Start a new test server with optional config overrides
     pub async fn start_with_config(images_dir: Option<String>) -> Result<Self> {
-        let namespace = generate_test_namespace();
-
-        let db_password =
-            std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string());
-        let db_port: u16 = std::env::var("SHERPA_DEV_DB_PORT")
-            .unwrap_or_else(|_| "42069".to_string())
-            .parse()?;
-
-        let db = db::connect("localhost", db_port, &namespace, "test_db", &db_password).await?;
+        let db = db::open_in_memory().await?;
         db::apply_schema(&db).await?;
         db::seed_admin_user(&db, TEST_ADMIN_PASSWORD).await?;
 
@@ -110,7 +99,6 @@ impl TestServer {
         Ok(Self {
             addr,
             db: db.clone(),
-            _namespace: namespace,
         })
     }
 
@@ -120,32 +108,11 @@ impl TestServer {
     }
 }
 
-/// Connect to a fresh, empty database in its own namespace, with the schema applied and no
-/// users. Used by tests that check startup behaviour before the admin account exists.
+/// Open a fresh, empty in-memory database with the schema applied and no users. Used by tests
+/// that check startup behaviour before the admin account exists.
 #[allow(dead_code)]
 pub async fn empty_database() -> Result<db::Database> {
-    let db_password =
-        std::env::var("SHERPA_DB_PASSWORD").unwrap_or_else(|_| SHERPA_PASSWORD.to_string());
-    let db_port: u16 = std::env::var("SHERPA_DEV_DB_PORT")
-        .unwrap_or_else(|_| "42069".to_string())
-        .parse()?;
-    let db = db::connect(
-        "localhost",
-        db_port,
-        &generate_test_namespace(),
-        "test_db",
-        &db_password,
-    )
-    .await?;
+    let db = db::open_in_memory().await?;
     db::apply_schema(&db).await?;
     Ok(db)
-}
-
-fn generate_test_namespace() -> String {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let tid = std::thread::current().id();
-    format!("test_ns_{timestamp}_{tid:?}")
 }

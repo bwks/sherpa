@@ -2,12 +2,11 @@
 
 use anyhow::{Context, Result, anyhow};
 use shared::data::{DbNode, NodeState, RecordId};
-use std::sync::Arc;
-use surrealdb::Surreal;
-use surrealdb::engine::remote::ws::Client;
 use tracing::instrument;
 
-use crate::persistence::NodeRow;
+use crate::Database;
+use crate::persistence::{new_key, node_columns, node_from_row, node_values};
+use crate::sql::query_optional;
 
 /// Create a new node in the database.
 ///
@@ -37,7 +36,7 @@ use crate::persistence::NodeRow;
 /// - Database operation fails
 #[instrument(skip(db), level = "debug")]
 pub async fn create_node(
-    db: &Arc<Surreal<Client>>,
+    db: &Database,
     name: &str,
     index: u16,
     image_id: RecordId,
@@ -60,16 +59,27 @@ pub async fn create_node(
         cpu_pinning: None,
         qemu_thread_cpus: None,
     };
-    let node: Option<NodeRow> = db
-        .create("node")
-        .content(NodeRow::try_from(&domain)?)
-        .await
-        .context(format!(
-            "Failed to create node: name='{}', index={}, lab_id={:?}",
-            name, index, lab_id
-        ))?;
 
-    node.map(DbNode::try_from).transpose()?.ok_or_else(|| {
+    let writer = db.writer().await?;
+    let node = query_optional(
+        &writer.conn,
+        concat!(
+            "INSERT INTO node (",
+            node_columns!(),
+            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+             RETURNING ",
+            node_columns!()
+        ),
+        node_values(&domain, &new_key())?,
+        node_from_row,
+    )
+    .await
+    .context(format!(
+        "Failed to create node: name='{}', index={}, lab_id={:?}",
+        name, index, lab_id
+    ))?;
+
+    node.ok_or_else(|| {
         anyhow!(
             "Node was not created: name='{}', index={}, image_id={:?}, lab_id={:?}",
             name,

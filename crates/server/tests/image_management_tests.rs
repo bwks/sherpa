@@ -10,7 +10,7 @@ use helpers::ws_client::TestWsClient;
 // ── Image Scan ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_scan_discovers_images() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -37,7 +37,7 @@ async fn test_image_scan_discovers_images() -> Result<()> {
 // ── Image List ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_list_returns_images() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -67,7 +67,7 @@ async fn test_image_list_returns_images() -> Result<()> {
 // ── Image Show ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_show_returns_config() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -110,7 +110,7 @@ async fn test_image_show_returns_config() -> Result<()> {
 // ── Image Set Default ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_set_default() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -161,7 +161,7 @@ async fn test_image_set_default() -> Result<()> {
 // ── Image Import (VM) ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_import_nonexistent_file() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -192,7 +192,7 @@ async fn test_image_import_nonexistent_file() -> Result<()> {
 // ── Image Pull (Container) ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon and internet access to pull an image"]
 async fn test_image_pull_container() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;
@@ -224,7 +224,7 @@ async fn test_image_pull_container() -> Result<()> {
 // ── Non-Admin Access Denied ──
 
 #[tokio::test]
-#[ignore]
+#[ignore = "requires a Docker daemon"]
 async fn test_image_scan_admin_only() -> Result<()> {
     let server = TestServer::start().await?;
     let mut ws = TestWsClient::connect(&server).await?;

@@ -51,7 +51,7 @@ _source() {
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"* ]]
     [[ "$output" == *"--version"* ]]
-    [[ "$output" == *"SHERPA_DB_PASSWORD"* ]]
+    [[ "$output" == *"sherpa_update.sh"* ]]
 }
 
 @test "CLI: --help includes environment variable documentation" {
@@ -60,7 +60,9 @@ _source() {
     [[ "$output" == *"SHERPA_SERVER_IPV4"* ]]
     [[ "$output" == *"SHERPA_SERVER_WS_PORT"* ]]
     [[ "$output" == *"SHERPA_SERVER_HTTP_PORT"* ]]
-    [[ "$output" == *"SHERPA_DB_PORT"* ]]
+    # sherpad embeds its database: there is no database password or port to set.
+    [[ "$output" != *"SHERPA_DB_PASSWORD"* ]]
+    [[ "$output" != *"SHERPA_DB_PORT"* ]]
 }
 
 @test "CLI: unknown flag exits 1 with error message" {
@@ -88,29 +90,6 @@ _source() {
     " -- --version v0.3.4
     [ "$status" -eq 0 ]
     [[ "$output" == *"SHERPA_VERSION=v0.3.4"* ]]
-}
-
-@test "CLI: SHERPA_DB_PASSWORD env var is consumed as DB_PASSWORD" {
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        # Replicate main's env-var assignment
-        DB_PASSWORD=\"\${SHERPA_DB_PASSWORD:-}\"
-        echo \"DB_PASSWORD_SET=\${DB_PASSWORD}\"
-    " bash -c "export SHERPA_DB_PASSWORD=MyPass123"
-    # Just verify the variable assignment logic compiles; the full mapping is
-    # tested in password-handling tests below via DB_PASSWORD directly.
-    [ "$status" -eq 0 ]
-}
-
-@test "CLI: SHERPA_DB_PORT env var overrides default port" {
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        DB_PORT=\"\${SHERPA_DB_PORT:-\${DB_PORT}}\"
-        echo \"PORT=\${DB_PORT}\"
-    " bash -c "export SHERPA_DB_PORT=9000"
-    [ "$status" -eq 0 ]
 }
 
 # ============================================================
@@ -282,70 +261,6 @@ _source() {
 }
 
 # ============================================================
-# Pre-flight: Port Availability
-# ============================================================
-
-@test "check_port_available: passes when port is free" {
-    # Use a high ephemeral port unlikely to be in use (not 8000, which post-install
-    # is bound by the sherpa-db container).
-    local free_port=19876
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        DB_PORT=${free_port}
-        check_port_available
-    "
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"available"* ]]
-}
-
-@test "check_port_available: fails when target port is already in use" {
-    # Bind a random high port, then tell the script that is DB_PORT.
-    # Use Python to open a TCP socket — works regardless of which nc variant
-    # is installed (OpenBSD nc vs GNU netcat have incompatible flags).
-    local test_port=18999
-    python3 -c "
-import socket, time, os
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('0.0.0.0', ${test_port}))
-s.listen(1)
-# Write PID so parent can kill us
-with open('/tmp/sherpa_port_test.pid', 'w') as f:
-    f.write(str(os.getpid()))
-# Block until killed
-time.sleep(60)
-" &
-    sleep 0.5
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        DB_PORT=${test_port}
-        check_port_available
-    "
-    # Kill the listener
-    kill "$(cat /tmp/sherpa_port_test.pid 2>/dev/null)" 2>/dev/null || true
-    rm -f /tmp/sherpa_port_test.pid
-    [ "$status" -eq 1 ]
-    [[ "$output" == *"already in use"* ]]
-}
-
-@test "check_port_available: warns but does not fail when ss and netstat are absent" {
-    local empty_bin
-    empty_bin="$(mktemp -d)"
-    run bash -c "
-        set +e
-        PATH='${empty_bin}'
-        source '${STRIPPED_SCRIPT}'
-        DB_PORT=8000
-        check_port_available
-    "
-    rm -rf "${empty_bin}"
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"WARNING"* ]]
-}
-
-# ============================================================
 # Pre-flight: Virtualization
 # ============================================================
 
@@ -378,61 +293,62 @@ time.sleep(60)
 }
 
 # ============================================================
-# Password Handling
+# Upgrade Check: pre-0.5.0 SurrealDB container
 # ============================================================
 
-@test "get_database_password: accepts valid password from DB_PASSWORD env var" {
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        DB_PASSWORD='ValidPass1'
-        get_database_password
-    "
-    [ "$status" -eq 0 ]
-    [[ "$output" == *"Password validated"* ]]
+# A docker stub whose `ps -a --format` lists the container names given.
+_stub_docker_with_containers() {
+    {
+        echo '#!/bin/bash'
+        echo 'if [ "$1" = "ps" ]; then'
+        for name in "$@"; do
+            echo "    echo '${name}'"
+        done
+        echo 'fi'
+        echo 'exit 0'
+    } > "${MOCK_BIN}/docker"
+    chmod +x "${MOCK_BIN}/docker"
 }
 
-@test "get_database_password: rejects password shorter than 8 characters" {
+@test "check_legacy_database: refuses when a sherpa-db container exists" {
+    _stub_docker_with_containers other sherpa-db
     run bash -c "
         set +e
+        PATH='${MOCK_BIN}:${PATH}'
         source '${STRIPPED_SCRIPT}'
-        DB_PASSWORD='short'
-        get_database_password
+        check_legacy_database
     "
     [ "$status" -eq 1 ]
-    [[ "$output" == *"at least 8 characters"* ]]
+    [[ "$output" == *"sherpa-db"* ]]
+    [[ "$output" == *"sherpa_update.sh"* ]]
 }
 
-@test "get_database_password: rejects password of 7 characters" {
+@test "check_legacy_database: passes when no sherpa-db container exists" {
+    _stub_docker_with_containers other sherpa-db-backup
     run bash -c "
         set +e
+        PATH='${MOCK_BIN}:${PATH}'
         source '${STRIPPED_SCRIPT}'
-        DB_PASSWORD='7charsX'
-        get_database_password
-    "
-    [ "$status" -eq 1 ]
-}
-
-@test "get_database_password: accepts password of exactly 8 characters" {
-    run bash -c "
-        set +e
-        source '${STRIPPED_SCRIPT}'
-        DB_PASSWORD='Exactly8'
-        get_database_password
+        check_legacy_database
     "
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Password validated"* ]]
+    [[ "$output" == *"No SurrealDB container from an older release"* ]]
 }
 
-@test "get_database_password: accepts password longer than 8 characters" {
+@test "check_legacy_database: passes when Docker is not installed yet" {
+    local no_docker_bin
+    no_docker_bin="$(mktemp -d)"
+    for tool in grep cat; do
+        ln -s "$(command -v "${tool}")" "${no_docker_bin}/${tool}"
+    done
     run bash -c "
         set +e
+        PATH='${no_docker_bin}'
         source '${STRIPPED_SCRIPT}'
-        DB_PASSWORD='AVeryLongAndSecurePassword123!'
-        get_database_password
+        check_legacy_database
     "
+    rm -rf "${no_docker_bin}"
     [ "$status" -eq 0 ]
-    [[ "$output" == *"Password validated"* ]]
 }
 
 # ============================================================
@@ -577,23 +493,6 @@ _require_install() {
     fi
 }
 
-# Ensure the sherpa-db container is running.
-# cleanup_on_error in the install script removes the container on failure (e.g. during
-# a failed idempotency re-run). Restart it if it exists but is stopped so that the
-# container/health tests reflect true post-install state, not a transient failure state.
-_require_container() {
-    _require_install
-    if docker ps -a --format '{{.Names}}' | grep -q '^sherpa-db$'; then
-        if ! docker ps --format '{{.Names}}' | grep -q '^sherpa-db$'; then
-            docker start sherpa-db >/dev/null 2>&1 || true
-            sleep 3
-        fi
-    else
-        # Container doesn't exist at all — real failure, don't skip.
-        return 0
-    fi
-}
-
 @test "integration: transparent hugepages are madvise or always" {
     _require_install
     grep -qE '\[(madvise|always)\]' /sys/kernel/mm/transparent_hugepage/enabled
@@ -680,18 +579,6 @@ _require_container() {
     [[ "$output" == "sherpa:sherpa" ]]
 }
 
-@test "integration: sherpa-db container is running" {
-    _require_container
-    run bash -c "docker ps --format '{{.Names}}' | grep -q '^sherpa-db$'"
-    [ "$status" -eq 0 ]
-}
-
-@test "integration: SurrealDB health endpoint responds" {
-    _require_container
-    run bash -c "curl -sf http://localhost:8000/health"
-    [ "$status" -eq 0 ]
-}
-
 @test "integration: sherpad binary installed with correct permissions" {
     _require_install
     [ -x /opt/sherpa/bin/sherpad ]
@@ -764,10 +651,16 @@ _require_container() {
     [[ "$output" == "sherpa:sherpa" ]]
 }
 
-@test "integration: sherpa.env contains SHERPA_DB_PASSWORD" {
+@test "integration: sherpa.env holds no database password or port" {
     _require_install
-    run grep -q "^SHERPA_DB_PASSWORD=" /opt/sherpa/env/sherpa.env
-    [ "$status" -eq 0 ]
+    run grep -qE "^SHERPA_DB_(PASSWORD|PORT)=" /opt/sherpa/env/sherpa.env
+    [ "$status" -eq 1 ]
+}
+
+@test "integration: no SurrealDB container is installed" {
+    _require_install
+    run bash -c "docker ps -a --format '{{.Names}}' | grep -qx sherpa-db"
+    [ "$status" -eq 1 ]
 }
 
 @test "integration: sherpa.env contains SHERPA_SERVER_IPV4" {
@@ -785,12 +678,10 @@ _require_container() {
 
 @test "integration: idempotent re-run completes without error" {
     _require_install
-    # Requires SHERPA_DB_PASSWORD and SHERPA_SERVER_IPV4 to be set
-    if [ -z "${SHERPA_DB_PASSWORD:-}" ] || [ -z "${SHERPA_SERVER_IPV4:-}" ]; then
-        skip "set SHERPA_DB_PASSWORD and SHERPA_SERVER_IPV4 to run idempotency test"
+    # Requires SHERPA_SERVER_IPV4 to be set
+    if [ -z "${SHERPA_SERVER_IPV4:-}" ]; then
+        skip "set SHERPA_SERVER_IPV4 to run idempotency test"
     fi
-    # check_port_available now detects when sherpa-db owns the port and skips the
-    # error, so no manual container teardown is needed before re-running.
-    run bash -c "SHERPA_DB_PASSWORD='${SHERPA_DB_PASSWORD}' SHERPA_SERVER_IPV4='${SHERPA_SERVER_IPV4}' bash '${SCRIPT}'"
+    run bash -c "SHERPA_SERVER_IPV4='${SHERPA_SERVER_IPV4}' bash '${SCRIPT}'"
     [ "$status" -eq 0 ]
 }

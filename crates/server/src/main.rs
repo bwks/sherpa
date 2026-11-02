@@ -32,22 +32,14 @@ async fn main() -> Result<()> {
         Commands::Logs { follow } => logs_daemon(follow),
         Commands::Init {
             force,
-            db_password,
             server_ipv4,
             ws_port,
             http_port,
+        } => sherpad::init::init(force, server_ipv4.as_deref(), ws_port, http_port).await,
+        Commands::MigrateDb {
+            db_password,
             db_port,
-        } => {
-            sherpad::init::init(
-                force,
-                db_password.as_deref(),
-                server_ipv4.as_deref(),
-                ws_port,
-                http_port,
-                db_port,
-            )
-            .await
-        }
+        } => sherpad::migrate::migrate_db(db_password.as_deref(), db_port).await,
         Commands::Doctor { boxes } => sherpad::doctor::doctor(boxes),
     }
 }
