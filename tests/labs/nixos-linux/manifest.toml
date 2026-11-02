@@ -1,0 +1,33 @@
+name = "nixos-linux"
+
+# Two NixOS VMs built from images/nixos, with the lab owner's account, a text file and one
+# P2p link. The checks cover what NixOS does differently from the other distros: no /bin/bash,
+# wheel instead of cloud-init sudo rules, an sshd_config cloud-init cannot edit, and per-user
+# groups.
+provision_current_user = true
+
+[[nodes]]
+name = "nix01"
+model = "nixos_linux"
+version = "26.05"
+
+[[nodes.text_files]]
+src = "hello.txt"
+dst = "/home/sherpa/hello.txt"
+user = "sherpa"
+group = "sherpa"
+permissions = 600
+
+# Runs once cloud-init has finished, as the lab owner, through the SSH provisioner.
+[[nodes.provisioners]]
+type = "ssh"
+scripts = ["provision.sh"]
+
+[[nodes]]
+name = "nix02"
+model = "nixos_linux"
+version = "26.05"
+
+[[links]]
+src = "nix01::eth1"
+dst = "nix02::eth1"

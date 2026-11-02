@@ -29,20 +29,25 @@ is up. It is safe to run again with `sherpa provision`. It:
 2. installs [mise](https://mise.jdx.dev) and the tools in `provision/mise.toml`, which the
    provisioner copies to `~/.config/mise/config.toml`: Rust stable with `rustfmt`, `clippy` and
    `llvm-tools`, nightly with `rust-src`, `bpf-linker` 0.10.2 for the eBPF program (0.12 needs a
-   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck` and `bats`. mise follows the
+   system LLVM that Ubuntu 24.04 does not ship), `gh`, `shellcheck`, `bats` and `uv`. mise follows the
    repository's `rust-toolchain.toml` files, and login shells put its tools on the `PATH`;
 3. sets up git to authenticate with `GH_TOKEN` through `gh`, committing as the token's GitHub
    account with its no-reply address;
 4. clones `bwks/sherpa` and `bwks/sherpa-docs` into `~/code/rust/`. When they already exist it
    only fetches, so work in progress is never touched;
-5. creates a virtualenv for the docs at `~/.venvs/sherpa-docs`;
+5. installs `mkdocs` with uv, as a tool on the `PATH`, at the versions in sherpa-docs'
+   `requirements.txt`, so `mkdocs build` and `mkdocs serve` work in `~/code/rust/sherpa-docs`;
 6. installs a Sherpa server with the checkout's `scripts/sherpa_install.sh`;
 7. initializes the server unattended: it generates the `admin` password, a `dev` user (an
    administrator) with its own password, and an SSH key `~/.ssh/id_ed25519` for it, kept in
    `~/.env.d/sherpa-account.env` (mode `600`). It runs `sherpad init` with them and starts
    `sherpad`;
 8. points the guest's `sherpa` CLI at its own server, trusting the server's certificate file,
-   and logs in as `dev`.
+   and logs in as `dev`;
+9. creates a `dev` OS account with the same SSH key and trusts the guest's own host key. The SSH
+   config Sherpa writes for each lab reaches its nodes through the server as the Sherpa user
+   (`ProxyJump dev@<server>`), so lab tests and SSH provisioners need both, as on any Sherpa
+   server.
 
 Nothing is prompted for. Login shells load `~/.env.d/`, so `sherpa login` works there without
 prompts too.

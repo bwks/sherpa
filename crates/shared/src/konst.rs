@@ -352,6 +352,8 @@ pub const NODE_DOAS_CONF_DIR: &str = "/etc/doas.d";
 pub const NODE_DOAS_CONF_FILE: &str = "/etc/doas.conf";
 /// cloud-init `sudo` rule for admin logins: every command as any user, without a password.
 pub const NODE_CLOUD_INIT_SUDO_RULE: &str = "ALL=(ALL) NOPASSWD:ALL";
+/// Login shell on NixOS, which has no `/bin/bash`.
+pub const NODE_NIXOS_SHELL: &str = "/run/current-system/sw/bin/bash";
 /// Shadow password value that matches no password but, unlike `!`, does not lock the
 /// account, so sshd builds without PAM still accept key logins.
 pub const NODE_NO_PASSWORD_HASH: &str = "*";

@@ -16,3 +16,5 @@ rust = [
 gh = "latest"
 shellcheck = "latest"
 bats = "latest"
+# Installs mkdocs for building sherpa-docs, as a tool on the PATH.
+uv = "latest"

@@ -7,8 +7,8 @@ use tracing::instrument;
 
 use shared::data::{DbUser, NodeConfig, NodeKind, NodeModel, OsVariant, RecordId, ZtpMethod};
 use shared::konst::{
-    NODE_CLOUD_INIT_SUDO_RULE, NODE_DOAS_CONF_DIR, NODE_NO_PASSWORD_HASH, RESERVED_USERNAMES,
-    SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
+    NODE_CLOUD_INIT_SUDO_RULE, NODE_DOAS_CONF_DIR, NODE_NIXOS_SHELL, NODE_NO_PASSWORD_HASH,
+    RESERVED_USERNAMES, SHERPA_USERNAME, SSH_KEYS_DOCS_URL,
 };
 use shared::util::base64_encode;
 use shared::validators::validate_guest_username;
@@ -42,6 +42,7 @@ pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
                     | NodeModel::SuseLinux
                     | NodeModel::UbuntuLinux
                     | NodeModel::OmarchyLinux
+                    | NodeModel::NixosLinux
                     | NodeModel::KaliLinux
                     | NodeModel::InfrahubServer
                     | NodeModel::JenkinsServer
@@ -166,6 +167,18 @@ pub(crate) fn alpine_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
         lock_passwd: false,
         groups: vec!["wheel".to_owned()],
         shell: "/bin/sh".to_owned(),
+        ..cloud_init_user(account)
+    }
+}
+
+/// The personal account on NixOS: `wheel` for admin rights, since NixOS's generated sudoers does
+/// not read cloud-init's sudo rules, and NixOS's bash, since it has no `/bin/bash`.
+#[instrument(level = "debug", skip(account))]
+pub(crate) fn nixos_cloud_init_user(account: &GuestAccount) -> CloudInitUser {
+    CloudInitUser {
+        sudo: None,
+        groups: vec!["wheel".to_owned()],
+        shell: NODE_NIXOS_SHELL.to_owned(),
         ..cloud_init_user(account)
     }
 }
@@ -297,6 +310,20 @@ mod tests {
     }
 
     #[test]
+    fn nixos_account_uses_wheel_and_the_system_bash() {
+        let account = GuestAccount {
+            username: "alice".to_owned(),
+            ssh_keys: vec![KEY.to_owned()],
+        };
+        let user = nixos_cloud_init_user(&account);
+        assert_eq!(user.groups, vec!["wheel".to_owned()]);
+        assert_eq!(user.shell, NODE_NIXOS_SHELL);
+        assert_eq!(user.homedir.as_deref(), Some("/home/alice"));
+        assert!(user.lock_passwd);
+        assert_eq!(user.ssh_authorized_keys, vec![KEY.to_owned()]);
+    }
+
+    #[test]
     fn starting_labs_requires_a_registered_ssh_key() {
         let error = require_ssh_key(&owner("alice", vec![]))
             .unwrap_err()
@@ -311,6 +338,7 @@ mod tests {
         for model in [
             NodeModel::UbuntuLinux,
             NodeModel::OmarchyLinux,
+            NodeModel::NixosLinux,
             NodeModel::AlpineLinux,
             NodeModel::FlatcarLinux,
             NodeModel::FreeBsd,
