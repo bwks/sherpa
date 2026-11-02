@@ -41,7 +41,7 @@ fn test_cloud_init_config() {
         hostname: "ubuntu01".to_string(),
         fqdn: "ubuntu01.lab.sherpa.local".to_string(),
         manage_etc_hosts: true,
-        ssh_pwauth: true,
+        ssh_pwauth: Some(true),
         users: vec![],
         manage_resolv_conf: None,
         resolv_conf: None,
@@ -62,6 +62,17 @@ fn test_cloud_init_config() {
             "runcmd": ["echo hello"],
         })
     );
+}
+
+#[test]
+fn test_cloud_init_config_leaves_ssh_password_auth_to_the_image_when_unset() {
+    let config = CloudInitConfig {
+        hostname: "nixos01".to_string(),
+        ssh_pwauth: None,
+        ..Default::default()
+    };
+    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    assert!(output.get("ssh_pwauth").is_none(), "{output}");
 }
 
 #[test]

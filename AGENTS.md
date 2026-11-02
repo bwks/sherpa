@@ -100,6 +100,8 @@ that owns the rule:
 - `scripts/` holds install, update and uninstall tooling.
 - `tests/` holds test tooling, specs and environments. `tests/README.md` is the single reference
   for running every kind of test.
+- `images/` holds recipes for node images Sherpa builds itself, such as `images/nixos`, the NixOS
+  flake for `nixos_linux` nodes.
 - `dev/` holds helper scripts for local development, such as `dev/testdb`, the SurrealDB
   container the importer's test reads from.
 

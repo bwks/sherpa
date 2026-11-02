@@ -1,0 +1,3 @@
+# nix build output, and the image copied out of it
+result
+out/

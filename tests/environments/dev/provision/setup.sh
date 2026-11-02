@@ -7,7 +7,6 @@
 set -euo pipefail
 
 CODE_DIR="${HOME}/code/rust"
-DOCS_VENV="${HOME}/.venvs/sherpa-docs"
 MISE="${HOME}/.local/bin/mise"
 REPOS=(bwks/sherpa bwks/sherpa-docs)
 SHERPA_BASE="/opt/sherpa"
@@ -93,12 +92,11 @@ clone_repos() {
     done
 }
 
-setup_docs_venv() {
-    if [ ! -x "${DOCS_VENV}/bin/mkdocs" ]; then
-        log "Creating the sherpa-docs virtualenv"
-        python3 -m venv "${DOCS_VENV}"
-    fi
-    "${DOCS_VENV}/bin/pip" install -q -r "${CODE_DIR}/sherpa-docs/requirements.txt"
+# mkdocs for building sherpa-docs, as a uv tool in ~/.local/bin, at the versions in the docs'
+# requirements.txt. Running it again picks up changed versions.
+install_docs_tools() {
+    log "Installing mkdocs for sherpa-docs"
+    uv tool install --quiet mkdocs --with-requirements "${CODE_DIR}/sherpa-docs/requirements.txt"
 }
 
 install_sherpa_server() {
@@ -153,6 +151,29 @@ init_sherpa_server() {
     sudo systemctl start sherpad
 }
 
+# The SSH config Sherpa writes for each lab reaches its nodes through the server as the Sherpa
+# user (`ProxyJump dev@<server>`), which lab tests and SSH provisioners use. As on any Sherpa
+# server, that user needs an OS account there with its key, and this login needs to trust the
+# server's host key, which is read here rather than scanned over the network.
+allow_lab_jump() {
+    if ! id "${SHERPA_ACCOUNT}" >/dev/null 2>&1; then
+        log "Creating the ${SHERPA_ACCOUNT} OS account for SSH jumps to lab nodes"
+        sudo useradd --create-home --shell /bin/bash "${SHERPA_ACCOUNT}"
+    fi
+    local home
+    home="$(getent passwd "${SHERPA_ACCOUNT}" | cut -d: -f6)"
+    sudo install -d -m 700 -o "${SHERPA_ACCOUNT}" -g "${SHERPA_ACCOUNT}" "${home}/.ssh"
+    sudo install -m 600 -o "${SHERPA_ACCOUNT}" -g "${SHERPA_ACCOUNT}" \
+        "${HOME}/.ssh/id_ed25519.pub" "${home}/.ssh/authorized_keys"
+    local known_hosts="${HOME}/.ssh/known_hosts"
+    local entry
+    entry="${SERVER_IP} $(cut -d' ' -f1,2 /etc/ssh/ssh_host_ed25519_key.pub)"
+    touch "${known_hosts}"
+    if ! grep -qxF "${entry}" "${known_hosts}"; then
+        echo "${entry}" >> "${known_hosts}"
+    fi
+}
+
 # Points the CLI at this server, trusting its own certificate, and logs in.
 login_sherpa_client() {
     mkdir -p "${HOME}/.sherpa/config"
@@ -187,12 +208,13 @@ main() {
     install_tools
     setup_git
     clone_repos
-    setup_docs_venv
+    install_docs_tools
     SERVER_IP="$(ip -4 -json route get 1.1.1.1 | jq -r '.[0].prefsrc')"
     install_sherpa_server
     create_account_settings
     init_sherpa_server
     login_sherpa_client
+    allow_lab_jump
     log "Done. Logged in to the Sherpa server on ${SERVER_IP} as ${SHERPA_ACCOUNT}"
 }
 

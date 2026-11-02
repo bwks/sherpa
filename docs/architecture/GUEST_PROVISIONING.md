@@ -11,7 +11,7 @@ machine config; see [`TALOS.md`](TALOS.md).
 
 | Method | Models | Delivered as |
 |---|---|---|
-| cloud-init | Linux cloud images, server appliances, Alpine, FreeBSD, OpenBSD | NoCloud ISO with `user-data`, `meta-data` and `network-config`, written to the node's lab directory |
+| cloud-init | Linux cloud images, NixOS, server appliances, Alpine, FreeBSD, OpenBSD | NoCloud ISO with `user-data`, `meta-data` and `network-config`, written to the node's lab directory |
 | Ignition | Flatcar | Ignition JSON copied to the storage pool |
 | cloudbase-init | Windows | NoCloud ISO with cloudbase-init `user-data` |
 
@@ -22,7 +22,9 @@ go through the client-side provisioners in [`PROVISIONERS.md`](PROVISIONERS.md),
 server never sees.
 
 Alpine has its own branch in `generate_cloud_init_ztp`; every other cloud-init model shares the
-main branch. Both build `runcmd` in the same order: staged file moves, the environment loader,
+main branch. NixOS shares it, with the adjustments below; the rest of what NixOS needs (the
+`cloud-init` command, per-user groups, `eth` interface names, cloud-init without warnings) is
+set in its image, `images/nixos/configuration.nix`. Both build `runcmd` in the same order: staged file moves, the environment loader,
 `startup_scripts`, then `user_scripts`.
 
 ## Guest login
@@ -40,6 +42,7 @@ Each account keeps its OS's native tools:
 | Linux (cloud-init) | `/bin/bash` | cloud-init `sudo` rule, passwordless | `guest_account::cloud_init_user` |
 | Alpine | `ash` (`/bin/sh`), `wheel` group | dedicated `konst::NODE_DOAS_CONF_DIR/<user>.conf`, `permit nopass` | `guest_account::alpine_cloud_init_user`, `doas_file` |
 | Flatcar | `/bin/bash` | dedicated `/etc/sudoers.d/<user>` | `guest_account::ignition_user`, `sudoers_file` |
+| NixOS | `konst::NODE_NIXOS_SHELL` (`/run/current-system/sw/bin/bash`), `wheel` group | `wheel`, passwordless in the image. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::nixos_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
 | FreeBSD | `/bin/sh`, `wheel` group | cloud-init `sudo` rule, passwordless (neither `sudo` nor `doas` is in base; the image ships `sudo`) | `guest_account::bsd_cloud_init_user`; `sherpa`: `cloud_init_user_settings` |
 | OpenBSD | `/bin/sh`, `wheel` group | `doas`, in base: `konst::NODE_DOAS_CONF_FILE` with the stock `/etc/examples/doas.conf` rule plus `nopass`, `permit nopass keepenv :wheel`. No `sudo` rule (`node_ops::cloud_init_sudo_rule`) | `guest_account::bsd_cloud_init_user`, `node_ops::cloud_init_doas_file` |
 
@@ -137,4 +140,7 @@ than quoted. `administrators_authorized_keys` gets its own `icacls` command, whi
 | Alpine | The ENI renderer leaves `dns-nameservers` to a `resolvconf` tool the image lacks, so `/etc/resolv.conf` is never written | `manage_resolv_conf` with `CloudInitResolvConf::lab_dns`, which runs in the init stage |
 | FreeBSD, OpenBSD | No `root` group | Root-owned files omit `owner` |
 | FreeBSD | Homes are under `/usr/home` | Homes are looked up in `/etc/passwd` at boot |
+| NixOS | No `/bin/bash`, so sshd refuses accounts given it | `konst::NODE_NIXOS_SHELL` for every account |
+| NixOS | The generated `/etc/sudoers` does not read `/etc/sudoers.d`, so cloud-init `sudo` rules are ignored | Accounts join `wheel`, which the image gives passwordless sudo; no `sudo` rule |
+| NixOS | `sshd_config` is generated and read-only, so cloud-init's set-passwords module fails on `ssh_pwauth` and reports an error | `ssh_pwauth` omitted (`cloud_init_ssh_pwauth`); the image allows password logins itself |
 | SUSE, openSUSE | No per-user group; openSUSE 15.6 never runs deferred `write_files` | Primary group by default; staging instead of `defer` |

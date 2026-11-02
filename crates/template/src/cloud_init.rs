@@ -135,7 +135,9 @@ pub struct CloudInitConfig {
     pub hostname: String,
     pub fqdn: String,
     pub manage_etc_hosts: bool,
-    pub ssh_pwauth: bool,
+    /// Omitted where the image owns the SSH server's settings, so cloud-init leaves them alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ssh_pwauth: Option<bool>,
     pub users: Vec<CloudInitUser>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manage_resolv_conf: Option<bool>,

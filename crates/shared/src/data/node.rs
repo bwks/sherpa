@@ -87,6 +87,7 @@ pub enum NodeModel {
     SuseLinux,
     UbuntuLinux,
     OmarchyLinux,
+    NixosLinux,
     KaliLinux,
     FlatcarLinux,
     SonicLinux,
@@ -184,6 +185,7 @@ impl fmt::Display for NodeModel {
             NodeModel::SuseLinux => write!(f, "suse_linux"),
             NodeModel::UbuntuLinux => write!(f, "ubuntu_linux"),
             NodeModel::OmarchyLinux => write!(f, "omarchy_linux"),
+            NodeModel::NixosLinux => write!(f, "nixos_linux"),
             NodeModel::KaliLinux => write!(f, "kali_linux"),
             NodeModel::FlatcarLinux => write!(f, "flatcar_linux"),
             NodeModel::TalosLinux => write!(f, "talos_linux"),
@@ -284,6 +286,7 @@ impl std::str::FromStr for NodeModel {
             "suse_linux" => Ok(NodeModel::SuseLinux),
             "ubuntu_linux" => Ok(NodeModel::UbuntuLinux),
             "omarchy_linux" => Ok(NodeModel::OmarchyLinux),
+            "nixos_linux" => Ok(NodeModel::NixosLinux),
             "kali_linux" => Ok(NodeModel::KaliLinux),
             "flatcar_linux" => Ok(NodeModel::FlatcarLinux),
             "talos_linux" => Ok(NodeModel::TalosLinux),
@@ -879,6 +882,7 @@ impl NodeConfig {
             NodeModel::SuseLinux => NodeConfig::suse_linux(),
             NodeModel::UbuntuLinux => NodeConfig::ubuntu_linux(),
             NodeModel::OmarchyLinux => NodeConfig::omarchy_linux(),
+            NodeModel::NixosLinux => NodeConfig::nixos_linux(),
             NodeModel::KaliLinux => NodeConfig::kali_linux(),
             NodeModel::SonicLinux => NodeConfig::sonic_linux(),
             NodeModel::FlatcarLinux => NodeConfig::flatcar_linux(),
@@ -1960,6 +1964,17 @@ impl NodeConfig {
             cpu_count: 2,
             memory: 4096,
             ztp_method: ZtpMethod::NoCloud,
+            ..NodeConfig::ubuntu_linux()
+        }
+    }
+    /// NixOS, built from Sherpa's image recipe in `images/nixos`. More memory than the other
+    /// distros, because rebuilding the system runs Nix on the node.
+    #[tracing::instrument(level = "debug")]
+    pub fn nixos_linux() -> NodeConfig {
+        NodeConfig {
+            model: NodeModel::NixosLinux,
+            cpu_count: 2,
+            memory: 2048,
             ..NodeConfig::ubuntu_linux()
         }
     }
@@ -3080,6 +3095,35 @@ mod tests {
         assert!(config.cdrom.is_none());
         assert_eq!(config.memory, 8192);
         assert_eq!(config.cpu_count, 4);
+        let encoded = serde_json::to_string(&model).unwrap();
+        assert_eq!(
+            serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),
+            model
+        );
+    }
+
+    #[test]
+    fn test_nixos_model_defaults() {
+        let model: super::NodeModel = "nixos_linux".parse().unwrap();
+        let config = super::NodeConfig::get_model(model);
+        assert_eq!(model.to_string(), "nixos_linux");
+        assert_eq!(config.kind, super::NodeKind::VirtualMachine);
+        assert!(matches!(config.os_variant, super::OsVariant::Linux));
+        assert!(matches!(config.bios, super::BiosTypes::SeaBios));
+        assert_eq!(config.ztp_method, super::ZtpMethod::CloudInit);
+        assert!(matches!(config.hdd_bus, super::DiskBuses::Virtio));
+        assert!(matches!(
+            config.interface_type,
+            super::InterfaceType::Virtio
+        ));
+        assert_eq!(config.interface_prefix, "eth");
+        assert!(matches!(
+            config.management_interface,
+            super::MgmtInterfaces::Eth0
+        ));
+        assert!(config.cdrom.is_none());
+        assert_eq!(config.cpu_count, 2);
+        assert_eq!(config.memory, 2048);
         let encoded = serde_json::to_string(&model).unwrap();
         assert_eq!(
             serde_json::from_str::<super::NodeModel>(&encoded).unwrap(),

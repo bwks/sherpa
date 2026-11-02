@@ -34,7 +34,7 @@ use shared::konst::{
     CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
     FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
     MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE,
-    NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_PASSWD_FILE, NODE_STAGING_DIR,
+    NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR,
     NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
     NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
     SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
@@ -1498,11 +1498,22 @@ fn cloud_init_doas_file(model: &data::NodeModel) -> Option<template::CloudInitWr
     })
 }
 
-/// The cloud-init `sudo` rule for admin logins, except on OpenBSD, which uses doas.
+/// The cloud-init `sudo` rule for admin logins, except on OpenBSD, which uses doas, and NixOS,
+/// whose generated `/etc/sudoers` does not read `/etc/sudoers.d`; there `wheel` grants sudo.
 fn cloud_init_sudo_rule(model: &data::NodeModel) -> Option<String> {
     match model {
-        data::NodeModel::OpenBsd => None,
+        data::NodeModel::OpenBsd | data::NodeModel::NixosLinux => None,
         _ => Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
+    }
+}
+
+/// Whether cloud-init allows SSH password logins, or `None` to leave the SSH server alone. NixOS
+/// generates `sshd_config`, which cloud-init cannot edit, and its image allows password logins
+/// itself.
+fn cloud_init_ssh_pwauth(model: &data::NodeModel) -> Option<bool> {
+    match model {
+        data::NodeModel::NixosLinux => None,
+        _ => Some(true),
     }
 }
 
@@ -1513,6 +1524,7 @@ fn cloud_init_user_settings(
 ) -> (&'static str, &'static str) {
     match (model, os_variant) {
         (data::NodeModel::OmarchyLinux, _) => ("wheel", "/bin/bash"),
+        (data::NodeModel::NixosLinux, _) => ("wheel", NODE_NIXOS_SHELL),
         (_, data::OsVariant::Bsd) => ("wheel", "/bin/sh"),
         _ => ("sudo", "/bin/bash"),
     }
@@ -1549,6 +1561,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::SuseLinux
         | data::NodeModel::UbuntuLinux
         | data::NodeModel::OmarchyLinux
+        | data::NodeModel::NixosLinux
         | data::NodeModel::KaliLinux
         | data::NodeModel::InfrahubServer
         | data::NodeModel::JenkinsServer
@@ -1617,12 +1630,17 @@ fn generate_cloud_init_ztp(
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
-                ssh_pwauth: true,
+                ssh_pwauth: cloud_init_ssh_pwauth(&node.model),
                 users: {
                     let mut users = vec![cloud_init_user];
                     if let Some(account) = guest_account {
-                        let mut user = match node_image.os_variant {
-                            data::OsVariant::Bsd => guest_account::bsd_cloud_init_user(account),
+                        let mut user = match (&node.model, &node_image.os_variant) {
+                            (data::NodeModel::NixosLinux, _) => {
+                                guest_account::nixos_cloud_init_user(account)
+                            }
+                            (_, data::OsVariant::Bsd) => {
+                                guest_account::bsd_cloud_init_user(account)
+                            }
                             _ => guest_account::cloud_init_user(account),
                         };
                         user.sudo = cloud_init_sudo_rule(&node.model);
@@ -1822,7 +1840,7 @@ fn generate_cloud_init_ztp(
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
-                ssh_pwauth: true,
+                ssh_pwauth: cloud_init_ssh_pwauth(&node.model),
                 // Alpine's network renderer leaves DNS to a resolvconf tool the image lacks.
                 manage_resolv_conf: Some(true),
                 resolv_conf: Some(template::CloudInitResolvConf::lab_dns(
@@ -4044,6 +4062,27 @@ mod tests {
         assert_eq!(
             cloud_init_user_settings(&data::NodeModel::FreeBsd, &data::OsVariant::Bsd),
             ("wheel", "/bin/sh")
+        );
+    }
+
+    #[test]
+    fn test_nixos_cloud_init_uses_wheel_and_the_system_bash() {
+        assert_eq!(
+            cloud_init_user_settings(&data::NodeModel::NixosLinux, &data::OsVariant::Linux),
+            ("wheel", NODE_NIXOS_SHELL)
+        );
+        // NixOS generates /etc/sudoers without /etc/sudoers.d, so wheel grants sudo instead.
+        assert!(cloud_init_sudo_rule(&data::NodeModel::NixosLinux).is_none());
+        assert!(cloud_init_sudo_rule(&data::NodeModel::UbuntuLinux).is_some());
+    }
+
+    #[test]
+    fn test_nixos_cloud_init_leaves_ssh_password_auth_to_the_image() {
+        // NixOS generates sshd_config, which cloud-init cannot edit.
+        assert_eq!(cloud_init_ssh_pwauth(&data::NodeModel::NixosLinux), None);
+        assert_eq!(
+            cloud_init_ssh_pwauth(&data::NodeModel::UbuntuLinux),
+            Some(true)
         );
     }
 
