@@ -2,6 +2,36 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2026-11-02
+
+### Documentation
+
+- How to work on the dev server by @bwks ([13c2787](https://github.com/bwks/sherpa/commit/13c2787c084695aa597e0d8c0397c815ef9ea7d3))
+
+### Features
+
+- Embed the database in sherpad with Turso by @bwks ([c2a404a](https://github.com/bwks/sherpa/commit/c2a404afdcec1a68f6ca5e8ada6ce156b43f08e1))
+
+### Miscellaneous
+
+- Merge pull request #417 from bwks/feat/turso-db
+
+feat: embed the database in sherpad with Turso by @bwks in [#417](https://github.com/bwks/sherpa/pull/417) ([ca8bfa7](https://github.com/bwks/sherpa/commit/ca8bfa7bd24e1775212a866e110c185989249c8b))
+- Remove leftover SurrealDB references by @bwks ([88a1e29](https://github.com/bwks/sherpa/commit/88a1e2971b7233ae065d6cdb842281221c5149d9))
+- Merge pull request #412 from bwks/feat/dev-env-mise
+
+test: install the dev server's tools with mise by @bwks in [#412](https://github.com/bwks/sherpa/pull/412) ([4f78d39](https://github.com/bwks/sherpa/commit/4f78d3967d4cd65f58e7aa607f45418b635d0edc))
+- Merge pull request #411 from bwks/docs/dev-server-workflow
+
+docs: how to work on the dev server  [skip ci] by @bwks in [#411](https://github.com/bwks/sherpa/pull/411) ([322562c](https://github.com/bwks/sherpa/commit/322562c3b20d3701be845fd32b03880ad5ac2d64))
+- Merge pull request #410 from bwks/changelog/v0.4.18
+
+chore(release): update changelog for v0.4.18 by @github-actions[bot] in [#410](https://github.com/bwks/sherpa/pull/410) ([fa5ea8d](https://github.com/bwks/sherpa/commit/fa5ea8d76bbf765e794b4e2b71978b4e03190696))
+
+### Testing
+
+- Allow pre-0.5.0 database settings after an upgrade by @bwks ([f65af90](https://github.com/bwks/sherpa/commit/f65af9099935ae57e95bdc0e37caf231782a4b3d))
+- Install the dev server's tools with mise [skip ci] by @bwks ([118bc52](https://github.com/bwks/sherpa/commit/118bc52fcd46ae65d8a6155d6e80b444952e3bf3))
 ## [0.4.18] - 2026-11-01
 
 ### Features
