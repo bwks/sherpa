@@ -33,8 +33,10 @@ SHERPA_LABS_DIR="${SHERPA_BASE_DIR}/labs"
 SHERPA_POOL_DIR="${SHERPA_BASE_DIR}/libvirt/images"
 SHERPA_ENV_FILE="${SHERPA_BASE_DIR}/env/sherpa.env"
 SHERPA_DB_FILE="${SHERPA_BASE_DIR}/db/sherpa.sqlite"
-# The SurrealDB container of releases before 0.5.0, and its default port.
+# The SurrealDB container of releases before 0.5.0, the port SurrealDB listens on inside it, and
+# the host port it was published on by default.
 LEGACY_DB_CONTAINER="sherpa-db"
+LEGACY_DB_CONTAINER_PORT="8000/tcp"
 LEGACY_DB_PORT=8000
 
 # GitHub release configuration
@@ -376,17 +378,18 @@ needs_database_migration() {
     docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx "${LEGACY_DB_CONTAINER}"
 }
 
+# The host port sherpa-db publishes SurrealDB on, as Docker recorded it when the container was
+# created.
 legacy_db_port() {
-    local port=""
-    if [ -f "${SHERPA_ENV_FILE}" ]; then
-        port=$(grep -E '^SHERPA_DB_PORT=' "${SHERPA_ENV_FILE}" | tail -n 1 | cut -d= -f2-)
-    fi
+    local port
+    port=$(docker inspect --format \
+        "{{with index .HostConfig.PortBindings \"${LEGACY_DB_CONTAINER_PORT}\"}}{{(index . 0).HostPort}}{{end}}" \
+        "${LEGACY_DB_CONTAINER}" 2>/dev/null)
     echo "${port:-${LEGACY_DB_PORT}}"
 }
 
 wait_for_legacy_database() {
-    local port
-    port=$(legacy_db_port)
+    local port="$1"
     local attempt=0
     while [ $attempt -lt 30 ]; do
         if curl -sf "http://localhost:${port}/health" >/dev/null 2>&1; then
@@ -426,7 +429,9 @@ migrate_database() {
         print_info "Starting ${LEGACY_DB_CONTAINER}..."
         docker start "${LEGACY_DB_CONTAINER}" >/dev/null
     fi
-    if ! wait_for_legacy_database; then
+    local port
+    port=$(legacy_db_port)
+    if ! wait_for_legacy_database "${port}"; then
         print_error "SurrealDB in ${LEGACY_DB_CONTAINER} did not become ready"
         restore_previous_sherpad
         start_sherpad
@@ -434,7 +439,12 @@ migrate_database() {
     fi
 
     print_info "Importing users, images and labs into ${SHERPA_DB_FILE}..."
-    if runuser -u sherpa -- "${SHERPA_BIN_DIR}/sherpad" migrate-db; then
+    # Run it as the service runs, so systemd reads the SurrealDB password from sherpa.env exactly
+    # as it did for the old sherpad, quotes and escapes included. Standard input is closed, so a
+    # script piped into bash is not read by it.
+    if systemd-run --quiet --wait --pipe --collect --uid=sherpa \
+        --property="EnvironmentFile=-${SHERPA_ENV_FILE}" \
+        "${SHERPA_BIN_DIR}/sherpad" migrate-db --db-port "${port}" </dev/null; then
         docker stop "${LEGACY_DB_CONTAINER}" >/dev/null
         docker update --restart=no "${LEGACY_DB_CONTAINER}" >/dev/null
         print_success "Database moved to ${SHERPA_DB_FILE}"

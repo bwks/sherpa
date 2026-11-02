@@ -1,4 +1,10 @@
+use std::net::{Ipv4Addr, Ipv6Addr};
+
 use clap::{Parser, Subcommand};
+
+use shared::konst::{
+    SHERPA_DB_PORT, SHERPA_SERVER_HTTP_PORT, SHERPA_SERVER_IPV4, SHERPA_SERVER_WS_PORT,
+};
 
 #[derive(Parser)]
 #[command(name = "sherpad")]
@@ -49,29 +55,33 @@ pub enum Commands {
         #[arg(short, long, action = clap::ArgAction::SetTrue)]
         force: bool,
 
-        /// Server listen IP address (also reads from SHERPA_SERVER_IPV4 env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "server-ipv4", env = "SHERPA_SERVER_IPV4")]
-        server_ipv4: Option<String>,
+        /// Server listen IPv4 address
+        #[arg(long = "server-ipv4", env = "SHERPA_SERVER_IPV4", default_value = SHERPA_SERVER_IPV4)]
+        server_ipv4: Ipv4Addr,
 
-        /// Server listen port (also reads from SHERPA_SERVER_WS_PORT env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "ws-port", env = "SHERPA_SERVER_WS_PORT")]
-        ws_port: Option<u16>,
+        /// Server listen IPv6 address, if the server also listens on IPv6
+        #[arg(long = "server-ipv6", env = "SHERPA_SERVER_IPV6")]
+        server_ipv6: Option<Ipv6Addr>,
 
-        /// HTTP port for certificate endpoint (also reads from SHERPA_SERVER_HTTP_PORT env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT")]
-        http_port: Option<u16>,
+        /// Server listen port
+        #[arg(long = "ws-port", env = "SHERPA_SERVER_WS_PORT", default_value_t = SHERPA_SERVER_WS_PORT)]
+        ws_port: u16,
+
+        /// HTTP port for the certificate endpoint
+        #[arg(long = "http-port", env = "SHERPA_SERVER_HTTP_PORT", default_value_t = SHERPA_SERVER_HTTP_PORT)]
+        http_port: u16,
     },
 
     /// Import the data of a server older than 0.5.0 from its SurrealDB container into the
     /// embedded database. Run it once, with sherpad stopped and the SurrealDB container running.
     MigrateDb {
-        /// SurrealDB password (also reads from SHERPA_DB_PASSWORD env var or /opt/sherpa/env/sherpa.env)
+        /// SurrealDB password
         #[arg(long = "db-pass", env = "SHERPA_DB_PASSWORD")]
-        db_password: Option<String>,
+        db_password: String,
 
-        /// SurrealDB port (also reads from SHERPA_DB_PORT env var or /opt/sherpa/env/sherpa.env)
-        #[arg(long = "db-port", env = "SHERPA_DB_PORT")]
-        db_port: Option<u16>,
+        /// SurrealDB port
+        #[arg(long = "db-port", env = "SHERPA_DB_PORT", default_value_t = SHERPA_DB_PORT)]
+        db_port: u16,
     },
 
     /// Fix up server environment
@@ -80,4 +90,88 @@ pub enum Commands {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         boxes: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn init_defaults_to_the_built_in_address_and_ports() {
+        let cli = Cli::try_parse_from(["sherpad", "init"]).unwrap();
+        let Commands::Init {
+            server_ipv4,
+            server_ipv6,
+            ws_port,
+            http_port,
+            ..
+        } = cli.command
+        else {
+            panic!("expected init");
+        };
+        assert_eq!(server_ipv4, Ipv4Addr::UNSPECIFIED);
+        assert_eq!(server_ipv6, None);
+        assert_eq!(ws_port, 3030);
+        assert_eq!(http_port, 3031);
+    }
+
+    #[test]
+    fn init_takes_the_address_and_ports_from_flags() {
+        let cli = Cli::try_parse_from([
+            "sherpad",
+            "init",
+            "--server-ipv4",
+            "192.0.2.10",
+            "--server-ipv6",
+            "2001:db8::10",
+            "--ws-port",
+            "4030",
+            "--http-port",
+            "4031",
+        ])
+        .unwrap();
+        let Commands::Init {
+            server_ipv4,
+            server_ipv6,
+            ws_port,
+            http_port,
+            ..
+        } = cli.command
+        else {
+            panic!("expected init");
+        };
+        assert_eq!(server_ipv4, Ipv4Addr::new(192, 0, 2, 10));
+        assert_eq!(
+            server_ipv6,
+            Some("2001:db8::10".parse::<Ipv6Addr>().unwrap())
+        );
+        assert_eq!(ws_port, 4030);
+        assert_eq!(http_port, 4031);
+    }
+
+    #[test]
+    fn init_rejects_an_invalid_address() {
+        assert!(Cli::try_parse_from(["sherpad", "init", "--server-ipv4", "192.0.2"]).is_err());
+        assert!(Cli::try_parse_from(["sherpad", "init", "--server-ipv6", "2001:db8::zz"]).is_err());
+    }
+
+    #[test]
+    fn migrate_db_requires_the_password() {
+        assert!(Cli::try_parse_from(["sherpad", "migrate-db"]).is_err());
+    }
+
+    #[test]
+    fn migrate_db_keeps_the_password_as_given_and_defaults_the_port() {
+        let cli =
+            Cli::try_parse_from(["sherpad", "migrate-db", "--db-pass", "\"quoted\""]).unwrap();
+        let Commands::MigrateDb {
+            db_password,
+            db_port,
+        } = cli.command
+        else {
+            panic!("expected migrate-db");
+        };
+        assert_eq!(db_password, "\"quoted\"");
+        assert_eq!(db_port, 8000);
+    }
 }

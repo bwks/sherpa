@@ -56,7 +56,6 @@ pub const WEB_ASSETS_DIR: &str = "web/static";
 // Full file paths
 // ============================================================================
 pub const SHERPA_CONFIG_FILE_PATH: &str = "/opt/sherpa/config/sherpa.toml";
-pub const SHERPA_ENV_FILE_PATH: &str = "/opt/sherpa/env/sherpa.env";
 pub const SHERPA_SSH_PUBLIC_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_PATH: &str = "/opt/sherpa/ssh/sherpa_ssh_key";
 pub const SHERPAD_PID_FILE_PATH: &str = "/opt/sherpa/run/sherpad.pid";

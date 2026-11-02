@@ -39,6 +39,36 @@ _stub_docker_with_containers() {
     chmod +x "${MOCK_BIN}/docker"
 }
 
+# A docker stub for the migration: sherpa-db exists and runs, and publishes SurrealDB on the given
+# host port, or on none when it is empty.
+_stub_docker_for_migration() {
+    cat > "${MOCK_BIN}/docker" << EOF
+#!/bin/bash
+case "\$1" in
+    ps) echo sherpa-db ;;
+    inspect) echo '$1' ;;
+esac
+exit 0
+EOF
+    chmod +x "${MOCK_BIN}/docker"
+}
+
+# A systemd-run stub that records its arguments and standard input, then exits with the given
+# status. With a non-zero status it first leaves a database file behind, as a failed import would.
+_stub_systemd_run() {
+    cat > "${MOCK_BIN}/systemd-run" << EOF
+#!/bin/bash
+printf '%s\n' "\$@" > '${WORK_DIR}/systemd-run.args'
+readlink /proc/self/fd/0 > '${WORK_DIR}/systemd-run.stdin'
+[ $1 -eq 0 ] || touch '${WORK_DIR}/sherpa.sqlite'
+exit $1
+EOF
+    chmod +x "${MOCK_BIN}/systemd-run"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/curl"
+    printf '#!/bin/bash\nexit 0\n' > "${MOCK_BIN}/systemctl"
+    chmod +x "${MOCK_BIN}/curl" "${MOCK_BIN}/systemctl"
+}
+
 # Run a function of the script with the docker stub first on PATH and the database file under
 # WORK_DIR.
 _run_function() {
@@ -48,6 +78,7 @@ _run_function() {
         source '${STRIPPED_SCRIPT}'
         SHERPA_DB_FILE='${WORK_DIR}/sherpa.sqlite'
         SHERPA_ENV_FILE='${WORK_DIR}/sherpa.env'
+        SHERPA_BIN_DIR='${WORK_DIR}/bin'
         $1
     "
 }
@@ -97,18 +128,48 @@ _run_function() {
     [ "$status" -ne 0 ]
 }
 
-@test "legacy_db_port: reads SHERPA_DB_PORT from the environment file" {
-    printf 'SHERPA_SERVER_WS_PORT=3030\nSHERPA_DB_PORT=8123\n' > "${WORK_DIR}/sherpa.env"
+@test "legacy_db_port: reads the port sherpa-db publishes from Docker" {
+    _stub_docker_for_migration 8123
     _run_function legacy_db_port
     [ "$status" -eq 0 ]
     [ "$output" = "8123" ]
 }
 
-@test "legacy_db_port: defaults to 8000 without the setting" {
-    printf 'SHERPA_SERVER_WS_PORT=3030\n' > "${WORK_DIR}/sherpa.env"
+@test "legacy_db_port: defaults to 8000 when Docker reports no published port" {
+    _stub_docker_for_migration ""
     _run_function legacy_db_port
     [ "$status" -eq 0 ]
     [ "$output" = "8000" ]
+}
+
+@test "migrate_database: runs migrate-db through systemd with the service's env file" {
+    _stub_docker_for_migration 8123
+    _stub_systemd_run 0
+    _run_function migrate_database
+    [ "$status" -eq 0 ]
+    grep -qx -- "--uid=sherpa" "${WORK_DIR}/systemd-run.args"
+    grep -qx -- "--property=EnvironmentFile=-${WORK_DIR}/sherpa.env" "${WORK_DIR}/systemd-run.args"
+    grep -qx -- "--wait" "${WORK_DIR}/systemd-run.args"
+    grep -qx -- "--pipe" "${WORK_DIR}/systemd-run.args"
+    [ "$(tail -n 4 "${WORK_DIR}/systemd-run.args" | tr '\n' ' ')" = "${WORK_DIR}/bin/sherpad migrate-db --db-port 8123 " ]
+    # The password comes only from the env file, never from the update script's environment.
+    ! grep -q -- "--db-pass" "${WORK_DIR}/systemd-run.args"
+    # A script piped into bash must not be read by migrate-db.
+    [ "$(cat "${WORK_DIR}/systemd-run.stdin")" = "/dev/null" ]
+}
+
+@test "migrate_database: a failed move removes the new database and restores the previous sherpad" {
+    _stub_docker_for_migration 8000
+    _stub_systemd_run 1
+    mkdir -p "${WORK_DIR}/bin"
+    echo new > "${WORK_DIR}/bin/sherpad"
+    echo previous > "${WORK_DIR}/bin/sherpad.previous"
+    chmod +x "${WORK_DIR}/bin/sherpad" "${WORK_DIR}/bin/sherpad.previous"
+    _run_function migrate_database
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"Database move failed"* ]]
+    [ ! -e "${WORK_DIR}/sherpa.sqlite" ]
+    [ "$(cat "${WORK_DIR}/bin/sherpad")" = "previous" ]
 }
 
 @test "remove_failed_database: removes the database file and its WAL and SHM files" {

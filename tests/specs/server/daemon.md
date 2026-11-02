@@ -58,6 +58,6 @@
 ## `sherpad init` Accounts
 
 **What to test:**
-- Creates `admin` with the password from `SHERPA_ADMIN_PASSWORD` (environment, then env file) or a prompt `[installer]` **P0**
+- Creates `admin` with the password from the `SHERPA_ADMIN_PASSWORD` environment variable or a prompt `[installer]` **P0**
 - Asks for the first user account: username, password, administrator flag, optional SSH key `[installer]` **P0**
 - Re-running keeps existing accounts unchanged and skips the first-user step when a user exists `[installer]` **P0**

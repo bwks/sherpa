@@ -1,14 +1,13 @@
 use std::path::Path;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use tracing::instrument;
 
 use db::{SurrealSource, import_from_surrealdb, open};
 use shared::konst::{
-    SHERPA_DB_FILE_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PATH, SHERPA_DB_PORT,
-    SHERPA_DB_SERVER, SHERPA_ENV_FILE_PATH,
+    SHERPA_DB_FILE_PATH, SHERPA_DB_NAME, SHERPA_DB_NAMESPACE, SHERPA_DB_PATH, SHERPA_DB_SERVER,
 };
-use shared::util::{create_dir, read_env_file_value, render_migration_table, term_msg_surround};
+use shared::util::{create_dir, render_migration_table, term_msg_surround};
 
 /// Import the data of a server older than 0.5.0 from its SurrealDB container into the embedded
 /// database.
@@ -16,30 +15,11 @@ use shared::util::{create_dir, read_env_file_value, render_migration_table, term
 /// Run it once, with `sherpad` stopped (it holds the database file) and the SurrealDB container
 /// still running. The import runs in one transaction and refuses a database that already holds
 /// users or labs, so a failed run leaves nothing behind and can be repeated.
+///
+/// The password and port come from flags or the environment. The update script runs this command
+/// through systemd with the service's env file, so it reads the same values the old service did.
 #[instrument(skip(db_password))]
-pub async fn migrate_db(db_password: Option<&str>, db_port: Option<u16>) -> Result<()> {
-    let env_file = Path::new(SHERPA_ENV_FILE_PATH);
-
-    let password = match db_password {
-        Some(password) => password.to_string(),
-        None => read_env_file_value(env_file, "SHERPA_DB_PASSWORD").ok_or_else(|| {
-            anyhow!(
-                "SurrealDB password not provided. Supply it via:\n  \
-                     1. --db-pass flag\n  \
-                     2. SHERPA_DB_PASSWORD environment variable\n  \
-                     3. SHERPA_DB_PASSWORD entry in {}",
-                env_file.display()
-            )
-        })?,
-    };
-
-    let port = match db_port {
-        Some(port) => port,
-        None => read_env_file_value(env_file, "SHERPA_DB_PORT")
-            .and_then(|value| value.parse::<u16>().ok())
-            .unwrap_or(SHERPA_DB_PORT),
-    };
-
+pub async fn migrate_db(db_password: &str, port: u16) -> Result<()> {
     term_msg_surround("Sherpa Database Migration");
 
     create_dir(SHERPA_DB_PATH)?;
@@ -52,7 +32,7 @@ pub async fn migrate_db(db_password: Option<&str>, db_port: Option<u16>) -> Resu
         port,
         namespace: SHERPA_DB_NAMESPACE.to_string(),
         database: SHERPA_DB_NAME.to_string(),
-        password,
+        password: db_password.to_string(),
     };
     let summary = import_from_surrealdb(&source, &target)
         .await
