@@ -573,7 +573,7 @@ pub async fn up_lab(
 
     // Use the shared database connection from AppState
     let db = state.db.clone();
-    tracing::info!(lab_id = %lab_id, "Connected to SurrealDB database");
+    tracing::info!(lab_id = %lab_id, "Using the embedded database");
 
     tracing::debug!(lab_id = %lab_id, lab_dir = %lab_dir, user = %current_user, "Lab environment prepared");
 

@@ -42,7 +42,7 @@ impl Job {
 ///
 /// This contains all runtime state needed by handlers, including:
 /// - WebSocket connection registry for real-time communication
-/// - Database connection (SurrealDB)
+/// - Embedded database handle (Turso)
 /// - libvirt client (for VMs and unikernels)
 /// - Docker client (for containers)
 /// - Sherpa configuration
@@ -51,7 +51,7 @@ impl Job {
 pub struct AppState {
     /// Registry of active WebSocket connections
     pub connections: ConnectionRegistry,
-    /// SurrealDB connection
+    /// Embedded database handle
     pub db: db::Database,
     /// libvirt/QEMU client
     pub qemu: Arc<Qemu>,
