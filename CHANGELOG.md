@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.2] - 2026-11-02
+
+### Features
+
+- NixOS lab nodes by @bwks ([e8c08ee](https://github.com/bwks/sherpa/commit/e8c08ee4b06687b422109edd65abf5cfe87bb446))
+
+### Miscellaneous
+
+- Merge pull request #424 from bwks/feat/nixos-linux
+
+feat: NixOS lab nodes by @bwks in [#424](https://github.com/bwks/sherpa/pull/424) ([26cc55f](https://github.com/bwks/sherpa/commit/26cc55fd7fdf9710a8ca44f984ebf996ab3360e2))
+- Merge pull request #423 from bwks/changelog/v0.5.1
+
+chore(release): update changelog for v0.5.1 by @github-actions[bot] in [#423](https://github.com/bwks/sherpa/pull/423) ([f4f9f91](https://github.com/bwks/sherpa/commit/f4f9f917d37b45f2ad4f45e5b0e5349f8fb35248))
 ## [0.5.1] - 2026-11-02
 
 ### Bug Fixes
