@@ -217,7 +217,6 @@ install_system_packages() {
     local packages=(
         # Supporting tools
         cpu-checker
-        genisoimage
         telnet
         ssh
         mtools

@@ -36,15 +36,16 @@ use shared::konst::{
     MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE,
     NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR,
     NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_ZTP_CONFIG,
-    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
-    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
-    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
-    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID,
+    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
+    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
+    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
+    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
+    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
     TALOS_API_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID,
-    WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_JSON,
+    WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
 use virt::error::ErrorNumber;
@@ -230,7 +231,7 @@ fn generate_nocloud_ztp(
         node.ipv6_address,
         user_data,
     )?;
-    util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+    util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
     Ok(())
 }
 
@@ -1679,7 +1680,7 @@ fn generate_cloud_init_ztp(
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
 
-            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+            util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
         }
         data::NodeModel::DevboxWindows | data::NodeModel::WindowsServer => {
             let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
@@ -1776,7 +1777,7 @@ fn generate_cloud_init_ztp(
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
 
-            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+            util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
         }
         data::NodeModel::AlpineLinux => {
             let meta_data = template::MetaDataConfig {
@@ -1878,7 +1879,7 @@ fn generate_cloud_init_ztp(
             let cloud_network_config = ztp_interface.to_string()?;
             util::create_file(&network_config, cloud_network_config)?;
 
-            util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+            util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
         }
         _ => {
             bail!(
@@ -1988,7 +1989,7 @@ fn generate_cdrom_ztp(
         let ztp_config = format!("{dir}/{config_filename}");
         util::create_dir(&dir)?;
         util::create_file(&ztp_config, custom_config.clone())?;
-        util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+        util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
     } else {
         let mut user = sherpa_user.clone();
 
@@ -2022,7 +2023,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{c}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::CiscoAsav => {
                 let key_hash = util::pub_ssh_key_to_sha256_hash(&user.ssh_public_key.key)?;
@@ -2040,7 +2041,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{CISCO_ASAV_ZTP_CONFIG}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::CiscoNexus9300v => {
                 let t = template::CiscoNxosZtpTemplate {
@@ -2056,7 +2057,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{CISCO_NXOS_ZTP_CONFIG}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::CiscoIosxrv9000 => {
                 let t = template::CiscoIosxrZtpTemplate {
@@ -2072,7 +2073,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{CISCO_IOSXR_ZTP_CONFIG}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::CiscoFtdv => {
                 let t = template::CiscoFtdvZtpTemplate {
@@ -2091,7 +2092,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{CISCO_FTDV_ZTP_CONFIG}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::JuniperVsrxv3
             | data::NodeModel::JuniperVrouter
@@ -2109,7 +2110,7 @@ fn generate_cdrom_ztp(
                 let ztp_config = format!("{dir}/{JUNIPER_ZTP_CONFIG}");
                 util::create_dir(&dir)?;
                 util::create_file(&ztp_config, rendered_template)?;
-                util::create_ztp_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
             }
             data::NodeModel::PaloaltoPanos => {
                 // PA-VM requires config/, content/, license/, software/ directories
@@ -2159,7 +2160,11 @@ fn generate_cdrom_ztp(
                     bootstrap.render()?,
                 )?;
 
-                util::create_panos_bootstrap_iso(&format!("{dir}/{ZTP_ISO}"), dir)?;
+                util::create_iso(
+                    &format!("{dir}/{ZTP_ISO}"),
+                    &dir,
+                    PALOALTO_BOOTSTRAP_VOLUME_ID,
+                )?;
             }
             _ => {
                 bail!("CDROM ZTP method not supported for {}", node_image.model);

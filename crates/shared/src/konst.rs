@@ -293,8 +293,58 @@ pub const TCA_NETEM_REORDER: u16 = 3;
 /// netem option attribute for bit-flip corruption (`TCA_NETEM_CORRUPT`).
 pub const TCA_NETEM_CORRUPT: u16 = 4;
 
+// ============================================================================
+// ISO 9660 config media (`util::create_iso`)
+// ============================================================================
+/// ISO 9660 logical sector (and block) size.
+pub const ISO_SECTOR_SIZE: usize = 2048;
+/// Sectors before the volume descriptors, left zeroed.
+pub const ISO_SYSTEM_AREA_SECTORS: u32 = 16;
+/// Zeroed sectors after the last file, as `genisoimage` pads by default for drives that read
+/// ahead past the end of the data.
+pub const ISO_PADDING_SECTORS: u32 = 150;
+/// Directory levels ISO 9660 allows, the root included.
+pub const ISO_MAX_DEPTH: usize = 8;
+/// Longest primary-tree name, before the `.` and `;1` the writer adds.
+pub const ISO_MAX_NAME_BYTES: usize = 31;
+/// Longest Joliet name, in UTF-16 code units.
+pub const ISO_MAX_JOLIET_UNITS: usize = 64;
+/// Longest primary volume label, in bytes.
+pub const ISO_MAX_VOLUME_ID_BYTES: usize = 32;
+/// Longest Joliet volume label, in UTF-16 code units.
+pub const ISO_MAX_JOLIET_VOLUME_ID_UNITS: usize = 16;
+/// Standard identifier every volume descriptor carries.
+pub const ISO_STANDARD_ID: &[u8] = b"CD001";
+/// System identifier written to the volume descriptors.
+pub const ISO_SYSTEM_ID: &str = "LINUX";
+/// Application identifier written to the volume descriptors.
+pub const ISO_APPLICATION_ID: &str = "SHERPA";
+/// Escape sequence that marks a supplementary descriptor as Joliet, UCS-2 level 3.
+pub const ISO_JOLIET_ESCAPE: &[u8] = b"%/E";
+/// Characters Joliet names may not contain; the writer replaces them with `_`.
+pub const ISO_JOLIET_RESERVED: [char; 6] = ['*', '/', ':', ';', '?', '\\'];
+/// Rock Ridge mode of every directory: read and search for all.
+pub const ISO_DIR_MODE: u32 = 0o040555;
+/// Rock Ridge mode of every file: read-only for all.
+pub const ISO_FILE_MODE: u32 = 0o100444;
+/// Rock Ridge `RR` flags on `.` and `..`: `PX` and `TF` follow.
+pub const ISO_RR_FLAGS_DOT: u8 = 0x81;
+/// Rock Ridge `RR` flags on named entries: `PX`, `NM` and `TF` follow.
+pub const ISO_RR_FLAGS_NAMED: u8 = 0x89;
+/// Rock Ridge `TF` flags: modify, access and attribute-change times follow.
+pub const ISO_TF_FLAGS: u8 = 0x0e;
+/// Rock Ridge extension identifier, descriptor and source, in the root's `ER` entry.
+pub const ISO_RRIP_ID: &[u8] = b"RRIP_1991A";
+pub const ISO_RRIP_DESCRIPTOR: &[u8] =
+    b"THE ROCK RIDGE INTERCHANGE PROTOCOL PROVIDES SUPPORT FOR POSIX FILE SYSTEM SEMANTICS";
+pub const ISO_RRIP_SOURCE: &[u8] = b"PLEASE CONTACT DISC PUBLISHER FOR SPECIFICATION SOURCE.  SEE PUBLISHER IDENTIFIER IN PRIMARY VOLUME DESCRIPTOR FOR CONTACT INFORMATION.";
+
 pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";
+/// Volume label of the ZTP ISO. cloud-init's NoCloud source finds its seed by this label.
+pub const ZTP_ISO_VOLUME_ID: &str = "cidata";
+/// Volume label PAN-OS looks for on its bootstrap ISO.
+pub const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
 pub const ZTP_JSON: &str = "ztp.json";
 pub const TFTP_DIR: &str = "tftp";
 pub const NODE_CONFIGS_DIR: &str = "configs";

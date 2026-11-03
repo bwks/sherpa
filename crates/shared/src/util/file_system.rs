@@ -185,76 +185,6 @@ pub fn fix_permissions_recursive(path: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create a ZTP ISO file.
-/// This wraps the `genisoimage` command to create a ztp ISO file
-/// from a directory of source files.
-///
-/// `genisoimage` must be installed on the system.
-///
-/// DOGWATER: Implement this functionality in pure Rust.
-#[cfg(unix)]
-#[tracing::instrument(level = "debug")]
-pub fn create_ztp_iso(iso_dst: &str, src_dir: String) -> Result<()> {
-    let status = Command::new("genisoimage")
-        .args([
-            "-output",
-            iso_dst,
-            "-volid",
-            "cidata",
-            "-joliet",
-            "-rock",
-            "-l",
-            "-allow-lowercase",
-            "-allow-multidot",
-            "-relaxed-filenames",
-            "--input-charset",
-            "utf-8",
-            &src_dir,
-        ])
-        .status()
-        .context("Failed to run genisoimage for ZTP ISO")?;
-    if !status.success() {
-        bail!("genisoimage failed to create ZTP ISO {iso_dst}: {status}");
-    }
-    tracing::debug!(path = %iso_dst, source_dir = %src_dir, "ISO created successfully");
-
-    Ok(())
-}
-
-/// Create a PAN-OS bootstrap ISO file.
-///
-/// Uses the volume label `bootstrap` and ISO level 3 as specified by:
-/// https://developers.redhat.com/learning/learn:openshift:deploy-palo-alto-vm-series-firewalls-openshift-virtualization
-///
-/// `genisoimage` must be installed on the system.
-///
-/// DOGWATER: Implement this functionality in pure Rust.
-#[cfg(unix)]
-pub fn create_panos_bootstrap_iso(iso_dst: &str, src_dir: String) -> Result<()> {
-    Command::new("genisoimage")
-        .args([
-            "-output",
-            iso_dst,
-            "-V",
-            "bootstrap",
-            "-l",
-            "-allow-lowercase",
-            "-allow-multidot",
-            "-iso-level",
-            "3",
-            "-D",
-            "-r",
-            "-J",
-            "--input-charset",
-            "utf-8",
-            &src_dir,
-        ])
-        .status()?;
-    tracing::debug!(path = %iso_dst, source_dir = %src_dir, "PAN-OS bootstrap ISO created successfully");
-
-    Ok(())
-}
-
 /// Copy a file to a virtual DOS disk image using the `mcopy` command.
 ///
 /// `mcopy` must be installed on the system.
@@ -562,22 +492,6 @@ mod tests {
         assert_eq!(dir_mode, 0o775);
         let file_mode = fs::metadata(&file)?.permissions().mode() & 0o777;
         assert_eq!(file_mode, 0o660);
-        Ok(())
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_create_ztp_iso_rejects_failed_generation() -> Result<()> {
-        let dir = TempDir::new()?;
-        let destination = dir.path().join("cidata.iso");
-        let missing_source = dir.path().join("missing-source");
-        assert!(
-            create_ztp_iso(
-                destination.to_str().unwrap(),
-                missing_source.to_str().unwrap().to_owned(),
-            )
-            .is_err()
-        );
         Ok(())
     }
 }

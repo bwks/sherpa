@@ -15,8 +15,8 @@ machine config; see [`TALOS.md`](TALOS.md).
 | Ignition | Flatcar | Ignition JSON copied to the storage pool |
 | cloudbase-init | Windows | NoCloud ISO with cloudbase-init `user-data` |
 
-The generated files stay in the lab directory on the server, and the ISO is copied into the
-storage pool, so everything below is readable there by `sherpa`, the `sherpa` group and QEMU
+The generated files stay in the lab directory on the server. The ISO is built from them by
+`util::create_iso` (see [`ZTP_ISO.md`](ZTP_ISO.md)) and copied into the storage pool, so everything below is readable there by `sherpa`, the `sherpa` group and QEMU
 (see "Lab storage permissions" in [`SERVER.md`](SERVER.md)). None of it is for secrets: secrets
 go through the client-side provisioners in [`PROVISIONERS.md`](PROVISIONERS.md), which the
 server never sees.

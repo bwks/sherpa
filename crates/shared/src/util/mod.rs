@@ -8,6 +8,7 @@ mod file_system;
 mod host;
 mod interface;
 mod ip;
+mod iso;
 mod mac;
 mod output;
 mod random;
@@ -34,8 +35,8 @@ pub use file_system::{
 };
 #[cfg(unix)]
 pub use file_system::{
-    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_panos_bootstrap_iso,
-    create_symlink, create_ztp_iso, fix_permissions_recursive, set_file_permissions,
+    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_symlink,
+    fix_permissions_recursive, set_file_permissions,
 };
 pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]
@@ -51,6 +52,7 @@ pub use ip::{
 };
 #[cfg(feature = "netinfo")]
 pub use ip::{get_free_subnet, get_interface_networks, get_interface_networks_v6};
+pub use iso::create_iso;
 pub use mac::{clean_mac, random_mac};
 pub use output::{
     display_destroy_results, term_msg_highlight, term_msg_surround, term_msg_underline,
