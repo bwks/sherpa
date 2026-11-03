@@ -3,7 +3,7 @@ use askama::Template;
 use shared::data::{
     BiosTypes, CloneDisk, ConnectionTypes, CpuArchitecture, CpuFeature, CpuModels, CpuTopology,
     DiskBuses, DiskCache, DiskDevices, DiskIo, Interface, InterfaceType, MachineType, NodeDisk,
-    PerformanceTuning, QemuCommand, UnikernelBootMode, cpuset,
+    PerformanceTuning, QemuCommand, UnikernelBootMode, WatchdogAction, cpuset,
 };
 
 #[derive(Debug, Template)]
@@ -37,6 +37,8 @@ pub struct DomainTemplate {
     /// The VNC console port on the server, reserved for the node in the database.
     pub vnc_port: u16,
     pub tuning: DomainTuning,
+    /// The action of the node's hardware watchdog. None, the domain has no watchdog.
+    pub watchdog: Option<WatchdogAction>,
 }
 
 /// A node's performance tuning, as the domain renders it. The default renders no tuning.

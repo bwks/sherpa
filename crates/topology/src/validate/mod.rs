@@ -10,6 +10,7 @@ mod performance_tuning;
 mod provisioner;
 mod tailscale;
 mod talos_cluster;
+mod watchdog;
 
 pub use device::{check_device_count, check_duplicate_device};
 pub use link::{
@@ -20,3 +21,4 @@ pub use performance_tuning::{check_cpu_pin_overlap, check_performance_tuning};
 pub use provisioner::validate_provisioners;
 pub use tailscale::validate_tailscale;
 pub use talos_cluster::validate_talos_clusters;
+pub use watchdog::check_watchdog;

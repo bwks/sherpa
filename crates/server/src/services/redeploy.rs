@@ -41,7 +41,7 @@ use shared::konst::{
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
-use topology::validate::check_performance_tuning;
+use topology::validate::{check_performance_tuning, check_watchdog};
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -293,6 +293,8 @@ pub async fn redeploy_node(
     check_performance_tuning(&target_node, &node_image).context(format!(
         "Performance tuning validation failed for node: {node_name}"
     ))?;
+    check_watchdog(&target_node, &node_image)
+        .context(format!("Watchdog validation failed for node: {node_name}"))?;
     node_resources::check_cpu_pins_on_server(
         &db,
         &qemu_conn,

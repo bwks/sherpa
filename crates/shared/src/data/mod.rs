@@ -30,6 +30,7 @@ mod up;
 mod user;
 mod user_management;
 mod vm_action;
+mod watchdog;
 mod ws;
 mod ztp;
 
@@ -102,6 +103,7 @@ pub use user_management::{
     UserSshKeysResponse,
 };
 pub use vm_action::{CancelLabResponse, LabNodeActionResponse, NodeActionResult};
+pub use watchdog::WatchdogAction;
 pub use ws::ConnectedMsg;
 pub use ztp::ZtpRecord;
 

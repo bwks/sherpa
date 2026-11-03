@@ -56,7 +56,7 @@ use topology::find_talos_cluster;
 use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, check_performance_tuning, validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, check_watchdog, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -283,6 +283,7 @@ pub(crate) fn process_manifest_nodes(
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
             performance_tuning: node.performance_tuning.clone(),
+            watchdog: node.watchdog,
         })
         .collect()
 }
@@ -791,6 +792,10 @@ pub async fn up_lab(
         })
         .collect();
     check_cpu_pin_overlap(&manifest_pins).context("CPU pinning validation failed")?;
+        check_watchdog(node, &node_image).context(format!(
+            "Watchdog validation failed for node: {}",
+            node.name
+        ))?;
     let tuned_nodes: Vec<&topology::NodeExpanded> = nodes_expanded.iter().collect();
     node_resources::check_cpu_pins_on_server(&db, &qemu_conn, &tuned_nodes, None)
         .await
