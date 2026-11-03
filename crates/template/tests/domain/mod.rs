@@ -82,6 +82,15 @@ fn test_domain_vnc_console_has_a_fixed_port() {
 }
 
 #[test]
+fn test_domain_has_no_watchdog() {
+    // Cisco IOS images arm an i6300esb watchdog early in boot and feed it only after a long init
+    // phase; when that phase outlasts the timeout, as it does on every boot under nested KVM, a
+    // reset-action watchdog restarts the VM in a loop. No node model needs one.
+    let xml = base_domain_template().render().unwrap();
+    assert!(!xml.contains("<watchdog"), "{xml}");
+}
+
+#[test]
 fn test_domain_renders_without_isolated_network() {
     // Reproduces the bug where a VM with no disabled interfaces has no
     // isolated network, causing `sherpa up` to fail with:
