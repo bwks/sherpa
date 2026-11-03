@@ -69,6 +69,10 @@ ebpf-redirect:
 - eBPF program used for point-to-point links. It is excluded from the workspace and has its own
   toolchain.
 
+iso:
+- ISO 9660 image writer for node configuration media: ZTP config ISOs, NoCloud seeds and the
+  PAN-OS bootstrap. Depends on nothing in Sherpa; only the server uses it.
+
 libvirt:
 - Virtual Machine and Unikernel management logic, including storage pools and networks via the libvirt API.
 
@@ -121,6 +125,8 @@ Clippy:
 
 Errors:
 - Use Anyhow for error handling. Prefer adding context errors before they are returned.
+- Self-contained library crates that depend on nothing in Sherpa (`iso`) return their own error
+  enum, defined with `thiserror`. The crates calling them still use Anyhow; `?` converts.
 
 Concurrency:
 - Use Tokio for async.

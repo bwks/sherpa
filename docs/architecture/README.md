@@ -19,6 +19,7 @@ Do not document user-facing behaviour here; document it there.
 | [`P2P-ARCHITECTURE.md`](P2P-ARCHITECTURE.md) | Point-to-point link implementation: eBPF redirect, veth/tap plumbing, netem coexistence. |
 | [`OTEL.md`](OTEL.md) | OpenTelemetry tracing and metrics instrumentation and exported metric names. |
 | [`TALOS.md`](TALOS.md) | Talos Linux nodes and Kubernetes clusters: NoCloud delivery, cluster plan, secrets, machine configs, bootstrap, lifecycle. |
+| [`ZTP_ISO.md`](ZTP_ISO.md) | The ISO 9660 writer for node config media: callers and labels, the primary, Rock Ridge and Joliet trees, sector layout, limits. |
 | [`VALIDATION.md`](VALIDATION.md) | Where validators live (`shared::validators`, `topology::validate`, crate `validate` modules) and how client and server checks relate. |
 
 Proposals for architecture changes that are not yet implemented live in [`../prds/`](../prds/).

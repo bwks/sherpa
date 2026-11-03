@@ -68,6 +68,8 @@ tests/specs/
     schema-and-seeding.md
     crud-operations.md
     relationships.md
+  iso/
+    iso-writer.md
   libvirt/
     vm-lifecycle.md
     disk-operations.md
@@ -142,6 +144,14 @@ CRUD operations and schema management for 6 tables: lab, node, link, bridge, use
 | `schema-and-seeding.md` | What to test for database initialization: schema application across all tables, schema idempotency (applying twice does not fail or corrupt), field constraints and validation rules defined in schema, index uniqueness enforcement, and admin user seeding (first run and when admin already exists). |
 | `crud-operations.md` | What to test for create/read/update/delete across all 6 tables. For each table: successful CRUD, constraint violations (duplicate names, invalid references), edge cases (empty strings, boundary values for numeric fields like index 0-65535), and query variations (by ID, by name, by relationship, list with filters, count). |
 | `relationships.md` | What to test for cross-table integrity: foreign key references (lab→nodes, node→image, node→links), cascade delete behavior (deleting a lab removes its nodes/links/bridges), reference rejection (cannot delete an image in use by nodes), orphan prevention, and multi-table query correctness (e.g., listing labs with node counts). |
+
+### `iso/` — ISO 9660 Image Writer
+
+The writer for node config media (ZTP ISOs, NoCloud seeds, the PAN-OS bootstrap). Tests build images in temporary directories and read them back.
+
+| File | Purpose |
+|------|---------|
+| `iso-writer.md` | What to test for image structure (descriptors, primary, Rock Ridge and Joliet names, path tables, contents, multi-sector directories, leaving out its own output) and each refusal by its `IsoError` variant. |
 
 ### `libvirt/` — VM & Unikernel Management
 
@@ -238,6 +248,7 @@ Tests that exercise multiple crates together through realistic workflows.
 | client | None | No coverage |
 | container | None | No coverage |
 | db | 28 integration test files (CRUD across all tables) | Partial — CRUD covered, schema/seeding/relationships gaps |
+| iso | Inline `#[cfg(test)]` module, 14 tests | Covered — structure, contents and refusals |
 | libvirt | None | No coverage |
 | network | None | No coverage |
 | server | None | No coverage |

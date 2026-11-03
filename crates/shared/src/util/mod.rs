@@ -34,8 +34,8 @@ pub use file_system::{
 };
 #[cfg(unix)]
 pub use file_system::{
-    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_panos_bootstrap_iso,
-    create_symlink, create_ztp_iso, fix_permissions_recursive, set_file_permissions,
+    copy_to_dos_image, copy_to_ext4_image, create_config_archive, create_symlink,
+    fix_permissions_recursive, set_file_permissions,
 };
 pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]

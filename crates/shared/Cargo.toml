@@ -1,6 +1,6 @@
 [package]
 name = "shared"
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 
 [dependencies]
@@ -11,7 +11,7 @@ shellexpand = "3.1.0"
 
 # Errors
 anyhow = { workspace = true }
-thiserror = "2.0.17"
+thiserror = { workspace = true }
 
 # Logging
 tracing = { workspace = true }

@@ -1244,7 +1244,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1600,7 +1600,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -3249,6 +3249,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
+name = "iso"
+version = "0.5.3"
+dependencies = [
+ "anyhow",
+ "jiff",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
+]
+
+[[package]]
 name = "itertools"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3483,7 +3494,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -3854,7 +3865,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "aya",
@@ -6263,7 +6274,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -6315,7 +6326,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -6350,7 +6361,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -6366,6 +6377,7 @@ dependencies = [
  "futures",
  "futures-util",
  "http-body-util",
+ "iso",
  "jato",
  "jiff",
  "jsonwebtoken",
@@ -7109,7 +7121,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "askama",
@@ -7470,7 +7482,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "anyhow",
  "serde",

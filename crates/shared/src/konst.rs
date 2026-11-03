@@ -295,6 +295,10 @@ pub const TCA_NETEM_CORRUPT: u16 = 4;
 
 pub const ZTP_DIR: &str = "ztp";
 pub const ZTP_ISO: &str = "ztp.iso";
+/// Volume label of the ZTP ISO. cloud-init's NoCloud source finds its seed by this label.
+pub const ZTP_ISO_VOLUME_ID: &str = "cidata";
+/// Volume label PAN-OS looks for on its bootstrap ISO.
+pub const PALOALTO_BOOTSTRAP_VOLUME_ID: &str = "bootstrap";
 pub const ZTP_JSON: &str = "ztp.json";
 pub const TFTP_DIR: &str = "tftp";
 pub const NODE_CONFIGS_DIR: &str = "configs";
