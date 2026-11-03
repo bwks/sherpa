@@ -1,16 +1,15 @@
-//! ISO 9660 images for node configuration media: ZTP config drives, NoCloud seeds and the
-//! PAN-OS bootstrap. Only what those readers need is written: a primary tree with relaxed names
-//! and Rock Ridge, and a Joliet tree, both over the same file data. See
-//! `docs/architecture/ZTP_ISO.md`.
+//! The ISO 9660 writer. Only what config media readers need is written: a primary tree with
+//! relaxed names and Rock Ridge, and a Joliet tree, both over the same file data.
 
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, anyhow, bail};
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use tracing::instrument;
+
+use crate::error::IsoError;
 
 /// ISO 9660 logical sector (and block) size.
 const ISO_SECTOR_SIZE: usize = 2048;
@@ -117,6 +116,7 @@ struct PathTables {
 
 /// Writes the image a sector at a time, so each part can be checked against the layout.
 struct SectorWriter {
+    path: PathBuf,
     out: BufWriter<File>,
     sector: u32,
 }
@@ -127,11 +127,13 @@ struct SectorWriter {
 /// hyphens and dots in the primary tree, files are read-only and owned by root in Rock Ridge,
 /// and Joliet carries the names unchanged. Symlinks and special files are refused.
 #[instrument(level = "debug")]
-pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<()> {
+pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), IsoError> {
     validate_volume_id(volume_id)?;
     let output = output_path(Path::new(iso_dst))?;
-    let root = fs::canonicalize(src_dir)
-        .with_context(|| format!("Failed to read ISO source directory {src_dir}"))?;
+    let root = fs::canonicalize(src_dir).map_err(|source| IsoError::SourceDir {
+        path: PathBuf::from(src_dir),
+        source,
+    })?;
     let mut source = Source {
         dirs: vec![SourceDir {
             parent: 0,
@@ -160,8 +162,12 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<()> {
     let volume_sectors = next + ISO_PADDING_SECTORS;
     let er = su_entry(b"ER", &er_data());
 
-    let file = File::create(iso_dst).with_context(|| format!("Failed to create ISO {iso_dst}"))?;
+    let file = File::create(iso_dst).map_err(|source| IsoError::Create {
+        path: PathBuf::from(iso_dst),
+        source,
+    })?;
     let mut writer = SectorWriter {
+        path: PathBuf::from(iso_dst),
         out: BufWriter::new(file),
         sector: 0,
     };
@@ -193,38 +199,35 @@ pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<()> {
     }
     writer.zero_sectors(ISO_PADDING_SECTORS)?;
     writer.check_sector(volume_sectors)?;
-    writer
-        .out
-        .flush()
-        .with_context(|| format!("Failed to write ISO {iso_dst}"))?;
+    writer.flush()?;
     tracing::debug!(path = %iso_dst, source_dir = %src_dir, %volume_id, sectors = volume_sectors, "ISO created");
     Ok(())
 }
 
-fn validate_volume_id(volume_id: &str) -> Result<()> {
+fn validate_volume_id(volume_id: &str) -> Result<(), IsoError> {
     if volume_id.is_empty()
         || volume_id.len() > ISO_MAX_VOLUME_ID_BYTES
         || volume_id.encode_utf16().count() > ISO_MAX_JOLIET_VOLUME_ID_UNITS
         || !volume_id.bytes().all(|b| b.is_ascii_graphic())
     {
-        bail!(
-            "Invalid ISO volume label {volume_id:?}: it must be 1 to {ISO_MAX_JOLIET_VOLUME_ID_UNITS} printable ASCII characters"
-        );
+        return Err(IsoError::InvalidVolumeId(volume_id.to_string()));
     }
     Ok(())
 }
 
 /// The canonical path the image is written to, so the walk can leave it out.
-fn output_path(iso_dst: &Path) -> Result<PathBuf> {
+fn output_path(iso_dst: &Path) -> Result<PathBuf, IsoError> {
     let name = iso_dst
         .file_name()
-        .ok_or_else(|| anyhow!("ISO path has no file name: {}", iso_dst.display()))?;
+        .ok_or_else(|| IsoError::NoFileName(iso_dst.to_path_buf()))?;
     let parent = match iso_dst.parent() {
         Some(parent) if !parent.as_os_str().is_empty() => parent,
         _ => Path::new("."),
     };
-    let parent = fs::canonicalize(parent)
-        .with_context(|| format!("Failed to read ISO directory {}", parent.display()))?;
+    let parent = fs::canonicalize(parent).map_err(|source| IsoError::OutputDir {
+        path: parent.to_path_buf(),
+        source,
+    })?;
     Ok(parent.join(name))
 }
 
@@ -236,17 +239,19 @@ fn scan_dir(
     path: &Path,
     depth: usize,
     output: &Path,
-) -> Result<()> {
+) -> Result<(), IsoError> {
     if depth > ISO_MAX_DEPTH {
-        bail!(
-            "{} is nested deeper than the {ISO_MAX_DEPTH} levels ISO 9660 allows",
-            path.display()
-        );
+        return Err(IsoError::TooDeep {
+            path: path.to_path_buf(),
+            limit: ISO_MAX_DEPTH,
+        });
     }
     let mut entries = fs::read_dir(path)
-        .with_context(|| format!("Failed to read {}", path.display()))?
-        .collect::<io::Result<Vec<_>>>()
-        .with_context(|| format!("Failed to read {}", path.display()))?;
+        .and_then(|entries| entries.collect::<io::Result<Vec<_>>>())
+        .map_err(|source| IsoError::Read {
+            path: path.to_path_buf(),
+            source,
+        })?;
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         let entry_path = entry.path();
@@ -254,12 +259,11 @@ fn scan_dir(
             tracing::debug!(path = %entry_path.display(), "Leaving the ISO out of its own source");
             continue;
         }
-        let name = entry
-            .file_name()
-            .into_string()
-            .map_err(|name| anyhow!("File name is not UTF-8: {name:?}"))?;
-        let meta = fs::symlink_metadata(&entry_path)
-            .with_context(|| format!("Failed to read {}", entry_path.display()))?;
+        let name = entry.file_name().into_string().map_err(IsoError::NotUtf8)?;
+        let meta = fs::symlink_metadata(&entry_path).map_err(|source| IsoError::Read {
+            path: entry_path.clone(),
+            source,
+        })?;
         if meta.is_dir() {
             let idx = source.dirs.len();
             source.dirs.push(SourceDir {
@@ -272,7 +276,7 @@ fn scan_dir(
             scan_dir(source, idx, &entry_path, depth + 1, output)?;
         } else if meta.is_file() {
             let size = u32::try_from(meta.len())
-                .with_context(|| format!("{} is too large for ISO 9660", entry_path.display()))?;
+                .map_err(|_| IsoError::FileTooLarge(entry_path.clone()))?;
             let idx = source.files.len();
             source.files.push(SourceFile {
                 path: entry_path,
@@ -281,10 +285,7 @@ fn scan_dir(
             });
             source.dirs[dir].entries.push((name, Target::File(idx)));
         } else {
-            bail!(
-                "{} is not a regular file or directory",
-                entry_path.display()
-            );
+            return Err(IsoError::NotRegularFile(entry_path));
         }
     }
     Ok(())
@@ -292,7 +293,7 @@ fn scan_dir(
 
 /// The identifier `name` gets in a tree: relaxed names with `;1` on files in the primary tree,
 /// UTF-16 big-endian in Joliet.
-fn identifier(name: &str, is_dir: bool, tree: Tree) -> Result<Vec<u8>> {
+fn identifier(name: &str, is_dir: bool, tree: Tree) -> Result<Vec<u8>, IsoError> {
     match tree {
         Tree::Primary => {
             let mut id: Vec<u8> = name
@@ -306,7 +307,10 @@ fn identifier(name: &str, is_dir: bool, tree: Tree) -> Result<Vec<u8>> {
                 })
                 .collect();
             if id.len() > ISO_MAX_NAME_BYTES {
-                bail!("File name longer than {ISO_MAX_NAME_BYTES} characters: {name}");
+                return Err(IsoError::NameTooLong {
+                    name: name.to_string(),
+                    limit: ISO_MAX_NAME_BYTES,
+                });
             }
             if !is_dir {
                 if !id.contains(&b'.') {
@@ -330,7 +334,10 @@ fn identifier(name: &str, is_dir: bool, tree: Tree) -> Result<Vec<u8>> {
                 .encode_utf16()
                 .collect();
             if units.len() > ISO_MAX_JOLIET_UNITS {
-                bail!("File name longer than {ISO_MAX_JOLIET_UNITS} characters: {name}");
+                return Err(IsoError::NameTooLong {
+                    name: name.to_string(),
+                    limit: ISO_MAX_JOLIET_UNITS,
+                });
             }
             Ok(units.iter().flat_map(|unit| unit.to_be_bytes()).collect())
         }
@@ -338,7 +345,7 @@ fn identifier(name: &str, is_dir: bool, tree: Tree) -> Result<Vec<u8>> {
 }
 
 /// A directory's entries as `tree` records them, in identifier order.
-fn tree_children(dir: &SourceDir, tree: Tree) -> Result<Vec<Child>> {
+fn tree_children(dir: &SourceDir, tree: Tree) -> Result<Vec<Child>, IsoError> {
     let mut children = Vec::with_capacity(dir.entries.len());
     for (name, target) in &dir.entries {
         children.push(Child {
@@ -350,18 +357,17 @@ fn tree_children(dir: &SourceDir, tree: Tree) -> Result<Vec<Child>> {
     children.sort_by(|a, b| a.id.cmp(&b.id));
     for pair in children.windows(2) {
         if pair[0].id == pair[1].id {
-            bail!(
-                "{} and {} have the same ISO 9660 name",
-                pair[0].name,
-                pair[1].name
-            );
+            return Err(IsoError::NameClash {
+                first: pair[0].name.clone(),
+                second: pair[1].name.clone(),
+            });
         }
     }
     Ok(children)
 }
 
 /// Lay out one tree: identifiers, children, path-table order and numbers, directory sizes.
-fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout> {
+fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout, IsoError> {
     let count = source.dirs.len();
     let mut children = Vec::with_capacity(count);
     for dir in &source.dirs {
@@ -386,8 +392,7 @@ fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout> {
     }
     let mut number = vec![0u16; count];
     for (n, dir) in order.iter().enumerate() {
-        number[*dir] =
-            u16::try_from(n + 1).context("Too many directories for an ISO 9660 path table")?;
+        number[*dir] = u16::try_from(n + 1).map_err(|_| IsoError::TooManyDirectories)?;
     }
     let mut layout = TreeLayout {
         tree,
@@ -400,18 +405,22 @@ fn plan_tree(source: &Source, tree: Tree) -> Result<TreeLayout> {
     };
     for dir in 0..count {
         let len = dir_extent(source, &layout, dir, [0; 7], 0, 0)?.len();
-        layout.size[dir] = u32::try_from(len).context("ISO 9660 directory too large")?;
+        layout.size[dir] = u32::try_from(len).map_err(|_| IsoError::TooLarge("directory"))?;
     }
     Ok(layout)
 }
 
-fn place_path_tables(source: &Source, layout: &TreeLayout, next: &mut u32) -> Result<PathTables> {
+fn place_path_tables(
+    source: &Source,
+    layout: &TreeLayout,
+    next: &mut u32,
+) -> Result<PathTables, IsoError> {
     let len = path_table(source, layout, false).len();
     let sectors = sector_count(len);
     let tables = PathTables {
         little: *next,
         big: *next + sectors,
-        len: u32::try_from(len).context("ISO 9660 path table too large")?,
+        len: u32::try_from(len).map_err(|_| IsoError::TooLarge("path table"))?,
     };
     *next += 2 * sectors;
     Ok(tables)
@@ -473,7 +482,7 @@ fn write_dirs(
     date: [u8; 7],
     continuation: u32,
     er_len: usize,
-) -> Result<()> {
+) -> Result<(), IsoError> {
     for dir in &layout.order {
         writer.check_sector(layout.extent[*dir])?;
         writer.padded(&dir_extent(
@@ -498,7 +507,7 @@ fn dir_extent(
     date: [u8; 7],
     continuation: u32,
     er_len: usize,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, IsoError> {
     let rock_ridge = layout.tree == Tree::Primary;
     let parent = source.dirs[dir].parent;
     let mut dot = Vec::new();
@@ -580,7 +589,7 @@ fn record(
     is_dir: bool,
     date: [u8; 7],
     system_use: &[u8],
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, IsoError> {
     let mut record = vec![0u8; 33];
     record[2..10].copy_from_slice(&both32(extent));
     record[10..18].copy_from_slice(&both32(size));
@@ -596,12 +605,8 @@ fn record(
     if !record.len().is_multiple_of(2) {
         record.push(0);
     }
-    record[0] = u8::try_from(record.len()).with_context(|| {
-        format!(
-            "ISO 9660 directory record too long for {}",
-            String::from_utf8_lossy(id)
-        )
-    })?;
+    record[0] = u8::try_from(record.len())
+        .map_err(|_| IsoError::RecordTooLong(String::from_utf8_lossy(id).to_string()))?;
     Ok(record)
 }
 
@@ -654,7 +659,7 @@ fn volume_descriptor(
     volume_id: &str,
     volume_sectors: u32,
     now: Timestamp,
-) -> Result<Vec<u8>> {
+) -> Result<Vec<u8>, IsoError> {
     let tree = layout.tree;
     let mut d = vec![0u8; ISO_SECTOR_SIZE];
     d[0] = match tree {
@@ -781,62 +786,72 @@ fn sector_count(len: usize) -> u32 {
 
 impl SectorWriter {
     /// Write `data`, zero-padded to whole sectors.
-    fn padded(&mut self, data: &[u8]) -> Result<()> {
+    fn padded(&mut self, data: &[u8]) -> Result<(), IsoError> {
         let sectors = sector_count(data.len());
-        self.out.write_all(data).context("Failed to write ISO")?;
-        self.out
-            .write_all(&vec![0u8; sectors as usize * ISO_SECTOR_SIZE - data.len()])
-            .context("Failed to write ISO")?;
+        self.write(data)?;
+        self.write(&vec![0u8; sectors as usize * ISO_SECTOR_SIZE - data.len()])?;
         self.sector += sectors;
         Ok(())
     }
 
-    fn zero_sectors(&mut self, count: u32) -> Result<()> {
-        self.out
-            .write_all(&vec![0u8; count as usize * ISO_SECTOR_SIZE])
-            .context("Failed to write ISO")?;
+    fn zero_sectors(&mut self, count: u32) -> Result<(), IsoError> {
+        self.write(&vec![0u8; count as usize * ISO_SECTOR_SIZE])?;
         self.sector += count;
         Ok(())
     }
 
     /// Copy a source file's data, zero-padded to whole sectors.
-    fn file(&mut self, file: &SourceFile) -> Result<()> {
-        let mut input = File::open(&file.path)
-            .with_context(|| format!("Failed to open {}", file.path.display()))?;
-        let copied = io::copy(&mut input, &mut self.out)
-            .with_context(|| format!("Failed to copy {} into the ISO", file.path.display()))?;
+    fn file(&mut self, file: &SourceFile) -> Result<(), IsoError> {
+        let mut input = File::open(&file.path).map_err(|source| IsoError::Read {
+            path: file.path.clone(),
+            source,
+        })?;
+        let copied = io::copy(&mut input, &mut self.out).map_err(|source| IsoError::Copy {
+            path: file.path.clone(),
+            source,
+        })?;
         if copied != u64::from(file.size) {
-            bail!(
-                "{} changed size while the ISO was written",
-                file.path.display()
-            );
+            return Err(IsoError::ChangedSize(file.path.clone()));
         }
         let sectors = sector_count(file.size as usize);
-        self.out
-            .write_all(&vec![
-                0u8;
-                sectors as usize * ISO_SECTOR_SIZE - file.size as usize
-            ])
-            .context("Failed to write ISO")?;
+        self.write(&vec![
+            0u8;
+            sectors as usize * ISO_SECTOR_SIZE - file.size as usize
+        ])?;
         self.sector += sectors;
         Ok(())
     }
 
     /// Fail unless the next sector written is `sector`.
-    fn check_sector(&self, sector: u32) -> Result<()> {
+    fn check_sector(&self, sector: u32) -> Result<(), IsoError> {
         if self.sector != sector {
-            bail!(
-                "ISO layout error: writing sector {}, expected {sector}",
-                self.sector
-            );
+            return Err(IsoError::Layout {
+                actual: self.sector,
+                expected: sector,
+            });
         }
         Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), IsoError> {
+        self.out.flush().map_err(|source| IsoError::Write {
+            path: self.path.clone(),
+            source,
+        })
+    }
+
+    fn write(&mut self, data: &[u8]) -> Result<(), IsoError> {
+        self.out.write_all(data).map_err(|source| IsoError::Write {
+            path: self.path.clone(),
+            source,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::error::Error;
     use std::fs;
     #[cfg(unix)]
     use std::os::unix::fs::symlink;
@@ -846,8 +861,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::konst::{PALOALTO_BOOTSTRAP_VOLUME_ID, ZTP_ISO, ZTP_ISO_VOLUME_ID};
 
+    const ISO_NAME: &str = "ztp.iso";
+    const CIDATA: &str = "cidata";
+    const BOOTSTRAP: &str = "bootstrap";
     const META_DATA: &str = "instance-id: iid-node1\nlocal-hostname: node1\n";
     const USER_DATA: &str = "#cloud-config\nhostname: node1\n";
     const NETWORK_CONFIG: &str = "version: 2\n";
@@ -1027,17 +1044,16 @@ mod tests {
     /// Build an image of `src` into a separate directory and read it back.
     fn build(src: &Path, volume_id: &str) -> Result<Vec<u8>> {
         let out = TempDir::new()?;
-        let iso = out.path().join(ZTP_ISO);
+        let iso = out.path().join(ISO_NAME);
         create_iso(iso.to_str().unwrap(), src.to_str().unwrap(), volume_id)?;
         Ok(fs::read(iso)?)
     }
 
-    /// Build `src` and return the full error chain, failing the test if the build succeeds.
-    fn build_error(src: &Path, volume_id: &str) -> String {
-        match build(src, volume_id) {
-            Ok(_) => panic!("expected the ISO build to fail"),
-            Err(err) => format!("{err:#}"),
-        }
+    /// Build `src` and return the error, failing the test if the build succeeds.
+    fn build_error(src: &Path, volume_id: &str) -> IsoError {
+        let out = TempDir::new().unwrap();
+        let iso = out.path().join(ISO_NAME);
+        create_iso(iso.to_str().unwrap(), src.to_str().unwrap(), volume_id).unwrap_err()
     }
 
     fn contents(entries: &[(&str, Option<&str>)]) -> BTreeMap<String, Option<Vec<u8>>> {
@@ -1051,12 +1067,12 @@ mod tests {
     fn test_create_iso_writes_labelled_volume_descriptors() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
-        let image = build(src.path(), ZTP_ISO_VOLUME_ID)?;
+        let image = build(src.path(), CIDATA)?;
 
         assert_eq!(image.len() % ISO_SECTOR_SIZE, 0);
         let pvd = sector(&image, 16);
         assert_eq!(&pvd[..7], b"\x01CD001\x01");
-        assert_eq!(&pvd[40..72], format!("{ZTP_ISO_VOLUME_ID:<32}").as_bytes());
+        assert_eq!(&pvd[40..72], format!("{CIDATA:<32}").as_bytes());
         assert_eq!(le32(&pvd[80..]) as usize * ISO_SECTOR_SIZE, image.len());
         assert_eq!(le32(&pvd[80..]), be32(&pvd[84..]));
         assert_eq!(le16(&pvd[128..]) as usize, ISO_SECTOR_SIZE);
@@ -1065,10 +1081,7 @@ mod tests {
         let svd = sector(&image, 17);
         assert_eq!(&svd[..7], b"\x02CD001\x01");
         assert_eq!(&svd[88..91], b"%/E");
-        let label: Vec<u8> = ZTP_ISO_VOLUME_ID
-            .encode_utf16()
-            .flat_map(u16::to_be_bytes)
-            .collect();
+        let label: Vec<u8> = CIDATA.encode_utf16().flat_map(u16::to_be_bytes).collect();
         assert_eq!(&svd[40..40 + label.len()], label.as_slice());
         assert_eq!(&svd[40 + label.len()..42 + label.len()], &[0, b' ']);
 
@@ -1083,7 +1096,7 @@ mod tests {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         panos_source(src.path())?;
-        let names: Vec<String> = tree(&build(src.path(), ZTP_ISO_VOLUME_ID)?, Names::Primary)
+        let names: Vec<String> = tree(&build(src.path(), CIDATA)?, Names::Primary)
             .into_keys()
             .collect();
         assert_eq!(
@@ -1108,7 +1121,7 @@ mod tests {
         let src = TempDir::new()?;
         panos_source(src.path())?;
         fs::write(src.path().join("day0-config"), "hostname asa1\n")?;
-        let image = build(src.path(), PALOALTO_BOOTSTRAP_VOLUME_ID)?;
+        let image = build(src.path(), BOOTSTRAP)?;
 
         let root = root_record(&image, 16);
         let entries = records(&image, root.extent, root.size);
@@ -1158,7 +1171,7 @@ mod tests {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
         panos_source(src.path())?;
-        let image = build(src.path(), ZTP_ISO_VOLUME_ID)?;
+        let image = build(src.path(), CIDATA)?;
         assert_eq!(tree(&image, Names::Joliet), tree(&image, Names::RockRidge));
         Ok(())
     }
@@ -1170,7 +1183,7 @@ mod tests {
         let big = "x".repeat(BIG_FILE_LEN);
         fs::write(src.path().join("big.bin"), &big)?;
         fs::write(src.path().join("empty"), "")?;
-        let image = build(src.path(), PALOALTO_BOOTSTRAP_VOLUME_ID)?;
+        let image = build(src.path(), BOOTSTRAP)?;
         let expected = contents(&[
             ("big.bin", Some(big.as_str())),
             ("config/", None),
@@ -1195,7 +1208,7 @@ mod tests {
                 n.to_string(),
             )?;
         }
-        let image = build(src.path(), ZTP_ISO_VOLUME_ID)?;
+        let image = build(src.path(), CIDATA)?;
         assert!(root_record(&image, 16).size as usize > ISO_SECTOR_SIZE);
         let files = tree(&image, Names::RockRidge);
         assert_eq!(files.len(), MANY_FILES);
@@ -1209,7 +1222,7 @@ mod tests {
         let src = TempDir::new()?;
         panos_source(src.path())?;
         fs::create_dir(src.path().join("config/nested"))?;
-        let image = build(src.path(), ZTP_ISO_VOLUME_ID)?;
+        let image = build(src.path(), CIDATA)?;
         let pvd = sector(&image, 16);
         let len = le32(&pvd[132..]) as usize;
         let little = &sector(&image, le32(&pvd[140..]))[..len];
@@ -1249,13 +1262,9 @@ mod tests {
     fn test_create_iso_leaves_out_its_own_output() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
-        let iso = src.path().join(ZTP_ISO);
+        let iso = src.path().join(ISO_NAME);
         for _ in 0..2 {
-            create_iso(
-                iso.to_str().unwrap(),
-                src.path().to_str().unwrap(),
-                ZTP_ISO_VOLUME_ID,
-            )?;
+            create_iso(iso.to_str().unwrap(), src.path().to_str().unwrap(), CIDATA)?;
         }
         let names: Vec<String> = tree(&fs::read(&iso)?, Names::RockRidge)
             .into_keys()
@@ -1267,18 +1276,12 @@ mod tests {
     #[test]
     fn test_create_iso_rejects_missing_source() -> Result<()> {
         let dir = TempDir::new()?;
-        let iso = dir.path().join(ZTP_ISO);
+        let iso = dir.path().join(ISO_NAME);
         let missing = dir.path().join("missing");
-        let err = create_iso(
-            iso.to_str().unwrap(),
-            missing.to_str().unwrap(),
-            ZTP_ISO_VOLUME_ID,
-        )
-        .unwrap_err();
-        assert!(
-            format!("{err:#}").contains("ISO source directory"),
-            "{err:#}"
-        );
+        let err = create_iso(iso.to_str().unwrap(), missing.to_str().unwrap(), CIDATA).unwrap_err();
+        assert!(matches!(err, IsoError::SourceDir { .. }), "{err}");
+        let cause = err.source().and_then(|e| e.downcast_ref::<io::Error>());
+        assert_eq!(cause.map(io::Error::kind), Some(io::ErrorKind::NotFound));
         assert!(!iso.exists());
         Ok(())
     }
@@ -1290,7 +1293,7 @@ mod tests {
         for volume_id in ["", "with space", "a-label-longer-than-sixteen"] {
             let err = build_error(src.path(), volume_id);
             assert!(
-                err.contains("Invalid ISO volume label"),
+                matches!(err, IsoError::InvalidVolumeId(_)),
                 "{volume_id:?}: {err}"
             );
         }
@@ -1301,8 +1304,11 @@ mod tests {
     fn test_create_iso_rejects_long_names() -> Result<()> {
         let src = TempDir::new()?;
         fs::write(src.path().join("a".repeat(32)), "")?;
-        let err = build_error(src.path(), ZTP_ISO_VOLUME_ID);
-        assert!(err.contains("longer than 31"), "{err}");
+        let err = build_error(src.path(), CIDATA);
+        assert!(
+            matches!(err, IsoError::NameTooLong { limit, .. } if limit == ISO_MAX_NAME_BYTES),
+            "{err}"
+        );
         Ok(())
     }
 
@@ -1311,8 +1317,8 @@ mod tests {
         let src = TempDir::new()?;
         fs::write(src.path().join("a;b"), "")?;
         fs::write(src.path().join("a_b"), "")?;
-        let err = build_error(src.path(), ZTP_ISO_VOLUME_ID);
-        assert!(err.contains("same ISO 9660 name"), "{err}");
+        let err = build_error(src.path(), CIDATA);
+        assert!(matches!(err, IsoError::NameClash { .. }), "{err}");
         Ok(())
     }
 
@@ -1323,10 +1329,13 @@ mod tests {
             path.join(format!("d{n}"))
         });
         fs::create_dir_all(&deepest)?;
-        let err = build_error(src.path(), ZTP_ISO_VOLUME_ID);
-        assert!(err.contains("nested deeper"), "{err}");
+        let err = build_error(src.path(), CIDATA);
+        assert!(
+            matches!(err, IsoError::TooDeep { limit, .. } if limit == ISO_MAX_DEPTH),
+            "{err}"
+        );
         fs::remove_dir(&deepest)?;
-        build(src.path(), ZTP_ISO_VOLUME_ID)?;
+        build(src.path(), CIDATA)?;
         Ok(())
     }
 
@@ -1335,9 +1344,17 @@ mod tests {
     fn test_create_iso_rejects_symlinks() -> Result<()> {
         let src = TempDir::new()?;
         ztp_source(src.path())?;
-        symlink(src.path().join("meta-data"), src.path().join("link"))?;
-        let err = build_error(src.path(), ZTP_ISO_VOLUME_ID);
-        assert!(err.contains("not a regular file or directory"), "{err}");
+        let link = src.path().join("link");
+        symlink(src.path().join("meta-data"), &link)?;
+        let err = build_error(src.path(), CIDATA);
+        assert!(
+            matches!(&err, IsoError::NotRegularFile(path) if path.ends_with("link")),
+            "{err}"
+        );
+        assert!(
+            err.to_string().contains(&link.display().to_string()),
+            "{err}"
+        );
         Ok(())
     }
 }

@@ -17,6 +17,7 @@ template = { path = "../template" }
 libvirt = { path = "../libvirt" }
 network = { path = "../network" }
 db = { path = "../db" }
+iso = { path = "../iso" }
 
 # Errors
 anyhow = { workspace = true }

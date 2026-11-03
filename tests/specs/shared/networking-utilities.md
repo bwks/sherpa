@@ -117,7 +117,6 @@
 - `create_symlink()` creates Unix symlink `[unit]` **P1**
 - `fix_permissions_recursive()` sets dirs 0o775, files 0o660 `[unit]` **P1**
 - `check_file_size()` returns correct range category (0.1-5GB) `[unit]` **P1**
-- `create_iso()` writes primary, Rock Ridge and Joliet trees with the volume label, leaves its own output out, and refuses sources it cannot represent `[unit]` **P1**
 - `copy_to_dos_image()` uses mcopy command `[integration]` **P2**
 - `copy_to_ext4_image()` uses e2cp command `[integration]` **P2**
 

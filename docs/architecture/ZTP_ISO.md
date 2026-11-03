@@ -4,15 +4,20 @@ How Sherpa builds the CD-ROM images that carry a VM node's first-boot configurat
 seeds for cloud-init, cloudbase-init and Talos, the config ISOs network operating systems read
 at zero-touch provisioning, and the PAN-OS bootstrap ISO.
 
-The writer is `create_iso` in `crates/shared/src/util/iso.rs`. It writes the subset of ISO 9660
-(ECMA-119) these readers need, with the Rock Ridge (RRIP 1.09, over SUSP) and Joliet extensions,
-in plain Rust with no ISO crate and no external command. It replaced a call to `genisoimage` and
-writes the same structure, so the server needs no ISO tooling. Its constants are private to
-`iso.rs`. The two volume labels callers pass in are in `crates/shared/src/konst.rs`.
+The writer is the `iso` crate, `crates/iso`: `create_iso` in `src/writer.rs` and its error type,
+`IsoError`, in `src/error.rs`. It writes the subset of ISO 9660 (ECMA-119) these readers need,
+with the Rock Ridge (RRIP 1.09, over SUSP) and Joliet extensions, in plain Rust with no ISO crate
+and no external command. It replaced a call to `genisoimage` and writes the same structure, so
+the server needs no ISO tooling. Its constants are private to `writer.rs`. The two volume labels
+callers pass in are in `crates/shared/src/konst.rs`.
+
+The crate depends on nothing in Sherpa: only `jiff`, `thiserror` and `tracing`. `server` is its
+only dependent, so the `sherpa` CLI, which never builds an ISO, does not compile it.
 
 - [From config files to the guest](#from-config-files-to-the-guest)
 - [Callers](#callers)
 - [The function](#the-function)
+- [Errors](#errors)
 - [Pipeline](#pipeline)
 - [Data model](#data-model)
 - [Names in the three views](#names-in-the-three-views)
@@ -46,7 +51,7 @@ flowchart LR
 ```
 
 1. A generator in `crates/server/src/services/node_ops.rs` writes the node's config files into
-   its lab directory and calls `util::create_iso` with that directory as the source and
+   its lab directory and calls `iso::create_iso` with that directory as the source and
    `ztp.iso` inside it as the destination.
 2. `create_iso` writes the image. It leaves `ztp.iso` itself out of the tree it reads.
 3. The node's disk plan (`node_ops`, the CD-ROM block of the VM build) adds a `CloneDisk` that
@@ -77,17 +82,39 @@ config over TFTP, HTTP, a USB or FAT disk, or Ignition do not use this writer.
 ## The function
 
 ```rust
-pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<()>
+pub fn create_iso(iso_dst: &str, src_dir: &str, volume_id: &str) -> Result<(), IsoError>
 ```
 
 - Writes an image of everything under `src_dir` to `iso_dst`, labelled `volume_id`.
 - `iso_dst` may be inside `src_dir`; that file is left out, whether or not it already exists.
-- Fails, with the path or name in the error, on anything it cannot represent faithfully (see
-  [Limits and errors](#limits-and-errors)). Checks that need only the label or the source tree
+- Fails with an `IsoError` naming the path or name on anything it cannot represent faithfully
+  (see [Limits and errors](#limits-and-errors)). Checks that need only the label or the source tree
   run before `iso_dst` is created, so a refused source leaves no file behind.
 - `#[instrument(level = "debug")]`; a debug event records the path, source, label and size in
   sectors.
 - The build time (`Timestamp::now()`, UTC) is used for every date in the image.
+
+## Errors
+
+`IsoError` is a `thiserror` enum. Each variant carries what the message needs (the path, the
+name, the limit), and the I/O variants keep the `io::Error` as their `source()`:
+
+| Variant | Raised when |
+|---|---|
+| `InvalidVolumeId` | the label is empty, too long or not printable ASCII |
+| `NoFileName`, `OutputDir` | `iso_dst` has no file name, or its directory cannot be resolved |
+| `SourceDir` | `src_dir` cannot be resolved |
+| `Read` | a directory or a file's metadata or data cannot be read |
+| `NotRegularFile`, `NotUtf8` | the source holds a symlink or special file, or a name that is not UTF-8 |
+| `NameTooLong`, `NameClash`, `TooDeep` | a name breaks a tree's limit, two names convert alike, nesting is too deep |
+| `FileTooLarge`, `TooManyDirectories`, `TooLarge`, `RecordTooLong` | a size does not fit its ISO 9660 field |
+| `Create`, `Copy`, `Write` | the image cannot be created or written, or a file cannot be copied into it |
+| `ChangedSize` | a source file changed size between the scan and the copy |
+| `Layout` | the writer is not at the sector the layout gave the next part (a bug in the writer) |
+
+Callers in `server` return `anyhow::Result`, so `?` converts an `IsoError` into an
+`anyhow::Error` with its message and source chain. Nothing in Sherpa branches on the variant
+today; the tests do.
 
 ## Pipeline
 
@@ -438,19 +465,19 @@ a few sectors each.
 
 ## Limits and errors
 
-| Refused | Limit | Error contains |
+| Refused | Limit | Variant |
 |---|---|---|
-| Volume label | 1–16 printable ASCII characters (32 bytes primary, 16 UTF-16 units Joliet) | `Invalid ISO volume label` |
-| Missing or unreadable source | | `ISO source directory` |
-| Symlinks, sockets, devices, FIFOs | regular files and directories only | `not a regular file or directory` |
-| Non-UTF-8 names | | `File name is not UTF-8` |
-| Long names | 31 characters primary, 64 UTF-16 units Joliet | `longer than` |
-| Names that convert alike | in either tree | `the same ISO 9660 name` |
-| Deep nesting | 8 levels, the root included | `nested deeper` |
-| Large files | under 4 GiB (32-bit data length) | `too large for ISO 9660` |
-| A file that changes while written | | `changed size while the ISO was written` |
-| Path table numbers | 65 535 directories | `Too many directories` |
-| Long records | 255 bytes | `directory record too long` |
+| Volume label | 1–16 printable ASCII characters (32 bytes primary, 16 UTF-16 units Joliet) | `InvalidVolumeId` |
+| Missing or unreadable source | | `SourceDir` |
+| Symlinks, sockets, devices, FIFOs | regular files and directories only | `NotRegularFile` |
+| Non-UTF-8 names | | `NotUtf8` |
+| Long names | 31 characters primary, 64 UTF-16 units Joliet | `NameTooLong` |
+| Names that convert alike | in either tree | `NameClash` |
+| Deep nesting | 8 levels, the root included | `TooDeep` |
+| Large files | under 4 GiB (32-bit data length) | `FileTooLarge` |
+| A file that changes while written | | `ChangedSize` |
+| Path table numbers | 65 535 directories | `TooManyDirectories` |
+| Long records | 255 bytes | `RecordTooLong` |
 
 None of these comes near what Sherpa generates. They exist so a future caller gets an error
 instead of an image a guest cannot read. Deep directories are refused rather than relocated
@@ -474,7 +501,7 @@ Every model that boots from these images was boot-tested with them; see below.
 
 ## Tests and verification
 
-Unit tests at the bottom of `iso.rs` build images in temporary directories and read them back
+Unit tests at the bottom of `crates/iso/src/writer.rs` build images in temporary directories and read them back
 with a small parser in the test module (`parse_record`, `records`, `su_entries`, `walk`). It
 checks both-endian fields agree and that no record crosses a sector boundary.
 
@@ -488,7 +515,7 @@ checks both-endian fields agree and that no record crosses a sector boundary.
 | `test_create_iso_directory_spans_sectors` | 300 entries in one directory |
 | `test_create_iso_path_tables_list_directories` | L and M tables agree; order, parent numbers and the root extent |
 | `test_create_iso_leaves_out_its_own_output` | Writing into the source twice never includes the ISO |
-| `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its error message |
+| `test_create_iso_rejects_*`, `test_create_iso_limits_nesting_to_eight_levels` | Each refusal, by its `IsoError` variant; the missing source keeps its `io::Error` as the source, and a refused symlink is named in the message |
 
 There is no `#[ignore]` test against `isoinfo` or a kernel mount: `isoinfo` ships with the
 `genisoimage` package the server no longer installs, and mounting needs root.
@@ -511,8 +538,10 @@ OS that takes a config ISO, is recorded on issue #2.
 
 ## Changing the writer
 
-- **New caller:** write the files into a directory and call `create_iso` with a label. Add a
-  label constant to `konst.rs` if it is new. Nothing else changes.
+- **New caller:** depend on the `iso` crate, write the files into a directory and call
+  `create_iso` with a label. Add a label constant to `konst.rs` if it is new.
+- **New refusal:** add an `IsoError` variant with the fields its message needs, and a test that
+  matches it.
 - **New name rule:** change `identifier`; update the table in
   [Names](#names-in-the-three-views) and `test_create_iso_keeps_relaxed_primary_names`.
 - **New Rock Ridge entry:** add a builder next to `px_entry` and `tf_entry`, emit it in

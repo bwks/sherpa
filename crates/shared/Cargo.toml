@@ -11,7 +11,7 @@ shellexpand = "3.1.0"
 
 # Errors
 anyhow = { workspace = true }
-thiserror = "2.0.17"
+thiserror = { workspace = true }
 
 # Logging
 tracing = { workspace = true }
