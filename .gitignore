@@ -22,6 +22,8 @@ files/
 dev.sh
 *.sql
 !lab.sql
+# The db crate's schema and queries, which its build script checks.
+!/crates/db/sql/**/*.sql
 .idea/
 .opencode/
 srl-config.json
