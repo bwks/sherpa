@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.3] - 2026-11-03
+
+### Documentation
+
+- Record the Talos lab test in the ISO writer notes [skip ci] by @bwks ([64ac064](https://github.com/bwks/sherpa/commit/64ac064f7b455773f291b4483a3fc67a91b92a06))
+- Document the ISO writer in depth [skip ci] by @bwks ([e716066](https://github.com/bwks/sherpa/commit/e716066c0c604e8b1cec2794d7f096c4fda4586f))
+
+### Features
+
+- Build ZTP ISOs with a Rust ISO 9660 writer by @bwks ([434ae91](https://github.com/bwks/sherpa/commit/434ae918a3d721ed715cdd195e98408ae12ca046))
+
+### Miscellaneous
+
+- Merge pull request #428 from bwks/feat/rust-iso-writer
+
+feat: build ZTP ISOs with a Rust ISO 9660 writer by @bwks in [#428](https://github.com/bwks/sherpa/pull/428) ([dafd59c](https://github.com/bwks/sherpa/commit/dafd59cc6caa1afde4d13f2f20d5db2ab91bf514))
+- Merge pull request #425 from bwks/changelog/v0.5.2
+
+chore(release): update changelog for v0.5.2 by @github-actions[bot] in [#425](https://github.com/bwks/sherpa/pull/425) ([899ef33](https://github.com/bwks/sherpa/commit/899ef3348931a223f9ba30e479830fe686c1fadf))
+
+### Refactor
+
+- Move the ISO writer into its own iso crate by @bwks ([9beabc9](https://github.com/bwks/sherpa/commit/9beabc91dfc1fd3963f905974e8bf723c01ce345))
+- Keep the ISO writer constants in its module by @bwks ([ced4e24](https://github.com/bwks/sherpa/commit/ced4e2478477a9d689a7f1ec80d3b8302f717663))
 ## [0.5.2] - 2026-11-02
 
 ### Features
