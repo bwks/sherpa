@@ -4,7 +4,8 @@ use shared::util::normalize_username;
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{USER_TABLE, key_of, user_columns, user_from_row};
+use crate::persistence::{USER_TABLE, key_of, user_from_row};
+use crate::schema_check::sql;
 use crate::sql::query_optional;
 
 /// Delete a user by RecordId
@@ -31,7 +32,11 @@ pub async fn delete_user(db: &Database, id: RecordId) -> Result<()> {
     let writer = db.writer().await?;
     let deleted: Option<DbUser> = query_optional(
         &writer.conn,
-        concat!("DELETE FROM user WHERE id = ?1 RETURNING ", user_columns!()),
+        sql!(
+            user,
+            "DELETE FROM user WHERE id = ?1 \
+             RETURNING id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
+        ),
         [key_of(&id, USER_TABLE)?],
         user_from_row,
     )
@@ -66,9 +71,10 @@ pub async fn delete_user_by_username(db: &Database, username: &str) -> Result<()
     let writer = db.writer().await?;
     let deleted: Option<DbUser> = query_optional(
         &writer.conn,
-        concat!(
-            "DELETE FROM user WHERE username = ?1 RETURNING ",
-            user_columns!()
+        sql!(
+            user,
+            "DELETE FROM user WHERE username = ?1 \
+             RETURNING id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
         ),
         [normalize_username(username)],
         user_from_row,

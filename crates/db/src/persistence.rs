@@ -1,7 +1,9 @@
 //! Mapping between the `shared::data` records and database rows.
 //!
-//! Each table has a column-list macro, so a query and the mapper that reads its rows always agree
-//! on the column order. Record ids are stored as their key; the table is implied by the column.
+//! A table converted to `row!` has a row type whose fields are its columns in schema order; the
+//! type is checked against the table's `CREATE TABLE` at compile time, and its statements use
+//! `sql!`. The other tables still use a column-list macro each. Record ids are stored as their
+//! key; the table is implied by the column.
 use anyhow::{Context, Result, bail};
 use jiff::Timestamp;
 use rand::Rng;
@@ -20,12 +22,6 @@ pub(crate) const NODE_TABLE: &str = "node";
 pub(crate) const NODE_IMAGE_TABLE: &str = "node_image";
 pub(crate) const LINK_TABLE: &str = "link";
 pub(crate) const BRIDGE_TABLE: &str = "bridge";
-
-macro_rules! user_columns {
-    () => {
-        "id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
-    };
-}
 
 macro_rules! lab_columns {
     () => {
@@ -76,8 +72,138 @@ macro_rules! node_image_columns {
 
 pub(crate) use {
     bridge_columns, bridge_member_columns, lab_columns, link_columns, node_columns,
-    node_image_columns, user_columns,
+    node_image_columns,
 };
+
+/// Declares a row type of `$table`: one field per column, in the order of the table's
+/// `CREATE TABLE`, checked against it at compile time. The type reads a row's columns in that
+/// order (`decode`) and gives its values in that order (`values`).
+macro_rules! row {
+    ($(#[$meta:meta])* $name:ident in $table:ident { $($field:ident: $ty:ty),* $(,)? }) => {
+        $(#[$meta])*
+        pub(crate) struct $name {
+            $(pub(crate) $field: $ty,)*
+        }
+
+        impl $name {
+            const FIELDS: &'static [&'static str] = &[$(stringify!($field)),*];
+
+            pub(crate) fn decode(row: &::turso::Row) -> ::anyhow::Result<Self> {
+                let mut cells = $crate::persistence::Cells::new(row);
+                Ok(Self {
+                    $($field: <$ty as $crate::persistence::Column>::read(
+                        &mut cells,
+                        stringify!($field),
+                    )?,)*
+                })
+            }
+
+            pub(crate) fn values(self) -> ::anyhow::Result<Vec<::turso::Value>> {
+                Ok(vec![$(<$ty as $crate::persistence::Column>::write(
+                    self.$field,
+                    stringify!($field),
+                )?),*])
+            }
+        }
+
+        const _: () = $crate::schema_check::check_row(
+            $crate::schema::$table::TABLES,
+            stringify!($table),
+            $name::FIELDS,
+        );
+    };
+}
+
+/// How a field type is stored in its column.
+pub(crate) trait Column: Sized {
+    fn read(cells: &mut Cells<'_>, field: &str) -> Result<Self>;
+    fn write(self, field: &str) -> Result<Value>;
+}
+
+impl Column for String {
+    fn read(cells: &mut Cells<'_>, field: &str) -> Result<Self> {
+        cells.text(field)
+    }
+
+    fn write(self, _field: &str) -> Result<Value> {
+        Ok(self.into())
+    }
+}
+
+impl Column for bool {
+    fn read(cells: &mut Cells<'_>, field: &str) -> Result<Self> {
+        cells.boolean(field)
+    }
+
+    fn write(self, _field: &str) -> Result<Value> {
+        Ok(self.into())
+    }
+}
+
+impl Column for Timestamp {
+    fn read(cells: &mut Cells<'_>, field: &str) -> Result<Self> {
+        cells.timestamp(field)
+    }
+
+    fn write(self, _field: &str) -> Result<Value> {
+        Ok(self.to_string().into())
+    }
+}
+
+/// A value stored as JSON text.
+pub(crate) struct Json<T>(pub(crate) T);
+
+impl<T: Serialize + DeserializeOwned> Column for Json<T> {
+    fn read(cells: &mut Cells<'_>, field: &str) -> Result<Self> {
+        cells.json(field).map(Json)
+    }
+
+    fn write(self, field: &str) -> Result<Value> {
+        Ok(json_text(&self.0, field)?.into())
+    }
+}
+
+row! {
+    /// A row of the `user` table.
+    UserRow in user {
+        id: String,
+        username: String,
+        password_hash: String,
+        is_admin: bool,
+        ssh_keys: Json<Vec<String>>,
+        created_at: Timestamp,
+        updated_at: Timestamp,
+    }
+}
+
+impl UserRow {
+    /// The row storing `user` under the record key `key`.
+    pub(crate) fn new(user: &DbUser, key: &str) -> Self {
+        UserRow {
+            id: key.to_string(),
+            username: user.username.clone(),
+            password_hash: user.password_hash.clone(),
+            is_admin: user.is_admin,
+            ssh_keys: Json(user.ssh_keys.clone()),
+            created_at: user.created_at,
+            updated_at: user.updated_at,
+        }
+    }
+}
+
+impl From<UserRow> for DbUser {
+    fn from(row: UserRow) -> Self {
+        DbUser {
+            id: Some(RecordId::new(USER_TABLE, row.id)),
+            username: row.username,
+            password_hash: row.password_hash,
+            is_admin: row.is_admin,
+            ssh_keys: row.ssh_keys.0,
+            created_at: row.created_at,
+            updated_at: row.updated_at,
+        }
+    }
+}
 
 /// Reads a row's columns in order, naming each field in errors.
 pub(crate) struct Cells<'a> {
@@ -234,30 +360,9 @@ pub(crate) fn key_of(id: &RecordId, table: &str) -> Result<String> {
     Ok(id.key.to_string())
 }
 
+/// A `user` row as a `DbUser`, in the form the query helpers take.
 pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
-    let mut cells = Cells::new(row);
-    Ok(DbUser {
-        id: Some(cells.record(USER_TABLE, "id")?),
-        username: cells.text("username")?,
-        password_hash: cells.text("password_hash")?,
-        is_admin: cells.boolean("is_admin")?,
-        ssh_keys: cells.json("ssh_keys")?,
-        created_at: cells.timestamp("created_at")?,
-        updated_at: cells.timestamp("updated_at")?,
-    })
-}
-
-/// A user's column values in `user_columns!` order, under `key`.
-pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<Vec<Value>> {
-    Ok(vec![
-        key.into(),
-        user.username.as_str().into(),
-        user.password_hash.as_str().into(),
-        user.is_admin.into(),
-        json_text(&user.ssh_keys, "ssh_keys")?.into(),
-        user.created_at.to_string().into(),
-        user.updated_at.to_string().into(),
-    ])
+    UserRow::decode(row).map(DbUser::from)
 }
 
 pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {

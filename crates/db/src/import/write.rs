@@ -7,12 +7,13 @@ use turso::Connection;
 use super::source::{SurrealData, SurrealSource, connect, read_all};
 use crate::Database;
 use crate::persistence::{
-    BRIDGE_TABLE, LAB_TABLE, LINK_TABLE, NODE_IMAGE_TABLE, NODE_TABLE, USER_TABLE, bridge_columns,
-    bridge_member_columns, bridge_member_values, bridge_values, key_of, lab_columns, lab_values,
-    link_columns, link_values, node_columns, node_image_columns, node_image_values, node_values,
-    user_columns, user_values,
+    BRIDGE_TABLE, LAB_TABLE, LINK_TABLE, NODE_IMAGE_TABLE, NODE_TABLE, USER_TABLE, UserRow,
+    bridge_columns, bridge_member_columns, bridge_member_values, bridge_values, key_of,
+    lab_columns, lab_values, link_columns, link_values, node_columns, node_image_columns,
+    node_image_values, node_values,
 };
 use crate::schema::{FIX_DATA_INTERFACE_COUNTS, apply_schema};
+use crate::schema_check::sql;
 use crate::sql::query_count;
 
 /// How many records of each kind were imported.
@@ -105,12 +106,13 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
     for user in &data.users {
         let key = record_key(user.id.as_ref(), USER_TABLE)?;
         conn.execute(
-            concat!(
-                "INSERT INTO user (",
-                user_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+            sql!(
+                user,
+                "INSERT INTO user (id, username, password_hash, is_admin, ssh_keys, created_at, \
+                 updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
             ),
-            user_values(user, &key)?,
+            UserRow::new(user, &key).values()?,
         )
         .await
         .context(format!("Failed to import user {}", user.username))?;

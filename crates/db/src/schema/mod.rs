@@ -26,7 +26,7 @@ mod lab;
 mod link;
 mod node;
 mod node_image;
-mod user;
+pub(crate) mod user;
 
 // Public API - only schema application function is exposed outside the crate
 pub use apply::{SCHEMA_VERSION, apply_schema};

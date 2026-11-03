@@ -11,6 +11,7 @@ pub mod node;
 pub mod node_image;
 mod persistence;
 pub mod schema;
+mod schema_check;
 pub mod seed;
 mod sql;
 pub mod user;

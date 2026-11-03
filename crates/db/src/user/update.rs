@@ -4,7 +4,8 @@ use tracing::instrument;
 
 use crate::Database;
 use crate::helpers::get_user_id;
-use crate::persistence::{USER_TABLE, key_of, user_columns, user_from_row, user_values};
+use crate::persistence::{USER_TABLE, UserRow, key_of, user_from_row};
+use crate::schema_check::sql;
 use crate::sql::query_optional;
 
 /// Update an existing user in the database
@@ -38,12 +39,14 @@ pub async fn update_user(db: &Database, user: DbUser) -> Result<DbUser> {
     let writer = db.writer().await?;
     let updated = query_optional(
         &writer.conn,
-        concat!(
+        sql!(
+            user,
             "UPDATE user SET username = ?2, password_hash = ?3, is_admin = ?4, ssh_keys = ?5, \
-             created_at = ?6, updated_at = ?7 WHERE id = ?1 RETURNING ",
-            user_columns!()
+             created_at = ?6, updated_at = ?7 \
+             WHERE id = ?1 \
+             RETURNING id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
         ),
-        user_values(&user, &key)?,
+        UserRow::new(&user, &key).values()?,
         user_from_row,
     )
     .await
