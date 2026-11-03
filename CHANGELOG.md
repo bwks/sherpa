@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.5] - 2026-11-03
+
+### Bug Fixes
+
+- Commit the schema and query SQL files by @bwks ([fa9c4aa](https://github.com/bwks/sherpa/commit/fa9c4aa7effdebca3244de206cc311253695d11b))
+
+### Features
+
+- Check SQL files against the schema at build time by @bwks ([49b027b](https://github.com/bwks/sherpa/commit/49b027bdff2e05f59fddc9253f75ad841c4df79c))
+
+### Miscellaneous
+
+- Merge pull request #438 from bwks/chore/bump-0.5.5
+
+chore: bump version to 0.5.5 by @bwks in [#438](https://github.com/bwks/sherpa/pull/438) ([3c6d0ff](https://github.com/bwks/sherpa/commit/3c6d0ff3fd3d34623b950577e7dec3a4d70d76d4))
+- Bump version to 0.5.5 by @bwks ([a3fc27a](https://github.com/bwks/sherpa/commit/a3fc27a2e8000004ea5e7920420091d3d31f5535))
+- Merge pull request #436 from bwks/feat/build-checked-sql
+
+feat(db): check every SQL statement against the schema at build time by @bwks in [#436](https://github.com/bwks/sherpa/pull/436) ([a396656](https://github.com/bwks/sherpa/commit/a396656d3f1794312f2737da84a25b1673ea3757))
+- Cache Rust builds in the PR workflow by @bwks ([d5f077a](https://github.com/bwks/sherpa/commit/d5f077a6ad9c9446ba09d250f588db258d395490))
+- Merge pull request #434 from bwks/chore/skip-pr-checks-for-changelog
+
+ci: skip PR checks on the release bot changelog PR by @bwks in [#434](https://github.com/bwks/sherpa/pull/434) ([9e510c4](https://github.com/bwks/sherpa/commit/9e510c485384b52e8606350b8d07a1b27b1c17ba))
+- Skip PR checks on the release bot's changelog PR by @bwks ([d59a003](https://github.com/bwks/sherpa/commit/d59a0031cd72323d5ebac9f02e16cba2ee0ab3c5))
+- Merge pull request #433 from bwks/changelog/v0.5.4
+
+chore(release): update changelog for v0.5.4 by @github-actions[bot] in [#433](https://github.com/bwks/sherpa/pull/433) ([571bea4](https://github.com/bwks/sherpa/commit/571bea44d68ee4f88bb4aec5555711c240d547b9))
+
+### Refactor
+
+- Move every table's queries to checked SQL files by @bwks ([421d620](https://github.com/bwks/sherpa/commit/421d62081778c67ecbe6823b5cb6959af48591b9))
 ## [0.5.4] - 2026-11-03
 
 ### Bug Fixes
