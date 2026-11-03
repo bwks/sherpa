@@ -3,7 +3,8 @@ use shared::data::{BridgeKind, DbLink, LinkImpairment, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{link_columns, link_from_row, link_values, new_key};
+use crate::persistence::{link_from_row, link_values, new_key};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Create a new link between two nodes
@@ -57,13 +58,7 @@ pub async fn create_link(
     let writer = db.writer().await?;
     let link = query_optional(
         &writer.conn,
-        concat!(
-            "INSERT INTO link (",
-            link_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19, ?20) RETURNING ",
-            link_columns!()
-        ),
+        queries::link::CREATE,
         link_values(&domain, &new_key())?,
         link_from_row,
     )

@@ -5,8 +5,9 @@ use turso::Connection;
 
 use crate::Database;
 use crate::persistence::{
-    BRIDGE_TABLE, LAB_TABLE, bridge_columns, bridge_from_row, bridge_member_from_row, key_of,
+    BRIDGE_TABLE, LAB_TABLE, bridge_from_row, bridge_member_from_row, key_of,
 };
+use crate::queries;
 use crate::sql::{query_all, query_optional};
 
 /// Load a bridge's members, in order, into `bridge`.
@@ -14,7 +15,7 @@ async fn with_members(conn: &Connection, mut bridge: DbBridge) -> Result<DbBridg
     let id = bridge.id.as_ref().context("Bridge record has no ID")?;
     let members: Vec<BridgeMember> = query_all(
         conn,
-        "SELECT node, interface FROM bridge_member WHERE bridge = ?1 ORDER BY position",
+        queries::bridge::LIST_MEMBERS,
         [key_of(id, BRIDGE_TABLE)?],
         bridge_member_from_row,
     )
@@ -41,7 +42,7 @@ pub async fn get_bridge(db: &Database, bridge_id: &RecordId) -> Result<DbBridge>
     let conn = db.reader().await?;
     let bridge = query_optional(
         &conn,
-        concat!("SELECT ", bridge_columns!(), " FROM bridge WHERE id = ?1"),
+        queries::bridge::FIND_BY_ID,
         [key_of(bridge_id, BRIDGE_TABLE)?],
         bridge_from_row,
     )
@@ -70,11 +71,7 @@ pub async fn get_bridge_by_index(db: &Database, index: u16, lab_id: &RecordId) -
     let conn = db.reader().await?;
     let bridge = query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            bridge_columns!(),
-            " FROM bridge WHERE \"index\" = ?1 AND lab = ?2"
-        ),
+        queries::bridge::FIND_BY_INDEX_AND_LAB,
         (index, key_of(lab_id, LAB_TABLE)?),
         bridge_from_row,
     )
@@ -104,11 +101,7 @@ pub async fn list_bridges(db: &Database, lab_id: &RecordId) -> Result<Vec<DbBrid
     let conn = db.reader().await?;
     let bridges = query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            bridge_columns!(),
-            " FROM bridge WHERE lab = ?1 ORDER BY \"index\""
-        ),
+        queries::bridge::LIST_BY_LAB,
         [key_of(lab_id, LAB_TABLE)?],
         bridge_from_row,
     )

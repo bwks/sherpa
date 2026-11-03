@@ -6,6 +6,7 @@ use turso::{Connection, Row};
 use crate::Database;
 use crate::node::read::select_node;
 use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of};
+use crate::queries;
 use crate::sql::{query_count, query_optional};
 
 fn deleted_key_from_row(row: &Row) -> Result<String> {
@@ -16,7 +17,7 @@ fn deleted_key_from_row(row: &Row) -> Result<String> {
 async fn delete_node_row(conn: &Connection, id: &RecordId) -> Result<()> {
     query_optional(
         conn,
-        "DELETE FROM node WHERE id = ?1 RETURNING id",
+        queries::node::DELETE_BY_ID,
         [key_of(id, NODE_TABLE)?],
         deleted_key_from_row,
     )
@@ -75,10 +76,7 @@ pub async fn delete_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<()> 
     let writer = db.writer().await?;
     writer
         .conn
-        .execute(
-            "DELETE FROM node WHERE lab = ?1",
-            [key_of(&lab_id, LAB_TABLE)?],
-        )
+        .execute(queries::node::DELETE_BY_LAB, [key_of(&lab_id, LAB_TABLE)?])
         .await
         .context(format!("Failed to delete nodes for lab: {:?}", lab_id))?;
 
@@ -103,7 +101,7 @@ pub async fn delete_node_links(db: &Database, node_id: RecordId) -> Result<()> {
     writer
         .conn
         .execute(
-            "DELETE FROM link WHERE node_a = ?1 OR node_b = ?1",
+            queries::link::DELETE_BY_NODE,
             [key_of(&node_id, NODE_TABLE)?],
         )
         .await
@@ -158,7 +156,7 @@ pub async fn delete_node_safe(db: &Database, id: RecordId) -> Result<()> {
     // Check for links (where node appears as either node_a or node_b)
     let links = query_count(
         &writer.conn,
-        "SELECT count(*) FROM link WHERE node_a = ?1 OR node_b = ?1",
+        queries::link::COUNT_BY_NODE,
         [key_of(&id, NODE_TABLE)?],
     )
     .await

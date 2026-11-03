@@ -5,9 +5,8 @@ use turso::Value;
 
 use crate::Database;
 use crate::node::read::select_node;
-use crate::persistence::{
-    NODE_TABLE, enum_text, json_text, key_of, node_columns, node_from_row, node_values,
-};
+use crate::persistence::{NODE_TABLE, enum_text, json_text, key_of, node_from_row, node_values};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Update an existing node in the database
@@ -54,13 +53,7 @@ pub async fn update_node(db: &Database, node: DbNode) -> Result<DbNode> {
 
     query_optional(
         &writer.conn,
-        concat!(
-            "UPDATE node SET name = ?2, \"index\" = ?3, image = ?4, lab = ?5, mgmt_ipv4 = ?6, \
-             mgmt_ipv6 = ?7, mgmt_mac = ?8, state = ?9, cpu_count = ?10, memory = ?11, \
-             vnc_port = ?12, ssh_host_key = ?13, cpu_pinning = ?14, qemu_thread_cpus = ?15 \
-             WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE,
         node_values(&node, &key)?,
         node_from_row,
     )
@@ -107,10 +100,7 @@ pub async fn update_node_mgmt_ipv4(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET mgmt_ipv4 = ?2 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_MGMT_IPV4,
         vec![mgmt_ipv4.into()],
         "mgmt_ipv4",
     )
@@ -139,10 +129,7 @@ pub async fn update_node_mgmt_ipv6(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET mgmt_ipv6 = ?2 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_MGMT_IPV6,
         vec![mgmt_ipv6.into()],
         "mgmt_ipv6",
     )
@@ -171,10 +158,7 @@ pub async fn update_node_mgmt_mac(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET mgmt_mac = ?2 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_MGMT_MAC,
         vec![mgmt_mac.into()],
         "mgmt_mac",
     )
@@ -203,10 +187,7 @@ pub async fn update_node_state(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET state = ?2 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_STATE,
         vec![enum_text(&state, "state")?.into()],
         "state",
     )
@@ -227,10 +208,7 @@ pub async fn update_node_host_key(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET ssh_host_key = ?2 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_SSH_HOST_KEY,
         vec![key.into()],
         "host key",
     )
@@ -252,11 +230,7 @@ pub async fn update_node_resources(
     update_columns(
         db,
         &node_id,
-        concat!(
-            "UPDATE node SET cpu_count = ?2, memory = ?3, vnc_port = ?4, cpu_pinning = ?5, \
-             qemu_thread_cpus = ?6 WHERE id = ?1 RETURNING ",
-            node_columns!()
-        ),
+        queries::node::UPDATE_RESOURCES,
         vec![
             resources.cpu_count.into(),
             resources.memory.into(),

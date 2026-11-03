@@ -1,7 +1,8 @@
 //! Mapping between the `shared::data` records and database rows.
 //!
-//! Each table has a column-list macro, so a query and the mapper that reads its rows always agree
-//! on the column order. Record ids are stored as their key; the table is implied by the column.
+//! The mappers read and write columns in the order of each table's `CREATE TABLE` in `sql/schema/`,
+//! which is the order the statements in `sql/queries/` list them. Record ids are stored as their
+//! key; the table is implied by the column.
 use anyhow::{Context, Result, bail};
 use jiff::Timestamp;
 use rand::Rng;
@@ -20,58 +21,6 @@ pub(crate) const NODE_TABLE: &str = "node";
 pub(crate) const NODE_IMAGE_TABLE: &str = "node_image";
 pub(crate) const LINK_TABLE: &str = "link";
 pub(crate) const BRIDGE_TABLE: &str = "bridge";
-
-macro_rules! lab_columns {
-    () => {
-        "id, lab_id, name, user, loopback_network, management_network, gateway_ipv4, \
-         router_ipv4, tailscale_container_id, management_network_v6, gateway_ipv6, router_ipv6, \
-         loopback_network_v6, status"
-    };
-}
-
-macro_rules! node_columns {
-    () => {
-        "id, name, \"index\", image, lab, mgmt_ipv4, mgmt_ipv6, mgmt_mac, state, cpu_count, \
-         memory, vnc_port, ssh_host_key, cpu_pinning, qemu_thread_cpus"
-    };
-}
-
-macro_rules! link_columns {
-    () => {
-        "id, \"index\", kind, node_a, node_b, int_a, int_b, lab, tap_a, tap_b, \
-         a_to_b_delay_us, a_to_b_jitter_us, a_to_b_loss_percent, a_to_b_reorder_percent, \
-         a_to_b_corrupt_percent, b_to_a_delay_us, b_to_a_jitter_us, b_to_a_loss_percent, \
-         b_to_a_reorder_percent, b_to_a_corrupt_percent"
-    };
-}
-
-macro_rules! bridge_columns {
-    () => {
-        "id, \"index\", bridge_name, network_name, lab"
-    };
-}
-
-macro_rules! bridge_member_columns {
-    () => {
-        "bridge, position, node, interface"
-    };
-}
-
-macro_rules! node_image_columns {
-    () => {
-        "id, model, version, repo, os_variant, kind, bios, cpu_count, cpu_architecture, \
-         cpu_model, machine_type, vmx_enabled, memory, hdd_bus, cdrom, cdrom_bus, ztp_enable, \
-         ztp_method, ztp_username, ztp_password, ztp_password_auth, data_interface_count, \
-         interface_prefix, interface_type, interface_mtu, first_interface_index, \
-         dedicated_management_interface, management_interface, reserved_interface_count, \
-         \"default\", boot_mode"
-    };
-}
-
-pub(crate) use {
-    bridge_columns, bridge_member_columns, lab_columns, link_columns, node_columns,
-    node_image_columns,
-};
 
 /// Reads a row's columns in order, naming each field in errors.
 pub(crate) struct Cells<'a> {
@@ -274,7 +223,7 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
     })
 }
 
-/// A lab's column values in `lab_columns!` order, under `key`.
+/// A lab's column values in the `lab` table's column order, under `key`.
 pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
     Ok(vec![
         key.into(),
@@ -315,7 +264,7 @@ pub(crate) fn node_from_row(row: &Row) -> Result<DbNode> {
     })
 }
 
-/// A node's column values in `node_columns!` order, under `key`.
+/// A node's column values in the `node` table's column order, under `key`.
 pub(crate) fn node_values(node: &DbNode, key: &str) -> Result<Vec<Value>> {
     Ok(vec![
         key.into(),
@@ -382,7 +331,7 @@ pub(crate) fn link_from_row(row: &Row) -> Result<DbLink> {
     })
 }
 
-/// A link's column values in `link_columns!` order, under `key`.
+/// A link's column values in the `link` table's column order, under `key`.
 pub(crate) fn link_values(link: &DbLink, key: &str) -> Result<Vec<Value>> {
     let mut values = vec![
         key.into(),
@@ -414,7 +363,7 @@ pub(crate) fn bridge_from_row(row: &Row) -> Result<DbBridge> {
     })
 }
 
-/// A bridge's column values in `bridge_columns!` order, under `key`.
+/// A bridge's column values in the `bridge` table's column order, under `key`.
 pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<Vec<Value>> {
     Ok(vec![
         key.into(),
@@ -425,7 +374,7 @@ pub(crate) fn bridge_values(bridge: &DbBridge, key: &str) -> Result<Vec<Value>> 
     ])
 }
 
-/// A bridge member, from a row of `bridge_member_columns!` without the bridge and position.
+/// A bridge member, from a row of its node and interface.
 pub(crate) fn bridge_member_from_row(row: &Row) -> Result<BridgeMember> {
     let mut cells = Cells::new(row);
     Ok(BridgeMember {
@@ -434,7 +383,7 @@ pub(crate) fn bridge_member_from_row(row: &Row) -> Result<BridgeMember> {
     })
 }
 
-/// A bridge member's column values in `bridge_member_columns!` order.
+/// A bridge member's column values in the `bridge_member` table's column order.
 pub(crate) fn bridge_member_values(
     member: &BridgeMember,
     bridge_key: &str,
@@ -487,7 +436,7 @@ pub(crate) fn node_image_from_row(row: &Row) -> Result<NodeConfig> {
     })
 }
 
-/// A node image's column values in `node_image_columns!` order, under `key`.
+/// A node image's column values in the `node_image` table's column order, under `key`.
 pub(crate) fn node_image_values(image: &NodeConfig, key: &str) -> Result<Vec<Value>> {
     Ok(vec![
         key.into(),

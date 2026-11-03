@@ -5,7 +5,8 @@ use shared::data::{DbNode, NodeState, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{new_key, node_columns, node_from_row, node_values};
+use crate::persistence::{new_key, node_from_row, node_values};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Create a new node in the database.
@@ -63,13 +64,7 @@ pub async fn create_node(
     let writer = db.writer().await?;
     let node = query_optional(
         &writer.conn,
-        concat!(
-            "INSERT INTO node (",
-            node_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
-             RETURNING ",
-            node_columns!()
-        ),
+        queries::node::CREATE,
         node_values(&domain, &new_key())?,
         node_from_row,
     )

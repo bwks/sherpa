@@ -1,0 +1,3 @@
+DELETE FROM lab
+WHERE lab_id = ?1
+RETURNING id

@@ -6,6 +6,7 @@ use crate::Database;
 use crate::helpers::get_image_id;
 use crate::node_image::create::replace_node_image;
 use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of};
+use crate::queries;
 
 /// Update an existing node_image record in the database
 ///
@@ -40,7 +41,7 @@ pub async fn update_node_image(db: &Database, config: NodeConfig) -> Result<Node
     // If setting default=true, unset default on other versions of same (model, kind)
     if config.default {
         tx.execute(
-            "UPDATE node_image SET \"default\" = 0 WHERE model = ?1 AND kind = ?2 AND id != ?3",
+            queries::node_image::CLEAR_DEFAULT_EXCEPT_ID,
             (
                 enum_text(&config.model, "model")?,
                 enum_text(&config.kind, "kind")?,

@@ -5,9 +5,9 @@ use turso::Connection;
 
 use crate::Database;
 use crate::persistence::{
-    NODE_IMAGE_TABLE, enum_text, key_of, new_key, node_image_columns, node_image_from_row,
-    node_image_values,
+    NODE_IMAGE_TABLE, enum_text, key_of, new_key, node_image_from_row, node_image_values,
 };
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Create a node_image record in the database with auto-generated ID
@@ -38,7 +38,7 @@ pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<Node
     // If setting default=true, first unset default on other versions of same (model, kind)
     if config.default {
         tx.execute(
-            "UPDATE node_image SET \"default\" = 0 WHERE model = ?1 AND kind = ?2 AND version != ?3",
+            queries::node_image::CLEAR_DEFAULT_EXCEPT_VERSION,
             (model.as_str(), kind.as_str(), config.version.as_str()),
         )
         .await
@@ -51,11 +51,7 @@ pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<Node
     // Try to find existing config by (model, kind, version) using the unique constraint
     let existing = query_optional(
         &tx,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE model = ?1 AND kind = ?2 AND version = ?3"
-        ),
+        queries::node_image::FIND_BY_MODEL_KIND_VERSION,
         (model.as_str(), kind.as_str(), config.version.as_str()),
         node_image_from_row,
     )
@@ -95,13 +91,7 @@ pub async fn upsert_node_image(db: &Database, config: NodeConfig) -> Result<Node
 async fn insert_node_image(conn: &Connection, config: &NodeConfig) -> Result<NodeConfig> {
     let created = query_optional(
         conn,
-        concat!(
-            "INSERT INTO node_image (",
-            node_image_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, \
-             ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31) RETURNING ",
-            node_image_columns!()
-        ),
+        queries::node_image::CREATE,
         node_image_values(config, &new_key())?,
         node_image_from_row,
     )
@@ -129,18 +119,7 @@ pub(crate) async fn replace_node_image(
 ) -> Result<Option<NodeConfig>> {
     query_optional(
         conn,
-        concat!(
-            "UPDATE node_image SET model = ?2, version = ?3, repo = ?4, os_variant = ?5, \
-             kind = ?6, bios = ?7, cpu_count = ?8, cpu_architecture = ?9, cpu_model = ?10, \
-             machine_type = ?11, vmx_enabled = ?12, memory = ?13, hdd_bus = ?14, cdrom = ?15, \
-             cdrom_bus = ?16, ztp_enable = ?17, ztp_method = ?18, ztp_username = ?19, \
-             ztp_password = ?20, ztp_password_auth = ?21, data_interface_count = ?22, \
-             interface_prefix = ?23, interface_type = ?24, interface_mtu = ?25, \
-             first_interface_index = ?26, dedicated_management_interface = ?27, \
-             management_interface = ?28, reserved_interface_count = ?29, \"default\" = ?30, \
-             boot_mode = ?31 WHERE id = ?1 RETURNING ",
-            node_image_columns!()
-        ),
+        queries::node_image::UPDATE,
         node_image_values(config, key)?,
         node_image_from_row,
     )
