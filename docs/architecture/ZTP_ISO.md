@@ -2,9 +2,8 @@
 
 How Sherpa builds the CD-ROM images that carry a VM node's first-boot configuration: NoCloud
 seeds for cloud-init, cloudbase-init and Talos, the ZTP config ISOs network operating systems
-read, and the PAN-OS bootstrap ISO. The writer is `create_iso` in
-`crates/shared/src/util/iso.rs`; its constants are the `ISO_*` entries in
-`crates/shared/src/konst.rs`. It replaced a call to the `genisoimage` command and writes the
+read, and the PAN-OS bootstrap ISO. The writer and its constants are in
+`crates/shared/src/util/iso.rs`; the two volume labels are in `crates/shared/src/konst.rs`. It replaced a call to the `genisoimage` command and writes the
 same structure, so Sherpa needs no ISO tooling on the server.
 
 ## Callers

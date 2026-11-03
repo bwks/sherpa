@@ -12,13 +12,48 @@ use jiff::Timestamp;
 use jiff::tz::TimeZone;
 use tracing::instrument;
 
-use crate::konst::{
-    ISO_APPLICATION_ID, ISO_DIR_MODE, ISO_FILE_MODE, ISO_JOLIET_ESCAPE, ISO_JOLIET_RESERVED,
-    ISO_MAX_DEPTH, ISO_MAX_JOLIET_UNITS, ISO_MAX_JOLIET_VOLUME_ID_UNITS, ISO_MAX_NAME_BYTES,
-    ISO_MAX_VOLUME_ID_BYTES, ISO_PADDING_SECTORS, ISO_RR_FLAGS_DOT, ISO_RR_FLAGS_NAMED,
-    ISO_RRIP_DESCRIPTOR, ISO_RRIP_ID, ISO_RRIP_SOURCE, ISO_SECTOR_SIZE, ISO_STANDARD_ID,
-    ISO_SYSTEM_AREA_SECTORS, ISO_SYSTEM_ID, ISO_TF_FLAGS,
-};
+/// ISO 9660 logical sector (and block) size.
+const ISO_SECTOR_SIZE: usize = 2048;
+/// Sectors before the volume descriptors, left zeroed.
+const ISO_SYSTEM_AREA_SECTORS: u32 = 16;
+/// Zeroed sectors after the last file, as `genisoimage` pads by default for drives that read
+/// ahead past the end of the data.
+const ISO_PADDING_SECTORS: u32 = 150;
+/// Directory levels ISO 9660 allows, the root included.
+const ISO_MAX_DEPTH: usize = 8;
+/// Longest primary-tree name, before the `.` and `;1` the writer adds.
+const ISO_MAX_NAME_BYTES: usize = 31;
+/// Longest Joliet name, in UTF-16 code units.
+const ISO_MAX_JOLIET_UNITS: usize = 64;
+/// Longest primary volume label, in bytes.
+const ISO_MAX_VOLUME_ID_BYTES: usize = 32;
+/// Longest Joliet volume label, in UTF-16 code units.
+const ISO_MAX_JOLIET_VOLUME_ID_UNITS: usize = 16;
+/// Standard identifier every volume descriptor carries.
+const ISO_STANDARD_ID: &[u8] = b"CD001";
+/// System identifier written to the volume descriptors.
+const ISO_SYSTEM_ID: &str = "LINUX";
+/// Application identifier written to the volume descriptors.
+const ISO_APPLICATION_ID: &str = "SHERPA";
+/// Escape sequence that marks a supplementary descriptor as Joliet, UCS-2 level 3.
+const ISO_JOLIET_ESCAPE: &[u8] = b"%/E";
+/// Characters Joliet names may not contain; the writer replaces them with `_`.
+const ISO_JOLIET_RESERVED: [char; 6] = ['*', '/', ':', ';', '?', '\\'];
+/// Rock Ridge mode of every directory: read and search for all.
+const ISO_DIR_MODE: u32 = 0o040555;
+/// Rock Ridge mode of every file: read-only for all.
+const ISO_FILE_MODE: u32 = 0o100444;
+/// Rock Ridge `RR` flags on `.` and `..`: `PX` and `TF` follow.
+const ISO_RR_FLAGS_DOT: u8 = 0x81;
+/// Rock Ridge `RR` flags on named entries: `PX`, `NM` and `TF` follow.
+const ISO_RR_FLAGS_NAMED: u8 = 0x89;
+/// Rock Ridge `TF` flags: modify, access and attribute-change times follow.
+const ISO_TF_FLAGS: u8 = 0x0e;
+/// Rock Ridge extension identifier, descriptor and source, in the root's `ER` entry.
+const ISO_RRIP_ID: &[u8] = b"RRIP_1991A";
+const ISO_RRIP_DESCRIPTOR: &[u8] =
+    b"THE ROCK RIDGE INTERCHANGE PROTOCOL PROVIDES SUPPORT FOR POSIX FILE SYSTEM SEMANTICS";
+const ISO_RRIP_SOURCE: &[u8] = b"PLEASE CONTACT DISC PUBLISHER FOR SPECIFICATION SOURCE.  SEE PUBLISHER IDENTIFIER IN PRIMARY VOLUME DESCRIPTOR FOR CONTACT INFORMATION.";
 
 /// The two directory trees on an image. Both point at the same file data.
 #[derive(Clone, Copy, PartialEq)]
@@ -811,10 +846,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::konst::{
-        ISO_DIR_MODE, ISO_FILE_MODE, ISO_PADDING_SECTORS, ISO_RRIP_ID, ISO_SECTOR_SIZE,
-        PALOALTO_BOOTSTRAP_VOLUME_ID, ZTP_ISO, ZTP_ISO_VOLUME_ID,
-    };
+    use crate::konst::{PALOALTO_BOOTSTRAP_VOLUME_ID, ZTP_ISO, ZTP_ISO_VOLUME_ID};
 
     const META_DATA: &str = "instance-id: iid-node1\nlocal-hostname: node1\n";
     const USER_DATA: &str = "#cloud-config\nhostname: node1\n";
