@@ -249,6 +249,9 @@
     <channel type='unix'>
       <target type='virtio' name='org.qemu.guest_agent.0'/>
     </channel>
+{% if let Some(action) = watchdog %}
+    <watchdog model='i6300esb' action='{{ action }}'/>
+{% endif %}
 
     {# <input type='mouse' bus='ps2'/>
     <input type='keyboard' bus='ps2'/> #}

@@ -12,16 +12,6 @@ use super::helpers::{enum_rule, rule_triggers};
 
 const TABLE: &str = "node_image";
 
-/// Corrects node images written with an old default: `cisco_csr1000v` and `cisco_iosvl2` once
-/// defaulted to 16 data interfaces, one more than they have after the management interface, so
-/// `sherpa up` failed on them. Run as schema migration 2, and by the importer after it writes node
-/// images from a server older than 0.5.0. Released migrations never change, so the model names are
-/// written out rather than derived.
-pub(crate) const FIX_DATA_INTERFACE_COUNTS: &str = "
-UPDATE node_image SET data_interface_count = 15
-WHERE model IN ('cisco_csr1000v', 'cisco_iosvl2') AND data_interface_count > 15;
-";
-
 pub(crate) const TABLES: &str = include_str!("../../sql/schema/node_image.sql");
 
 /// The triggers checking the enum columns against the current Rust enums.

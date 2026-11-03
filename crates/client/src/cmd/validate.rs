@@ -10,8 +10,8 @@ use topology::Manifest;
 use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, check_performance_tuning, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, check_watchdog, validate_provisioners,
+    validate_tailscale, validate_talos_clusters,
 };
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
@@ -84,6 +84,7 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     for node in &nodes_expanded {
         let node_image = get_node_image(&node.model, &node_images)?;
         check_performance_tuning(node, &node_image)?;
+        check_watchdog(node, &node_image)?;
     }
     let pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()

@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use gethostname::gethostname;
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
@@ -78,6 +79,11 @@ pub async fn up(
     let manifest_dir = Path::new(manifest_path).parent().unwrap_or(Path::new("."));
     let node_secrets = container_secrets(&manifest, manifest_dir)?;
 
+    // Where the lab is started from, stored with it and shown by `sherpa inspect`.
+    let client_host = gethostname().to_string_lossy().into_owned();
+    let client_host = (!client_host.is_empty()).then_some(client_host);
+    let client_folder = get_cwd().context("Failed to read the current folder")?;
+
     // Serialize manifest to JSON for transmission
     let manifest_value =
         serde_json::to_value(&manifest).context("Failed to serialize manifest to JSON")?;
@@ -107,6 +113,8 @@ pub async fn up(
             "manifest": manifest_value,
             "tailscale_auth_key": tailscale_auth_key,
             "node_secrets": node_secrets,
+            "client_host": client_host,
+            "client_folder": client_folder,
             "token": token,
         }),
     );

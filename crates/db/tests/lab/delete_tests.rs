@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    count_labs, create_lab, create_node_image, create_user, delete_lab, delete_lab_by_id,
-    delete_lab_cascade, delete_lab_safe, get_lab,
+    LabOrigin, count_labs, create_lab, create_node_image, create_user, delete_lab,
+    delete_lab_by_id, delete_lab_cascade, delete_lab_safe, get_lab,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
@@ -23,6 +23,7 @@ async fn test_delete_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -52,6 +53,7 @@ async fn test_delete_lab_by_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab_id = lab.id.unwrap();
@@ -93,6 +95,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -106,6 +109,7 @@ async fn test_delete_lab_decreases_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -136,6 +140,7 @@ async fn test_delete_lab_cascade_removes_nodes() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -176,6 +181,7 @@ async fn test_delete_lab_safe_with_nodes_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -219,6 +225,7 @@ async fn test_delete_lab_safe_empty_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -248,6 +255,7 @@ async fn test_delete_lab_cascade_full() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -290,6 +298,7 @@ async fn test_delete_lab_with_cascade_in_schema() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 

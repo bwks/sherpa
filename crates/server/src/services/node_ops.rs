@@ -2778,6 +2778,7 @@ pub fn build_domain_template(
         video_model: video_model.to_owned(),
         video_vram,
         vnc_port,
+        watchdog: node.watchdog,
     })
 }
 

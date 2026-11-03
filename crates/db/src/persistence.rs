@@ -220,6 +220,8 @@ pub(crate) fn lab_from_row(row: &Row) -> Result<DbLab> {
         router_ipv6: cells.optional_text("router_ipv6")?,
         loopback_network_v6: cells.optional_text("loopback_network_v6")?,
         status: cells.enumeration("status")?,
+        client_host: cells.optional_text("client_host")?,
+        client_folder: cells.optional_text("client_folder")?,
     })
 }
 
@@ -240,6 +242,8 @@ pub(crate) fn lab_values(lab: &DbLab, key: &str) -> Result<Vec<Value>> {
         lab.router_ipv6.as_deref().into(),
         lab.loopback_network_v6.as_deref().into(),
         enum_text(&lab.status, "status")?.into(),
+        lab.client_host.as_deref().into(),
+        lab.client_folder.as_deref().into(),
     ])
 }
 

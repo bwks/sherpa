@@ -3769,6 +3769,8 @@ pub async fn lab_create_post_handler(
         manifest: manifest_value,
         tailscale_auth_key: None,
         node_secrets: BTreeMap::new(),
+        client_host: None,
+        client_folder: None,
     };
 
     let job_id = uuid::Uuid::new_v4().to_string();

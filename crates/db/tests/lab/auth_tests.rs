@@ -1,6 +1,6 @@
 /// Authentication/authorization tests for lab operations
 use anyhow::Result;
-use db::{create_lab, create_user, get_lab_owner_username};
+use db::{LabOrigin, create_lab, create_user, get_lab_owner_username};
 
 use crate::{ipv4_lab_networks, setup_db};
 
@@ -23,6 +23,7 @@ async fn test_get_lab_owner_username() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 

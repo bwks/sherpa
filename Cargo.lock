@@ -1244,7 +1244,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "async-compression",
@@ -1600,7 +1600,7 @@ checksum = "d7a1e2f27636f116493b8b860f5546edb47c8d8f8ea73e1d2a20be88e28d1fea"
 
 [[package]]
 name = "db"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "ipnet",
@@ -2420,6 +2420,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5a7f08910fd98737a6eda7568e7c5e645093e073328eeef49758cfe8b0489c7"
 dependencies = [
  "libm",
+]
+
+[[package]]
+name = "gethostname"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bd49230192a3797a9a4d6abe9b3eed6f7fa4c8a8a4947977c6f80025f92cbd8"
+dependencies = [
+ "rustix 1.1.4",
+ "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -3250,7 +3260,7 @@ checksum = "a6cb138bb79a146c1bd460005623e142ef0181e3d0219cb493e02f7d08a35695"
 
 [[package]]
 name = "iso"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "jiff",
@@ -3494,7 +3504,7 @@ dependencies = [
 
 [[package]]
 name = "libvirt"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "askama",
@@ -3865,7 +3875,7 @@ dependencies = [
 
 [[package]]
 name = "network"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "aya",
@@ -6274,7 +6284,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -6326,7 +6336,7 @@ dependencies = [
 
 [[package]]
 name = "sherpa"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "askama",
@@ -6336,6 +6346,7 @@ dependencies = [
  "dirs",
  "futures",
  "futures-util",
+ "gethostname",
  "jato",
  "jiff",
  "rand 0.8.5",
@@ -6361,7 +6372,7 @@ dependencies = [
 
 [[package]]
 name = "sherpad"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "askama",
@@ -7113,7 +7124,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "82a72c767771b47409d2345987fda8628641887d5466101319899796367354a0"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
  "windows-sys 0.61.2",
@@ -7121,7 +7132,7 @@ dependencies = [
 
 [[package]]
 name = "template"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "askama",
@@ -7482,7 +7493,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.5.5"
+version = "0.5.6"
 dependencies = [
  "anyhow",
  "serde",

@@ -79,6 +79,18 @@
             <span class="block text-base text-heading font-mono">{{ ipv6_router }}</span>
         </div>
         {% endif %}
+        {% if let Some(client_host) = lab_info.client_host %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Client Host</span>
+            <span class="block text-base text-heading font-mono break-all">{{ client_host }}</span>
+        </div>
+        {% endif %}
+        {% if let Some(client_folder) = lab_info.client_folder %}
+        <div class="flex flex-col gap-1">
+            <span class="block text-sm font-medium text-muted mb-1">Client Folder</span>
+            <span class="block text-base text-heading font-mono break-all">{{ client_folder }}</span>
+        </div>
+        {% endif %}
     </div>
 </div>
 

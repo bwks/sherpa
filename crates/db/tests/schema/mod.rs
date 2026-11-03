@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use crate::{create_test_node_with_model, ipv4_lab_networks, setup_db};
 use db::{
-    apply_schema, count_users, create_bridge, create_lab, create_link, create_node_image,
-    create_user, list_links_by_lab, update_link,
+    LabOrigin, apply_schema, count_users, create_bridge, create_lab, create_link,
+    create_node_image, create_user, list_links_by_lab, update_link,
 };
 use shared::data::{BridgeKind, BridgeMember, LinkImpairment, NodeConfig, NodeModel};
 
@@ -61,6 +61,7 @@ async fn test_schema_creates_all_tables() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -134,6 +135,7 @@ async fn test_link_impairments_survive_schema_reapply() -> Result<()> {
             "172.31.4.1",
             "172.31.4.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab_rid = lab.id.clone().expect("lab has id");

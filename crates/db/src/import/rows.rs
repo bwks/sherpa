@@ -197,6 +197,9 @@ impl TryFrom<LabRow> for DbLab {
             router_ipv6: value.router_ipv6,
             loopback_network_v6: value.loopback_network_v6,
             status: decode(value.status, "status")?,
+            // Releases before 0.5.0 did not record where a lab was started from.
+            client_host: None,
+            client_folder: None,
         })
     }
 }

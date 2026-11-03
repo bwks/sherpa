@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    count_links, count_links_by_lab, create_lab, create_link, create_node, create_node_image,
-    create_user, get_link, get_link_by_peers,
+    LabOrigin, count_links, count_links_by_lab, create_lab, create_link, create_node,
+    create_node_image, create_user, get_link, get_link_by_peers,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
@@ -24,6 +24,7 @@ async fn test_create_link_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -87,6 +88,7 @@ async fn test_create_link_with_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -144,6 +146,7 @@ async fn test_create_link_duplicate_peers_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -226,6 +229,7 @@ async fn test_create_link_different_interfaces_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -301,6 +305,7 @@ async fn test_create_link_with_bridge_kinds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -382,6 +387,7 @@ async fn test_create_link_increments_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -459,6 +465,7 @@ async fn test_create_link_can_retrieve_by_peers() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -527,6 +534,7 @@ async fn test_create_link_can_retrieve_by_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

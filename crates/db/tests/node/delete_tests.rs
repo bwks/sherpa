@@ -1,8 +1,8 @@
 use anyhow::Result;
 use db::{
-    count_nodes, count_nodes_by_lab, create_lab, create_link, create_node, create_node_image,
-    create_user, delete_node, delete_node_by_id, delete_node_cascade, delete_node_safe,
-    delete_nodes_by_lab, get_node,
+    LabOrigin, count_nodes, count_nodes_by_lab, create_lab, create_link, create_node,
+    create_node_image, create_user, delete_node, delete_node_by_id, delete_node_cascade,
+    delete_node_safe, delete_nodes_by_lab, get_node,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel, RecordId};
 
@@ -24,6 +24,7 @@ async fn test_delete_node_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -58,6 +59,7 @@ async fn test_delete_node_by_id_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -117,6 +119,7 @@ async fn test_delete_node_decrements_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -167,6 +170,7 @@ async fn test_delete_nodes_by_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -225,6 +229,7 @@ async fn test_delete_nodes_by_lab_only_affects_one_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -238,6 +243,7 @@ async fn test_delete_nodes_by_lab_only_affects_one_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -296,6 +302,7 @@ async fn test_delete_node_safe_with_no_links_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -337,6 +344,7 @@ async fn test_delete_node_safe_with_links_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -407,6 +415,7 @@ async fn test_delete_node_cascade_with_links_succeeds() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -475,6 +484,7 @@ async fn test_delete_node_cascade_deletes_multiple_links() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

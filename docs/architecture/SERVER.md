@@ -970,6 +970,23 @@ There is no `memoryBacking` setting. `scripts/sherpa_install.sh` sets THP to `ma
 is `always`, now and on boot through `/etc/tmpfiles.d/sherpa-thp.conf`; the uninstall script
 removes that rule.
 
+### VM hardware watchdog
+
+A VM has an i6300esb watchdog only when its node sets `watchdog` (`shared::data::WatchdogAction`,
+libvirt's action names). `node_ops::build_domain_template` copies it to
+`DomainTemplate::watchdog`, and the domain renders `<watchdog model='i6300esb' action='...'/>`
+for it. `topology::validate::check_watchdog` (client `validate`, server `up` and `redeploy`)
+refuses it on containers and unikernels. Nothing is stored: the domain keeps it across down and
+resume, and `redeploy` reads it from the manifest again.
+
+libvirt (10.0 on Ubuntu 24.04) also lists the q35 chipset's iTCO watchdog on every q35 domain,
+`<watchdog model='itco'>`, with the same action, which QEMU applies to all watchdogs: `reset`
+without `watchdog`. Sherpa does not add or remove it; it acts only if the guest arms it.
+
+VMs once all had a `reset` watchdog. Cisco IOS arms it at boot and feeds it only after an init
+phase that, under nested KVM, outlasts the timeout, so those VMs reset in a loop; it was removed
+from the default domain for that reason.
+
 ### Container data interfaces
 
 Every `[[links]]` link is a P2p (eBPF) link. A container with a link takes all its data

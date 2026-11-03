@@ -31,6 +31,13 @@ pub struct DbLab {
     pub loopback_network_v6: Option<String>,
     #[serde(default)]
     pub status: LabState,
+    /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
+    /// have none.
+    #[serde(default)]
+    pub client_host: Option<String>,
+    /// The folder `sherpa up` ran in, on that machine.
+    #[serde(default)]
+    pub client_folder: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

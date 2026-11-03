@@ -3,7 +3,7 @@ use askama::Template;
 use shared::data::{
     BiosTypes, ConnectionTypes, CpuArchitecture, CpuModels, CpuTopology, DiskBuses, DiskCache,
     DiskDevices, DiskDrivers, DiskFormats, DiskIo, DiskTargets, Interface, InterfaceType,
-    MachineType, NodeDisk,
+    MachineType, NodeDisk, WatchdogAction,
 };
 use template::{DomainTemplate, DomainTuning};
 
@@ -53,6 +53,7 @@ fn base_domain_template() -> DomainTemplate {
         cpu_features: vec![],
         vnc_port: 5905,
         tuning: DomainTuning::default(),
+        watchdog: None,
     }
 }
 
@@ -85,9 +86,21 @@ fn test_domain_vnc_console_has_a_fixed_port() {
 fn test_domain_has_no_watchdog() {
     // Cisco IOS images arm an i6300esb watchdog early in boot and feed it only after a long init
     // phase; when that phase outlasts the timeout, as it does on every boot under nested KVM, a
-    // reset-action watchdog restarts the VM in a loop. No node model needs one.
+    // reset-action watchdog restarts the VM in a loop. So a VM has one only when its node asks.
     let xml = base_domain_template().render().unwrap();
     assert!(!xml.contains("<watchdog"), "{xml}");
+}
+
+#[test]
+fn test_domain_has_the_watchdog_its_node_sets() {
+    let mut domain = base_domain_template();
+    domain.watchdog = Some(WatchdogAction::InjectNmi);
+    let xml = domain.render().unwrap();
+    assert!(
+        xml.contains("<watchdog model='i6300esb' action='inject-nmi'/>"),
+        "{xml}"
+    );
+    assert_eq!(xml.matches("<watchdog").count(), 1, "{xml}");
 }
 
 #[test]

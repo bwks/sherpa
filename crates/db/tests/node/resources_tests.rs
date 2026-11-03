@@ -1,7 +1,8 @@
 use anyhow::Result;
 use db::{
-    create_lab, create_node, create_node_image, create_user, get_node, list_pinned_nodes,
-    list_vnc_ports, update_node_host_key, update_node_resources, update_node_state,
+    LabOrigin, create_lab, create_node, create_node_image, create_user, get_node,
+    list_pinned_nodes, list_vnc_ports, update_node_host_key, update_node_resources,
+    update_node_state,
 };
 use shared::data::{NodeConfig, NodeModel, NodeResources, NodeState};
 
@@ -20,6 +21,7 @@ async fn lab_with_nodes(db: &db::Database, count: u16) -> Result<Vec<shared::dat
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let image = create_node_image(db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

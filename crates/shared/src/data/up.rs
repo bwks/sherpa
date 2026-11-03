@@ -19,6 +19,12 @@ pub struct UpRequest {
     /// manifest, and never stored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub node_secrets: BTreeMap<String, Vec<SecretFile>>,
+    /// The hostname of the machine `sherpa up` runs on, stored with the lab. Sent only by the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_host: Option<String>,
+    /// The folder `sherpa up` runs in, stored with the lab. Sent only by the CLI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_folder: Option<String>,
 }
 
 /// Response type for lab startup operation

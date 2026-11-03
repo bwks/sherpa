@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_image, create_user,
-    get_node, get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab,
+    LabOrigin, count_nodes, count_nodes_by_lab, create_lab, create_node, create_node_image,
+    create_user, get_node, get_node_by_id, get_node_by_name_and_lab, list_nodes, list_nodes_by_lab,
 };
 use shared::data::{NodeConfig, NodeModel, RecordId};
 
@@ -23,6 +23,7 @@ async fn test_get_node_by_id_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -72,6 +73,7 @@ async fn test_get_node_by_name_and_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -110,6 +112,7 @@ async fn test_get_node_by_name_and_lab_not_found() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -153,6 +156,7 @@ async fn test_list_nodes_returns_all() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -206,6 +210,7 @@ async fn test_list_nodes_by_lab_empty() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -232,6 +237,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -245,6 +251,7 @@ async fn test_list_nodes_by_lab_filters_correctly() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;
@@ -313,6 +320,7 @@ async fn test_count_nodes_accurate() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -352,6 +360,7 @@ async fn test_count_nodes_by_lab_zero() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -378,6 +387,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -391,6 +401,7 @@ async fn test_count_nodes_by_lab_accurate() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::CiscoIosv)).await?;

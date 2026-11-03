@@ -377,6 +377,18 @@ pub fn render_lab_info_table(lab_info: &LabInfo) -> String {
             value: ipv6_rtr.to_string(),
         });
     }
+    if let Some(ref host) = lab_info.client_host {
+        rows.push(LabInfoTableRow {
+            property: "Client Host".to_string(),
+            value: host.clone(),
+        });
+    }
+    if let Some(ref folder) = lab_info.client_folder {
+        rows.push(LabInfoTableRow {
+            property: "Client Folder".to_string(),
+            value: folder.clone(),
+        });
+    }
 
     Table::new(rows)
         .with(Style::modern())
@@ -1047,6 +1059,8 @@ mod tests {
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
+            client_host: None,
+            client_folder: None,
         };
 
         let table = render_lab_info_table(&lab_info);
@@ -1072,6 +1086,33 @@ mod tests {
 
         // Print the table for visual verification
         println!("\n{}", table);
+        assert!(!table.contains("Client"), "{table}");
+    }
+
+    #[test]
+    fn lab_info_table_shows_where_the_lab_was_started() {
+        let lab_info = LabInfo {
+            ssh_usernames: Default::default(),
+            id: "039ab286".to_string(),
+            name: "core".to_string(),
+            user: "alice".to_string(),
+            ipv4_network: "172.31.0.0/24".parse().unwrap(),
+            ipv4_gateway: "172.31.0.1".parse().unwrap(),
+            ipv4_router: "172.31.0.2".parse().unwrap(),
+            loopback_network: "127.127.1.0/24".parse().unwrap(),
+            ipv6_network: None,
+            ipv6_gateway: None,
+            ipv6_router: None,
+            client_host: Some("dev01".to_string()),
+            client_folder: Some("/home/alice/labs/core".to_string()),
+        };
+
+        let table = render_lab_info_table(&lab_info);
+
+        assert!(table.contains("Client Host"), "{table}");
+        assert!(table.contains("dev01"), "{table}");
+        assert!(table.contains("Client Folder"), "{table}");
+        assert!(table.contains("/home/alice/labs/core"), "{table}");
     }
 
     #[test]

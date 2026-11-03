@@ -32,7 +32,7 @@ use crate::services::node_resources;
 use crate::services::node_secrets::write_node_secrets;
 use crate::validate::{
     reject_provisioners, validate_and_resolve_node_versions, validate_environment_variables,
-    validate_node_secrets,
+    validate_lab_origin, validate_node_secrets,
 };
 use shared::data;
 use shared::data::{
@@ -56,7 +56,7 @@ use topology::find_talos_cluster;
 use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, check_performance_tuning, validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, check_watchdog, validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -283,6 +283,7 @@ pub(crate) fn process_manifest_nodes(
             kernel_cmdline: node.kernel_cmdline.clone(),
             ready_port: node.ready_port,
             performance_tuning: node.performance_tuning.clone(),
+            watchdog: node.watchdog,
         })
         .collect()
 }
@@ -475,10 +476,11 @@ async fn reserve_lab_networks(
     lab_name: &str,
     lab_id: &str,
     user: &data::DbUser,
+    origin: &db::LabOrigin,
 ) -> Result<(data::DbLab, LabSubnets)> {
     for attempt in 1..=LAB_SUBNET_ALLOCATION_ATTEMPTS {
         let networks = allocate_lab_networks(db, config).await?;
-        match db::create_lab(db, lab_name, lab_id, user, &lab_networks(&networks)).await {
+        match db::create_lab(db, lab_name, lab_id, user, &lab_networks(&networks), origin).await {
             Ok(lab) => {
                 tracing::info!(
                     lab_id = %lab_id,
@@ -531,6 +533,15 @@ pub async fn up_lab(
     reject_provisioners(&manifest).context("Manifest validation failed: provisioners")?;
     validate_node_secrets(&manifest, &request.node_secrets)
         .context("Manifest validation failed: container secret files")?;
+    validate_lab_origin(
+        request.client_host.as_deref(),
+        request.client_folder.as_deref(),
+    )
+    .context("Request validation failed: lab origin")?;
+    let origin = db::LabOrigin {
+        client_host: request.client_host.clone(),
+        client_folder: request.client_folder.clone(),
+    };
 
     let tailnet_enabled = tailscale::validate_enrollment(
         &manifest,
@@ -781,6 +792,10 @@ pub async fn up_lab(
             "Performance tuning validation failed for node: {}",
             node.name
         ))?;
+        check_watchdog(node, &node_image).context(format!(
+            "Watchdog validation failed for node: {}",
+            node.name
+        ))?;
     }
     let manifest_pins: Vec<NodeCpuPins> = nodes_expanded
         .iter()
@@ -847,7 +862,7 @@ pub async fn up_lab(
         tracing::info!(lab_id = %lab_id, lab_name = %manifest.name, "Creating database records");
 
         let (lab_record, networks) =
-            reserve_lab_networks(&db, &config, &manifest.name, lab_id, &db_user).await?;
+            reserve_lab_networks(&db, &config, &manifest.name, lab_id, &db_user, &origin).await?;
         let LabSubnets {
             loopback_subnet,
             management_subnet,
@@ -1095,6 +1110,8 @@ pub async fn up_lab(
             ipv6_network: Some(ipv6_management_subnet),
             ipv6_gateway: Some(gateway_ipv6),
             ipv6_router: Some(router_ipv6),
+            client_host: origin.client_host.clone(),
+            client_folder: origin.client_folder.clone(),
         };
 
         util::create_dir(&lab_dir)?;
