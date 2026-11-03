@@ -12,6 +12,11 @@ permissions:
 jobs:
   lint:
     name: Lint
+    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
+    # counts as passing for the required checks, so the PR merges without a full build.
+    if: >-
+      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
+      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +40,11 @@ jobs:
 
   coverage:
     name: Coverage
+    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
+    # counts as passing for the required checks, so the PR merges without a full build.
+    if: >-
+      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
+      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -110,6 +120,11 @@ jobs:
 
   windows-client:
     name: Windows Client
+    # The release workflow's changelog PR only changes CHANGELOG.md. A job skipped by its `if`
+    # counts as passing for the required checks, so the PR merges without a full build.
+    if: >-
+      ${{ !(github.event.pull_request.user.login == 'bwks-sherpa-release[bot]'
+      && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: windows-latest
     steps:
       - name: Checkout
