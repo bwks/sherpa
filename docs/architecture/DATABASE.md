@@ -43,19 +43,24 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
 ## Queries and row mapping
 
 Every statement the crate runs is a plain SQL file under `crates/db/sql/queries/<table>/`, one
-statement per file, complete and readable. The table's `CREATE TABLE` text is in
-`crates/db/sql/schema/<table>.sql`, which the schema code includes with `include_str!`.
+statement per file, complete and readable. The tables as first created are
+`crates/db/sql/schema/<table>.sql`, which the schema code includes with `include_str!`; each later
+schema change is a file in `crates/db/sql/migrations/` (see [Versions](#versions)).
 
 ```mermaid
 flowchart LR
     schema["sql/schema/*.sql"] --> build["build.rs"]
+    migrations["sql/migrations/*.sql"] --> build
     queries["sql/queries/&lt;table&gt;/*.sql"] --> build
-    build -->|"applies the schema to an in-memory Turso database, prepares every query"| out["OUT_DIR/queries.rs"]
+    build -->|"applies the schema and every migration to an in-memory Turso database, prepares every query"| out["OUT_DIR/queries.rs"]
+    build --> mig["OUT_DIR/migrations.rs"]
     out -->|"include!"| mod["queries::lab::FIND_BY_ID, ..."]
+    mig -->|"include!"| apply["schema::migrations::ALL"]
 ```
 
-- **Checked at build time.** `crates/db/build.rs` applies the schema files to an in-memory Turso
-  database and prepares each query file against it. Preparing checks the syntax and every table and
+- **Checked at build time.** `crates/db/build.rs` applies the schema files, then each migration in
+  order, to an in-memory Turso database, so it has the schema a running server has, and prepares
+  each query file against it. Preparing checks the syntax and every table and
   column a statement names, so a statement that does not fit the schema fails the build, naming the
   file and Turso's message. It reruns only when a file under `sql/` changes, and takes about a
   second; Cargo shares the `turso` build with the crate, so a cold build compiles Turso once and
@@ -63,8 +68,8 @@ flowchart LR
 - **Constants.** The build script generates one constant per file, holding the file with
   `include_str!`, in a module per directory: `sql/queries/lab/find_by_id.sql` is
   `queries::lab::FIND_BY_ID`. A statement used by more than one module, such as
-  `queries::node::COUNT_BY_LAB`, is one file. The schema-maintenance statements in
-  `schema/` (migrations, triggers, `PRAGMA user_version`) stay in that module.
+  `queries::node::COUNT_BY_LAB`, is one file. The rule triggers and `PRAGMA user_version` stay in
+  `schema/`.
 - **Not checked.** Preparing does not compare a statement's result columns or parameter count with
   the mapper that reads them; the mappers below still read and write by position.
 
@@ -100,22 +105,41 @@ constraints; uniqueness is `UNIQUE` constraints; references are foreign keys:
 ### Versions
 
 `apply_schema` (`schema/apply.rs`) runs on every start and in `sherpad init`, in one transaction.
-The database's `PRAGMA user_version` counts how many entries of `MIGRATIONS` it has; each entry is
-a list of SQL batches taking the schema up one version. `SCHEMA_VERSION` is the number of entries.
+The database's `PRAGMA user_version` is its schema version. Version 1 is the tables in
+`sql/schema/` (`TABLES` in `apply.rs`). Each file in `sql/migrations/` takes the schema up one
+version; its name is the version it takes the schema to, four digits, then a name:
+`0002_fix_data_interface_counts.sql`. The build script refuses a gap or a misnumbered file, and
+generates `schema::migrations`: a constant per file, named without the number
+(`FIX_DATA_INTERFACE_COUNTS`), and `ALL`, every migration in order. `SCHEMA_VERSION` is
+`1 + ALL.len()`.
 A database with a newer version than the build knows is refused, so a downgrade cannot write to a
 schema it does not understand.
 
-An entry never changes once released. To change the schema, append an entry. SQLite cannot alter
+A version never changes once released, including `sql/schema/`. To change the schema, add the
+next migration file, and change the queries that use it; the build checks them against the new
+schema. New columns come last, so the mappers in `persistence.rs` read and write them last. SQLite
+cannot alter
 most constraints in place, so a change to a column's constraints is a table rebuild: create the new
 table, copy the rows, drop the old one, rename.
 
-| Version | Entry |
+| Version | Change |
 |---|---|
-| 1 | Every table (`<table>::TABLES`) |
-| 2 | `node_image::FIX_DATA_INTERFACE_COUNTS`: `cisco_csr1000v` and `cisco_iosvl2` images stored with more than 15 data interfaces (the old default was 16, one more than they have after the management interface) are set to 15 |
+| 1 | Every table (`sql/schema/<table>.sql`) |
+| 2 | `0002_fix_data_interface_counts.sql`: `cisco_csr1000v` and `cisco_iosvl2` images stored with more than 15 data interfaces (the old default was 16, one more than they have after the management interface) are set to 15 |
+| 3 | `0003_lab_source.sql`: `lab.client_host` and `lab.client_folder`, where `sherpa up` ran (see below) |
 
-An entry can correct data as well as change the schema; it runs once, when a database reaches that
+A migration can correct data as well as change the schema; it runs once, when a database reaches that
 version.
+
+### Where a lab was started
+
+`lab.client_host` and `lab.client_folder` record the hostname of the machine `sherpa up` ran on
+and the folder it ran in. The CLI sends them in the `up` request (`client_host`, `client_folder`);
+`server::validate::validate_lab_origin` refuses an empty value, one over its length limit (253 and
+4096 characters) or one with control characters, and `create_lab` stores them through
+`db::LabOrigin`. Labs started from the web UI or the API, and labs created before version 3, have
+neither (`NULL`). `inspect` reads them from the record into `LabInfo`, so the CLI's lab table and
+the web UI's lab page show them.
 
 ### Rule triggers
 

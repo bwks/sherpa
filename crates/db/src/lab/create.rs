@@ -22,6 +22,14 @@ pub struct LabNetworks {
     pub router_ipv6: Option<String>,
 }
 
+/// Where a lab was started from: the hostname of the machine `sherpa up` ran on, and the folder it
+/// ran in. Labs started from the web UI or the API have neither.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LabOrigin {
+    pub client_host: Option<String>,
+    pub client_folder: Option<String>,
+}
+
 /// Validate lab_id format
 ///
 /// Requirements:
@@ -73,6 +81,7 @@ pub async fn create_lab(
     lab_id: &str,
     user: &DbUser,
     networks: &LabNetworks,
+    origin: &LabOrigin,
 ) -> Result<DbLab> {
     // Validate lab_id format
     validate_lab_id(lab_id)?;
@@ -96,6 +105,8 @@ pub async fn create_lab(
         router_ipv6: networks.router_ipv6.clone(),
         loopback_network_v6: networks.loopback_network_v6.clone(),
         status: LabState::default(),
+        client_host: origin.client_host.clone(),
+        client_folder: origin.client_folder.clone(),
     };
     let writer = db.writer().await?;
     let created = insert_lab(&writer.conn, &lab)

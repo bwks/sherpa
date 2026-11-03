@@ -4,6 +4,7 @@
 //! shared with the client live in `topology::validate`.
 
 mod environment;
+mod lab_origin;
 mod node_image;
 mod node_secrets;
 mod performance_tuning;
@@ -12,6 +13,7 @@ mod tailscale_gateway;
 mod version;
 
 pub use environment::validate_environment_variables;
+pub use lab_origin::validate_lab_origin;
 pub use node_image::validate_node_image_update;
 pub use node_secrets::{validate_node_secrets, validate_secret_files};
 pub use performance_tuning::check_host_resources;

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use db::{
-    create_lab, create_link, create_node, create_node_image, create_user, get_link_by_id,
-    update_link,
+    LabOrigin, create_lab, create_link, create_node, create_node_image, create_user,
+    get_link_by_id, update_link,
 };
 use shared::data::{BridgeKind, LinkImpairment, NodeConfig, NodeModel, RecordId};
 
@@ -23,6 +23,7 @@ async fn test_update_link_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -113,6 +114,7 @@ async fn test_update_link_without_id_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -177,6 +179,7 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -190,6 +193,7 @@ async fn test_update_link_change_lab_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -257,6 +261,7 @@ async fn test_update_link_change_node_a_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -333,6 +338,7 @@ async fn test_update_link_change_node_b_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -409,6 +415,7 @@ async fn test_update_link_duplicate_peers_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -493,6 +500,7 @@ async fn test_update_link_preserves_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -557,6 +565,7 @@ async fn test_update_link_can_change_interfaces() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -625,6 +634,7 @@ async fn test_update_link_nonexistent_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

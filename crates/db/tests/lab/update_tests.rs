@@ -1,5 +1,5 @@
 use anyhow::Result;
-use db::{create_lab, create_user, get_lab, update_lab, update_lab_state};
+use db::{LabOrigin, create_lab, create_user, get_lab, update_lab, update_lab_state};
 use shared::data::{DbLab, LabState, RecordId};
 
 use crate::helper::{ipv4_lab_networks, setup_db};
@@ -20,6 +20,7 @@ async fn test_update_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -55,6 +56,8 @@ async fn test_update_lab_without_id_fails() -> Result<()> {
         router_ipv6: None,
         loopback_network_v6: None,
         status: LabState::default(),
+        client_host: None,
+        client_folder: None,
     };
 
     let result = update_lab(&db, lab).await;
@@ -87,6 +90,8 @@ async fn test_update_nonexistent_lab_fails() -> Result<()> {
         router_ipv6: None,
         loopback_network_v6: None,
         status: LabState::default(),
+        client_host: None,
+        client_folder: None,
     };
 
     let result = update_lab(&db, lab).await;
@@ -112,6 +117,7 @@ async fn test_update_preserves_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let original_id = lab.id.clone();
@@ -140,6 +146,7 @@ async fn test_update_lab_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -174,6 +181,7 @@ async fn test_update_cannot_change_owner() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -210,6 +218,7 @@ async fn test_update_lab_name_constraint() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -223,6 +232,7 @@ async fn test_update_lab_name_constraint() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -254,6 +264,7 @@ async fn test_update_lab_invalid_lab_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -294,6 +305,7 @@ async fn tailnet_inventory_survives_lab_state_updates() -> Result<()> {
             "198.51.100.1",
             "198.51.100.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     assert!(lab.tailscale_container_id.is_none());

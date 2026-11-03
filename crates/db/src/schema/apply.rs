@@ -1,32 +1,30 @@
 //! Schema versions and their application
 //!
-//! The database's `user_version` records how many entries of `MIGRATIONS` it has. Each entry
-//! is a list of SQL batches; an entry is never changed once released, and a later change to the
-//! schema is a new entry. The rule triggers derived from the Rust enums are not versioned: they
-//! are dropped and created again on every application.
+//! The database's `user_version` is its schema version. Version 1 is the tables in `sql/schema/`;
+//! each file in `sql/migrations/` takes the schema up one version, in order. A released version
+//! is never changed, and a later change to the schema is a new migration file. The rule triggers
+//! derived from the Rust enums are not versioned: they are dropped and created again on every
+//! application.
 
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use super::{bridge, lab, link, node, node_image, user};
+use super::{bridge, lab, link, migrations, node, node_image, user};
 use crate::Database;
 use crate::sql::query_count;
 
-/// Each entry brings the schema from version `index` to `index + 1`.
-const MIGRATIONS: &[&[&str]] = &[
-    &[
-        user::TABLES,
-        node_image::TABLES,
-        lab::TABLES,
-        node::TABLES,
-        link::TABLES,
-        bridge::TABLES,
-    ],
-    &[node_image::FIX_DATA_INTERFACE_COUNTS],
+/// Schema version 1: every table, parents before children.
+const TABLES: &[&str] = &[
+    user::TABLES,
+    node_image::TABLES,
+    lab::TABLES,
+    node::TABLES,
+    link::TABLES,
+    bridge::TABLES,
 ];
 
 /// The schema version this build of Sherpa writes.
-pub const SCHEMA_VERSION: usize = MIGRATIONS.len();
+pub const SCHEMA_VERSION: usize = 1 + migrations::ALL.len();
 
 /// Bring the database to the current schema version and recreate the rule triggers.
 ///
@@ -57,10 +55,15 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
         );
     }
 
-    for (index, batches) in MIGRATIONS.iter().enumerate().skip(version) {
-        let target = index + 1;
-        tracing::info!(from = index, to = target, "Migrating database schema");
-        for batch in batches.iter() {
+    for target in (version + 1)..=SCHEMA_VERSION {
+        tracing::info!(from = target - 1, to = target, "Migrating database schema");
+        let batches = match target {
+            1 => TABLES,
+            _ => migrations::ALL
+                .get(target - 2..target - 1)
+                .context(format!("Schema version {target} has no migration"))?,
+        };
+        for batch in batches {
             tx.execute_batch(batch)
                 .await
                 .context(format!("Failed to migrate the schema to version {target}"))?;
@@ -115,8 +118,18 @@ mod tests {
 
     #[tokio::test]
     async fn apply_schema_corrects_data_interface_counts_of_older_databases() {
+        // A version 1 database: the tables alone.
         let db = open_in_memory().await.unwrap();
-        apply_schema(&db).await.unwrap();
+        let writer = db.writer().await.unwrap();
+        for batch in TABLES {
+            writer.conn.execute_batch(batch).await.unwrap();
+        }
+        writer
+            .conn
+            .execute("PRAGMA user_version = 1", ())
+            .await
+            .unwrap();
+        drop(writer);
         for model in [
             NodeModel::CiscoCsr1000v,
             NodeModel::CiscoIosvl2,
@@ -126,15 +139,9 @@ mod tests {
             image.data_interface_count = 16;
             create_node_image(&db, image).await.unwrap();
         }
-        let writer = db.writer().await.unwrap();
-        writer
-            .conn
-            .execute("PRAGMA user_version = 1", ())
-            .await
-            .unwrap();
-        drop(writer);
 
         apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
 
         let counts: Vec<(NodeModel, u8)> = list_node_images(&db)
             .await

@@ -93,6 +93,13 @@ pub struct LabInfo {
     #[serde(default)]
     #[schemars(with = "Option<String>")]
     pub ipv6_router: Option<Ipv6Addr>,
+    /// The hostname of the machine `sherpa up` ran on. Labs started from the web UI or the API
+    /// have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_host: Option<String>,
+    /// The folder `sherpa up` ran in, on that machine.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_folder: Option<String>,
 }
 
 /// Saved personal SSH identity of a provisioned node.
@@ -309,6 +316,8 @@ mod tests {
             ipv6_network: None,
             ipv6_gateway: None,
             ipv6_router: None,
+            client_host: Some("dev01".to_string()),
+            client_folder: Some("/home/alice/labs/core".to_string()),
         }
     }
 
@@ -324,6 +333,23 @@ mod tests {
             parsed.ipv4_gateway,
             "192.168.100.1".parse::<std::net::Ipv4Addr>().unwrap()
         );
+        assert_eq!(parsed.client_host.as_deref(), Some("dev01"));
+        assert_eq!(
+            parsed.client_folder.as_deref(),
+            Some("/home/alice/labs/core")
+        );
+    }
+
+    #[test]
+    fn lab_info_without_an_origin_omits_it_and_reads_back_none() {
+        let mut lab = make_lab_info();
+        lab.client_host = None;
+        lab.client_folder = None;
+        let saved = lab.to_string();
+        assert!(!saved.contains("client_"), "{saved}");
+        let restored = LabInfo::from_str(&saved).unwrap();
+        assert!(restored.client_host.is_none());
+        assert!(restored.client_folder.is_none());
     }
 
     #[test]

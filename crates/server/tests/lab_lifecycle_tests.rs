@@ -546,6 +546,7 @@ async fn test_lab_up_rejects_duplicate_lab_id() -> Result<()> {
         lab_id,
         &admin_user,
         &ipv4_lab_networks("10.0.0.0/24", "10.0.1.0/24", "10.0.1.1", "10.0.1.254"),
+        &db::LabOrigin::default(),
     )
     .await?;
 
@@ -742,6 +743,7 @@ async fn redeploy_only_allows_current_owner_on_all_transports() -> Result<()> {
                 &format!("10.200.{index}.1"),
                 &format!("10.200.{index}.2"),
             ),
+            &db::LabOrigin::default(),
         )
         .await?;
         for (username, token) in callers {

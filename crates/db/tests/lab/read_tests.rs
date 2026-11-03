@@ -1,7 +1,8 @@
 use anyhow::Result;
 use db::{
-    count_labs, count_labs_by_user, create_lab, create_user, find_lab, get_lab, get_lab_by_id,
-    get_lab_by_name_and_user, get_used_management_networks, list_labs, list_labs_by_user,
+    LabOrigin, count_labs, count_labs_by_user, create_lab, create_user, find_lab, get_lab,
+    get_lab_by_id, get_lab_by_name_and_user, get_used_management_networks, list_labs,
+    list_labs_by_user,
 };
 use shared::data::RecordId;
 
@@ -23,6 +24,7 @@ async fn test_get_lab_by_lab_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -62,6 +64,7 @@ async fn test_get_lab_by_id() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab_id = created.id.clone().unwrap();
@@ -104,6 +107,7 @@ async fn test_get_lab_by_name_and_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -146,6 +150,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -159,6 +164,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -172,6 +178,7 @@ async fn test_list_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -211,6 +218,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -224,6 +232,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -237,6 +246,7 @@ async fn test_list_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -266,6 +276,7 @@ async fn test_list_labs_returns_all_fields() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -302,6 +313,7 @@ async fn test_count_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -315,6 +327,7 @@ async fn test_count_labs() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -342,6 +355,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -355,6 +369,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -368,6 +383,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -381,6 +397,7 @@ async fn test_count_labs_by_user() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -415,6 +432,7 @@ async fn test_get_used_management_networks() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     create_lab(
@@ -428,6 +446,7 @@ async fn test_get_used_management_networks() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 
@@ -458,6 +477,7 @@ async fn find_lab_returns_none_for_a_missing_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
 

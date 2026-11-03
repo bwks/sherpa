@@ -892,6 +892,17 @@ fn tailscale_auth_key_param(
     }
 }
 
+/// An optional text field of the RPC params; absent and `null` are `None`.
+fn optional_text_param(
+    params: &serde_json::Value,
+    name: &str,
+) -> Result<Option<String>, serde_json::Error> {
+    match params.get(name) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(value) => serde_json::from_value(value.clone()).map(Some),
+    }
+}
+
 /// Handle "resume" RPC call — start/poweron all (or a specific) node(s) for a lab
 async fn handle_resume(
     id: String,
@@ -2109,6 +2120,25 @@ async fn handle_up(
         }
     };
 
+    // Where `sherpa up` ran; checked by the up service.
+    let (client_host, client_folder) = match (
+        optional_text_param(&params, "client_host"),
+        optional_text_param(&params, "client_folder"),
+    ) {
+        (Ok(host), Ok(folder)) => (host, folder),
+        _ => {
+            send_rpc_error(
+                connection,
+                id,
+                RpcErrorCode::InvalidParams,
+                "Invalid client_host or client_folder field".to_string(),
+                None,
+            )
+            .await;
+            return;
+        }
+    };
+
     // Reject if lab already exists in the database.
     // A DB record means a previous `up` created it and the lab is still active
     // (or a concurrent `up` just created it). The user must destroy first.
@@ -2178,6 +2208,8 @@ async fn handle_up(
             }
         },
         node_secrets,
+        client_host,
+        client_folder,
     };
 
     // Call the up service

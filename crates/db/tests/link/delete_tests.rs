@@ -1,8 +1,8 @@
 use anyhow::Result;
 use db::{
-    count_links, count_links_by_lab, count_links_by_node, create_lab, create_link, create_node,
-    create_node_image, create_user, delete_link, delete_link_by_id, delete_links_by_lab,
-    delete_links_by_node, get_link_by_id,
+    LabOrigin, count_links, count_links_by_lab, count_links_by_node, create_lab, create_link,
+    create_node, create_node_image, create_user, delete_link, delete_link_by_id,
+    delete_links_by_lab, delete_links_by_node, get_link_by_id,
 };
 use shared::data::{BridgeKind, NodeConfig, NodeModel};
 
@@ -24,6 +24,7 @@ async fn test_delete_link_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -87,6 +88,7 @@ async fn test_delete_link_by_id_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -150,6 +152,7 @@ async fn test_delete_link_nonexistent_fails() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -216,6 +219,7 @@ async fn test_delete_link_decrements_count() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -299,6 +303,7 @@ async fn test_delete_links_by_lab_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -399,6 +404,7 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let lab2 = create_lab(
@@ -412,6 +418,7 @@ async fn test_delete_links_by_lab_only_affects_one_lab() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -532,6 +539,7 @@ async fn test_delete_links_by_node_success() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;
@@ -639,6 +647,7 @@ async fn test_delete_links_by_node_only_affects_one_node() -> Result<()> {
             "172.31.1.1",
             "172.31.1.2",
         ),
+        &LabOrigin::default(),
     )
     .await?;
     let config = create_node_image(&db, NodeConfig::get_model(NodeModel::UbuntuLinux)).await?;

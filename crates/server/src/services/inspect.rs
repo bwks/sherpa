@@ -57,7 +57,11 @@ async fn inspect_lab_inner(
     let lab_dir = format!("{SHERPA_LABS_PATH}/{lab_id}");
     let lab_file = load_file(&format!("{lab_dir}/{LAB_FILE_NAME}"))
         .context("Unable to load lab file. Is the lab running?")?;
-    let lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
+    let mut lab_info = LabInfo::from_str(&lab_file).context("Failed to parse lab info file")?;
+    // The database record is authoritative, and lab files written before it was recorded lack
+    // where the lab was started from.
+    lab_info.client_host = db_lab.client_host.clone();
+    lab_info.client_folder = db_lab.client_folder.clone();
 
     tracing::debug!("inspect_lab: load lab file took {:?}", t1.elapsed());
     let t2 = Instant::now();

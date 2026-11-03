@@ -69,6 +69,9 @@ dirs = { workspace = true }
 # SSH client and local terminal for `sherpa ssh`
 jato = { workspace = true }
 
+# The machine name recorded with a lab by `sherpa up`
+gethostname = "1.1.0"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = [
   "Win32_Foundation",
