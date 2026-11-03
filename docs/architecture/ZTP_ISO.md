@@ -502,7 +502,9 @@ uninstalled, were checked with:
 - `blkid` for the label;
 - boots in labs: Ubuntu 24.04 and 26.04, Fedora 43, FreeBSD 14.2, OpenBSD 7.8, NixOS 26.05,
   Windows Server 2022 and the Windows 11 devbox, ASAv and PAN-OS, each logging in with the
-  lab's SSH key (which only the ISO carries).
+  lab's SSH key (which only the ISO carries);
+- `tests/labs/talos-linux`: a single-node and a three-control-plane Talos 1.14.4 cluster built
+  from the NoCloud seeds, through Kubernetes health, a workload, down, resume and redeploy.
 
 The research spike, with `isoinfo` comparisons against `genisoimage` and boots of every network
 OS that takes a config ISO, is recorded on issue #2.
