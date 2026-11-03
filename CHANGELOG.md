@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.4] - 2026-11-03
+
+### Bug Fixes
+
+- Remove the watchdog from VM domains by @bwks ([c0c4f7b](https://github.com/bwks/sherpa/commit/c0c4f7b76ce5c203144b387dddd13c1eeaef21c5))
+- Default data interface counts for CSR1000v and IOSvL2 by @bwks ([73ea9f1](https://github.com/bwks/sherpa/commit/73ea9f12ced4f35c53a80ebabdbf769787a326cc))
+
+### Miscellaneous
+
+- Merge pull request #430 from bwks/fix/default-interface-counts
+
+fix: CSR1000v/IOSvL2 interface defaults and IOS watchdog resets by @bwks in [#430](https://github.com/bwks/sherpa/pull/430) ([136913b](https://github.com/bwks/sherpa/commit/136913bab0f971623946a3a2d4300d922bfe815b))
+- Merge pull request #429 from bwks/changelog/v0.5.3
+
+chore(release): update changelog for v0.5.3 by @github-actions[bot] in [#429](https://github.com/bwks/sherpa/pull/429) ([2afd651](https://github.com/bwks/sherpa/commit/2afd6519f2110dc91aa24dbe9baa9f54975a91ed))
 ## [0.5.3] - 2026-11-03
 
 ### Documentation
