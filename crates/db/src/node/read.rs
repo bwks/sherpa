@@ -4,7 +4,8 @@ use tracing::instrument;
 use turso::{Connection, Row};
 
 use crate::Database;
-use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of, node_columns, node_from_row};
+use crate::persistence::{Cells, LAB_TABLE, NODE_TABLE, key_of, node_from_row};
+use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
 /// Read a node on `conn`, so writers can read under the write lock.
@@ -12,7 +13,7 @@ use crate::sql::{query_all, query_count, query_optional};
 pub(super) async fn select_node(conn: &Connection, id: &RecordId) -> Result<DbNode> {
     query_optional(
         conn,
-        concat!("SELECT ", node_columns!(), " FROM node WHERE id = ?1"),
+        queries::node::FIND_BY_ID,
         [key_of(id, NODE_TABLE)?],
         node_from_row,
     )
@@ -80,11 +81,7 @@ pub async fn get_node_by_name_and_lab(
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            node_columns!(),
-            " FROM node WHERE name = ?1 AND lab = ?2"
-        ),
+        queries::node::FIND_BY_NAME_AND_LAB,
         [name.to_string(), key_of(&lab_id, LAB_TABLE)?],
         node_from_row,
     )
@@ -107,14 +104,9 @@ pub async fn get_node_by_name_and_lab(
 #[instrument(skip(db), level = "debug")]
 pub async fn list_nodes(db: &Database) -> Result<Vec<DbNode>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!("SELECT ", node_columns!(), " FROM node"),
-        (),
-        node_from_row,
-    )
-    .await
-    .context("Failed to list nodes from database")
+    query_all(&conn, queries::node::LIST, (), node_from_row)
+        .await
+        .context("Failed to list nodes from database")
 }
 
 /// List all nodes in a specific lab
@@ -134,11 +126,7 @@ pub async fn list_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<Vec<Db
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            node_columns!(),
-            " FROM node WHERE lab = ?1 ORDER BY name ASC"
-        ),
+        queries::node::LIST_BY_LAB,
         [key_of(&lab_id, LAB_TABLE)?],
         node_from_row,
     )
@@ -160,7 +148,7 @@ pub async fn list_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<Vec<Db
 #[instrument(skip(db), level = "debug")]
 pub async fn count_nodes(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, "SELECT count(*) FROM node", ())
+    query_count(&conn, queries::node::COUNT, ())
         .await
         .context("Failed to count nodes")
 }
@@ -182,7 +170,7 @@ pub async fn count_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<usize
     let conn = db.reader().await?;
     query_count(
         &conn,
-        "SELECT count(*) FROM node WHERE lab = ?1",
+        queries::node::COUNT_BY_LAB,
         [key_of(&lab_id, LAB_TABLE)?],
     )
     .await
@@ -193,18 +181,9 @@ pub async fn count_nodes_by_lab(db: &Database, lab_id: RecordId) -> Result<usize
 #[instrument(skip(db), level = "debug")]
 pub async fn list_pinned_nodes(db: &Database) -> Result<Vec<DbNode>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!(
-            "SELECT ",
-            node_columns!(),
-            " FROM node WHERE cpu_pinning IS NOT NULL OR qemu_thread_cpus IS NOT NULL"
-        ),
-        (),
-        node_from_row,
-    )
-    .await
-    .context("Failed to list nodes with pinned CPUs")
+    query_all(&conn, queries::node::LIST_PINNED, (), node_from_row)
+        .await
+        .context("Failed to list nodes with pinned CPUs")
 }
 
 fn vnc_port_from_row(row: &Row) -> Result<u16> {
@@ -215,12 +194,7 @@ fn vnc_port_from_row(row: &Row) -> Result<u16> {
 #[instrument(skip(db), level = "debug")]
 pub async fn list_vnc_ports(db: &Database) -> Result<Vec<u16>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        "SELECT vnc_port FROM node WHERE vnc_port IS NOT NULL ORDER BY vnc_port ASC",
-        (),
-        vnc_port_from_row,
-    )
-    .await
-    .context("Failed to list node VNC ports")
+    query_all(&conn, queries::node::VNC_PORTS, (), vnc_port_from_row)
+        .await
+        .context("Failed to list node VNC ports")
 }

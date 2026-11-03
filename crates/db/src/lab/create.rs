@@ -5,7 +5,8 @@ use turso::Connection;
 
 use crate::Database;
 use crate::helpers::get_user_id;
-use crate::persistence::{LAB_TABLE, key_of, lab_columns, lab_from_row, lab_values, new_key};
+use crate::persistence::{LAB_TABLE, key_of, lab_from_row, lab_values, new_key};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// The subnets and addresses allocated to one lab.
@@ -131,7 +132,7 @@ pub async fn upsert_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
         // Update existing lab
         query_optional(
             &writer.conn,
-            UPDATE_LAB,
+            queries::lab::UPDATE,
             lab_values(&lab, &key_of(id, LAB_TABLE)?)?,
             lab_from_row,
         )
@@ -147,26 +148,11 @@ pub async fn upsert_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
     result.ok_or_else(|| anyhow!("Lab upsert failed: '{}'", lab.name))
 }
 
-/// Replace every column of a lab except its id, returning the stored lab. Used by
-/// `upsert_lab` and `update_lab`.
-pub(crate) const UPDATE_LAB: &str = concat!(
-    "UPDATE lab SET lab_id = ?2, name = ?3, user = ?4, loopback_network = ?5, \
-     management_network = ?6, gateway_ipv4 = ?7, router_ipv4 = ?8, \
-     tailscale_container_id = ?9, management_network_v6 = ?10, gateway_ipv6 = ?11, \
-     router_ipv6 = ?12, loopback_network_v6 = ?13, status = ?14 WHERE id = ?1 RETURNING ",
-    lab_columns!()
-);
-
 /// Insert `lab` under a new key, returning the stored lab.
 async fn insert_lab(conn: &Connection, lab: &DbLab) -> Result<Option<DbLab>> {
     query_optional(
         conn,
-        concat!(
-            "INSERT INTO lab (",
-            lab_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14) RETURNING ",
-            lab_columns!()
-        ),
+        queries::lab::CREATE,
         lab_values(lab, &new_key())?,
         lab_from_row,
     )

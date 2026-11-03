@@ -3,27 +3,17 @@ use shared::data::{NodeConfig, NodeKind, NodeModel, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{
-    NODE_IMAGE_TABLE, enum_text, key_of, node_image_columns, node_image_from_row,
-};
+use crate::persistence::{NODE_IMAGE_TABLE, enum_text, key_of, node_image_from_row};
+use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
 /// List all node_image records from the database ordered by model
 #[instrument(skip(db), level = "debug")]
 pub async fn list_node_images(db: &Database) -> Result<Vec<NodeConfig>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image ORDER BY model ASC"
-        ),
-        (),
-        node_image_from_row,
-    )
-    .await
-    .context("Failed to query all node_images from database")
+    query_all(&conn, queries::node_image::LIST, (), node_image_from_row)
+        .await
+        .context("Failed to query all node_images from database")
 }
 
 /// Get node_image by model, kind, and version
@@ -37,11 +27,7 @@ pub async fn get_node_image_by_model_kind_version(
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE model = ?1 AND kind = ?2 AND version = ?3"
-        ),
+        queries::node_image::FIND_BY_MODEL_KIND_VERSION,
         (
             enum_text(model, "model")?,
             enum_text(kind, "kind")?,
@@ -66,11 +52,7 @@ pub async fn get_default_node_image(
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE model = ?1 AND kind = ?2 AND \"default\" = 1"
-        ),
+        queries::node_image::FIND_DEFAULT,
         (enum_text(model, "model")?, enum_text(kind, "kind")?),
         node_image_from_row,
     )
@@ -87,11 +69,7 @@ pub async fn list_node_images_by_kind(db: &Database, kind: &NodeKind) -> Result<
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE kind = ?1 ORDER BY model ASC"
-        ),
+        queries::node_image::LIST_BY_KIND,
         [enum_text(kind, "kind")?],
         node_image_from_row,
     )
@@ -112,11 +90,7 @@ pub async fn get_node_image_versions(
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE model = ?1 AND kind = ?2 ORDER BY model ASC"
-        ),
+        queries::node_image::LIST_BY_MODEL_AND_KIND,
         (enum_text(model, "model")?, enum_text(kind, "kind")?),
         node_image_from_row,
     )
@@ -145,11 +119,7 @@ pub async fn list_node_images_by_ids(db: &Database, ids: Vec<RecordId>) -> Resul
     let conn = db.reader().await?;
     let found = query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE id IN (SELECT value FROM json_each(?1))"
-        ),
+        queries::node_image::LIST_BY_IDS,
         [keys_json],
         node_image_from_row,
     )
@@ -171,11 +141,7 @@ pub async fn get_node_image_by_id(db: &Database, id: RecordId) -> Result<Option<
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE id = ?1"
-        ),
+        queries::node_image::FIND_BY_ID,
         [key_of(&id, NODE_IMAGE_TABLE)?],
         node_image_from_row,
     )
@@ -191,11 +157,7 @@ pub(crate) async fn get_node_image(db: &Database, node_model: &NodeModel) -> Res
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            node_image_columns!(),
-            " FROM node_image WHERE model = ?1 LIMIT 1"
-        ),
+        queries::node_image::FIND_BY_MODEL,
         [enum_text(node_model, "model")?],
         node_image_from_row,
     )
@@ -210,7 +172,7 @@ pub(crate) async fn get_node_image(db: &Database, node_model: &NodeModel) -> Res
 #[instrument(skip(db), level = "debug")]
 pub async fn count_node_images(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, "SELECT count(*) FROM node_image", ())
+    query_count(&conn, queries::node_image::COUNT, ())
         .await
         .context("Failed to count node_images from database")
 }

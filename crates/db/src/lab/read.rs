@@ -7,7 +7,8 @@ use tracing::instrument;
 use turso::Row;
 
 use crate::Database;
-use crate::persistence::{Cells, LAB_TABLE, USER_TABLE, key_of, lab_columns, lab_from_row};
+use crate::persistence::{Cells, LAB_TABLE, USER_TABLE, key_of, lab_from_row};
+use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
 /// Get a lab by its lab_id (business key)
@@ -41,14 +42,9 @@ pub async fn get_lab(db: &Database, lab_id: &str) -> Result<DbLab> {
 #[instrument(skip(db), level = "debug")]
 pub async fn find_lab(db: &Database, lab_id: &str) -> Result<Option<DbLab>> {
     let conn = db.reader().await?;
-    query_optional(
-        &conn,
-        concat!("SELECT ", lab_columns!(), " FROM lab WHERE lab_id = ?1"),
-        [lab_id],
-        lab_from_row,
-    )
-    .await
-    .context(format!("Failed to query lab from database: {}", lab_id))
+    query_optional(&conn, queries::lab::FIND_BY_LAB_ID, [lab_id], lab_from_row)
+        .await
+        .context(format!("Failed to query lab from database: {}", lab_id))
 }
 
 /// Get a lab by its RecordId (surrogate key)
@@ -69,7 +65,7 @@ pub async fn get_lab_by_id(db: &Database, id: RecordId) -> Result<DbLab> {
     let conn = db.reader().await?;
     let lab = query_optional(
         &conn,
-        concat!("SELECT ", lab_columns!(), " FROM lab WHERE id = ?1"),
+        queries::lab::FIND_BY_ID,
         [key_of(&id, LAB_TABLE)?],
         lab_from_row,
     )
@@ -102,11 +98,7 @@ pub async fn get_lab_by_name_and_user(
     let conn = db.reader().await?;
     let db_lab = query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            lab_columns!(),
-            " FROM lab WHERE name = ?1 AND user = ?2"
-        ),
+        queries::lab::FIND_BY_NAME_AND_USER,
         [name.to_string(), key_of(&user_id, USER_TABLE)?],
         lab_from_row,
     )
@@ -130,14 +122,9 @@ pub async fn get_lab_by_name_and_user(
 #[instrument(skip(db), level = "debug")]
 pub async fn list_labs(db: &Database) -> Result<Vec<DbLab>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!("SELECT ", lab_columns!(), " FROM lab"),
-        (),
-        lab_from_row,
-    )
-    .await
-    .context("Failed to list labs from database")
+    query_all(&conn, queries::lab::LIST, (), lab_from_row)
+        .await
+        .context("Failed to list labs from database")
 }
 
 /// List all labs owned by a specific user
@@ -157,7 +144,7 @@ pub async fn list_labs_by_user(db: &Database, user_id: RecordId) -> Result<Vec<D
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!("SELECT ", lab_columns!(), " FROM lab WHERE user = ?1"),
+        queries::lab::LIST_BY_USER,
         [key_of(&user_id, USER_TABLE)?],
         lab_from_row,
     )
@@ -179,7 +166,7 @@ pub async fn list_labs_by_user(db: &Database, user_id: RecordId) -> Result<Vec<D
 #[instrument(skip(db), level = "debug")]
 pub async fn count_labs(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, "SELECT count(*) FROM lab", ())
+    query_count(&conn, queries::lab::COUNT, ())
         .await
         .context("Failed to count labs")
 }
@@ -201,7 +188,7 @@ pub async fn count_labs_by_user(db: &Database, user_id: RecordId) -> Result<usiz
     let conn = db.reader().await?;
     query_count(
         &conn,
-        "SELECT count(*) FROM lab WHERE user = ?1",
+        queries::lab::COUNT_BY_USER,
         [key_of(&user_id, USER_TABLE)?],
     )
     .await
@@ -218,7 +205,7 @@ pub async fn get_used_loopback_networks(db: &Database) -> Result<Vec<Ipv4Net>> {
     let conn = db.reader().await?;
     let rows = query_all(
         &conn,
-        "SELECT lab_id, loopback_network FROM lab",
+        queries::lab::LOOPBACK_NETWORKS,
         (),
         lab_network_from_row,
     )
@@ -248,7 +235,7 @@ pub async fn get_used_management_networks(db: &Database) -> Result<Vec<Ipv4Net>>
     let conn = db.reader().await?;
     let rows = query_all(
         &conn,
-        "SELECT lab_id, management_network FROM lab",
+        queries::lab::MANAGEMENT_NETWORKS,
         (),
         lab_network_from_row,
     )
@@ -277,7 +264,7 @@ pub async fn get_used_ipv6_management_networks(db: &Database) -> Result<Vec<Ipv6
     let conn = db.reader().await?;
     let rows = query_all(
         &conn,
-        "SELECT lab_id, management_network_v6 FROM lab WHERE management_network_v6 IS NOT NULL",
+        queries::lab::MANAGEMENT_NETWORKS_V6,
         (),
         lab_network_from_row,
     )
@@ -306,7 +293,7 @@ pub async fn get_used_ipv6_loopback_networks(db: &Database) -> Result<Vec<Ipv6Ne
     let conn = db.reader().await?;
     let rows = query_all(
         &conn,
-        "SELECT lab_id, loopback_network_v6 FROM lab WHERE loopback_network_v6 IS NOT NULL",
+        queries::lab::LOOPBACK_NETWORKS_V6,
         (),
         lab_network_from_row,
     )

@@ -8,7 +8,8 @@ use shared::validators::validate_username;
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{new_key, user_columns, user_from_row, user_values};
+use crate::persistence::{new_key, user_from_row, user_values};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Create a new user in the database
@@ -81,12 +82,7 @@ async fn insert_user(
     let writer = db.writer().await?;
     let created = query_optional(
         &writer.conn,
-        concat!(
-            "INSERT INTO user (",
-            user_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) RETURNING ",
-            user_columns!()
-        ),
+        queries::user::CREATE,
         user_values(&db_user, &new_key())?,
         user_from_row,
     )

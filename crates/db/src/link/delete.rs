@@ -4,6 +4,7 @@ use tracing::instrument;
 
 use crate::Database;
 use crate::persistence::{LAB_TABLE, LINK_TABLE, NODE_TABLE, key_of};
+use crate::queries;
 
 /// Delete a link by its RecordId (surrogate key)
 ///
@@ -20,7 +21,7 @@ pub async fn delete_link(db: &Database, id: RecordId) -> Result<()> {
     let writer = db.writer().await?;
     let deleted = writer
         .conn
-        .execute("DELETE FROM link WHERE id = ?1", [key_of(&id, LINK_TABLE)?])
+        .execute(queries::link::DELETE_BY_ID, [key_of(&id, LINK_TABLE)?])
         .await
         .context(format!("Failed to delete link: {:?}", id))?;
 
@@ -61,10 +62,7 @@ pub async fn delete_links_by_lab(db: &Database, lab_id: RecordId) -> Result<()> 
     let writer = db.writer().await?;
     writer
         .conn
-        .execute(
-            "DELETE FROM link WHERE lab = ?1",
-            [key_of(&lab_id, LAB_TABLE)?],
-        )
+        .execute(queries::link::DELETE_BY_LAB, [key_of(&lab_id, LAB_TABLE)?])
         .await
         .context(format!("Failed to delete links for lab: {:?}", lab_id))?;
 
@@ -89,7 +87,7 @@ pub async fn delete_links_by_node(db: &Database, node_id: RecordId) -> Result<()
     writer
         .conn
         .execute(
-            "DELETE FROM link WHERE node_a = ?1 OR node_b = ?1",
+            queries::link::DELETE_BY_NODE,
             [key_of(&node_id, NODE_TABLE)?],
         )
         .await

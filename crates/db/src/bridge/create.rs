@@ -3,10 +3,8 @@ use shared::data::{BridgeMember, DbBridge, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{
-    bridge_columns, bridge_from_row, bridge_member_columns, bridge_member_values, bridge_values,
-    new_key,
-};
+use crate::persistence::{bridge_from_row, bridge_member_values, bridge_values, new_key};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Create a new shared bridge for a lab
@@ -58,12 +56,7 @@ pub async fn create_bridge(
 
     let bridge = query_optional(
         &tx,
-        concat!(
-            "INSERT INTO bridge (",
-            bridge_columns!(),
-            ") VALUES (?1, ?2, ?3, ?4, ?5) RETURNING ",
-            bridge_columns!()
-        ),
+        queries::bridge::CREATE,
         bridge_values(&domain, &key)?,
         bridge_from_row,
     )
@@ -81,11 +74,7 @@ pub async fn create_bridge(
 
     for (position, member) in domain.members.iter().enumerate() {
         tx.execute(
-            concat!(
-                "INSERT INTO bridge_member (",
-                bridge_member_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4)"
-            ),
+            queries::bridge::ADD_MEMBER,
             bridge_member_values(member, &key, position)?,
         )
         .await

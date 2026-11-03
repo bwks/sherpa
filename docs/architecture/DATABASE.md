@@ -42,14 +42,39 @@ are in [`../investigations/turso-migration.md`](../investigations/turso-migratio
 
 ## Queries and row mapping
 
+Every statement the crate runs is a plain SQL file under `crates/db/sql/queries/<table>/`, one
+statement per file, complete and readable. The table's `CREATE TABLE` text is in
+`crates/db/sql/schema/<table>.sql`, which the schema code includes with `include_str!`.
+
+```mermaid
+flowchart LR
+    schema["sql/schema/*.sql"] --> build["build.rs"]
+    queries["sql/queries/&lt;table&gt;/*.sql"] --> build
+    build -->|"applies the schema to an in-memory Turso database, prepares every query"| out["OUT_DIR/queries.rs"]
+    out -->|"include!"| mod["queries::lab::FIND_BY_ID, ..."]
+```
+
+- **Checked at build time.** `crates/db/build.rs` applies the schema files to an in-memory Turso
+  database and prepares each query file against it. Preparing checks the syntax and every table and
+  column a statement names, so a statement that does not fit the schema fails the build, naming the
+  file and Turso's message. It reruns only when a file under `sql/` changes, and takes about a
+  second; Cargo shares the `turso` build with the crate, so a cold build compiles Turso once and
+  the script adds about 14 seconds.
+- **Constants.** The build script generates one constant per file, holding the file with
+  `include_str!`, in a module per directory: `sql/queries/lab/find_by_id.sql` is
+  `queries::lab::FIND_BY_ID`. A statement used by more than one module, such as
+  `queries::node::COUNT_BY_LAB`, is one file. The schema-maintenance statements in
+  `schema/` (migrations, triggers, `PRAGMA user_version`) stay in that module.
+- **Not checked.** Preparing does not compare a statement's result columns or parameter count with
+  the mapper that reads them; the mappers below still read and write by position.
+
 `crates/db/src/sql.rs` has the three query helpers: `query_optional`, `query_all` and
 `query_count`. The first two take a mapper, a plain `fn(&Row) -> Result<T>`.
 
 `crates/db/src/persistence.rs` maps rows to records:
 
-- **Column lists.** Each table has a column-list macro (`user_columns!()`, `lab_columns!()`, and
-  so on). Queries build their SQL with `concat!` from the macro, so the `SELECT`, `INSERT ...
-  RETURNING` and the mapper always agree on the column order, at compile time.
+- **Column order.** Statements list a table's columns in its `CREATE TABLE` order, and the mappers
+  read and write them in that order.
 - **Reading.** `Cells` reads a row's columns in order and names the field in every error.
   `*_from_row` builds a record; `*_values` gives a record's values in column order, for
   positional parameters (`?1`, `?2`, ...). SQL never contains formatted values.

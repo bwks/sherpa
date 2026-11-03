@@ -3,7 +3,8 @@ use shared::data::DbLink;
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{LINK_TABLE, key_of, link_columns, link_from_row, link_values};
+use crate::persistence::{LINK_TABLE, key_of, link_from_row, link_values};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Update an existing link in the database
@@ -44,7 +45,7 @@ pub async fn update_link(db: &Database, link: DbLink) -> Result<DbLink> {
     // Verify the link exists and check if immutable fields are being changed
     let existing = query_optional(
         &writer.conn,
-        concat!("SELECT ", link_columns!(), " FROM link WHERE id = ?1"),
+        queries::link::FIND_BY_ID,
         [key.as_str()],
         link_from_row,
     )
@@ -82,15 +83,7 @@ pub async fn update_link(db: &Database, link: DbLink) -> Result<DbLink> {
     // Perform update
     let updated = query_optional(
         &writer.conn,
-        concat!(
-            "UPDATE link SET \"index\" = ?2, kind = ?3, node_a = ?4, node_b = ?5, int_a = ?6, \
-             int_b = ?7, lab = ?8, tap_a = ?9, tap_b = ?10, a_to_b_delay_us = ?11, \
-             a_to_b_jitter_us = ?12, a_to_b_loss_percent = ?13, a_to_b_reorder_percent = ?14, \
-             a_to_b_corrupt_percent = ?15, b_to_a_delay_us = ?16, b_to_a_jitter_us = ?17, \
-             b_to_a_loss_percent = ?18, b_to_a_reorder_percent = ?19, \
-             b_to_a_corrupt_percent = ?20 WHERE id = ?1 RETURNING ",
-            link_columns!()
-        ),
+        queries::link::UPDATE,
         link_values(&link, &key)?,
         link_from_row,
     )

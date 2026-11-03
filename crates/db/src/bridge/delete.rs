@@ -4,6 +4,7 @@ use tracing::instrument;
 
 use crate::Database;
 use crate::persistence::{BRIDGE_TABLE, LAB_TABLE, key_of};
+use crate::queries;
 
 /// Delete a bridge
 ///
@@ -26,7 +27,7 @@ pub async fn delete_bridge(db: &Database, bridge_id: &RecordId) -> Result<()> {
     writer
         .conn
         .execute(
-            "DELETE FROM bridge WHERE id = ?1",
+            queries::bridge::DELETE_BY_ID,
             [key_of(bridge_id, BRIDGE_TABLE)?],
         )
         .await
@@ -56,10 +57,7 @@ pub async fn delete_lab_bridges(db: &Database, lab_id: &RecordId) -> Result<()> 
     let writer = db.writer().await?;
     writer
         .conn
-        .execute(
-            "DELETE FROM bridge WHERE lab = ?1",
-            [key_of(lab_id, LAB_TABLE)?],
-        )
+        .execute(queries::bridge::DELETE_BY_LAB, [key_of(lab_id, LAB_TABLE)?])
         .await
         .context(format!(
             "Failed to delete bridges for lab: lab_id={:?}",

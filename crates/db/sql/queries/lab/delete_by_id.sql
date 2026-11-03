@@ -1,0 +1,2 @@
+DELETE FROM lab
+WHERE id = ?1

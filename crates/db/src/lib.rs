@@ -10,6 +10,7 @@ pub mod link;
 pub mod node;
 pub mod node_image;
 mod persistence;
+mod queries;
 pub mod schema;
 pub mod seed;
 mod sql;

@@ -7,11 +7,11 @@ use turso::Connection;
 use super::source::{SurrealData, SurrealSource, connect, read_all};
 use crate::Database;
 use crate::persistence::{
-    BRIDGE_TABLE, LAB_TABLE, LINK_TABLE, NODE_IMAGE_TABLE, NODE_TABLE, USER_TABLE, bridge_columns,
-    bridge_member_columns, bridge_member_values, bridge_values, key_of, lab_columns, lab_values,
-    link_columns, link_values, node_columns, node_image_columns, node_image_values, node_values,
-    user_columns, user_values,
+    BRIDGE_TABLE, LAB_TABLE, LINK_TABLE, NODE_IMAGE_TABLE, NODE_TABLE, USER_TABLE,
+    bridge_member_values, bridge_values, key_of, lab_values, link_values, node_image_values,
+    node_values, user_values,
 };
+use crate::queries;
 use crate::schema::{FIX_DATA_INTERFACE_COUNTS, apply_schema};
 use crate::sql::query_count;
 
@@ -92,8 +92,8 @@ pub async fn import_from_surrealdb(
 }
 
 async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSummary) -> Result<()> {
-    let users = query_count(conn, "SELECT count(*) FROM user", ()).await?;
-    let labs = query_count(conn, "SELECT count(*) FROM lab", ()).await?;
+    let users = query_count(conn, queries::user::COUNT, ()).await?;
+    let labs = query_count(conn, queries::lab::COUNT, ()).await?;
     if users != 0 || labs != 0 {
         bail!(
             "The database already holds {users} users and {labs} labs; the import only writes \
@@ -104,33 +104,18 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
     // Parents before children, so every foreign key finds its row.
     for user in &data.users {
         let key = record_key(user.id.as_ref(), USER_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO user (",
-                user_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
-            ),
-            user_values(user, &key)?,
-        )
-        .await
-        .context(format!("Failed to import user {}", user.username))?;
+        conn.execute(queries::user::IMPORT, user_values(user, &key)?)
+            .await
+            .context(format!("Failed to import user {}", user.username))?;
     }
     for image in &data.node_images {
         let key = record_key(image.id.as_ref(), NODE_IMAGE_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO node_image (",
-                node_image_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
-                 ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)"
-            ),
-            node_image_values(image, &key)?,
-        )
-        .await
-        .context(format!(
-            "Failed to import node image {:?} {}",
-            image.model, image.version
-        ))?;
+        conn.execute(queries::node_image::IMPORT, node_image_values(image, &key)?)
+            .await
+            .context(format!(
+                "Failed to import node image {:?} {}",
+                image.model, image.version
+            ))?;
     }
     // The schema was brought up to date before the rows existed, so its corrections did not see
     // them.
@@ -139,69 +124,36 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
         .context("Failed to correct imported node image interface counts")?;
     for lab in &data.labs {
         let key = record_key(lab.id.as_ref(), LAB_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO lab (",
-                lab_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
-            ),
-            lab_values(lab, &key)?,
-        )
-        .await
-        .context(format!(
-            "Failed to import lab {} ({})",
-            lab.name, lab.lab_id
-        ))?;
+        conn.execute(queries::lab::IMPORT, lab_values(lab, &key)?)
+            .await
+            .context(format!(
+                "Failed to import lab {} ({})",
+                lab.name, lab.lab_id
+            ))?;
     }
     for node in &data.nodes {
         let key = record_key(node.id.as_ref(), NODE_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO node (",
-                node_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)"
-            ),
-            node_values(node, &key)?,
-        )
-        .await
-        .context(format!("Failed to import node {}", node.name))?;
+        conn.execute(queries::node::IMPORT, node_values(node, &key)?)
+            .await
+            .context(format!("Failed to import node {}", node.name))?;
     }
     for link in &data.links {
         let key = record_key(link.id.as_ref(), LINK_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO link (",
-                link_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, \
-                 ?16, ?17, ?18, ?19, ?20)"
-            ),
-            link_values(link, &key)?,
-        )
-        .await
-        .context(format!(
-            "Failed to import link {} {} - {} {}",
-            link.node_a, link.int_a, link.node_b, link.int_b
-        ))?;
+        conn.execute(queries::link::IMPORT, link_values(link, &key)?)
+            .await
+            .context(format!(
+                "Failed to import link {} {} - {} {}",
+                link.node_a, link.int_a, link.node_b, link.int_b
+            ))?;
     }
     for bridge in &data.bridges {
         let key = record_key(bridge.id.as_ref(), BRIDGE_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO bridge (",
-                bridge_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5)"
-            ),
-            bridge_values(bridge, &key)?,
-        )
-        .await
-        .context(format!("Failed to import bridge {}", bridge.bridge_name))?;
+        conn.execute(queries::bridge::IMPORT, bridge_values(bridge, &key)?)
+            .await
+            .context(format!("Failed to import bridge {}", bridge.bridge_name))?;
         for (position, member) in bridge.members.iter().enumerate() {
             conn.execute(
-                concat!(
-                    "INSERT INTO bridge_member (",
-                    bridge_member_columns!(),
-                    ") VALUES (?1, ?2, ?3, ?4)"
-                ),
+                queries::bridge::ADD_MEMBER,
                 bridge_member_values(member, &key, position)?,
             )
             .await
@@ -213,13 +165,13 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
     }
 
     let written = ImportSummary {
-        users: query_count(conn, "SELECT count(*) FROM user", ()).await?,
-        node_images: query_count(conn, "SELECT count(*) FROM node_image", ()).await?,
-        labs: query_count(conn, "SELECT count(*) FROM lab", ()).await?,
-        nodes: query_count(conn, "SELECT count(*) FROM node", ()).await?,
-        links: query_count(conn, "SELECT count(*) FROM link", ()).await?,
-        bridges: query_count(conn, "SELECT count(*) FROM bridge", ()).await?,
-        bridge_members: query_count(conn, "SELECT count(*) FROM bridge_member", ()).await?,
+        users: query_count(conn, queries::user::COUNT, ()).await?,
+        node_images: query_count(conn, queries::node_image::COUNT, ()).await?,
+        labs: query_count(conn, queries::lab::COUNT, ()).await?,
+        nodes: query_count(conn, queries::node::COUNT, ()).await?,
+        links: query_count(conn, queries::link::COUNT, ()).await?,
+        bridges: query_count(conn, queries::bridge::COUNT, ()).await?,
+        bridge_members: query_count(conn, queries::bridge::COUNT_MEMBERS, ()).await?,
     };
     if written != *expected {
         bail!("Import row counts differ: read {expected:?}, wrote {written:?}");

@@ -4,6 +4,10 @@ on:
   pull_request:
     branches:
       - main
+  # Runs on main too, to save the build caches that PR runs restore.
+  push:
+    branches:
+      - main
 
 permissions:
   contents: read
@@ -26,6 +30,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # PR runs restore the cache saved on main; only main saves, so PR branches do not
+          # crowd the repository's cache limit.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install system dependencies
         run: |
@@ -54,6 +65,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # PR runs restore the cache saved on main; only main saves, so PR branches do not
+          # crowd the repository's cache limit.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -134,6 +152,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          # PR runs restore the cache saved on main; only main saves, so PR branches do not
+          # crowd the repository's cache limit.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Run client clippy
         run: cargo clippy -p sherpa -- -D warnings

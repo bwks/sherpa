@@ -28,5 +28,11 @@ surrealdb = "3.0.0"
 surrealdb-types = "3.0.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "sync"] }
 
+[build-dependencies]
+# build.rs prepares every SQL statement in sql/queries/ against the schema in sql/schema/.
+anyhow = { workspace = true }
+turso = { version = "=0.8.3", default-features = false }
+tokio = { workspace = true, features = ["rt"] }
+
 [dev-dependencies]
 tempfile = { workspace = true }

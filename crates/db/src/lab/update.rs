@@ -3,9 +3,9 @@ use shared::data::{DbLab, LabState, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::lab::create::UPDATE_LAB;
 use crate::lab::validate_lab_id;
-use crate::persistence::{LAB_TABLE, enum_text, key_of, lab_columns, lab_from_row, lab_values};
+use crate::persistence::{LAB_TABLE, enum_text, key_of, lab_from_row, lab_values};
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Update an existing lab in the database
@@ -47,7 +47,7 @@ pub async fn update_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
     // Verify the lab exists and check if user is being changed
     let existing = query_optional(
         &writer.conn,
-        concat!("SELECT ", lab_columns!(), " FROM lab WHERE id = ?1"),
+        queries::lab::FIND_BY_ID,
         [key.as_str()],
         lab_from_row,
     )
@@ -67,7 +67,7 @@ pub async fn update_lab(db: &Database, lab: DbLab) -> Result<DbLab> {
     // Perform update
     let updated = query_optional(
         &writer.conn,
-        UPDATE_LAB,
+        queries::lab::UPDATE,
         lab_values(&lab, &key)?,
         lab_from_row,
     )
@@ -91,10 +91,7 @@ pub async fn update_lab_state(db: &Database, lab_id: RecordId, state: LabState) 
     let writer = db.writer().await?;
     let updated = query_optional(
         &writer.conn,
-        concat!(
-            "UPDATE lab SET status = ?2 WHERE id = ?1 RETURNING ",
-            lab_columns!()
-        ),
+        queries::lab::UPDATE_STATUS,
         [key_of(&lab_id, LAB_TABLE)?, enum_text(&state, "status")?],
         lab_from_row,
     )

@@ -4,6 +4,7 @@ use turso::Row;
 
 use crate::Database;
 use crate::persistence::Cells;
+use crate::queries;
 use crate::sql::query_optional;
 
 /// Get the username associated with a lab
@@ -26,7 +27,7 @@ pub async fn get_lab_owner_username(db: &Database, lab_id: &str) -> Result<Strin
     let conn = db.reader().await?;
     let username = query_optional(
         &conn,
-        "SELECT user.username FROM lab JOIN user ON user.id = lab.user WHERE lab.lab_id = ?1",
+        queries::lab::OWNER_USERNAME,
         [lab_id],
         username_from_row,
     )

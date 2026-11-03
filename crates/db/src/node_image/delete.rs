@@ -3,7 +3,8 @@ use shared::data::{NodeConfig, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{NODE_IMAGE_TABLE, key_of, node_image_columns, node_image_from_row};
+use crate::persistence::{NODE_IMAGE_TABLE, key_of, node_image_from_row};
+use crate::queries;
 use crate::sql::{query_count, query_optional};
 
 /// Delete a node_image record from the database by its RecordId
@@ -30,13 +31,9 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
 
     // The foreign key refuses the delete as well; checking first gives a clearer message.
     // Both run under the write lock, so no node can start using the image in between.
-    let references = query_count(
-        &writer.conn,
-        "SELECT count(*) FROM node WHERE image = ?1",
-        [key.as_str()],
-    )
-    .await
-    .context("Cannot check image references before deletion")?;
+    let references = query_count(&writer.conn, queries::node::COUNT_BY_IMAGE, [key.as_str()])
+        .await
+        .context("Cannot check image references before deletion")?;
     ensure!(
         references == 0,
         "Cannot delete node_image {:?}: referenced by {} managed node(s)",
@@ -46,10 +43,7 @@ pub async fn delete_node_image(db: &Database, id: RecordId) -> Result<()> {
 
     let deleted: Option<NodeConfig> = query_optional(
         &writer.conn,
-        concat!(
-            "DELETE FROM node_image WHERE id = ?1 RETURNING ",
-            node_image_columns!()
-        ),
+        queries::node_image::DELETE_BY_ID,
         [key.as_str()],
         node_image_from_row,
     )

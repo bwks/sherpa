@@ -3,7 +3,8 @@ use shared::data::{DbLink, RecordId};
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{LAB_TABLE, LINK_TABLE, NODE_TABLE, key_of, link_columns, link_from_row};
+use crate::persistence::{LAB_TABLE, LINK_TABLE, NODE_TABLE, key_of, link_from_row};
+use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
 /// Get a link by its RecordId (surrogate key)
@@ -24,7 +25,7 @@ pub async fn get_link(db: &Database, id: RecordId) -> Result<DbLink> {
     let conn = db.reader().await?;
     let link = query_optional(
         &conn,
-        concat!("SELECT ", link_columns!(), " FROM link WHERE id = ?1"),
+        queries::link::FIND_BY_ID,
         [key_of(&id, LINK_TABLE)?],
         link_from_row,
     )
@@ -78,11 +79,7 @@ pub async fn get_link_by_peers(
     let conn = db.reader().await?;
     let link = query_optional(
         &conn,
-        concat!(
-            "SELECT ",
-            link_columns!(),
-            " FROM link WHERE node_a = ?1 AND node_b = ?2 AND int_a = ?3 AND int_b = ?4"
-        ),
+        queries::link::FIND_BY_INTERFACES,
         [
             key_of(&node_a_id, NODE_TABLE)?,
             key_of(&node_b_id, NODE_TABLE)?,
@@ -122,14 +119,9 @@ pub async fn get_link_by_peers(
 #[instrument(skip(db), level = "debug")]
 pub async fn list_links(db: &Database) -> Result<Vec<DbLink>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!("SELECT ", link_columns!(), " FROM link"),
-        (),
-        link_from_row,
-    )
-    .await
-    .context("Failed to list links from database")
+    query_all(&conn, queries::link::LIST, (), link_from_row)
+        .await
+        .context("Failed to list links from database")
 }
 
 /// List all links in a specific lab
@@ -149,7 +141,7 @@ pub async fn list_links_by_lab(db: &Database, lab_id: RecordId) -> Result<Vec<Db
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!("SELECT ", link_columns!(), " FROM link WHERE lab = ?1"),
+        queries::link::LIST_BY_LAB,
         [key_of(&lab_id, LAB_TABLE)?],
         link_from_row,
     )
@@ -176,11 +168,7 @@ pub async fn list_links_by_node(db: &Database, node_id: RecordId) -> Result<Vec<
     let conn = db.reader().await?;
     query_all(
         &conn,
-        concat!(
-            "SELECT ",
-            link_columns!(),
-            " FROM link WHERE node_a = ?1 OR node_b = ?1"
-        ),
+        queries::link::LIST_BY_NODE,
         [key_of(&node_id, NODE_TABLE)?],
         link_from_row,
     )
@@ -202,7 +190,7 @@ pub async fn list_links_by_node(db: &Database, node_id: RecordId) -> Result<Vec<
 #[instrument(skip(db), level = "debug")]
 pub async fn count_links(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, "SELECT count(*) FROM link", ())
+    query_count(&conn, queries::link::COUNT, ())
         .await
         .context("Failed to count links")
 }
@@ -224,7 +212,7 @@ pub async fn count_links_by_lab(db: &Database, lab_id: RecordId) -> Result<usize
     let conn = db.reader().await?;
     query_count(
         &conn,
-        "SELECT count(*) FROM link WHERE lab = ?1",
+        queries::link::COUNT_BY_LAB,
         [key_of(&lab_id, LAB_TABLE)?],
     )
     .await
@@ -250,7 +238,7 @@ pub async fn count_links_by_node(db: &Database, node_id: RecordId) -> Result<usi
     let conn = db.reader().await?;
     query_count(
         &conn,
-        "SELECT count(*) FROM link WHERE node_a = ?1 OR node_b = ?1",
+        queries::link::COUNT_BY_NODE,
         [key_of(&node_id, NODE_TABLE)?],
     )
     .await
