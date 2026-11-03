@@ -84,6 +84,14 @@ An entry never changes once released. To change the schema, append an entry. SQL
 most constraints in place, so a change to a column's constraints is a table rebuild: create the new
 table, copy the rows, drop the old one, rename.
 
+| Version | Entry |
+|---|---|
+| 1 | Every table (`<table>::TABLES`) |
+| 2 | `node_image::FIX_DATA_INTERFACE_COUNTS`: `cisco_csr1000v` and `cisco_iosvl2` images stored with more than 15 data interfaces (the old default was 16, one more than they have after the management interface) are set to 15 |
+
+An entry can correct data as well as change the schema; it runs once, when a database reaches that
+version.
+
 ### Rule triggers
 
 Two kinds of rule are triggers, dropped and created again by every `apply_schema` rather than
@@ -115,7 +123,9 @@ port comes from the host port Docker records for the `sherpa-db` container, pass
   including the old link impairment and bridge member layouts.
 - `write.rs` applies the schema, then in one transaction under the writer refuses a target that
   already has a user or a lab, inserts every record with its original key in dependency order, and
-  compares each table's row count with what it read. Any failure rolls back.
+  compares each table's row count with what it read. Any failure rolls back. The schema is applied
+  before the rows exist, so data corrections in later migrations do not reach imported rows; the
+  importer runs `FIX_DATA_INTERFACE_COUNTS` itself after writing the node images.
 
 The importer is the only user of the `surrealdb` crate and of the `SHERPA_DB_SERVER`,
 `SHERPA_DB_PORT`, `SHERPA_DB_NAMESPACE`, `SHERPA_DB_NAME` and `SHERPA_DB_USER` constants. They go

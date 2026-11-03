@@ -12,7 +12,7 @@ use crate::persistence::{
     link_columns, link_values, node_columns, node_image_columns, node_image_values, node_values,
     user_columns, user_values,
 };
-use crate::schema::apply_schema;
+use crate::schema::{FIX_DATA_INTERFACE_COUNTS, apply_schema};
 use crate::sql::query_count;
 
 /// How many records of each kind were imported.
@@ -132,6 +132,11 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
             image.model, image.version
         ))?;
     }
+    // The schema was brought up to date before the rows existed, so its corrections did not see
+    // them.
+    conn.execute_batch(FIX_DATA_INTERFACE_COUNTS)
+        .await
+        .context("Failed to correct imported node image interface counts")?;
     for lab in &data.labs {
         let key = record_key(lab.id.as_ref(), LAB_TABLE)?;
         conn.execute(

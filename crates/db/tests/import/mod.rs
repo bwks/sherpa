@@ -33,12 +33,19 @@ fn source() -> SurrealSource {
 }
 
 /// A node image as a SurrealQL object, the way the old server stored it: no id, no null fields.
-fn node_image_object() -> String {
-    let mut value = serde_json::to_value(NodeConfig::get_model(NodeModel::AristaCeos)).unwrap();
+fn node_image_object(image: NodeConfig) -> String {
+    let mut value = serde_json::to_value(image).unwrap();
     let object = value.as_object_mut().unwrap();
     object.remove("id");
     object.retain(|_, field| !field.is_null());
     value.to_string()
+}
+
+/// A CSR1000v image with the data interface count servers before 0.5.4 stored by default.
+fn old_default_csr() -> NodeConfig {
+    let mut image = NodeConfig::get_model(NodeModel::CiscoCsr1000v);
+    image.data_interface_count = 16;
+    image
 }
 
 async fn seed(source: &SurrealSource) -> Result<()> {
@@ -60,6 +67,7 @@ async fn seed(source: &SurrealSource) -> Result<()> {
              ssh_keys: ['ssh-ed25519 AAAA alice'], created_at: d'2026-01-02T03:04:05.123456789Z',
              updated_at: d'2026-02-03T04:05:06Z' }};
          CREATE node_image:img1 CONTENT {image};
+         CREATE node_image:csr CONTENT {csr};
          CREATE lab:lab1 CONTENT {{ lab_id: 'test1234', name: 'lab1', user: user:alice,
              loopback_network: '127.127.1.0/24', management_network: '172.31.1.0/24',
              gateway_ipv4: '172.31.1.1', router_ipv4: '172.31.1.2', status: 'running',
@@ -78,7 +86,8 @@ async fn seed(source: &SurrealSource) -> Result<()> {
          CREATE bridge:b1 CONTENT {{ index: 0, bridge_name: 'br0', network_name: 'net0',
              lab: lab:lab1, members: [{{ node: node:n2, interface: 'eth3' }},
                  {{ node: node:n1, interface: 'eth2' }}] }};",
-        image = node_image_object()
+        image = node_image_object(NodeConfig::get_model(NodeModel::AristaCeos)),
+        csr = node_image_object(old_default_csr()),
     );
     db.query(script).await?.check()?;
     Ok(())
@@ -96,7 +105,7 @@ async fn import_copies_every_record_with_its_key() -> Result<()> {
         summary,
         ImportSummary {
             users: 2,
-            node_images: 1,
+            node_images: 2,
             labs: 1,
             nodes: 2,
             links: 1,
@@ -118,6 +127,15 @@ async fn import_copies_every_record_with_its_key() -> Result<()> {
         .await?
         .expect("imported node image");
     assert_eq!(image.model, NodeModel::AristaCeos);
+    assert_eq!(
+        image.data_interface_count,
+        NodeConfig::get_model(NodeModel::AristaCeos).data_interface_count
+    );
+    // The old default was one interface too many; the import corrects it.
+    let csr = get_node_image_by_id(&target, RecordId::new("node_image", "csr"))
+        .await?
+        .expect("imported CSR1000v image");
+    assert_eq!(csr.data_interface_count, 15);
 
     let lab = get_lab(&target, "test1234").await?;
     let lab_id = RecordId::new("lab", "lab1");
