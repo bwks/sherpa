@@ -21,12 +21,6 @@ pub(crate) const NODE_IMAGE_TABLE: &str = "node_image";
 pub(crate) const LINK_TABLE: &str = "link";
 pub(crate) const BRIDGE_TABLE: &str = "bridge";
 
-macro_rules! user_columns {
-    () => {
-        "id, username, password_hash, is_admin, ssh_keys, created_at, updated_at"
-    };
-}
-
 macro_rules! lab_columns {
     () => {
         "id, lab_id, name, user, loopback_network, management_network, gateway_ipv4, \
@@ -76,7 +70,7 @@ macro_rules! node_image_columns {
 
 pub(crate) use {
     bridge_columns, bridge_member_columns, lab_columns, link_columns, node_columns,
-    node_image_columns, user_columns,
+    node_image_columns,
 };
 
 /// Reads a row's columns in order, naming each field in errors.
@@ -247,7 +241,7 @@ pub(crate) fn user_from_row(row: &Row) -> Result<DbUser> {
     })
 }
 
-/// A user's column values in `user_columns!` order, under `key`.
+/// A user's column values in the `user` table's column order, under `key`.
 pub(crate) fn user_values(user: &DbUser, key: &str) -> Result<Vec<Value>> {
     Ok(vec![
         key.into(),

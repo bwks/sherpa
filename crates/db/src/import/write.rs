@@ -10,8 +10,9 @@ use crate::persistence::{
     BRIDGE_TABLE, LAB_TABLE, LINK_TABLE, NODE_IMAGE_TABLE, NODE_TABLE, USER_TABLE, bridge_columns,
     bridge_member_columns, bridge_member_values, bridge_values, key_of, lab_columns, lab_values,
     link_columns, link_values, node_columns, node_image_columns, node_image_values, node_values,
-    user_columns, user_values,
+    user_values,
 };
+use crate::queries;
 use crate::schema::{FIX_DATA_INTERFACE_COUNTS, apply_schema};
 use crate::sql::query_count;
 
@@ -104,16 +105,9 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
     // Parents before children, so every foreign key finds its row.
     for user in &data.users {
         let key = record_key(user.id.as_ref(), USER_TABLE)?;
-        conn.execute(
-            concat!(
-                "INSERT INTO user (",
-                user_columns!(),
-                ") VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
-            ),
-            user_values(user, &key)?,
-        )
-        .await
-        .context(format!("Failed to import user {}", user.username))?;
+        conn.execute(queries::user::IMPORT, user_values(user, &key)?)
+            .await
+            .context(format!("Failed to import user {}", user.username))?;
     }
     for image in &data.node_images {
         let key = record_key(image.id.as_ref(), NODE_IMAGE_TABLE)?;

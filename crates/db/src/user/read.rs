@@ -4,7 +4,8 @@ use shared::util::normalize_username;
 use tracing::instrument;
 
 use crate::Database;
-use crate::persistence::{USER_TABLE, key_of, user_columns, user_from_row};
+use crate::persistence::{USER_TABLE, key_of, user_from_row};
+use crate::queries;
 use crate::sql::{query_all, query_count, query_optional};
 
 /// Get a user by username
@@ -42,7 +43,7 @@ pub async fn find_user(db: &Database, username: &str) -> Result<Option<DbUser>> 
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!("SELECT ", user_columns!(), " FROM user WHERE username = ?1"),
+        queries::user::FIND_BY_USERNAME,
         [normalize_username(username)],
         user_from_row,
     )
@@ -68,7 +69,7 @@ pub async fn get_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUser
     let conn = db.reader().await?;
     query_optional(
         &conn,
-        concat!("SELECT ", user_columns!(), " FROM user WHERE id = ?1"),
+        queries::user::FIND_BY_ID,
         [key_of(&id, USER_TABLE)?],
         user_from_row,
     )
@@ -90,18 +91,9 @@ pub async fn get_user_by_id(db: &Database, id: RecordId) -> Result<Option<DbUser
 #[instrument(skip(db), level = "debug")]
 pub async fn list_users(db: &Database) -> Result<Vec<DbUser>> {
     let conn = db.reader().await?;
-    query_all(
-        &conn,
-        concat!(
-            "SELECT ",
-            user_columns!(),
-            " FROM user ORDER BY username ASC"
-        ),
-        (),
-        user_from_row,
-    )
-    .await
-    .context("Failed to query all users from database")
+    query_all(&conn, queries::user::LIST, (), user_from_row)
+        .await
+        .context("Failed to query all users from database")
 }
 
 /// Count the total number of users in the database
@@ -118,7 +110,7 @@ pub async fn list_users(db: &Database) -> Result<Vec<DbUser>> {
 #[instrument(skip(db), level = "debug")]
 pub async fn count_users(db: &Database) -> Result<usize> {
     let conn = db.reader().await?;
-    query_count(&conn, "SELECT count(*) FROM user", ())
+    query_count(&conn, queries::user::COUNT, ())
         .await
         .context("Failed to count users from database")
 }
