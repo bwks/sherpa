@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.6] - 2026-11-03
+
+### Features
+
+- Record where a lab was started from by @bwks ([910d17c](https://github.com/bwks/sherpa/commit/910d17caffa8f66e3390dfea5980cbe5d444fe70))
+- Per-node hardware watchdog in the manifest by @bwks ([94cace9](https://github.com/bwks/sherpa/commit/94cace9db5492ad169517a7e6278dd7c366b5d69))
+
+### Miscellaneous
+
+- Merge pull request #441 from bwks/feat/lab-source-and-watchdog
+
+feat: record where a lab was started, and a per-node watchdog (v0.5.6) by @bwks in [#441](https://github.com/bwks/sherpa/pull/441) ([ec140b4](https://github.com/bwks/sherpa/commit/ec140b4c472dd98d1a1664bb07e4d0678deb8745))
+- Bump version to 0.5.6 by @bwks ([77b0c41](https://github.com/bwks/sherpa/commit/77b0c410d72d46d2ffbd8c416ad666c33693b5e8))
+- Merge pull request #440 from bwks/changelog/v0.5.5
+
+chore(release): update changelog for v0.5.5 by @github-actions[bot] in [#440](https://github.com/bwks/sherpa/pull/440) ([715e6b5](https://github.com/bwks/sherpa/commit/715e6b575d823ec260d0187803bb505e58ac8cf2))
 ## [0.5.5] - 2026-11-03
 
 ### Bug Fixes
