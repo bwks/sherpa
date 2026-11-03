@@ -13,14 +13,17 @@ use crate::Database;
 use crate::sql::query_count;
 
 /// Each entry brings the schema from version `index` to `index + 1`.
-const MIGRATIONS: &[&[&str]] = &[&[
-    user::TABLES,
-    node_image::TABLES,
-    lab::TABLES,
-    node::TABLES,
-    link::TABLES,
-    bridge::TABLES,
-]];
+const MIGRATIONS: &[&[&str]] = &[
+    &[
+        user::TABLES,
+        node_image::TABLES,
+        lab::TABLES,
+        node::TABLES,
+        link::TABLES,
+        bridge::TABLES,
+    ],
+    &[node_image::FIX_DATA_INTERFACE_COUNTS],
+];
 
 /// The schema version this build of Sherpa writes.
 pub const SCHEMA_VERSION: usize = MIGRATIONS.len();
@@ -88,8 +91,10 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
+    use shared::data::{NodeConfig, NodeModel};
+
     use super::*;
-    use crate::open_in_memory;
+    use crate::{create_node_image, list_node_images, open_in_memory};
 
     async fn version(db: &Database) -> usize {
         let conn = db.reader().await.unwrap();
@@ -106,6 +111,43 @@ mod tests {
 
         apply_schema(&db).await.unwrap();
         assert_eq!(version(&db).await, SCHEMA_VERSION);
+    }
+
+    #[tokio::test]
+    async fn apply_schema_corrects_data_interface_counts_of_older_databases() {
+        let db = open_in_memory().await.unwrap();
+        apply_schema(&db).await.unwrap();
+        for model in [
+            NodeModel::CiscoCsr1000v,
+            NodeModel::CiscoIosvl2,
+            NodeModel::UbuntuLinux,
+        ] {
+            let mut image = NodeConfig::get_model(model);
+            image.data_interface_count = 16;
+            create_node_image(&db, image).await.unwrap();
+        }
+        let writer = db.writer().await.unwrap();
+        writer
+            .conn
+            .execute("PRAGMA user_version = 1", ())
+            .await
+            .unwrap();
+        drop(writer);
+
+        apply_schema(&db).await.unwrap();
+
+        let counts: Vec<(NodeModel, u8)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.data_interface_count))
+            .collect();
+        assert!(
+            counts.contains(&(NodeModel::CiscoCsr1000v, 15)),
+            "{counts:?}"
+        );
+        assert!(counts.contains(&(NodeModel::CiscoIosvl2, 15)), "{counts:?}");
+        assert!(counts.contains(&(NodeModel::UbuntuLinux, 16)), "{counts:?}");
     }
 
     #[tokio::test]

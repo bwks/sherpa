@@ -64,7 +64,7 @@ pub fn validate_data_interface_count_override(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::NodeConfig;
+    use crate::data::{NodeConfig, NodeModel};
 
     #[test]
     fn test_effective_data_interface_count_uses_default_without_override() {
@@ -98,5 +98,21 @@ mod tests {
         let result = effective_data_interface_count("dev01", Some(10), &node_image);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("overflow"));
+    }
+
+    #[test]
+    fn test_default_data_interface_counts_fit_model_interfaces() {
+        let mut overruns = Vec::new();
+        for model in NodeModel::to_vec() {
+            let node_image = NodeConfig::get_model(model);
+            if let Err(err) = validate_data_interface_count_override(
+                "default",
+                node_image.data_interface_count,
+                &node_image,
+            ) {
+                overruns.push(format!("{model}: {err}"));
+            }
+        }
+        assert!(overruns.is_empty(), "{}", overruns.join("\n"));
     }
 }
