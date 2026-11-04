@@ -58,6 +58,11 @@ jobs:
       && startsWith(github.head_ref, 'changelog/')) }}
     runs-on: ubuntu-latest
     steps:
+      - name: Free disk space
+        # The instrumented test binaries come close to filling the runner's disk; these
+        # preinstalled toolchains are not used.
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -92,6 +97,11 @@ jobs:
 
       - name: Generate coverage summary
         run: cargo llvm-cov report --summary-only 2>&1 | tee coverage-summary.txt
+
+      - name: Remove workspace coverage artifacts
+        # rust-cache prunes workspace crates from target/debug but not from llvm-cov's own
+        # target directory, so without this the saved cache keeps every old test binary.
+        run: cargo llvm-cov clean --workspace
 
       - name: Post coverage to PR
         if: github.event_name == 'pull_request'
