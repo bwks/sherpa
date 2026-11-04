@@ -7,7 +7,7 @@ without anything running in the image.
 | Node | Model | Role |
 |---|---|---|
 | `sw01` | `arista_ceos` 4.35.1F | Router on the core triangle, and the access switch: VLAN 10 on eth3–eth15, gateway 10.46.10.1 |
-| `srl01` | `nokia_srlinux` 25.10.1 | Router on the core triangle |
+| `srl01` | `nokia_srlinux` 26.7.2 | Router on the core triangle |
 | `frr01` | `frr_linux` 10.5.2 | Router on the core triangle |
 | `mongo01` | `mongo_db` 8.2.7-rc0 | Host; the image has no `ip` |
 | `surreal01` | `surreal_db` v3.0.0 | Host; the image has no shell |

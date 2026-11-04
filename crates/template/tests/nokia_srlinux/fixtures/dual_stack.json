@@ -1736,12 +1736,15 @@
         }
       ]
     },
-    "srl_nokia-dns:dns": {
-      "network-instance": "mgmt",
-      "server-list": [
-        "172.20.0.1"
-      ]
-    },
+    "srl_nokia-dns:dns-instance": [
+      {
+        "name": "mgmt",
+        "network-instance": "mgmt",
+        "server-list": [
+          "172.20.0.1"
+        ]
+      }
+    ],
     "srl_nokia-lldp:lldp": {
       "admin-state": "enable"
     },

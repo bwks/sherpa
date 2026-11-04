@@ -70,6 +70,8 @@ event manager applet ENABLE-MGMT
  action 4 cli command \"exit\"
  action 5 cli command \"crypto key generate rsa modulus 2048\"
 !
+do write memory
+!
 exit";
 
 const EXPECTED_DUAL_STACK: &str = "\
@@ -135,6 +137,8 @@ event manager applet ENABLE-MGMT
  action 4 cli command \"exit\"
  action 5 cli command \"crypto key generate rsa modulus 2048\"
 !
+do write memory
+!
 exit";
 
 const EXPECTED_DHCP: &str = "\
@@ -196,6 +200,8 @@ event manager applet ENABLE-MGMT
  action 3 cli command \"no shutdown\"
  action 4 cli command \"exit\"
  action 5 cli command \"crypto key generate rsa modulus 2048\"
+!
+do write memory
 !
 exit";
 

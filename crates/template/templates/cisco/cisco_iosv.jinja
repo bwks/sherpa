@@ -79,4 +79,8 @@ event manager applet ENABLE-MGMT
  action 4 cli command "exit"
  action 5 cli command "crypto key generate rsa modulus 2048"
 !
+{#- IOSv does not save the disk config to NVRAM, so with an empty startup config it runs
+    autoinstall after boot, which puts the management interface on DHCP. #}
+do write memory
+!
 exit
