@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.8] - 2026-11-04
+
+### Bug Fixes
+
+- Fixes for srlinux, vsrx, iosv by @bwks ([afc7999](https://github.com/bwks/sherpa/commit/afc7999432d6841d173c16e65433b6a0fe4540ed))
+
+### Miscellaneous
+
+- Merge pull request #448 from bwks/fix/444-446-node-boot
+
+fix: IOSv, vSRX and SR Linux boot configs (0.5.8) by @bwks in [#448](https://github.com/bwks/sherpa/pull/448) ([51612ed](https://github.com/bwks/sherpa/commit/51612ed2795123aaed2a50ef8796a1103e4a7b0a))
+- Merge pull request #447 from bwks/changelog/v0.5.7
+
+chore(release): update changelog for v0.5.7 by @github-actions[bot] in [#447](https://github.com/bwks/sherpa/pull/447) ([0899b35](https://github.com/bwks/sherpa/commit/0899b3554488e671db48bfef806379479da227c3))
 ## [0.5.7] - 2026-11-04
 
 ### Features
