@@ -13,7 +13,7 @@ version = "4.35.1F"
 [[nodes]]
 name = "srl01"
 model = "nokia_srlinux"
-version = "25.10.1"
+version = "26.7.2"
 
 [[nodes]]
 name = "frr01"

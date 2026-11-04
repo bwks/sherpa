@@ -10,6 +10,8 @@ use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
 /// Includes CPM ACL filters (IPv4 + IPv6), policers, and control-plane-traffic
 /// section needed to steer traffic (SSH, gNMI, etc.) to the correct namespace.
 static FACTORY_ACL_JSON: &str = include_str!("nokia_srlinux_factory_acl.json");
+/// The name of the DNS instance Sherpa configures, in the `mgmt` network instance.
+const DNS_INSTANCE_NAME: &str = "mgmt";
 
 /// SR Linux config.json uses YANG module-prefixed keys.
 /// The config.json fully replaces factory defaults, so we must include
@@ -34,8 +36,8 @@ struct SrlinuxConfig {
 struct System {
     #[serde(rename = "srl_nokia-system-name:name")]
     name: SystemName,
-    #[serde(rename = "srl_nokia-dns:dns")]
-    dns: SystemDns,
+    #[serde(rename = "srl_nokia-dns:dns-instance")]
+    dns_instance: Vec<DnsInstance>,
     #[serde(rename = "srl_nokia-aaa:aaa")]
     aaa: Aaa,
     #[serde(rename = "srl_nokia-ssh:ssh-server")]
@@ -50,8 +52,10 @@ struct SystemName {
     host_name: String,
 }
 
+/// A DNS client. Release 26 replaced the single `dns` container with this list.
 #[derive(Serialize)]
-struct SystemDns {
+struct DnsInstance {
+    name: String,
     #[serde(rename = "network-instance")]
     network_instance: String,
     #[serde(rename = "server-list")]
@@ -320,10 +324,11 @@ pub fn build_srlinux_config(
             name: SystemName {
                 host_name: hostname.to_string(),
             },
-            dns: SystemDns {
+            dns_instance: vec![DnsInstance {
+                name: DNS_INSTANCE_NAME.to_string(),
                 network_instance: "mgmt".to_string(),
                 server_list: dns_servers,
-            },
+            }],
             aaa: Aaa {
                 authentication: Authentication {
                     authentication_method: vec!["local".to_string()],

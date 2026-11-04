@@ -217,6 +217,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn apply_schema_moves_vsrx_images_to_the_cdrom_ztp_method() {
+        // A version 4 database, before the vSRX correction.
+        let db = open_in_memory().await.unwrap();
+        let writer = db.writer().await.unwrap();
+        for batch in TABLES.iter().chain(&migrations::ALL[..3]) {
+            writer.conn.execute_batch(batch).await.unwrap();
+        }
+        writer
+            .conn
+            .execute("PRAGMA user_version = 4", ())
+            .await
+            .unwrap();
+        drop(writer);
+        for model in [NodeModel::JuniperVsrxv3, NodeModel::AristaVeos] {
+            let mut image = NodeConfig::get_model(model);
+            image.ztp_method = ZtpMethod::Tftp;
+            create_node_image(&db, image).await.unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let methods: Vec<(NodeModel, ZtpMethod)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.ztp_method))
+            .collect();
+        assert!(
+            methods.contains(&(NodeModel::JuniperVsrxv3, ZtpMethod::Cdrom)),
+            "{methods:?}"
+        );
+        assert!(
+            methods.contains(&(NodeModel::AristaVeos, ZtpMethod::Tftp)),
+            "{methods:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn apply_schema_refuses_a_newer_schema() {
         let db = open_in_memory().await.unwrap();
         apply_schema(&db).await.unwrap();
