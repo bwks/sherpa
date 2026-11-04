@@ -32,6 +32,8 @@ fn test_static_ipv4() {
     let t = MikrotikRouterosZtpTemplate {
         hostname: "mikrotik01".to_string(),
         user: helpers::test_user(),
+        owner: None,
+        owner_key_files: vec![],
         mgmt_interface: "ether1".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),

@@ -23,10 +23,10 @@ fn test_static_ipv4() {
     let json = build_srlinux_config(
         "srl01",
         &helpers::test_user(),
+        None,
         &helpers::test_dns(),
         &helpers::test_network_v4(),
         Some(Ipv4Addr::new(172, 20, 0, 10)),
-        None,
         None,
     )
     .expect("builds config");
@@ -38,9 +38,9 @@ fn test_dhcp() {
     let json = build_srlinux_config(
         "srl02",
         &helpers::test_user(),
+        None,
         &helpers::test_dns(),
         &helpers::test_network_v4(),
-        None,
         None,
         None,
     )
@@ -54,11 +54,11 @@ fn test_dual_stack() {
     let json = build_srlinux_config(
         "srl03",
         &helpers::test_user(),
+        None,
         &helpers::test_dns(),
         &helpers::test_network_v4(),
         Some(Ipv4Addr::new(172, 20, 0, 10)),
-        Some("fd00::10".parse().expect("valid")),
-        Some(&v6),
+        Some(("fd00::10".parse().expect("valid"), &v6)),
     )
     .expect("builds config");
     assert_eq!(json, EXPECTED_DUAL_STACK);

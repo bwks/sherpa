@@ -20,6 +20,19 @@
         </permissions>
         <public-key>{{ssh_public_key_b64}}</public-key>
       </entry>
+      {%- if let Some(owner) = owner %}
+      <entry name="{{owner.username}}">
+        <phash>{{owner.secret}}</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+        {%- for key in owner.ssh_keys %}
+        <public-key>{{key.value}}</public-key>
+        {%- endfor %}
+      </entry>
+      {%- endif %}
     </users>
     <password-complexity>
       <enabled>yes</enabled>

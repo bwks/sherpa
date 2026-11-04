@@ -706,9 +706,16 @@ pub async fn up_lab(
     if manifest.provision_current_user {
         for node in &nodes_expanded {
             let image = get_node_image(&node.model, node.version.as_deref(), &node_images)?;
-            guest_account::validate_node(node, &image)?;
-            if guest_account::supports_guest_account(&image) {
-                personal_nodes.push(node.name.clone());
+            if guest_account::provisions_owner(node, &image) {
+                personal_nodes.push((node.name.clone(), image));
+            } else if guest_account::supports_guest_account(&image) {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{}' has a custom ZTP config, so it gets no account for '{}'",
+                        node.name, db_user.username
+                    ),
+                    StatusKind::Info,
+                );
             }
         }
     }
@@ -727,12 +734,24 @@ pub async fn up_lab(
         }
         account
     };
+    // Every node must take one of the owner's keys before anything is created.
     let mut ssh_usernames = Vec::new();
     if let Some(account) = &personal_account {
-        for name in personal_nodes {
+        for (name, image) in &personal_nodes {
+            let node_account = guest_account::node_account(account, name, image)?;
+            if !node_account.skipped_keys.is_empty() {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{name}' does not take these SSH keys of '{}': {}",
+                        account.username,
+                        node_account.skipped_keys.join(", ")
+                    ),
+                    StatusKind::Info,
+                );
+            }
             ssh_usernames.push(NodeSshUsername {
-                node_name: name,
-                username: account.username.clone(),
+                node_name: name.clone(),
+                username: node_account.account.username,
             });
         }
     }
@@ -1684,6 +1703,7 @@ pub async fn up_lab(
                 node_ipv4_address,
                 &progress,
                 Some(&cert_paths),
+                personal_account.as_ref(),
             )?;
 
             ztp_records.push(ztp_result.ztp_record);

@@ -2,7 +2,10 @@ use std::net::Ipv4Addr;
 
 use ipnet::{Ipv4Net, Ipv6Net};
 
-use shared::data::{Dns, NameServer, NetworkV4, NetworkV6, SshKeyAlgorithms, SshPublicKey, User};
+use shared::data::{
+    Dns, NameServer, NetworkV4, NetworkV6, OwnerSshKey, OwnerUser, SshKeyAlgorithms, SshPublicKey,
+    User,
+};
 
 pub fn test_user() -> User {
     User {
@@ -14,6 +17,24 @@ pub fn test_user() -> User {
             comment: Some("test@sherpa".to_string()),
         },
         sudo: true,
+    }
+}
+
+/// A lab owner with two keys, as the generators pass them to device templates.
+pub fn test_owner() -> OwnerUser {
+    OwnerUser {
+        username: "alice".to_string(),
+        secret: "Rand0mSecret".to_string(),
+        ssh_keys: vec![
+            OwnerSshKey {
+                kind: "ssh-rsa".to_string(),
+                value: "OWNERKEY1".to_string(),
+            },
+            OwnerSshKey {
+                kind: "ssh-ed25519".to_string(),
+                value: "OWNERKEY2".to_string(),
+            },
+        ],
     }
 }
 

@@ -29,7 +29,7 @@ exit 0";
 
 // file_map() uses json!().to_string() which produces compact JSON.
 // HTTP_PORT=8080, NODE_CONFIGS_DIR="configs"
-const EXPECTED_FILE_MAP: &str = r#"{"ztp":{"001-configdb-json":{"url":{"destination":"/etc/sonic/config_db.json","secure":false,"source":"http://172.20.0.1:8080/configs/sonic01_config_db.json"}},"002-set-password":{"plugin":{"shell":"true","url":"http://172.20.0.1:8080/configs/sonic_ztp_user.sh"},"reboot-on-success":false}}}"#;
+const EXPECTED_FILE_MAP: &str = r#"{"ztp":{"001-configdb-json":{"url":{"destination":"/etc/sonic/config_db.json","secure":false,"source":"http://172.20.0.1:8080/configs/sonic01_config_db.json"}},"002-set-password":{"plugin":{"shell":"true","url":"http://172.20.0.1:8080/configs/sonic01_ztp_user.sh"},"reboot-on-success":false}}}"#;
 
 // config() uses json!().to_string() which produces compact JSON.
 // With static IP: includes MGMT_PORT and MGMT_INTERFACE keys.
@@ -46,6 +46,7 @@ const EXPECTED_CONFIG_DHCP: &str = r#"{"AAA":{"authentication":{"login":"local"}
 fn test_sonic_user_template() {
     let t = SonicLinuxUserTemplate {
         user: helpers::test_user(),
+        owner: None,
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_SONIC_USER);

@@ -12,7 +12,7 @@ use crate::persistence::{
     node_values, user_values,
 };
 use crate::queries;
-use crate::schema::{FIX_DATA_INTERFACE_COUNTS, apply_schema};
+use crate::schema::{FIX_DATA_INTERFACE_COUNTS, FIX_ZTP_IMAGE_DEFAULTS, apply_schema};
 use crate::sql::query_count;
 
 /// How many records of each kind were imported.
@@ -122,6 +122,9 @@ async fn write_all(conn: &Connection, data: &SurrealData, expected: &ImportSumma
     conn.execute_batch(FIX_DATA_INTERFACE_COUNTS)
         .await
         .context("Failed to correct imported node image interface counts")?;
+    conn.execute_batch(FIX_ZTP_IMAGE_DEFAULTS)
+        .await
+        .context("Failed to correct imported node image ZTP defaults")?;
     for lab in &data.labs {
         let key = record_key(lab.id.as_ref(), LAB_TABLE)?;
         conn.execute(queries::lab::IMPORT, lab_values(lab, &key)?)

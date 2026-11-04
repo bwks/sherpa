@@ -1,0 +1,4 @@
+# Written by Sherpa. Each account reads its own keys file, so administrators do not share
+# administrators_authorized_keys.
+AuthorizedKeysFile {{ authorized_keys_dir }}/%u
+Subsystem sftp sftp-server.exe

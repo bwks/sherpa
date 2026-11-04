@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{NetworkV6, User};
+use shared::data::{NetworkV6, OwnerUser, User};
 
 /// Renders the PAN-OS `init-cfg.txt` bootstrap file.
 /// Network and hostname settings only — user configuration
@@ -29,6 +29,7 @@ pub struct PaloAltoPanosZtpTemplate {
 pub struct PaloAltoPanosBootstrapTemplate {
     pub hostname: String,
     pub user: User,
+    pub owner: Option<OwnerUser>,
     pub password_hash: String,
     pub ssh_public_key_b64: String,
     pub mgmt_ipv4_address: Ipv4Addr,

@@ -3,13 +3,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 use askama::Template;
 use serde_json::json;
 
-use shared::data::{NetworkV4, NetworkV6, User};
+use shared::data::{NetworkV4, NetworkV6, OwnerUser, User};
 use shared::konst::{HTTP_PORT, NODE_CONFIGS_DIR};
 
 #[derive(Template)]
 #[template(path = "sonic/ztp_user.jinja", ext = "txt")]
 pub struct SonicLinuxUserTemplate {
     pub user: User,
+    pub owner: Option<OwnerUser>,
 }
 
 pub struct SonicLinuxZtp {
@@ -21,7 +22,13 @@ pub struct SonicLinuxZtp {
 }
 
 impl SonicLinuxZtp {
+    /// The node's own account script, so nodes in one lab never overwrite each other's.
+    pub fn user_script_filename(device_name: &str) -> String {
+        format!("{device_name}_ztp_user.sh")
+    }
+
     pub fn file_map(device_name: &str, ztp_server: &Ipv4Addr) -> String {
+        let user_script = Self::user_script_filename(device_name);
         let sonic_ztp_template = json!(
             {
                 "ztp": {
@@ -34,7 +41,7 @@ impl SonicLinuxZtp {
                   },
                   "002-set-password": {
                       "plugin": {
-                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/sonic_ztp_user.sh"),
+                        "url": format!("http://{ztp_server}:{HTTP_PORT}/{NODE_CONFIGS_DIR}/{user_script}"),
                         "shell": "true"
                        },
                        "reboot-on-success": false

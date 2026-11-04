@@ -131,6 +131,7 @@ fn test_static_ipv4() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         mgmt_interface: "GigabitEthernet1".to_string(),
         dns: helpers::test_dns(),
         license_boot_command: None,
@@ -148,6 +149,7 @@ fn test_with_license_command() {
     let t = CiscoIosXeZtpTemplate {
         hostname: "csr01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         mgmt_interface: "GigabitEthernet1".to_string(),
         dns: helpers::test_dns(),
         license_boot_command: Some("license boot level network-advantage".to_string()),

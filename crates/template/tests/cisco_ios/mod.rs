@@ -208,6 +208,7 @@ fn test_static_ipv4() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -224,6 +225,7 @@ fn test_dual_stack() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
@@ -240,6 +242,7 @@ fn test_dhcp_mode() {
     let t = CiscoIosvZtpTemplate {
         hostname: "iosv01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         mgmt_interface: "GigabitEthernet0/0".to_string(),
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),

@@ -32,5 +32,5 @@ mod user;
 
 // Public API - only schema application function is exposed outside the crate
 pub use apply::{SCHEMA_VERSION, apply_schema};
-// The importer applies the same correction to the node images it writes.
-pub(crate) use migrations::FIX_DATA_INTERFACE_COUNTS;
+// The importer applies the same corrections to the node images it writes.
+pub(crate) use migrations::{FIX_DATA_INTERFACE_COUNTS, FIX_ZTP_IMAGE_DEFAULTS};

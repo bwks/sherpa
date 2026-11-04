@@ -12,7 +12,7 @@ use askama::Template;
 use jato::{Auth, ConnectOptions, Hop, HostKeyPolicy, Node, Session};
 use tracing::instrument;
 
-use crate::services::guest_account::{self, GuestAccount};
+use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
 
@@ -46,6 +46,7 @@ use shared::konst::{
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
     TALOS_API_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID,
+    WINDOWS_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_CONFIG,
     WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
@@ -299,7 +300,7 @@ pub fn model_capabilities(model: &data::NodeModel) -> Vec<String> {
 /// Generate ZTP configuration for a container node.
 /// Returns the image, env_vars, volumes, commands, privileged flag, user, and ZTP record.
 #[allow(clippy::too_many_arguments)]
-pub fn generate_container_ztp(
+pub(crate) fn generate_container_ztp(
     node: &mut topology::NodeExpanded,
     node_image: &data::NodeConfig,
     lab_dir: &str,
@@ -309,7 +310,10 @@ pub fn generate_container_ztp(
     node_ipv4_address: Ipv4Addr,
     progress: &ProgressSender,
     cert_paths: Option<&NodeCertPaths>,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<ContainerZtpResult> {
+    let node_account = guest_account::node_owner(guest_account, node, node_image)?;
+    let guest_account = node_account.as_ref();
     let dir = format!("{}/{}", lab_dir, node.name);
 
     let custom_ztp = take_custom_ztp_config(node, progress)?;
@@ -331,6 +335,7 @@ pub fn generate_container_ztp(
                     let arista_template = template::AristaCeosZtpTemplate {
                         hostname: node.name.clone(),
                         user: sherpa_user.clone(),
+                        owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -370,11 +375,11 @@ pub fn generate_container_ztp(
                 None => template::build_srlinux_config(
                     &node.name,
                     sherpa_user,
+                    guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?.as_ref(),
                     dns,
                     &mgmt_net.v4,
                     Some(node_ipv4_address),
-                    node.ipv6_address,
-                    mgmt_net.v6.as_ref(),
+                    node.ipv6_address.zip(mgmt_net.v6.as_ref()),
                 )?,
             };
             let ztp_config = format!("{dir}/{}.json", node.name);
@@ -432,6 +437,7 @@ pub fn generate_container_ztp(
             let startup_template = template::FrrStartupTemplate {
                 hostname: node.name.clone(),
                 user: sherpa_user.clone(),
+                owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
             };
             let rendered_startup = startup_template.render()?;
             let startup_file = format!("{dir}/sherpa-init.sh");
@@ -669,10 +675,8 @@ pub(crate) fn generate_vm_ztp(
     cert_paths: Option<&NodeCertPaths>,
     guest_account: Option<&GuestAccount>,
 ) -> Result<VmZtpResult> {
-    let guest_account = guest_account.filter(|_| guest_account::supports_guest_account(node_image));
-    if guest_account.is_some() {
-        guest_account::validate_node(node, node_image)?;
-    }
+    let node_account = guest_account::node_owner(guest_account, node, node_image)?;
+    let guest_account = node_account.as_ref();
     let node_name_with_lab = format!("{}-{}", node.name, lab_id);
     let hdd_bus = node_image.hdd_bus.clone();
     let cdrom_bus = node_image.cdrom_bus.clone();
@@ -768,6 +772,7 @@ pub(crate) fn generate_vm_ztp(
                     node_ipv4_address,
                     &custom_ztp,
                     progress,
+                    guest_account,
                 )?;
             }
             data::ZtpMethod::NoCloud => {
@@ -796,6 +801,7 @@ pub(crate) fn generate_vm_ztp(
                     node_ipv4_address,
                     &custom_ztp,
                     progress,
+                    guest_account,
                 )?;
                 src_cdrom_iso = Some(format!("{lab_dir}/{}/{ZTP_ISO}", node.name));
                 dst_cdrom_iso = Some(format!(
@@ -815,6 +821,7 @@ pub(crate) fn generate_vm_ztp(
                     &node_name_with_lab,
                     &custom_ztp,
                     progress,
+                    guest_account,
                 )?;
                 src_config_disk = Some(src_cfg);
                 dst_config_disk = Some(dst_cfg);
@@ -832,6 +839,7 @@ pub(crate) fn generate_vm_ztp(
                     &node_name_with_lab,
                     &custom_ztp,
                     progress,
+                    guest_account,
                 )?;
                 src_usb_disk = Some(src_usb);
                 dst_usb_disk = Some(dst_usb);
@@ -845,6 +853,7 @@ pub(crate) fn generate_vm_ztp(
                     mgmt_net,
                     node_ipv4_address,
                     progress,
+                    guest_account,
                 )?;
             }
             data::ZtpMethod::Ignition => {
@@ -1571,6 +1580,7 @@ fn generate_cloud_init_ztp(
         | data::NodeModel::NetboxServer
         | data::NodeModel::SignozServer
         | data::NodeModel::VirtServer
+        | data::NodeModel::GenericVm
         | data::NodeModel::FreeBsd
         | data::NodeModel::OpenBsd => {
             let (admin_group, shell) =
@@ -1684,18 +1694,35 @@ fn generate_cloud_init_ztp(
             create_iso(&format!("{dir}/{ZTP_ISO}"), &dir, ZTP_ISO_VOLUME_ID)?;
         }
         data::NodeModel::DevboxWindows | data::NodeModel::WindowsServer => {
-            let cloudbase_user = template::CloudbaseInitUser::sherpa()?;
+            let mut users = vec![template::CloudbaseInitUser::sherpa()?];
 
             let ssh_key = util::get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
             let ssh_key_str = format!("{} {}", ssh_key.algorithm, ssh_key.key);
 
-            let admin_keys_path = r"C:\ProgramData\ssh\administrators_authorized_keys";
-
-            let mut write_files = vec![template::CloudbaseWriteFile {
-                path: admin_keys_path.to_string(),
-                content: ssh_key_str.clone(),
-                permissions: "0644".to_string(),
-            }];
+            // Every account reads its own keys file, private to Administrators and SYSTEM.
+            let sshd_config = template::WindowsSshdConfigTemplate {
+                authorized_keys_dir: WINDOWS_SSHD_AUTHORIZED_KEYS_DIR.to_owned(),
+            };
+            let mut write_files = vec![
+                template::CloudbaseWriteFile {
+                    path: WINDOWS_SSHD_CONFIG.to_owned(),
+                    content: sshd_config.render()?,
+                    permissions: "0644".to_string(),
+                },
+                template::CloudbaseWriteFile {
+                    path: format!(r"{WINDOWS_AUTHORIZED_KEYS_DIR}\{SHERPA_USERNAME}"),
+                    content: format!("{ssh_key_str}\n"),
+                    permissions: "0600".to_string(),
+                },
+            ];
+            if let Some(account) = guest_account {
+                users.push(guest_account::cloudbase_user(account));
+                write_files.push(template::CloudbaseWriteFile {
+                    path: format!(r"{WINDOWS_AUTHORIZED_KEYS_DIR}\{}", account.username),
+                    content: format!("{}\n", account.ssh_keys.join("\n")),
+                    permissions: "0600".to_string(),
+                });
+            }
             if let Some(certs) = cert_paths {
                 write_files.extend(build_cloudbase_cert_files(certs, NODE_CERTS_DIR_WINDOWS)?);
             }
@@ -1704,10 +1731,7 @@ fn generate_cloud_init_ztp(
             write_files.extend(build_cloudbase_text_files(&node.text_files));
 
             // Inject startup_scripts for Windows
-            let mut runcmd = vec![format!(
-                "icacls \"{}\" /inheritance:r /grant \"Administrators:F\" /grant \"SYSTEM:F\"",
-                admin_keys_path
-            )];
+            let mut runcmd = Vec::new();
             runcmd.extend(
                 build_windows_private_file_acls(&write_files)
                     .with_context(|| format!("Failed to write files for node '{}'", node.name))?,
@@ -1747,7 +1771,7 @@ fn generate_cloud_init_ztp(
 
             let cloudbase_config = template::CloudbaseInitConfig {
                 set_hostname: node.name.clone(),
-                users: vec![cloudbase_user],
+                users,
                 write_files,
                 runcmd,
             };
@@ -1904,6 +1928,7 @@ fn generate_tftp_ztp(
     node_ipv4_address: Ipv4Addr,
     custom_ztp: &Option<String>,
     progress: &ProgressSender,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
     let _ = progress.send_status(
         format!("Creating TFTP ZTP config for VM: {}", node.name),
@@ -1919,6 +1944,7 @@ fn generate_tftp_ztp(
                 let arista_template = template::AristaVeosZtpTemplate {
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
+                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1933,6 +1959,7 @@ fn generate_tftp_ztp(
                 let aruba_template = template::ArubaAoscxTemplate {
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
+                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1947,6 +1974,7 @@ fn generate_tftp_ztp(
                 let juniper_template = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     user: sherpa_user.clone(),
+                    owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -1977,6 +2005,7 @@ fn generate_cdrom_ztp(
     node_ipv4_address: Ipv4Addr,
     custom_ztp: &Option<String>,
     progress: &ProgressSender,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
     let _ = progress.send_status(
         format!("Creating CDROM ZTP config for VM: {}", node.name),
@@ -2011,6 +2040,7 @@ fn generate_cdrom_ztp(
                 let t = template::CiscoIosXeZtpTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
                     mgmt_interface: node_image.management_interface.to_string(),
                     dns: dns.clone(),
                     license_boot_command,
@@ -2032,6 +2062,7 @@ fn generate_cdrom_ztp(
                 let t = template::CiscoAsavZtpTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner: guest_account::owner_user(guest_account, KeyFormat::CiscoSha256)?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2048,6 +2079,7 @@ fn generate_cdrom_ztp(
                 let t = template::CiscoNxosZtpTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2064,6 +2096,7 @@ fn generate_cdrom_ztp(
                 let t = template::CiscoIosxrZtpTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                     dns: dns.clone(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2101,6 +2134,7 @@ fn generate_cdrom_ztp(
                 let t = template::JunipervJunosZtpTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
                     mgmt_interface: node_image.management_interface.to_string(),
                     mgmt_ipv4_address: Some(node_ipv4_address),
                     mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2144,9 +2178,15 @@ fn generate_cdrom_ztp(
                     user.ssh_public_key.algorithm, user.ssh_public_key.key
                 );
                 let ssh_public_key_b64 = util::base64_encode(&ssh_full_key);
+                // PAN-OS stores a password hash, so the owner gets one no password matches.
+                let mut owner = guest_account::owner_user(guest_account, KeyFormat::PanosBase64)?;
+                if let Some(owner) = owner.as_mut() {
+                    owner.secret = guest_account::unusable_sha256_crypt_hash();
+                }
                 let bootstrap = template::PaloAltoPanosBootstrapTemplate {
                     hostname: node.name.clone(),
                     user,
+                    owner,
                     password_hash: SHERPA_PASSWORD_HASH_SHA256.to_string(),
                     ssh_public_key_b64,
                     mgmt_ipv4_address: node_ipv4_address,
@@ -2189,6 +2229,7 @@ fn generate_disk_ztp(
     node_name_with_lab: &str,
     custom_ztp: &Option<String>,
     progress: &ProgressSender,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<(String, String)> {
     let _ = progress.send_status(
         format!("Creating Disk ZTP config for VM: {}", node.name),
@@ -2208,6 +2249,7 @@ fn generate_disk_ztp(
                     let t = template::CiscoIosvZtpTemplate {
                         hostname: node.name.clone(),
                         user,
+                        owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
                         mgmt_interface: node_image.management_interface.to_string(),
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2244,6 +2286,7 @@ fn generate_disk_ztp(
                     let t = template::CiscoIosvl2ZtpTemplate {
                         hostname: node.name.clone(),
                         user,
+                        owner: guest_account::owner_user(guest_account, KeyFormat::CiscoMd5)?,
                         mgmt_interface: node_image.management_interface.to_string(),
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
@@ -2275,6 +2318,17 @@ fn generate_disk_ztp(
             let rendered_template = match custom_ztp {
                 Some(config) => config.clone(),
                 None => {
+                    // ISE has a single administrator, which takes the owner's key when there is one.
+                    if let Some(owner) =
+                        guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?
+                        && let Some(key) = owner.ssh_keys.first()
+                    {
+                        user.ssh_public_key = data::SshPublicKey {
+                            algorithm: key.kind.parse()?,
+                            key: key.value.clone(),
+                            comment: None,
+                        };
+                    }
                     let t = template::CiscoIseZtpTemplate {
                         hostname: node.name.clone(),
                         user,
@@ -2304,12 +2358,34 @@ fn generate_disk_ztp(
             Ok((dst_disk, dst_final))
         }
         data::NodeModel::MikrotikChr => {
+            // RouterOS imports one key per file, so each owner key gets its own file on the disk.
+            let owner = guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?;
+            let mut owner_key_files = Vec::new();
+            let mut owner_key_paths = Vec::new();
+            if let Some(owner) = &owner {
+                for (index, key) in owner.ssh_keys.iter().enumerate() {
+                    let filename = template::MikrotikRouterosZtpTemplate::owner_key_filename(
+                        &owner.username,
+                        index + 1,
+                    );
+                    owner_key_files.push((
+                        format!("{dir}/{filename}"),
+                        format!("{} {}\n", key.kind, key.value),
+                    ));
+                    owner_key_paths.push(template::MikrotikRouterosZtpTemplate::owner_key_path(
+                        &owner.username,
+                        index + 1,
+                    ));
+                }
+            }
             let rendered_template = match custom_ztp {
                 Some(config) => config.clone(),
                 None => {
                     let t = template::MikrotikRouterosZtpTemplate {
                         hostname: node.name.clone(),
                         user: sherpa_user.clone(),
+                        owner,
+                        owner_key_files: owner_key_paths,
                         mgmt_interface: node_image.management_interface.to_string(),
                         dns: dns.clone(),
                         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2333,6 +2409,10 @@ fn generate_disk_ztp(
             util::copy_file(&src_disk, &dst_disk)?;
             util::copy_to_dos_image(&ztp_config, &dst_disk, "/")?;
             util::copy_to_dos_image(SHERPA_SSH_PUBLIC_KEY_PATH, &dst_disk, "/")?;
+            for (path, content) in owner_key_files {
+                util::create_file(&path, content)?;
+                util::copy_to_dos_image(&path, &dst_disk, "/")?;
+            }
 
             let dst_final = format!("{SHERPA_STORAGE_POOL_PATH}/{node_name_with_lab}-cfg.img");
             Ok((dst_disk, dst_final))
@@ -2356,6 +2436,7 @@ fn generate_usb_ztp(
     node_name_with_lab: &str,
     custom_ztp: &Option<String>,
     progress: &ProgressSender,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<(String, String)> {
     let _ = progress.send_status(
         format!("Creating USB ZTP config for VM: {}", node.name),
@@ -2373,6 +2454,7 @@ fn generate_usb_ztp(
                     let t = template::CumulusLinuxZtpTemplate {
                         hostname: node.name.clone(),
                         user,
+                        owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
                         dns: dns.clone(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2405,6 +2487,7 @@ fn generate_usb_ztp(
                     let t = template::JunipervJunosZtpTemplate {
                         hostname: node.name.clone(),
                         user,
+                        owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
                         mgmt_interface: node_image.management_interface.to_string(),
                         mgmt_ipv4_address: Some(node_ipv4_address),
                         mgmt_ipv4: mgmt_net.v4.clone(),
@@ -2449,6 +2532,7 @@ fn generate_http_ztp(
     mgmt_net: &data::SherpaNetwork,
     node_ipv4_address: Ipv4Addr,
     progress: &ProgressSender,
+    guest_account: Option<&GuestAccount>,
 ) -> Result<()> {
     let _ = progress.send_status(
         format!("Creating HTTP ZTP config for VM: {}", node.name),
@@ -2477,8 +2561,12 @@ fn generate_http_ztp(
 
             let sonic_user_template = template::SonicLinuxUserTemplate {
                 user: sherpa_user.clone(),
+                owner: guest_account::owner_user(guest_account, KeyFormat::OpenSsh)?,
             };
-            let ztp_user_script = format!("{dir}/sonic_ztp_user.sh");
+            let ztp_user_script = format!(
+                "{dir}/{}",
+                template::SonicLinuxZtp::user_script_filename(&node.name)
+            );
             util::create_file(&ztp_user_script, sonic_user_template.render()?)?;
         }
         _ => {

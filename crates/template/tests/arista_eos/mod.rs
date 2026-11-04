@@ -107,6 +107,7 @@ fn test_veos_static_ipv4() {
     let t = AristaVeosZtpTemplate {
         hostname: "veos01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
@@ -122,6 +123,7 @@ fn test_ceos_static_ipv4() {
     let t = AristaCeosZtpTemplate {
         hostname: "ceos01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
@@ -137,6 +139,7 @@ fn test_veos_dual_stack() {
     let t = AristaVeosZtpTemplate {
         hostname: "veos01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),

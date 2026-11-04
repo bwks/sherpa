@@ -60,6 +60,7 @@ fn test_static_ipv4() {
     let t = CiscoAsavZtpTemplate {
         hostname: "asa01".to_string(),
         user: helpers::test_user(),
+        owner: None,
         dns: helpers::test_dns(),
         mgmt_ipv4: helpers::test_network_v4(),
         mgmt_ipv4_address: Some(Ipv4Addr::new(172, 20, 0, 10)),
