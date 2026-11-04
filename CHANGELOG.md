@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.7] - 2026-11-04
+
+### Features
+
+- Owner accounts on network devices, Windows and generic VMs by @bwks ([45357aa](https://github.com/bwks/sherpa/commit/45357aa02549dcbb8d98798f0e19e41964230742))
+
+### Miscellaneous
+
+- Merge pull request #443 from bwks/feat/288-owner-accounts-network
+
+feat: owner accounts on network devices, Windows and generic VMs by @bwks in [#443](https://github.com/bwks/sherpa/pull/443) ([d363ba2](https://github.com/bwks/sherpa/commit/d363ba279d1da4009ad7e1514da5561f2e82e771))
+- Bump version to 0.5.7 by @bwks ([c5842eb](https://github.com/bwks/sherpa/commit/c5842eb5f7949b0502bbbe9f0558aa242a4a9e38))
+- Merge pull request #442 from bwks/changelog/v0.5.6
+
+chore(release): update changelog for v0.5.6 by @github-actions[bot] in [#442](https://github.com/bwks/sherpa/pull/442) ([860fbcf](https://github.com/bwks/sherpa/commit/860fbcfc53fc3555def50823b684e922fbbb5f18))
 ## [0.5.6] - 2026-11-03
 
 ### Features
