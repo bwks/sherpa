@@ -245,9 +245,8 @@ pub async fn redeploy_node(
     target_node.ipv6_address = node_ipv6_address;
 
     let personal_account = if manifest.provision_current_user
-        && guest_account::supports_guest_account(&node_image)
+        && guest_account::provisions_owner(&target_node, &node_image)
     {
-        guest_account::validate_node(&target_node, &node_image)?;
         let account = guest_account::resolve_owner(&db, db_lab.user.clone()).await?;
         if account.is_none() {
             let _ = progress.send_status(
@@ -262,10 +261,28 @@ pub async fn redeploy_node(
     } else {
         None
     };
+    // The node must take one of the owner's keys before teardown.
+    let node_account = match &personal_account {
+        Some(account) => {
+            let node_account = guest_account::node_account(account, node_name, &node_image)?;
+            if !node_account.skipped_keys.is_empty() {
+                let _ = progress.send_status(
+                    format!(
+                        "Node '{node_name}' does not take these SSH keys of '{}': {}",
+                        account.username,
+                        node_account.skipped_keys.join(", ")
+                    ),
+                    StatusKind::Info,
+                );
+            }
+            Some(node_account.account)
+        }
+        None => None,
+    };
     // Calculate the next SSH config before teardown, preserving every other node's identity.
     lab_info.set_ssh_username(
         node_name,
-        personal_account
+        node_account
             .as_ref()
             .map(|account| account.username.as_str()),
     );
@@ -409,6 +426,7 @@ pub async fn redeploy_node(
                 node_ipv4_address,
                 &progress,
                 None,
+                personal_account.as_ref(),
             )?;
 
             // Update the target_node fields from ZTP result

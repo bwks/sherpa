@@ -94,7 +94,7 @@ pub async fn apply_schema(db: &Database) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use shared::data::{NodeConfig, NodeModel};
+    use shared::data::{DiskBuses, NodeConfig, NodeModel, ZtpMethod};
 
     use super::*;
     use crate::{create_node_image, list_node_images, open_in_memory};
@@ -155,6 +155,65 @@ mod tests {
         );
         assert!(counts.contains(&(NodeModel::CiscoIosvl2, 15)), "{counts:?}");
         assert!(counts.contains(&(NodeModel::UbuntuLinux, 16)), "{counts:?}");
+    }
+
+    #[tokio::test]
+    async fn apply_schema_corrects_ztp_image_defaults() {
+        // A version 3 database, before the ISE correction.
+        let db = open_in_memory().await.unwrap();
+        let writer = db.writer().await.unwrap();
+        for batch in TABLES.iter().chain(&migrations::ALL[..2]) {
+            writer.conn.execute_batch(batch).await.unwrap();
+        }
+        writer
+            .conn
+            .execute("PRAGMA user_version = 3", ())
+            .await
+            .unwrap();
+        drop(writer);
+        for model in [NodeModel::CiscoIse, NodeModel::CiscoAsav] {
+            let mut image = NodeConfig::get_model(model);
+            image.ztp_method = ZtpMethod::Cdrom;
+            create_node_image(&db, image).await.unwrap();
+        }
+        for model in [NodeModel::GenericVm, NodeModel::CiscoIosv] {
+            let mut image = NodeConfig::get_model(model);
+            image.cdrom_bus = DiskBuses::Virtio;
+            create_node_image(&db, image).await.unwrap();
+        }
+
+        apply_schema(&db).await.unwrap();
+        assert_eq!(version(&db).await, SCHEMA_VERSION);
+
+        let methods: Vec<(NodeModel, ZtpMethod)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.ztp_method))
+            .collect();
+        assert!(
+            methods.contains(&(NodeModel::CiscoIse, ZtpMethod::Disk)),
+            "{methods:?}"
+        );
+        assert!(
+            methods.contains(&(NodeModel::CiscoAsav, ZtpMethod::Cdrom)),
+            "{methods:?}"
+        );
+
+        let buses: Vec<(NodeModel, DiskBuses)> = list_node_images(&db)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|image| (image.model, image.cdrom_bus))
+            .collect();
+        assert!(
+            buses.contains(&(NodeModel::GenericVm, DiskBuses::Sata)),
+            "{buses:?}"
+        );
+        assert!(
+            buses.contains(&(NodeModel::CiscoIosv, DiskBuses::Virtio)),
+            "{buses:?}"
+        );
     }
 
     #[tokio::test]

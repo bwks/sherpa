@@ -22,6 +22,25 @@ echo '{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}' > /home
 chmod 700 /home/{{ user.username }}/.ssh
 chmod 600 /home/{{ user.username }}/.ssh/authorized_keys
 chown -R {{ user.username }}:{{ user.username }} /home/{{ user.username }}/.ssh
+{%- if let Some(owner) = owner %}
+
+# Create the owner's account. It logs in by key only: '*' matches no password, and unlike a locked
+# account, sshd without PAM accepts it.
+adduser -D -s /bin/sh {{ owner.username }}
+addgroup {{ owner.username }} frr
+addgroup {{ owner.username }} frrvty
+echo '{{ owner.username }}:*' | chpasswd -e
+echo '{{ owner.username }} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/{{ owner.username }}
+mkdir -p /home/{{ owner.username }}/.ssh
+cat > /home/{{ owner.username }}/.ssh/authorized_keys <<'SHERPA_KEYS'
+{%- for key in owner.ssh_keys %}
+{{ key.kind }} {{ key.value }}
+{%- endfor %}
+SHERPA_KEYS
+chmod 700 /home/{{ owner.username }}/.ssh
+chmod 600 /home/{{ owner.username }}/.ssh/authorized_keys
+chown -R {{ owner.username }}:{{ owner.username }} /home/{{ owner.username }}/.ssh
+{%- endif %}
 
 # Set container hostname
 hostname {{ hostname }}

@@ -13,6 +13,12 @@ aaa authorization exec default local
 !
 username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
 username {{ user.username }} ssh-key {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} privilege 15 secret {{ owner.secret }}
+{%- for key in owner.ssh_keys %}
+username {{ owner.username }} ssh-key {% if !loop.first %}secondary {% endif %}{{ key.kind }} {{ key.value }}
+{%- endfor %}
+{%- endif %}
 !
 ip route 0.0.0.0/0 {{ mgmt_ipv4.first }}
 {%- if let Some(mgmt_ipv6_address) = mgmt_ipv6_address %}{% if let Some(mgmt_ipv6) = mgmt_ipv6 %}

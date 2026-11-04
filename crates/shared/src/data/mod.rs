@@ -95,7 +95,7 @@ pub use up::{
     ClusterInfo, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse,
     UpSummary,
 };
-pub use user::User;
+pub use user::{OwnerSshKey, OwnerUser, User};
 pub use user_management::{
     AddSshKeyRequest, ChangePasswordRequest, ChangePasswordResponse, CreateUserRequest,
     CreateUserResponse, DeleteUserRequest, DeleteUserResponse, GetUserInfoRequest,

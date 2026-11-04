@@ -334,6 +334,9 @@ pub const JUNIPER_ZTP_CONFIG: &str = "juniper.conf";
 pub const JUNIPER_ZTP_SCRIPT: &str = "junos-ztp.sh";
 pub const JUNIPER_ZTP_CONFIG_TGZ: &str = "vmm-config.tgz";
 pub const MIKROTIK_CHR_ZTP_CONFIG: &str = "config.rsc";
+/// The config disk as RouterOS names it; the image imports `config.rsc` and the `sherpa` key
+/// from it.
+pub const MIKROTIK_CONFIG_DISK: &str = "sata1";
 pub const PALOALTO_ZTP_CONFIG: &str = "init-cfg.txt";
 pub const PALOALTO_BOOTSTRAP_CONFIG: &str = "bootstrap.xml";
 
@@ -348,6 +351,11 @@ pub const NODE_CERTS_DIR_WINDOWS: &str = r"C:\sherpa\certs";
 pub const WINDOWS_ADMINISTRATORS_SID: &str = "*S-1-5-32-544";
 /// The LocalSystem account, as `icacls` takes a SID.
 pub const WINDOWS_SYSTEM_SID: &str = "*S-1-5-18";
+pub const WINDOWS_SSHD_CONFIG: &str = r"C:\ProgramData\ssh\sshd_config";
+/// Each account's SSH public keys, in a file named after the account.
+pub const WINDOWS_AUTHORIZED_KEYS_DIR: &str = r"C:\ProgramData\ssh\authorized_keys";
+/// [`WINDOWS_AUTHORIZED_KEYS_DIR`] as sshd_config names it.
+pub const WINDOWS_SSHD_AUTHORIZED_KEYS_DIR: &str = "__PROGRAMDATA__/ssh/authorized_keys";
 pub const NODE_USER_SCRIPTS_DIR: &str = "/opt/sherpa/user_scripts";
 pub const NODE_STARTUP_SCRIPTS_DIR: &str = "/opt/sherpa/startup_scripts";
 /// Drop-in directory for per-user doas rules (Alpine).

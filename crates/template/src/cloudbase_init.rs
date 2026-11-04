@@ -1,6 +1,7 @@
 use anyhow::Result;
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use askama::Template;
 use serde_derive::Serialize;
 
 use shared::data::{NetworkV4, NetworkV6};
@@ -27,6 +28,15 @@ impl CloudbaseInitUser {
             ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key)],
         })
     }
+}
+
+/// The Windows OpenSSH server config: every account's keys in its own file under
+/// `authorized_keys_dir`, named after the account.
+#[derive(Template)]
+#[template(path = "windows/sshd_config.jinja", ext = "txt")]
+pub struct WindowsSshdConfigTemplate {
+    /// The directory as sshd names it, such as `__PROGRAMDATA__/ssh/authorized_keys`.
+    pub authorized_keys_dir: String,
 }
 
 #[derive(Serialize, Debug)]

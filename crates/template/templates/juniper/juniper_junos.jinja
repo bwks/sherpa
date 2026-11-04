@@ -9,6 +9,16 @@ system {
                 {{ user.ssh_public_key.algorithm }} "{{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}"; ## SECRET-DATA
             }
         }
+        {%- if let Some(owner) = owner %}
+        user {{ owner.username }} {
+            class super-user;
+            authentication {
+                {%- for key in owner.ssh_keys %}
+                {{ key.kind }} "{{ key.value }}"; ## SECRET-DATA
+                {%- endfor %}
+            }
+        }
+        {%- endif %}
     }
     root-authentication {
         plain-text-password-value "{{ shared::konst::SHERPA_PASSWORD }}";

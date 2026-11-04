@@ -23,6 +23,9 @@ username {{ user.username }} privilege 15
 {%- if let Some(password) = user.password %} 
 username {{ user.username }} password {{ password }}
 {%- endif %}
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} privilege 15
+{%- endif %}
 !
 aaa authentication ssh console LOCAL
 aaa authentication http console LOCAL
@@ -45,6 +48,14 @@ username {{ user.username }} attributes
   service-type admin
   {%- endif %}
 !
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} attributes
+  {%- for key in owner.ssh_keys %}
+  ssh authentication publickey {{ key.value }} hashed
+  {%- endfor %}
+  service-type admin
+!
+{%- endif %}
 names
 dns domain-lookup management
 {%- for server in dns.name_servers %}

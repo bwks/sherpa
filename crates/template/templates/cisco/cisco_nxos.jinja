@@ -14,6 +14,12 @@ username {{ user.username }} password 0 {{ password }}
 username {{ user.username }} role network-admin
 {%- endif %}
 username {{ user.username }} sshkey {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} password 0 {{ owner.secret }} role network-admin
+{%- for key in owner.ssh_keys %}
+username {{ owner.username }} sshkey {{ key.kind }} {{ key.value }}
+{%- endfor %}
+{%- endif %}
 !
 ip domain-name {{ dns.domain }}
 {%- for server in dns.name_servers %}

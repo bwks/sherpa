@@ -12,10 +12,19 @@ aaa authentication login default local
 aaa authorization exec default local
 !
 username {{ user.username }} privilege 15{% if let Some(password) = user.password %} secret {{ password }}{% endif %}
+{%- if let Some(owner) = owner %}
+username {{ owner.username }} privilege 15 secret {{ owner.secret }}
+{%- endif %}
 !
 ip ssh pubkey-chain
   username {{ user.username }}
    key-hash {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
+{%- if let Some(owner) = owner %}
+  username {{ owner.username }}
+{%- for key in owner.ssh_keys %}
+   key-hash {{ key.kind }} {{ key.value }}
+{%- endfor %}
+{%- endif %}
 !
 ip scp server enable
 !

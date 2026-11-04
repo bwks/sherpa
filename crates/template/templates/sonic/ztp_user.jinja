@@ -11,5 +11,20 @@
 {% if user.sudo %}
 /usr/sbin/usermod -aG sudo,admin,docker {{ user.username }}
 {% endif %}
+{%- if let Some(owner) = owner %}
+# The owner logs in by key only: useradd leaves the password locked.
+/usr/sbin/useradd -m -s /bin/bash -G sudo,admin,docker {{ owner.username }}
+/usr/bin/mkdir -p /home/{{ owner.username }}/.ssh
+/usr/bin/cat >/home/{{ owner.username }}/.ssh/authorized_keys <<'SHERPA_KEYS'
+{%- for key in owner.ssh_keys %}
+{{ key.kind }} {{ key.value }}
+{%- endfor %}
+SHERPA_KEYS
+/usr/bin/chmod 700 /home/{{ owner.username }}/.ssh
+/usr/bin/chmod 600 /home/{{ owner.username }}/.ssh/authorized_keys
+/usr/bin/chown -R {{ owner.username }}:{{ owner.username }} /home/{{ owner.username }}
+/usr/bin/echo '{{ owner.username }} ALL=(ALL) NOPASSWD: ALL' >/etc/sudoers.d/{{ owner.username }}
+/usr/bin/chmod 440 /etc/sudoers.d/{{ owner.username }}
+{% endif %}
 
 exit 0

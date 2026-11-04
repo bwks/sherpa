@@ -116,6 +116,7 @@ fn test_frr_startup() {
     let t = FrrStartupTemplate {
         hostname: "frr01".to_string(),
         user: helpers::test_user(),
+        owner: None,
     };
     let output = t.render().expect("template renders");
     assert_eq!(output, EXPECTED_FRR_STARTUP);

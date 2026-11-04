@@ -18,6 +18,13 @@ username {{ user.username }}
  secret 0 {{ password }}
 {%- endif %}
 !
+{%- if let Some(owner) = owner %}
+username {{ owner.username }}
+ group root-lr
+ group netadmin
+ secret 0 {{ owner.secret }}
+!
+{%- endif %}
 aaa authorization exec default local
 aaa authentication login default local
 !
@@ -54,6 +61,13 @@ ssh server logging
 ssh server username {{ user.username }}
  keystring {{ user.ssh_public_key.algorithm }} {{ user.ssh_public_key.key }}
 !
+{%- if let Some(owner) = owner %}
+ssh server username {{ owner.username }}
+{%- for key in owner.ssh_keys %}
+ keystring {{ key.kind }} {% if loop.index == 2 %}second {% else if loop.index == 3 %}third {% else if loop.index == 4 %}fourth {% endif %}{{ key.value }}
+{%- endfor %}
+!
+{%- endif %}
 ssh server v2
 ssh server vrf default
 ssh server netconf vrf default

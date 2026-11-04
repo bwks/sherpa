@@ -4,7 +4,7 @@ use anyhow::Result;
 use serde::Serialize;
 use serde_json::Value;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
 
 /// Factory ACL config extracted from a clean SR Linux v25.10.2 container.
 /// Includes CPM ACL filters (IPv4 + IPv6), policers, and control-plane-traffic
@@ -243,11 +243,11 @@ struct NiLinux {
 pub fn build_srlinux_config(
     hostname: &str,
     user: &User,
+    owner: Option<&OwnerUser>,
     dns: &Dns,
     mgmt_ipv4: &NetworkV4,
     mgmt_ipv4_address: Option<Ipv4Addr>,
-    mgmt_ipv6_address: Option<Ipv6Addr>,
-    mgmt_ipv6: Option<&NetworkV6>,
+    mgmt_ipv6: Option<(Ipv6Addr, &NetworkV6)>,
 ) -> Result<String> {
     let password = user.password.clone().unwrap_or_default();
 
@@ -255,6 +255,24 @@ pub fn build_srlinux_config(
         "{} {}",
         user.ssh_public_key.algorithm, user.ssh_public_key.key
     );
+    let mut users = vec![AaaUser {
+        username: user.username.clone(),
+        password: password.clone(),
+        ssh_key: vec![ssh_key.clone()],
+        role: vec!["srl-admin".to_string()],
+    }];
+    if let Some(owner) = owner {
+        let mut owner_keys = Vec::new();
+        for key in &owner.ssh_keys {
+            owner_keys.push(format!("{} {}", key.kind, key.value));
+        }
+        users.push(AaaUser {
+            username: owner.username.clone(),
+            password: owner.secret.clone(),
+            ssh_key: owner_keys,
+            role: vec!["srl-admin".to_string()],
+        });
+    }
 
     let mut dns_servers: Vec<String> = dns
         .name_servers
@@ -282,15 +300,15 @@ pub fn build_srlinux_config(
         },
     };
 
-    let ipv6 = match (mgmt_ipv6_address, mgmt_ipv6) {
-        (Some(addr), Some(v6)) => SubinterfaceIpv6 {
+    let ipv6 = match mgmt_ipv6 {
+        Some((addr, v6)) => SubinterfaceIpv6 {
             admin_state: "enable".to_string(),
             dhcp_client: None,
             address: Some(vec![Ipv6Address {
                 ip_prefix: format!("{}/{}", addr, v6.prefix_length),
             }]),
         },
-        _ => SubinterfaceIpv6 {
+        None => SubinterfaceIpv6 {
             admin_state: "enable".to_string(),
             dhcp_client: Some(DhcpClient {}),
             address: None,
@@ -310,15 +328,10 @@ pub fn build_srlinux_config(
                 authentication: Authentication {
                     authentication_method: vec!["local".to_string()],
                     admin_user: AdminUser {
-                        password: password.clone(),
-                        ssh_key: vec![ssh_key.clone()],
-                    },
-                    user: vec![AaaUser {
-                        username: user.username.clone(),
                         password,
                         ssh_key: vec![ssh_key],
-                        role: vec!["srl-admin".to_string()],
-                    }],
+                    },
+                    user: users,
                 },
                 authorization: AaaAuthorization {
                     role: vec![AaaRole {

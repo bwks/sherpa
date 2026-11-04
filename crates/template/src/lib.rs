@@ -42,6 +42,7 @@ pub use cloud_init::{
 };
 pub use cloudbase_init::{
     CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,
+    WindowsSshdConfigTemplate,
 };
 pub use cumulus_linux::CumulusLinuxZtpTemplate;
 pub use dnsmasq::DnsmasqTemplate;

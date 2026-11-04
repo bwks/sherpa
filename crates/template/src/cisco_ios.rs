@@ -2,13 +2,14 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
 
 #[derive(Template)]
 #[template(path = "cisco/cisco_iosv.jinja", ext = "txt")]
 pub struct CiscoIosvZtpTemplate {
     pub hostname: String,
     pub user: User,
+    pub owner: Option<OwnerUser>,
     pub mgmt_interface: String,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
@@ -22,6 +23,7 @@ pub struct CiscoIosvZtpTemplate {
 pub struct CiscoIosvl2ZtpTemplate {
     pub hostname: String,
     pub user: User,
+    pub owner: Option<OwnerUser>,
     pub mgmt_interface: String,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,

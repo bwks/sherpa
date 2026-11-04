@@ -28,6 +28,15 @@ nv set system aaa user {{ user.username }} ssh authorized-key {{ user.username }
 {%- if user.sudo %}
 nv set system aaa user {{ user.username }} role system-admin
 {%- endif %}
+{%- if let Some(owner) = owner %}
+nv set system aaa user {{ owner.username }}
+nv set system aaa user {{ owner.username }} password '{{ owner.secret }}'
+{%- for key in owner.ssh_keys %}
+nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username }}-ssh-key-{{ loop.index }} key {{ key.value }}
+nv set system aaa user {{ owner.username }} ssh authorized-key {{ owner.username }}-ssh-key-{{ loop.index }} type {{ key.kind }}
+{%- endfor %}
+nv set system aaa user {{ owner.username }} role system-admin
+{%- endif %}
 {%- if let Some(mgmt_ipv4_address) = mgmt_ipv4_address %}
 nv unset interface eth0 ip address dhcp
 nv set interface eth0 ip address {{ mgmt_ipv4_address }}/{{ mgmt_ipv4.prefix_length }}

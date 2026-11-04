@@ -2,7 +2,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use askama::Template;
 
-use shared::data::{Dns, NetworkV4, NetworkV6, User};
+use shared::data::{Dns, NetworkV4, NetworkV6, OwnerUser, User};
 use shared::konst::SHERPA_PASSWORD;
 
 #[derive(Template)]
@@ -10,6 +10,7 @@ use shared::konst::SHERPA_PASSWORD;
 pub struct ArubaAoscxTemplate {
     pub hostname: String,
     pub user: User,
+    pub owner: Option<OwnerUser>,
     pub dns: Dns,
     pub mgmt_ipv4: NetworkV4,
     pub mgmt_ipv4_address: Option<Ipv4Addr>,
