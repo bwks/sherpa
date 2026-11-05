@@ -1,19 +1,13 @@
 use anyhow::{Context, Result};
 use rcgen::{
-    BasicConstraints, Certificate, CertificateParams, DistinguishedName, DnType,
-    ExtendedKeyUsagePurpose, IsCa, KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519,
-    SanType,
+    BasicConstraints, CertificateParams, DistinguishedName, DnType, ExtendedKeyUsagePurpose, IsCa,
+    KeyPair, KeyUsagePurpose, PKCS_ECDSA_P256_SHA256, PKCS_ED25519, SanType,
 };
 use std::fs::{self, File};
 use std::io::Write;
+use std::net::IpAddr;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-
-/// Holds the generated lab CA certificate and key pair for signing node certificates
-pub struct LabCa {
-    pub cert: Certificate,
-    pub key_pair: KeyPair,
-}
 
 /// Generate a self-signed certificate with the given parameters
 pub fn generate_self_signed_certificate(
@@ -129,132 +123,6 @@ pub fn generate_self_signed_certificate(
     Ok(())
 }
 
-/// Generate a CA certificate for a lab. Returns the CA cert and key pair
-/// for use when signing node certificates.
-pub fn generate_lab_ca(
-    cert_path: &Path,
-    key_path: &Path,
-    lab_id: &str,
-    validity_days: u32,
-) -> Result<LabCa> {
-    tracing::info!(lab_id = %lab_id, "Generating lab CA certificate");
-
-    let key_pair = KeyPair::generate().context("Failed to generate CA key pair")?;
-
-    let mut params =
-        CertificateParams::new(vec![]).context("Failed to create CA certificate parameters")?;
-
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, format!("Sherpa Lab CA - {}", lab_id));
-    dn.push(DnType::OrganizationName, "Sherpa");
-    params.distinguished_name = dn;
-
-    params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
-    params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
-
-    let now = jiff::Timestamp::now();
-    let validity_hours = (validity_days as i64) * 24;
-    let future = now
-        .checked_add(jiff::Span::new().hours(validity_hours))
-        .context("Failed to calculate CA certificate expiration date")?;
-
-    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
-        .context("Failed to convert start time to OffsetDateTime")?;
-    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
-        .context("Failed to convert end time to OffsetDateTime")?;
-
-    params.not_before = not_before;
-    params.not_after = not_after;
-
-    let cert = params
-        .self_signed(&key_pair)
-        .context("Failed to generate lab CA certificate")?;
-
-    let cert_pem = cert.pem();
-    write_file_with_permissions(cert_path, cert_pem.as_bytes(), 0o644)
-        .context("Failed to write CA certificate file")?;
-
-    let key_pem = key_pair.serialize_pem();
-    write_file_with_permissions(key_path, key_pem.as_bytes(), 0o600)
-        .context("Failed to write CA private key file")?;
-
-    tracing::info!(
-        lab_id = %lab_id,
-        "Lab CA certificate generated: {}",
-        cert_path.display()
-    );
-
-    Ok(LabCa { cert, key_pair })
-}
-
-/// Generate a node certificate signed by the lab CA
-pub fn generate_node_certificate(
-    cert_path: &Path,
-    key_path: &Path,
-    lab_ca: &LabCa,
-    hostname: &str,
-    ip: &str,
-    validity_days: u32,
-) -> Result<()> {
-    tracing::info!(hostname = %hostname, "Generating node certificate");
-
-    let node_key_pair = KeyPair::generate().context("Failed to generate node key pair")?;
-
-    let mut params =
-        CertificateParams::new(vec![]).context("Failed to create node certificate parameters")?;
-
-    let mut dn = DistinguishedName::new();
-    dn.push(DnType::CommonName, hostname);
-    dn.push(DnType::OrganizationName, "Sherpa");
-    params.distinguished_name = dn;
-
-    // Add SANs
-    params.subject_alt_names.push(SanType::DnsName(
-        hostname
-            .to_string()
-            .try_into()
-            .context("Failed to convert hostname to DNS name for SAN")?,
-    ));
-
-    if let Ok(ip_addr) = ip.parse() {
-        params.subject_alt_names.push(SanType::IpAddress(ip_addr));
-    }
-
-    let now = jiff::Timestamp::now();
-    let validity_hours = (validity_days as i64) * 24;
-    let future = now
-        .checked_add(jiff::Span::new().hours(validity_hours))
-        .context("Failed to calculate node certificate expiration date")?;
-
-    let not_before = time::OffsetDateTime::from_unix_timestamp(now.as_second())
-        .context("Failed to convert start time to OffsetDateTime")?;
-    let not_after = time::OffsetDateTime::from_unix_timestamp(future.as_second())
-        .context("Failed to convert end time to OffsetDateTime")?;
-
-    params.not_before = not_before;
-    params.not_after = not_after;
-
-    let node_cert = params
-        .signed_by(&node_key_pair, &lab_ca.cert, &lab_ca.key_pair)
-        .context("Failed to sign node certificate with lab CA")?;
-
-    let cert_pem = node_cert.pem();
-    write_file_with_permissions(cert_path, cert_pem.as_bytes(), 0o644)
-        .context("Failed to write node certificate file")?;
-
-    let key_pem = node_key_pair.serialize_pem();
-    write_file_with_permissions(key_path, key_pem.as_bytes(), 0o600)
-        .context("Failed to write node private key file")?;
-
-    tracing::info!(
-        hostname = %hostname,
-        "Node certificate generated: {}",
-        cert_path.display()
-    );
-
-    Ok(())
-}
-
 /// Key algorithm for generated keys and certificates.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyAlgorithm {
@@ -268,7 +136,9 @@ pub enum KeyAlgorithm {
 /// does not have to be parsed back.
 #[derive(Clone, Copy, Debug)]
 pub struct CaSpec<'a> {
-    /// Organization (O) of the CA subject; `None` leaves the subject empty.
+    /// Common name (CN) of the CA subject, before the organization.
+    pub common_name: Option<&'a str>,
+    /// Organization (O) of the CA subject. With no common name either, the subject is empty.
     pub organization: Option<&'a str>,
     pub key_algorithm: KeyAlgorithm,
 }
@@ -279,6 +149,16 @@ pub struct ClientSubject<'a> {
     /// Organization (O); Talos and Kubernetes read the client's role or group from it.
     pub organization: &'a str,
     pub common_name: Option<&'a str>,
+}
+
+/// Subject and names of a server certificate.
+#[derive(Clone, Copy, Debug)]
+pub struct ServerSubject<'a> {
+    pub common_name: &'a str,
+    pub organization: &'a str,
+    /// DNS names and IP addresses the certificate is valid for (SANs).
+    pub dns_names: &'a [String],
+    pub ip_addresses: &'a [IpAddr],
 }
 
 /// A PEM certificate and its PKCS#8 PEM private key.
@@ -314,6 +194,9 @@ fn ca_params(spec: &CaSpec, validity_days: u32) -> Result<CertificateParams> {
     let mut params =
         CertificateParams::new(vec![]).context("Failed to create CA certificate parameters")?;
     let mut dn = DistinguishedName::new();
+    if let Some(common_name) = spec.common_name {
+        dn.push(DnType::CommonName, common_name);
+    }
     if let Some(organization) = spec.organization {
         dn.push(DnType::OrganizationName, organization);
     }
@@ -371,6 +254,52 @@ pub fn issue_client_certificate(
     let cert = params
         .signed_by(&key_pair, &ca_cert, &ca_key)
         .context("Failed to sign client certificate")?;
+    Ok(PemPair {
+        cert: cert.pem(),
+        key: key_pair.serialize_pem(),
+    })
+}
+
+/// Issue a certificate for a server, also usable as a client certificate, from a CA rebuilt
+/// from its PEM key.
+pub fn issue_server_certificate(
+    ca: &CaSpec,
+    ca_key_pem: &str,
+    subject: ServerSubject,
+    key_algorithm: KeyAlgorithm,
+    validity_days: u32,
+) -> Result<PemPair> {
+    let ca_key = KeyPair::from_pem(ca_key_pem).context("Failed to load CA private key")?;
+    let ca_cert = ca_params(ca, validity_days)?
+        .self_signed(&ca_key)
+        .context("Failed to rebuild CA certificate")?;
+
+    let key_pair = generate_key_pair(key_algorithm)?;
+    let mut params =
+        CertificateParams::new(vec![]).context("Failed to create server certificate parameters")?;
+    let mut dn = DistinguishedName::new();
+    dn.push(DnType::CommonName, subject.common_name);
+    dn.push(DnType::OrganizationName, subject.organization);
+    params.distinguished_name = dn;
+    for name in subject.dns_names {
+        params.subject_alt_names.push(SanType::DnsName(
+            name.clone()
+                .try_into()
+                .with_context(|| format!("Invalid DNS name for a certificate: {name}"))?,
+        ));
+    }
+    for address in subject.ip_addresses {
+        params.subject_alt_names.push(SanType::IpAddress(*address));
+    }
+    params.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    params.extended_key_usages = vec![
+        ExtendedKeyUsagePurpose::ServerAuth,
+        ExtendedKeyUsagePurpose::ClientAuth,
+    ];
+    set_validity(&mut params, validity_days)?;
+    let cert = params
+        .signed_by(&key_pair, &ca_cert, &ca_key)
+        .context("Failed to sign server certificate")?;
     Ok(PemPair {
         cert: cert.pem(),
         key: key_pair.serialize_pem(),
@@ -441,67 +370,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_generate_lab_ca() {
-        let temp_dir = TempDir::new().unwrap();
-        let cert_path = temp_dir.path().join("ca.crt");
-        let key_path = temp_dir.path().join("ca.key");
-
-        let result = generate_lab_ca(&cert_path, &key_path, "test-lab", 3650);
-        assert!(result.is_ok());
-
-        assert!(cert_path.exists());
-        assert!(key_path.exists());
-
-        let cert_content = fs::read_to_string(&cert_path).unwrap();
-        assert!(cert_content.contains("BEGIN CERTIFICATE"));
-
-        let key_content = fs::read_to_string(&key_path).unwrap();
-        assert!(key_content.contains("BEGIN PRIVATE KEY"));
-
-        #[cfg(unix)]
-        {
-            let metadata = fs::metadata(&key_path).unwrap();
-            let permissions = metadata.permissions();
-            assert_eq!(permissions.mode() & 0o777, 0o600);
-        }
-    }
-
-    #[test]
-    fn test_generate_node_certificate() {
-        let temp_dir = TempDir::new().unwrap();
-        let ca_cert_path = temp_dir.path().join("ca.crt");
-        let ca_key_path = temp_dir.path().join("ca.key");
-
-        let lab_ca = generate_lab_ca(&ca_cert_path, &ca_key_path, "test-lab", 3650).unwrap();
-
-        let node_cert_path = temp_dir.path().join("node.crt");
-        let node_key_path = temp_dir.path().join("node.key");
-
-        let result = generate_node_certificate(
-            &node_cert_path,
-            &node_key_path,
-            &lab_ca,
-            "node01",
-            "172.31.0.10",
-            3650,
-        );
-        assert!(result.is_ok());
-
-        assert!(node_cert_path.exists());
-        assert!(node_key_path.exists());
-
-        let cert_content = fs::read_to_string(&node_cert_path).unwrap();
-        assert!(cert_content.contains("BEGIN CERTIFICATE"));
-
-        #[cfg(unix)]
-        {
-            let metadata = fs::metadata(&node_key_path).unwrap();
-            let permissions = metadata.permissions();
-            assert_eq!(permissions.mode() & 0o777, 0o600);
-        }
-    }
-
     fn parse(pem: &str) -> x509_parser::pem::Pem {
         let (_, pem) = x509_parser::pem::parse_x509_pem(pem.as_bytes()).unwrap();
         pem
@@ -514,6 +382,7 @@ mod tests {
             (KeyAlgorithm::EcdsaP256, "1.2.840.10045.2.1"),
         ] {
             let spec = CaSpec {
+                common_name: None,
                 organization: Some("talos"),
                 key_algorithm: algorithm,
             };
@@ -534,6 +403,7 @@ mod tests {
     #[test]
     fn client_certificates_chain_to_the_rebuilt_ca() {
         let spec = CaSpec {
+            common_name: None,
             organization: Some("kubernetes"),
             key_algorithm: KeyAlgorithm::EcdsaP256,
         };
@@ -561,6 +431,112 @@ mod tests {
         assert!(!client_cert.is_ca());
         client_cert
             .verify_signature(Some(ca_cert.public_key()))
+            .unwrap();
+    }
+
+    #[test]
+    fn server_certificates_carry_their_names_and_chain_to_the_rebuilt_ca() {
+        let spec = CaSpec {
+            common_name: Some("Sherpa Lab CA - lab1"),
+            organization: Some("Sherpa"),
+            key_algorithm: KeyAlgorithm::EcdsaP256,
+        };
+        let ca = generate_ca(&spec, 365).unwrap();
+        let dns_names = [
+            "vault01".to_owned(),
+            "vault01.lab1.sherpa.lab.local".to_owned(),
+        ];
+        let ip_addresses: [IpAddr; 2] =
+            ["172.31.1.21".parse().unwrap(), "fd00::15".parse().unwrap()];
+        let server = issue_server_certificate(
+            &spec,
+            &ca.key,
+            ServerSubject {
+                common_name: "vault01",
+                organization: "Sherpa",
+                dns_names: &dns_names,
+                ip_addresses: &ip_addresses,
+            },
+            KeyAlgorithm::EcdsaP256,
+            365,
+        )
+        .unwrap();
+        let ca_pem = parse(&ca.cert);
+        let ca_cert = ca_pem.parse_x509().unwrap();
+        assert_eq!(
+            ca_cert.subject().to_string(),
+            "CN=Sherpa Lab CA - lab1, O=Sherpa"
+        );
+        let server_pem = parse(&server.cert);
+        let server_cert = server_pem.parse_x509().unwrap();
+        assert_eq!(server_cert.issuer(), ca_cert.subject());
+        server_cert
+            .verify_signature(Some(ca_cert.public_key()))
+            .unwrap();
+        let usage = server_cert.extended_key_usage().unwrap().unwrap().value;
+        assert!(usage.server_auth && usage.client_auth);
+        let names = server_cert
+            .subject_alternative_name()
+            .unwrap()
+            .unwrap()
+            .value;
+        let rendered: Vec<String> = names
+            .general_names
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        assert_eq!(
+            rendered,
+            [
+                "DNSName(vault01)",
+                "DNSName(vault01.lab1.sherpa.lab.local)",
+                "IPAddress(ac:1f:01:15)",
+                "IPAddress(fd:00:00:00:00:00:00:00:00:00:00:00:00:00:00:15)",
+            ]
+        );
+    }
+
+    #[test]
+    fn certificates_issued_now_chain_to_lab_cas_made_before_ca_specs() {
+        // Labs created before the lab CA moved to `CaSpec` have a CA whose subject is
+        // CN then O, with an rcgen default key. Reissuing node certificates from its saved key
+        // must produce the same issuer name.
+        let key_pair = KeyPair::generate().unwrap();
+        let mut params = CertificateParams::new(vec![]).unwrap();
+        let mut dn = DistinguishedName::new();
+        dn.push(DnType::CommonName, "Sherpa Lab CA - old1");
+        dn.push(DnType::OrganizationName, "Sherpa");
+        params.distinguished_name = dn;
+        params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        params.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+        let old_ca = params.self_signed(&key_pair).unwrap();
+
+        let spec = CaSpec {
+            common_name: Some("Sherpa Lab CA - old1"),
+            organization: Some("Sherpa"),
+            key_algorithm: KeyAlgorithm::EcdsaP256,
+        };
+        let server = issue_server_certificate(
+            &spec,
+            &key_pair.serialize_pem(),
+            ServerSubject {
+                common_name: "node01",
+                organization: "Sherpa",
+                dns_names: &["node01".to_owned()],
+                ip_addresses: &[],
+            },
+            KeyAlgorithm::EcdsaP256,
+            365,
+        )
+        .unwrap();
+        let old_pem = old_ca.pem();
+        let old_parsed = parse(&old_pem);
+        let old_cert = old_parsed.parse_x509().unwrap();
+        let server_pem = parse(&server.cert);
+        let server_cert = server_pem.parse_x509().unwrap();
+        assert_eq!(server_cert.issuer().as_raw(), old_cert.subject().as_raw());
+        server_cert
+            .verify_signature(Some(old_cert.public_key()))
             .unwrap();
     }
 }

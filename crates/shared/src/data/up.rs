@@ -48,6 +48,24 @@ pub struct UpResponse {
     /// Kubernetes clusters built in the lab, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub clusters: Vec<ClusterInfo>,
+    /// The lab CA certificate (PEM) that signs node certificates. Empty from an older server.
+    #[serde(default)]
+    pub lab_ca: String,
+    /// Vault nodes Sherpa initialised, with their credentials.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vaults: Vec<VaultInfo>,
+}
+
+/// A Vault node Sherpa initialised and unsealed, and the credentials to use it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct VaultInfo {
+    /// Node name.
+    pub name: String,
+    /// API address, `https://<management address>:8200`.
+    pub address: String,
+    pub root_token: String,
+    /// The single key share that unseals Vault.
+    pub unseal_key: String,
 }
 
 /// A Kubernetes cluster built in the lab, and the credentials to manage it.

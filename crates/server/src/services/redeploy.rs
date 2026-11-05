@@ -27,6 +27,8 @@ use crate::services::progress::ProgressSender;
 use crate::services::ssh_config;
 use crate::services::talos;
 use crate::services::up::process_manifest_nodes;
+use crate::services::vault;
+use crate::tls::lab_ca::{self, NodeIdentity};
 use crate::validate::{reject_provisioners, validate_node_secrets};
 
 use shared::data;
@@ -34,9 +36,9 @@ use shared::data::{
     DbBridge, DbNode, NodeState, RecordId, RedeployRequest, RedeployResponse, StatusKind,
 };
 use shared::konst::{
-    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_FILE_NAME, MTU_JUMBO_NET,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH, SHERPA_MANAGEMENT_NETWORK_NAME,
-    SHERPA_SECRETS_DIR, TFTP_DIR, ZTP_DIR,
+    BRIDGE_MEMBER_HOST_VETH_PREFIX, CONTAINER_SECRETS_DIR, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME,
+    MTU_JUMBO_NET, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_LABS_PATH,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -412,6 +414,24 @@ pub async fn redeploy_node(
     )
     .await?;
 
+    // Reissue the node's certificate from the lab's saved CA, for its current addresses.
+    let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
+    let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
+    let cert_paths = lab_ca::issue_node_certificate(
+        &lab_ca,
+        Path::new(&certs_dir),
+        NodeIdentity {
+            name: node_name,
+            lab_id,
+            ipv4: node_ipv4_address,
+            ipv6: node_ipv6_address,
+        },
+    )?;
+
+    // Read before the node's ZTP takes a custom config out of it.
+    let initialises_vault =
+        vault::sherpa_initialises_vault(&target_node.model, target_node.ztp_config.is_some());
+
     match node_image.kind {
         data::NodeKind::Container => {
             // As validated on `sherpa up`, from the image the node was created from.
@@ -427,7 +447,7 @@ pub async fn redeploy_node(
                 &mgmt_net,
                 node_ipv4_address,
                 &progress,
-                None,
+                Some(&cert_paths),
                 personal_account.as_ref(),
             )?;
 
@@ -713,6 +733,20 @@ pub async fn redeploy_node(
 
             // Update node state
             db::update_node_state(&db, node_record_id, NodeState::Running).await?;
+
+            // A redeployed Vault starts with empty storage: initialise and unseal it again.
+            // The client's `sherpa download` after the redeploy writes its new credentials.
+            if initialises_vault {
+                vault::ensure_vault_unsealed(
+                    lab_id,
+                    node_name,
+                    node_ipv4_address,
+                    &lab_ca.pair.cert,
+                    Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
+                    &progress,
+                )
+                .await?;
+            }
         }
         data::NodeKind::VirtualMachine => {
             let ztp_dir = format!("{lab_dir}/{ZTP_DIR}");
@@ -735,7 +769,7 @@ pub async fn redeploy_node(
                 &dns,
                 &progress,
                 db_node.mgmt_mac.as_deref(),
-                None,
+                Some(&cert_paths),
                 personal_account.as_ref(),
             )?;
 

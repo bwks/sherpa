@@ -20,11 +20,12 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::cmd::tailscale_key::resolve_tailscale_key;
-use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts};
+use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::provision::{container_results, container_secrets, provision_lab};
 use crate::ssh_client::HostKeyRefresh;
 use crate::token::load_token;
+use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 use crate::ws_client::{RpcRequest, WebSocketClient};
 use topology::validate::validate_provisioners;
 
@@ -338,6 +339,40 @@ pub async fn up(
                 e
             );
         }
+    }
+
+    // Write the lab CA and Vault credentials to the local directory
+    match get_cwd() {
+        Ok(cwd) => {
+            let lab_ca = match write_lab_ca(&cwd, &up_data.lab_ca) {
+                Ok(Some(path)) => {
+                    println!("{} Lab CA certificate: {}", Emoji::Success, path.display());
+                    Some(path)
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    println!(
+                        "\n{} Warning: Failed to write the lab CA certificate: {:#}",
+                        Emoji::Warning,
+                        e
+                    );
+                    None
+                }
+            };
+            match write_vault_credentials(Path::new(&cwd), &up_data.vaults) {
+                Ok(files) => print_vault_files(&files, lab_ca.as_deref()),
+                Err(e) => println!(
+                    "\n{} Warning: Failed to write Vault credentials: {:#}",
+                    Emoji::Warning,
+                    e
+                ),
+            }
+        }
+        Err(e) => println!(
+            "\n{} Warning: Could not determine working directory: {}",
+            Emoji::Warning,
+            e
+        ),
     }
 
     // Write Kubernetes cluster credentials to the local directory

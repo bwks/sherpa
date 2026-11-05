@@ -13,9 +13,9 @@ use super::interface::MgmtInterfaces;
 use crate::konst::{
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO,
     CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO,
-    CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
-    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT,
-    TALOS_DEFAULT_BOOT_DISK_SIZE,
+    CONTAINER_KEYCLOAK_REPO, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO,
+    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD,
+    SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
 };
 
 use super::RecordId;
@@ -125,6 +125,9 @@ pub enum NodeModel {
     // HashiCorp
     HashicorpVault,
 
+    // Identity
+    KeycloakServer,
+
     // Generic
     GenericContainer,
     GenericUnikernel,
@@ -219,6 +222,9 @@ impl fmt::Display for NodeModel {
 
             // HashiCorp
             NodeModel::HashicorpVault => write!(f, "hashicorp_vault"),
+
+            // Identity
+            NodeModel::KeycloakServer => write!(f, "keycloak_server"),
 
             // BSD
             NodeModel::FreeBsd => write!(f, "free_bsd"),
@@ -324,6 +330,9 @@ impl std::str::FromStr for NodeModel {
 
             // HashiCorp
             "hashicorp_vault" => Ok(NodeModel::HashicorpVault),
+
+            // Identity
+            "keycloak_server" => Ok(NodeModel::KeycloakServer),
 
             // BSD
             "free_bsd" => Ok(NodeModel::FreeBsd),
@@ -928,6 +937,9 @@ impl NodeConfig {
 
             // HashiCorp
             NodeModel::HashicorpVault => NodeConfig::hashicorp_vault(),
+
+            // Identity
+            NodeModel::KeycloakServer => NodeConfig::keycloak_server(),
 
             // Generic
             NodeModel::GenericContainer => NodeConfig::generic_container(),
@@ -2580,6 +2592,31 @@ impl NodeConfig {
             interface_type: InterfaceType::MacVlan,
             cpu_count: 1,
             memory: 1024,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 0,
+            dedicated_management_interface: false,
+            management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            ..Default::default()
+        }
+    }
+    pub fn keycloak_server() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::KeycloakServer,
+            repo: Some(CONTAINER_KEYCLOAK_REPO.to_string()),
+            version: "0.0.0".to_owned(),
+            kind: NodeKind::Container,
+            data_interface_count: 0,
+            interface_prefix: "eth".to_owned(),
+            interface_type: InterfaceType::MacVlan,
+            cpu_count: 2,
+            memory: 2048,
             ztp_enable: true,
             ztp_username: None,
             ztp_password: None,

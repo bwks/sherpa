@@ -184,6 +184,8 @@ pub const SHERPA_SSH_PUBLIC_KEY_FILE: &str = "sherpa_ssh_key.pub";
 pub const SHERPA_SSH_PRIVATE_KEY_FILE: &str = "sherpa_ssh_key";
 pub const SHERPA_SSH_CONFIG_FILE: &str = "sherpa_ssh_config";
 pub const SHERPA_KNOWN_HOSTS_FILE: &str = "sherpa_known_hosts";
+/// The lab CA certificate, saved in the lab folder for clients to trust lab nodes.
+pub const SHERPA_LAB_CA_FILE: &str = "lab-ca.crt";
 pub const SHERPA_SSH_INDEX_FILE: &str = "sherpa_lab_hosts";
 pub const SHERPA_SSH_INDEX_HEADER: &str = "# Sherpa lab SSH configs - managed by sherpa CLI";
 pub const SHERPA_DOMAIN_NAME: &str = "sherpa.lab.local";
@@ -512,7 +514,18 @@ pub const CONTAINER_FORGEJO_ENV_VARS: &[&str] = &[];
 pub const CONTAINER_FORGEJO_COMMANDS: &[&str] = &[];
 
 pub const CONTAINER_HASHICORP_VAULT_REPO: &str = "hashicorp/vault";
+/// Environment of a Vault node running a config the user supplied.
 pub const CONTAINER_HASHICORP_VAULT_ENV_VARS: &[&str] = &["VAULT_ADDR=http://127.0.0.1:8200"];
+pub const CONTAINER_KEYCLOAK_REPO: &str = "quay.io/keycloak/keycloak";
+/// Keycloak starts in production mode; the image's entrypoint is `kc.sh`.
+pub const CONTAINER_KEYCLOAK_COMMANDS: &[&str] = &["start"];
+/// Keycloak runs as root, so it can read the lab certificate key mounted from the server.
+pub const CONTAINER_KEYCLOAK_USER: &str = "0:0";
+/// Keycloak HTTPS port.
+pub const KEYCLOAK_HTTPS_PORT: u16 = 8443;
+/// Vault API (HTTPS) and cluster ports.
+pub const VAULT_API_PORT: u16 = 8200;
+pub const VAULT_CLUSTER_PORT: u16 = 8201;
 pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
     "sh",
     "-c",

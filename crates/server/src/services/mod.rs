@@ -26,6 +26,7 @@ pub mod talos;
 pub mod up;
 pub mod user_delete;
 pub mod user_ssh_keys;
+pub mod vault;
 
 pub(crate) mod tailscale;
 

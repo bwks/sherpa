@@ -95,7 +95,7 @@ pub use secret::{NodeSecretsRequest, NodeSecretsResponse, SecretContent, SecretF
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
     ClusterInfo, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse,
-    UpSummary,
+    UpSummary, VaultInfo,
 };
 pub use user::{OwnerSshKey, OwnerUser, User};
 pub use user_management::{

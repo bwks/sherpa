@@ -4,11 +4,12 @@ storage "raft" {
 }
 
 listener "tcp" {
-  address         = "0.0.0.0:8200"
-  tls_disable = true
+  address       = "0.0.0.0:{{ api_port }}"
+  tls_cert_file = "{{ certs_dir }}/node.crt"
+  tls_key_file  = "{{ certs_dir }}/node.key"
 }
 
 disable_mlock  = false
-api_addr       = "http://127.0.0.1:8200"
-cluster_addr   = "https://127.0.0.1:8201"
+api_addr       = "https://{{ node_address }}:{{ api_port }}"
+cluster_addr   = "https://{{ node_address }}:{{ cluster_port }}"
 ui             = true

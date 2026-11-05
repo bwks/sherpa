@@ -2,7 +2,8 @@ use std::net::Ipv4Addr;
 
 use serde_json::{Value, json};
 use template::{
-    CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, MetaDataConfig,
+    CloudInitCaCerts, CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser,
+    MetaDataConfig,
 };
 
 use crate::helpers;
@@ -38,6 +39,7 @@ fn network(mac_address: &str) -> CloudInitNetwork {
 #[test]
 fn test_cloud_init_config() {
     let config = CloudInitConfig {
+        ca_certs: None,
         hostname: "ubuntu01".to_string(),
         fqdn: "ubuntu01.lab.sherpa.local".to_string(),
         manage_etc_hosts: true,
@@ -65,8 +67,34 @@ fn test_cloud_init_config() {
 }
 
 #[test]
+fn test_cloud_init_config_trusts_the_lab_ca() {
+    let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
+    let config = CloudInitConfig {
+        ca_certs: Some(CloudInitCaCerts {
+            trusted: vec![pem.to_string()],
+        }),
+        hostname: "ubuntu01".to_string(),
+        fqdn: "ubuntu01.lab.sherpa.local".to_string(),
+        manage_etc_hosts: true,
+        ssh_pwauth: None,
+        users: vec![],
+        manage_resolv_conf: None,
+        resolv_conf: None,
+        packages: None,
+        write_files: None,
+        runcmd: None,
+    };
+    let output = config.to_string().expect("renders user-data");
+    assert_eq!(
+        parse_cloud_config(&output)["ca_certs"],
+        json!({ "trusted": [pem] })
+    );
+}
+
+#[test]
 fn test_cloud_init_config_leaves_ssh_password_auth_to_the_image_when_unset() {
     let config = CloudInitConfig {
+        ca_certs: None,
         hostname: "nixos01".to_string(),
         ssh_pwauth: None,
         ..Default::default()
@@ -227,6 +255,7 @@ fn test_all_digit_mac_address_is_a_quoted_string() {
 #[test]
 fn test_yaml_boolean_words_stay_strings() {
     let config = CloudInitConfig {
+        ca_certs: None,
         hostname: "on".to_string(),
         fqdn: "no".to_string(),
         users: vec![CloudInitUser {

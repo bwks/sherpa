@@ -25,8 +25,9 @@ use crate::services::lab_operations::{self, StopReason};
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::progress::ProgressSender;
 use crate::services::talos;
+use crate::services::vault;
 use crate::services::{ssh_config, tailscale};
-use crate::tls;
+use crate::tls::lab_ca::{self, NodeIdentity};
 
 use crate::services::node_resources;
 use crate::services::node_secrets::write_node_secrets;
@@ -41,14 +42,14 @@ use shared::data::{
 use shared::konst::{
     BRIDGE_MEMBER_HOST_VETH_PREFIX, BRIDGE_PREFIX, CONTAINER_DNSMASQ_CAPABILITIES,
     CONTAINER_DNSMASQ_NAME, CONTAINER_DNSMASQ_REPO, CONTAINER_SECRETS_DIR, DNSMASQ_CONFIG_FILE,
-    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CA_CERT_FILE, LAB_CA_KEY_FILE,
-    LAB_CERT_VALIDITY_DAYS, LAB_CERTS_DIR, LAB_FILE_NAME, LAB_SUBNET_ALLOCATION_ATTEMPTS,
-    MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS, MTU_JUMBO_NET, NODE_CONFIGS_DIR,
-    READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH, SHERPA_LAB_MANIFEST_FILE,
-    SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX, SHERPA_LOOPBACK_PREFIX_IPV6,
-    SHERPA_MANAGEMENT_IP_INDEX, SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX,
-    SHERPA_MANAGEMENT_NETWORK_IPV6, SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR,
-    SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT, TAP_PREFIX, TFTP_DIR, ZTP_DIR,
+    DNSMASQ_DIR, DNSMASQ_LEASES_FILE, KVM_OUI, LAB_CERTS_DIR, LAB_FILE_NAME,
+    LAB_SUBNET_ALLOCATION_ATTEMPTS, MANAGEMENT_GATEWAY_HOST_OFFSET, MANAGEMENT_NODE_HOST_OFFSETS,
+    MTU_JUMBO_NET, NODE_CONFIGS_DIR, READINESS_SLEEP, READINESS_TIMEOUT, SHERPA_CONFIG_FILE_PATH,
+    SHERPA_LAB_MANIFEST_FILE, SHERPA_LABS_PATH, SHERPA_LOOPBACK_PREFIX,
+    SHERPA_LOOPBACK_PREFIX_IPV6, SHERPA_MANAGEMENT_IP_INDEX,
+    SHERPA_MANAGEMENT_NETWORK_BRIDGE_PREFIX, SHERPA_MANAGEMENT_NETWORK_IPV6,
+    SHERPA_MANAGEMENT_NETWORK_NAME, SHERPA_SECRETS_DIR, SHERPA_SSH_PRIVATE_KEY_PATH, SSH_PORT,
+    TAP_PREFIX, TFTP_DIR, ZTP_DIR,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -1625,23 +1626,16 @@ pub async fn up_lab(
         let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
         util::create_dir(&certs_dir)?;
 
-        let ca_cert_path = Path::new(&certs_dir).join(LAB_CA_CERT_FILE);
-        let ca_key_path = Path::new(&certs_dir).join(LAB_CA_KEY_FILE);
-
-        let lab_ca = tls::generator::generate_lab_ca(
-            &ca_cert_path,
-            &ca_key_path,
-            lab_id,
-            LAB_CERT_VALIDITY_DAYS,
-        )
-        .context("Failed to generate lab CA certificate")?;
+        let lab_ca = lab_ca::create_lab_ca(Path::new(&certs_dir), lab_id)
+            .context("Failed to generate lab CA certificate")?;
 
         let _ = progress.send_status(
             format!("Lab CA certificate generated for lab: {}", lab_id),
             StatusKind::Done,
         );
 
-        // Container nodes ZTP generation
+        // Container nodes ZTP generation; the volumes each container is created with.
+        let mut container_volumes: HashMap<String, Vec<String>> = HashMap::new();
         for node in &mut container_nodes {
             // Decode base64 ztp_config if present
             if let Some(ref encoded) = node.ztp_config {
@@ -1675,29 +1669,17 @@ pub async fn up_lab(
                 }
             }
 
-            // Generate per-node TLS certificate
-            let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
-            let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
-            tls::generator::generate_node_certificate(
-                &node_cert_path,
-                &node_key_path,
+            // Issue the node's TLS certificate from the lab CA
+            let cert_paths = lab_ca::issue_node_certificate(
                 &lab_ca,
-                &node.name,
-                &node_ipv4_address.to_string(),
-                LAB_CERT_VALIDITY_DAYS,
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to generate TLS certificate for node '{}'",
-                    node.name
-                )
-            })?;
-
-            let cert_paths = node_ops::NodeCertPaths {
-                ca_cert: ca_cert_path.to_string_lossy().to_string(),
-                node_cert: node_cert_path.to_string_lossy().to_string(),
-                node_key: node_key_path.to_string_lossy().to_string(),
-            };
+                Path::new(&certs_dir),
+                NodeIdentity {
+                    name: &node.name,
+                    lab_id,
+                    ipv4: node_ipv4_address,
+                    ipv6: node.ipv6_address,
+                },
+            )?;
 
             let ztp_result = node_ops::generate_container_ztp(
                 node,
@@ -1712,6 +1694,8 @@ pub async fn up_lab(
                 personal_account.as_ref(),
             )?;
 
+            // The node's own volumes plus the lab certificate mounts.
+            container_volumes.insert(node.name.clone(), ztp_result.volumes);
             ztp_records.push(ztp_result.ztp_record);
         }
 
@@ -1802,29 +1786,17 @@ pub async fn up_lab(
                 }
             }
 
-            // Generate per-node TLS certificate
-            let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
-            let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
-            tls::generator::generate_node_certificate(
-                &node_cert_path,
-                &node_key_path,
+            // Issue the node's TLS certificate from the lab CA
+            let cert_paths = lab_ca::issue_node_certificate(
                 &lab_ca,
-                &node.name,
-                &node_ipv4_address.to_string(),
-                LAB_CERT_VALIDITY_DAYS,
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to generate TLS certificate for node '{}'",
-                    node.name
-                )
-            })?;
-
-            let cert_paths = node_ops::NodeCertPaths {
-                ca_cert: ca_cert_path.to_string_lossy().to_string(),
-                node_cert: node_cert_path.to_string_lossy().to_string(),
-                node_key: node_key_path.to_string_lossy().to_string(),
-            };
+                Path::new(&certs_dir),
+                NodeIdentity {
+                    name: &node.name,
+                    lab_id,
+                    ipv4: node_ipv4_address,
+                    ipv6: node.ipv6_address,
+                },
+            )?;
 
             // Generate VM ZTP configuration, disks, and clone list
             let ztp_result = node_ops::generate_vm_ztp(
@@ -1990,23 +1962,17 @@ pub async fn up_lab(
                     }
                 }
 
-                // Generate per-node TLS certificate
-                let node_cert_path = Path::new(&certs_dir).join(format!("{}.crt", node.name));
-                let node_key_path = Path::new(&certs_dir).join(format!("{}.key", node.name));
-                tls::generator::generate_node_certificate(
-                    &node_cert_path,
-                    &node_key_path,
+                // Issue the node's TLS certificate from the lab CA
+                lab_ca::issue_node_certificate(
                     &lab_ca,
-                    &node.name,
-                    &node_ipv4_address.to_string(),
-                    LAB_CERT_VALIDITY_DAYS,
-                )
-                .with_context(|| {
-                    format!(
-                        "Failed to generate TLS certificate for unikernel node '{}'",
-                        node.name
-                    )
-                })?;
+                    Path::new(&certs_dir),
+                    NodeIdentity {
+                        name: &node.name,
+                        lab_id,
+                        ipv4: node_ipv4_address,
+                        ipv6: node.ipv6_address,
+                    },
+                )?;
 
                 // Generate unikernel setup (disk clone or kernel path)
                 let setup_result = node_ops::generate_unikernel_setup(
@@ -2655,14 +2621,12 @@ pub async fn up_lab(
                 let env_vars = container.environment_variables.clone().unwrap_or_default();
                 let commands = container.commands.clone().unwrap_or_default();
                 let user = container.user.clone();
-                let mut volumes: Vec<String> = if let Some(volumes) = container.volumes.clone() {
-                    volumes
-                        .iter()
-                        .map(|v| format!("{}:{}", v.src, v.dst))
-                        .collect()
-                } else {
-                    vec![]
-                };
+                let mut volumes = container_volumes
+                    .get(&container.name)
+                    .cloned()
+                    .with_context(|| {
+                        format!("Container node '{}' has no generated ZTP", container.name)
+                    })?;
                 if let Some(mount) = secret_mounts.get(container.name.as_str()) {
                     volumes.push(mount.clone());
                 }
@@ -3020,6 +2984,38 @@ pub async fn up_lab(
             clusters
         };
 
+        // Initialise and unseal Vault nodes running the generated config.
+        let mut vaults = Vec::new();
+        for node in &manifest.nodes {
+            if !vault::sherpa_initialises_vault(&node.model, node.ztp_config.is_some()) {
+                continue;
+            }
+            let Some(node_address) = container_nodes
+                .iter()
+                .find(|container| container.name == node.name)
+                .and_then(|container| container.ipv4_address)
+            else {
+                continue;
+            };
+            match vault::ensure_vault_unsealed(
+                lab_id,
+                &node.name,
+                node_address,
+                &lab_ca.pair.cert,
+                Duration::from_secs(ready_timeout_secs),
+                &progress,
+            )
+            .await
+            {
+                Ok(info) => vaults.push(info),
+                Err(error) => errors.push(data::UpError {
+                    phase: "NodeReadiness".to_string(),
+                    message: format!("{error:#}"),
+                    is_critical: false,
+                }),
+            }
+        }
+
         phases_completed.push("NodeReadiness".to_string());
 
         // ========================================================================
@@ -3053,6 +3049,8 @@ pub async fn up_lab(
             known_hosts: ssh_files.known_hosts,
             ssh_private_key,
             clusters,
+            lab_ca: lab_ca.pair.cert.clone(),
+            vaults,
         };
 
         tracing::info!(
