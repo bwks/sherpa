@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.12] - 2026-11-05
+
+### Features
+
+- Keycloak login and Vault secrets for Talos clusters by @bwks ([6326281](https://github.com/bwks/sherpa/commit/632628170f31533d40650250c86335abab0df463))
+
+### Miscellaneous
+
+- Merge pull request #458 from bwks/feat/57-k8s-keycloak-vault
+
+feat: Keycloak login and Vault secrets for Talos clusters by @bwks in [#458](https://github.com/bwks/sherpa/pull/458) ([97000b0](https://github.com/bwks/sherpa/commit/97000b024ec03ddde6dde17cc1b346baa8735d95))
+- Merge pull request #457 from bwks/changelog/v0.5.11
+
+chore(release): update changelog for v0.5.11 by @github-actions[bot] in [#457](https://github.com/bwks/sherpa/pull/457) ([cc4e25f](https://github.com/bwks/sherpa/commit/cc4e25f68107c66706af613d172574da8c39365b))
 ## [0.5.11] - 2026-11-05
 
 ### Bug Fixes
