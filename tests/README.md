@@ -108,7 +108,10 @@ It needs an authenticated `sherpa` CLI with at least four hours left on its toke
 2. creates a fresh lab, installs those archives with the checkout's installer, initializes
    the server and checks API and CLI access,
 3. installs the Rust toolchain, then runs the workspace unit tests and the db, container,
-   network, libvirt and sherpad integration tests inside the VM,
+   network, libvirt and sherpad integration tests inside the VM. The tests are built once, for
+   the whole workspace, and each integration crate's test executables are run from that build:
+   `cargo test -p <crate>` would resolve dependency features for that crate alone and rebuild
+   them (about 8 minutes for `db`),
 4. fails on any failed or skipped required test and on Docker, libvirt or network resources
    left behind.
 

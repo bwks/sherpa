@@ -585,7 +585,7 @@ class Runner:
         elif name == "test-images":
             timeout = self.config["timeouts"]["images"]
         elif name == "build-tests":
-            timeout = self.config["timeouts"]["build"] * (len(self.config["tests"]["integration_crates"]) + 1)
+            timeout = self.config["timeouts"]["build"]
         elif name == "unit-tests":
             timeout = self.config["timeouts"]["tests"]
         elif name == "integration-tests":
