@@ -67,6 +67,8 @@ FAILED_TEST = re.compile(r"^test (\S+) \.\.\. FAILED$", re.M)
 # the requirement is guaranteed, so the skip means the test did not run.
 REQUIRED_RUN_MARKERS = ("Skipping VM test",)
 THP_ENABLED = Path("/sys/kernel/mm/transparent_hugepage/enabled")
+# Each integration crate's test executables, written by the test build for the test runs.
+TEST_EXECUTABLES_FILE = "test-executables.toml"
 THP_BOOT_RULE = Path("/etc/tmpfiles.d/sherpa-thp.conf")
 
 
@@ -80,6 +82,34 @@ def summarize_tests(output):
     totals["failures"] = sorted(set(FAILED_TEST.findall(output)))
     totals["skips"] = [line.strip() for line in output.splitlines() if line.lstrip().startswith("Skipping")]
     return totals
+
+
+def package_name(package_id):
+    """The package name in a Cargo package ID, such as `path+file:///src/crates/server#sherpad@0.5.12`.
+    Cargo leaves the name out when it is the directory's name: `path+file:///src/crates/db#0.5.12`."""
+    location, _, fragment = package_id.partition("#")
+    if "@" in fragment:
+        return fragment.split("@", 1)[0]
+    return location.rstrip("/").rsplit("/", 1)[-1]
+
+
+def test_executables(build_output, crates):
+    """Each crate's test executables, from `cargo test --no-run --message-format=json` output:
+    `{crate: {"paths": [executable], "directories": [package directory]}}` in build order."""
+    executables = {crate: {"paths": [], "directories": []} for crate in crates}
+    for line in build_output.splitlines():
+        if not line.startswith("{"):
+            continue
+        message = json.loads(line)
+        if message.get("reason") != "compiler-artifact" or not message.get("executable"):
+            continue
+        if not message["profile"]["test"]:
+            continue
+        crate = package_name(message["package_id"])
+        if crate in executables:
+            executables[crate]["paths"].append(message["executable"])
+            executables[crate]["directories"].append(str(Path(message["manifest_path"]).parent))
+    return executables
 
 
 def test_problems(code, summary):
@@ -736,11 +766,11 @@ class Guest:
         environment = [f"{key}={value}" for key, value in self.cargo_environment(root=False).items()]
         return ["sudo", "-u", user.pw_name, "-H", "env", "-i", *environment, *command]
 
-    def logged(self, name, command, timeout, env=None):
+    def logged(self, name, command, timeout, env=None, cwd=None):
         logs = self.workspace / "logs"
         logs.mkdir(exist_ok=True)
         code, output = self.command(command, timeout=timeout, env=env, check=False, display=False,
-                                    cwd=self.workspace / "source")
+                                    cwd=cwd or self.workspace / "source")
         (logs / f"{name}.log").write_text(self.redact(output))
         print(self.redact("\n".join(output.splitlines()[-40:])), flush=True)
         print(f"{name}: exit {code}, full log {logs / (name + '.log')}", flush=True)
@@ -811,13 +841,18 @@ class Guest:
         print("PASS test images")
 
     def build_tests(self):
-        timeout = self.timeouts["build"]
-        builds = [("build-workspace", ["cargo", "test", "--workspace", "--locked", "--no-run"])]
-        builds.extend((f"build-{crate}", ["cargo", "test", "-p", crate, "--locked", "--no-run"])
-                      for crate in self.config["tests"]["integration_crates"])
-        for name, command in builds:
-            code, _ = self.logged(name, self.as_user(command), timeout)
-            require(code == 0, f"{name} failed")
+        # One build for the workspace. Building a crate alone with `-p` resolves its dependencies'
+        # features for that crate only, which rebuilds them; the integration tests instead run the
+        # executables this build made.
+        command = ["cargo", "test", "--workspace", "--locked", "--no-run",
+                   "--message-format=json-render-diagnostics"]
+        code, output = self.logged("build-workspace", self.as_user(command), self.timeouts["build"])
+        require(code == 0, "build-workspace failed")
+        crates = self.config["tests"]["integration_crates"]
+        executables = test_executables(output, crates)
+        missing = [crate for crate in crates if not executables[crate]["paths"]]
+        require(not missing, f"No test executables built for: {', '.join(missing)}")
+        (self.workspace / TEST_EXECUTABLES_FILE).write_text(toml_document(executables))
         print("PASS test build")
 
     def unit_tests(self):
@@ -873,13 +908,24 @@ class Guest:
                           "SHERPA_DEV_DB_PORT": str(tests["test_db_port"])},
                      cwd=self.workspace / "source")
         self.wait_test_database()
+        executables = tomllib.loads((self.workspace / TEST_EXECUTABLES_FILE).read_text())
         before = self.inventory()
         failed = []
         for crate in tests["integration_crates"]:
-            code, output = self.logged(f"integration-{crate}",
-                                       ["cargo", "test", "-p", crate, "--locked", "--offline", "--no-fail-fast",
-                                        "--", "--ignored", "--test-threads=1", "--show-output", *skips],
-                                       self.timeouts["tests"], env=environment)
+            # Run each executable the way `cargo test` does: from its package directory, and on
+            # to the next one when it fails.
+            code, outputs = 0, []
+            crate_executables = executables[crate]
+            for index, (path, directory) in enumerate(zip(crate_executables["paths"],
+                                                          crate_executables["directories"])):
+                run_environment = {**environment, "CARGO_MANIFEST_DIR": directory, "CARGO_PKG_NAME": crate}
+                run_code, run_output = self.logged(
+                    f"integration-{crate}-{index}",
+                    [path, "--ignored", "--test-threads=1", "--show-output", *skips],
+                    self.timeouts["tests"], env=run_environment, cwd=directory)
+                code = code or run_code
+                outputs.append(run_output)
+            output = "\n".join(outputs)
             summary = summarize_tests(output)
             problems = test_problems(code, summary)
             self.record_results(f"integration-{crate}", {**summary, "status": "failed" if problems else "passed",
@@ -1116,6 +1162,37 @@ class GuestTests(unittest.TestCase):
                          (2, 5, 1, 3))
         self.assertEqual(summary["failures"], ["a::bad"])
         self.assertEqual(test_problems(101, summary), ["cargo exited 101", "1 failed"])
+
+    def test_package_names_come_from_package_ids(self):
+        self.assertEqual(package_name("path+file:///src/crates/server#sherpad@0.5.12"), "sherpad")
+        self.assertEqual(package_name("path+file:///src/crates/db#0.5.12"), "db")
+        self.assertEqual(package_name("registry+https://github.com/rust-lang/crates.io-index#tokio@1.48.0"),
+                         "tokio")
+
+    def test_test_executables_are_grouped_by_integration_crate(self):
+        def artifact(package_id, manifest, executable, test=True):
+            return json.dumps({"reason": "compiler-artifact", "package_id": package_id,
+                               "manifest_path": manifest, "executable": executable,
+                               "profile": {"test": test}})
+        output = "\n".join([
+            "   Compiling db v0.5.12 (/src/crates/db)",
+            artifact("path+file:///src/crates/db#0.5.12", "/src/crates/db/Cargo.toml", "/t/db-1"),
+            artifact("path+file:///src/crates/db#0.5.12", "/src/crates/db/Cargo.toml", "/t/mod-2"),
+            artifact("path+file:///src/crates/server#sherpad@0.5.12", "/src/crates/server/Cargo.toml",
+                     "/t/sherpad-3"),
+            artifact("path+file:///src/crates/server#sherpad@0.5.12", "/src/crates/server/Cargo.toml",
+                     "/t/sherpad-bin", test=False),
+            artifact("path+file:///src/crates/shared#0.5.12", "/src/crates/shared/Cargo.toml", "/t/shared-4"),
+            artifact("path+file:///src/crates/db#0.5.12", "/src/crates/db/Cargo.toml", None),
+            json.dumps({"reason": "build-finished", "success": True}),
+        ])
+        executables = test_executables(output, ["db", "sherpad", "network"])
+        self.assertEqual(executables, {
+            "db": {"paths": ["/t/db-1", "/t/mod-2"], "directories": ["/src/crates/db", "/src/crates/db"]},
+            "sherpad": {"paths": ["/t/sherpad-3"], "directories": ["/src/crates/server"]},
+            "network": {"paths": [], "directories": []},
+        })
+        self.assertEqual(tomllib.loads(toml_document(executables)), executables)
 
     def test_missing_results_and_required_skips_are_failures(self):
         self.assertEqual(test_problems(0, summarize_tests("error: could not compile\n")),
