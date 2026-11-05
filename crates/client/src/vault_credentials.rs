@@ -72,6 +72,7 @@ pub(crate) fn print_vault_files(files: &[VaultFile], lab_ca: Option<&Path>) {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     #[test]
@@ -101,7 +102,10 @@ mod tests {
             content["address"].as_str(),
             Some("https://172.31.1.21:8200")
         );
-        let mode = std::fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
     }
 }
