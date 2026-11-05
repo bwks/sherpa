@@ -2,6 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.11] - 2026-11-05
+
+### Bug Fixes
+
+- Gate the Unix permission check in the Vault credentials test by @bwks ([e98407f](https://github.com/bwks/sherpa/commit/e98407f0cf50fb9481f1d531bc4455c818706ef3))
+
+### Features
+
+- Lab CA certificates, Vault over TLS with init and unseal, Keycloak by @bwks ([b347dd8](https://github.com/bwks/sherpa/commit/b347dd8985764318ab40ac2979b7fc37acf6bd87))
+
+### Miscellaneous
+
+- Merge pull request #456 from bwks/feat/454-lab-ca
+
+feat: lab CA certificates, Vault over TLS with init and unseal, Keycloak by @bwks in [#456](https://github.com/bwks/sherpa/pull/456) ([a0a4984](https://github.com/bwks/sherpa/commit/a0a4984d9a96f6cdd099d9a40aed4c35986e1eee))
+- Merge pull request #455 from bwks/changelog/v0.5.10
+
+chore(release): update changelog for v0.5.10 by @github-actions[bot] in [#455](https://github.com/bwks/sherpa/pull/455) ([6453b5e](https://github.com/bwks/sherpa/commit/6453b5eee7528143b620307225281b7e46dcd840))
+
+### Refactor
+
+- Drop wrapper functions in the Vault and lab CA code by @bwks ([462aa5d](https://github.com/bwks/sherpa/commit/462aa5d0ef97b830cf8365556bbb049974129e96))
 ## [0.5.10] - 2026-11-05
 
 ### Features
