@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.10] - 2026-11-05
+
+### Features
+
+- Cilium CNI for Sherpa-built Talos clusters by @bwks ([5551038](https://github.com/bwks/sherpa/commit/555103844d4019b01fc2ca0a389ed7790d2a8a90))
+
+### Miscellaneous
+
+- Merge pull request #453 from bwks/feat/57-talos-cilium
+
+feat: Cilium CNI for Sherpa-built Talos clusters by @bwks in [#453](https://github.com/bwks/sherpa/pull/453) ([55d6618](https://github.com/bwks/sherpa/commit/55d66180553c7d584dc485261c36fd245b8106a2))
+- Merge pull request #452 from bwks/changelog/v0.5.9
+
+chore(release): update changelog for v0.5.9 by @github-actions[bot] in [#452](https://github.com/bwks/sherpa/pull/452) ([5cff7ac](https://github.com/bwks/sherpa/commit/5cff7aced3a6aa9e3523c7410015336fd807ab9e))
 ## [0.5.9] - 2026-11-05
 
 ### Features
