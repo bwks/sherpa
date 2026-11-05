@@ -10,6 +10,7 @@ use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KE
 use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
 
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
+use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
 use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::token::load_token;
@@ -144,7 +145,7 @@ pub async fn download(
         .context("Failed to write lab-info.toml")?;
     println!("{} Lab info created: {}", Emoji::Success, lab_info_path);
 
-    // Write the lab CA and Vault credentials
+    // Write the lab CA, Vault credentials and Keycloak users
     let lab_ca =
         write_lab_ca(&cwd, &data.lab_ca).context("Failed to write the lab CA certificate")?;
     if let Some(path) = &lab_ca {
@@ -153,6 +154,9 @@ pub async fn download(
     let vault_files = write_vault_credentials(Path::new(&cwd), &data.vaults)
         .context("Failed to write Vault credentials")?;
     print_vault_files(&vault_files, lab_ca.as_deref());
+    let keycloak_files = write_keycloak_credentials(Path::new(&cwd), &data.keycloaks)
+        .context("Failed to write Keycloak users")?;
+    print_keycloak_files(&keycloak_files);
 
     // Write Kubernetes cluster credentials
     let cluster_files = write_cluster_credentials(Path::new(&cwd), &data.clusters)

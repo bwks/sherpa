@@ -1,11 +1,14 @@
-//! The Vault API calls Sherpa makes: seal status, initialise and unseal. Every call goes over
-//! TLS to the node's management address and trusts only the lab CA.
+//! The Vault API calls Sherpa makes: seal status, initialise and unseal, and, with the root
+//! token, listing and enabling mounts and writing configuration. Every call goes over TLS to
+//! the node's management address and trusts only the lab CA.
 
+use std::collections::HashMap;
 use std::net::Ipv4Addr;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use shared::konst::VAULT_API_PORT;
 
@@ -13,6 +16,8 @@ use shared::konst::VAULT_API_PORT;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 /// Key shares Sherpa initialises Vault with: one, which unseals Vault on its own.
 const VAULT_KEY_SHARES: u8 = 1;
+/// Header carrying the Vault token of an authenticated request.
+const VAULT_TOKEN_HEADER: &str = "X-Vault-Token";
 
 /// `GET /v1/sys/seal-status`, the fields Sherpa reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
@@ -33,6 +38,30 @@ struct InitRequest {
 pub struct InitResponse {
     pub keys_base64: Vec<String>,
     pub root_token: String,
+}
+
+/// The kinds of Vault mount Sherpa lists.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MountKind {
+    /// Secrets engines, `sys/mounts`.
+    SecretsEngine,
+    /// Auth methods, `sys/auth`.
+    AuthMethod,
+}
+
+impl MountKind {
+    fn list_path(self) -> &'static str {
+        match self {
+            MountKind::SecretsEngine => "sys/mounts",
+            MountKind::AuthMethod => "sys/auth",
+        }
+    }
+}
+
+/// `GET /v1/sys/mounts` and `GET /v1/sys/auth` responses: mounts keyed by path.
+#[derive(Debug, Deserialize)]
+struct MountList {
+    data: HashMap<String, Value>,
 }
 
 /// `PUT /v1/sys/unseal` body.
@@ -95,6 +124,47 @@ impl VaultClient {
             )
             .await?;
         serde_json::from_slice(&body).context("Failed to parse the Vault init response")
+    }
+
+    /// Paths of the enabled mounts of one kind, each with a trailing `/`.
+    pub async fn mount_paths(&self, token: &str, kind: MountKind) -> Result<Vec<String>> {
+        let list_path = kind.list_path();
+        let body = self
+            .send(
+                self.client
+                    .get(format!("{}/v1/{list_path}", self.address))
+                    .header(VAULT_TOKEN_HEADER, token),
+            )
+            .await?;
+        let mounts: MountList = serde_json::from_slice(&body)
+            .with_context(|| format!("Failed to parse the Vault {list_path} list"))?;
+        Ok(mounts.data.into_keys().collect())
+    }
+
+    /// Write `body` to the API path `path` (without `/v1/`), as the root token.
+    pub async fn write(&self, token: &str, path: &str, body: &Value) -> Result<()> {
+        self.send(
+            self.client
+                .post(format!("{}/v1/{path}", self.address))
+                .header(VAULT_TOKEN_HEADER, token)
+                .body(serde_json::to_vec(body)?),
+        )
+        .await
+        .with_context(|| format!("Failed to write Vault path '{path}'"))?;
+        Ok(())
+    }
+
+    /// Whether this node is the active node, the one that serves requests:
+    /// `GET /v1/sys/health` answers 200 only then. An unsealed node is in standby until its
+    /// storage has elected a leader.
+    pub async fn is_active(&self) -> Result<bool> {
+        let response = self
+            .client
+            .get(format!("{}/v1/sys/health", self.address))
+            .send()
+            .await
+            .with_context(|| format!("Vault API at {} did not answer", self.address))?;
+        Ok(response.status() == reqwest::StatusCode::OK)
     }
 
     pub async fn unseal(&self, key: &str) -> Result<SealStatus> {
@@ -168,6 +238,17 @@ mod tests {
         .unwrap();
         assert_eq!(init.keys_base64, ["oQ=="]);
         assert_eq!(init.root_token, "hvs.root");
+    }
+
+    #[test]
+    fn mount_lists_are_keyed_by_path() {
+        let mounts: MountList = serde_json::from_str(
+            r#"{"request_id":"r","data":{"secret/":{"type":"kv"},"sys/":{"type":"system"}},"secret/":{"type":"kv"}}"#,
+        )
+        .unwrap();
+        let mut paths: Vec<String> = mounts.data.into_keys().collect();
+        paths.sort();
+        assert_eq!(paths, ["secret/", "sys/"]);
     }
 
     #[test]

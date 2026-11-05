@@ -3,6 +3,7 @@
 
 mod cluster_credentials;
 mod cmd;
+mod keycloak_credentials;
 mod lab_files;
 mod private_key;
 mod provision;

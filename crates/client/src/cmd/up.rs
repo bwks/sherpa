@@ -20,6 +20,7 @@ use crate::cmd::interrupt::{
     OperationTarget, StoppableOperation, Waited, call_streaming_or_interrupt,
 };
 use crate::cmd::tailscale_key::resolve_tailscale_key;
+use crate::keycloak_credentials::{print_keycloak_files, write_keycloak_credentials};
 use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::provision::{container_results, container_secrets, provision_lab};
@@ -341,7 +342,7 @@ pub async fn up(
         }
     }
 
-    // Write the lab CA and Vault credentials to the local directory
+    // Write the lab CA, Vault credentials and Keycloak users to the local directory
     match get_cwd() {
         Ok(cwd) => {
             let lab_ca = match write_lab_ca(&cwd, &up_data.lab_ca) {
@@ -363,6 +364,14 @@ pub async fn up(
                 Ok(files) => print_vault_files(&files, lab_ca.as_deref()),
                 Err(e) => println!(
                     "\n{} Warning: Failed to write Vault credentials: {:#}",
+                    Emoji::Warning,
+                    e
+                ),
+            }
+            match write_keycloak_credentials(Path::new(&cwd), &up_data.keycloaks) {
+                Ok(files) => print_keycloak_files(&files),
+                Err(e) => println!(
+                    "\n{} Warning: Failed to write Keycloak users: {:#}",
                     Emoji::Warning,
                     e
                 ),

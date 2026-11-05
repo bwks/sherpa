@@ -12,7 +12,7 @@ use topology::TalosCluster;
 /// Kubernetes API port.
 pub const KUBERNETES_API_PORT: u16 = 6443;
 
-/// A cluster node and its management address.
+/// A node a cluster is made of or uses, and its management address.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClusterMember {
     pub name: String,
@@ -54,6 +54,12 @@ pub struct ClusterPlan {
     /// Control planes in manifest order. The first one is bootstrapped.
     pub control_planes: Vec<ClusterMember>,
     pub workers: Vec<ClusterMember>,
+    /// The Keycloak node whose realm users log in to the cluster.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oidc: Option<ClusterMember>,
+    /// The Vault node the cluster's workloads read secrets from.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<ClusterMember>,
 }
 
 impl ClusterPlan {
@@ -104,9 +110,12 @@ impl ClusterPlan {
 /// Plan every cluster: assign shared addresses to clusters with several control planes and
 /// blocks of load balancer addresses to Cilium clusters, in manifest order, from the reserved
 /// offsets in the management subnet. Clusters must already be validated.
+///
+/// `services` holds the addresses of the Keycloak and Vault nodes clusters use.
 pub fn plan_clusters(
     clusters: &[TalosCluster],
     members: &[MemberInput],
+    services: &[ClusterMember],
     management: &NetworkV4,
 ) -> Result<Vec<ClusterPlan>> {
     let mut vip_offsets = TALOS_VIP_HOST_OFFSETS;
@@ -162,9 +171,29 @@ pub fn plan_clusters(
             load_balancer_addresses,
             control_planes,
             workers,
+            oidc: find_service(services, cluster.oidc.as_deref(), name)?,
+            vault: find_service(services, cluster.vault.as_deref(), name)?,
         });
     }
     Ok(plans)
+}
+
+/// The address of the node a cluster uses, if it uses one.
+fn find_service(
+    services: &[ClusterMember],
+    node_name: Option<&str>,
+    cluster_name: &str,
+) -> Result<Option<ClusterMember>> {
+    let Some(node_name) = node_name else {
+        return Ok(None);
+    };
+    let service = services
+        .iter()
+        .find(|service| service.name == node_name)
+        .with_context(|| {
+            format!("Node '{node_name}', used by cluster '{cluster_name}', has no address")
+        })?;
+    Ok(Some(service.clone()))
 }
 
 #[cfg(test)]
@@ -218,7 +247,7 @@ mod tests {
             cluster("b", ClusterCni::Flannel),
             cluster("c", ClusterCni::Flannel),
         ];
-        let plans = plan_clusters(&clusters, &members, &management()).unwrap();
+        let plans = plan_clusters(&clusters, &members, &[], &management()).unwrap();
 
         assert_eq!(plans[0].vip, None);
         assert_eq!(plans[0].endpoint, Ipv4Addr::new(172, 31, 1, 21));
@@ -247,7 +276,7 @@ mod tests {
             cluster("b", ClusterCni::Flannel),
             cluster("c", ClusterCni::Cilium),
         ];
-        let plans = plan_clusters(&clusters, &members, &management()).unwrap();
+        let plans = plan_clusters(&clusters, &members, &[], &management()).unwrap();
 
         assert_eq!(
             plans[0].load_balancer_addresses,
@@ -290,13 +319,58 @@ ipv4 = "172.31.1.21"
         let plan: ClusterPlan = toml::from_str(saved).unwrap();
         assert_eq!(plan.cni, ClusterCni::Flannel);
         assert_eq!(plan.load_balancer_addresses, None);
+        assert_eq!(plan.oidc, None);
+        assert_eq!(plan.vault, None);
+    }
+
+    #[test]
+    fn clusters_record_the_keycloak_and_vault_they_use() {
+        let members = [
+            member("a-cp1", "a", ClusterRole::ControlPlane, 21),
+            member("b-cp1", "b", ClusterRole::ControlPlane, 22),
+        ];
+        let services = [
+            ClusterMember {
+                name: "kc01".to_owned(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 23),
+            },
+            ClusterMember {
+                name: "vault01".to_owned(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 24),
+            },
+        ];
+        let clusters = [
+            TalosCluster {
+                oidc: Some("kc01".to_owned()),
+                vault: Some("vault01".to_owned()),
+                ..cluster("a", ClusterCni::Flannel)
+            },
+            cluster("b", ClusterCni::Flannel),
+        ];
+        let plans = plan_clusters(&clusters, &members, &services, &management()).unwrap();
+        assert_eq!(plans[0].oidc.as_ref(), Some(&services[0]));
+        assert_eq!(plans[0].vault.as_ref(), Some(&services[1]));
+        assert_eq!(plans[1].oidc, None);
+        let restored: ClusterPlan = toml::from_str(&toml::to_string(&plans[0]).unwrap()).unwrap();
+        assert_eq!(restored, plans[0]);
+
+        let unknown = [TalosCluster {
+            vault: Some("vault02".to_owned()),
+            ..cluster("a", ClusterCni::Flannel)
+        }];
+        assert!(plan_clusters(&unknown, &members, &services, &management()).is_err());
     }
 
     #[test]
     fn cilium_plans_round_trip_through_toml() {
         let members = [member("a-cp1", "a", ClusterRole::ControlPlane, 21)];
-        let plans =
-            plan_clusters(&[cluster("a", ClusterCni::Cilium)], &members, &management()).unwrap();
+        let plans = plan_clusters(
+            &[cluster("a", ClusterCni::Cilium)],
+            &members,
+            &[],
+            &management(),
+        )
+        .unwrap();
         let restored: ClusterPlan = toml::from_str(&toml::to_string(&plans[0]).unwrap()).unwrap();
         assert_eq!(restored, plans[0]);
     }

@@ -523,9 +523,21 @@ pub const CONTAINER_KEYCLOAK_COMMANDS: &[&str] = &["start"];
 pub const CONTAINER_KEYCLOAK_USER: &str = "0:0";
 /// Keycloak HTTPS port.
 pub const KEYCLOAK_HTTPS_PORT: u16 = 8443;
+/// Realm Sherpa makes on Keycloak nodes; Kubernetes clusters accept its users.
+pub const KEYCLOAK_REALM: &str = "sherpa";
+/// Keycloak client Kubernetes clusters accept tokens for: their audience.
+pub const KEYCLOAK_KUBERNETES_CLIENT_ID: &str = "kubernetes";
+/// Keycloak group bound to the `cluster-admin` role in clusters.
+pub const KEYCLOAK_CLUSTER_ADMINS_GROUP: &str = "cluster-admins";
+/// Keycloak group bound to the `view` role in clusters.
+pub const KEYCLOAK_CLUSTER_VIEWERS_GROUP: &str = "cluster-viewers";
 /// Vault API (HTTPS) and cluster ports.
 pub const VAULT_API_PORT: u16 = 8200;
 pub const VAULT_CLUSTER_PORT: u16 = 8201;
+/// Audience of the service account tokens a cluster's workloads log in to Vault with.
+pub const VAULT_KUBERNETES_AUDIENCE: &str = "vault";
+/// Vault role a cluster's workloads log in with.
+pub const VAULT_KUBERNETES_ROLE: &str = "workload";
 pub const CONTAINER_HASHICORP_VAULT_COMMANDS: &[&str] = &[
     "sh",
     "-c",

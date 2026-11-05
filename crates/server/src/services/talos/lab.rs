@@ -10,22 +10,25 @@ use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
 use shared::data::{ClusterCni, ClusterInfo, ClusterRole, NetworkV4, StatusKind};
-use shared::konst::{READINESS_SLEEP, SHERPA_LABS_PATH};
+use shared::konst::{KEYCLOAK_REALM, READINESS_SLEEP, SHERPA_LABS_PATH};
 use template::{
-    CiliumConfig, TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config,
-    talosconfig,
+    CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClusterSecrets, TalosNodeConfig,
+    kubeconfig, talos_machine_config, talosconfig,
 };
 use topology::{TalosCluster, find_talos_cluster};
 
 use super::bootstrap::{BootstrapOutcome, bootstrap, shutdown, wait_for_kubernetes};
-use super::plan::{ClusterPlan, MemberInput, plan_clusters};
+use super::plan::{ClusterMember, ClusterPlan, MemberInput, plan_clusters};
 use super::secrets::{
     CLUSTERS_DIR, KUBECONFIG_FILE, TALOSCONFIG_FILE, client_credentials, cluster_dir,
     generate_cluster_secrets, kubernetes_admin_credentials, load_secrets, save_secrets,
-    talos_admin_credentials,
+    service_account_public_key, talos_admin_credentials,
 };
+use crate::services::keycloak::api::keycloak_address;
 use crate::services::lab_operations::LabOperation;
 use crate::services::progress::ProgressSender;
+use crate::services::vault::api::{VaultClient, vault_address};
+use crate::services::vault::{ClusterAccess, cluster_auth_mount, configure_cluster_access};
 use crate::tls::generator::write_file_with_permissions;
 
 /// File holding a cluster's plan (endpoint, shared address and members).
@@ -39,14 +42,17 @@ pub struct LabCluster {
 }
 
 /// Plan the lab's clusters and generate and save their secrets.
-#[instrument(skip(talos_clusters, members, management), fields(%lab_id, clusters = talos_clusters.len()))]
+///
+/// `services` holds the addresses of the Keycloak and Vault nodes clusters use.
+#[instrument(skip(talos_clusters, members, services, management), fields(%lab_id, clusters = talos_clusters.len()))]
 pub fn prepare_clusters(
     lab_id: &str,
     talos_clusters: &[TalosCluster],
     members: &[MemberInput],
+    services: &[ClusterMember],
     management: &NetworkV4,
 ) -> Result<Vec<LabCluster>> {
-    let plans = plan_clusters(talos_clusters, members, management)?;
+    let plans = plan_clusters(talos_clusters, members, services, management)?;
     let mut clusters = Vec::with_capacity(plans.len());
     for plan in plans {
         let secrets = generate_cluster_secrets()
@@ -114,11 +120,13 @@ pub fn find_cluster<'a>(clusters: &'a [LabCluster], name: &str) -> Result<&'a La
         .with_context(|| format!("Cluster '{name}' was not prepared"))
 }
 
-/// Render one cluster node's machine config.
+/// Render one cluster node's machine config. `lab_ca_cert` (PEM) is the CA the cluster's
+/// Keycloak and Vault certificates chain to.
 pub fn node_machine_config(
     cluster: &LabCluster,
     node_name: &str,
     management: &NetworkV4,
+    lab_ca_cert: &str,
 ) -> Result<String> {
     let plan = &cluster.plan;
     let role = plan.role_of(node_name).with_context(|| {
@@ -138,9 +146,33 @@ pub fn node_machine_config(
         vip: plan.vip,
         schedulable_control_planes: plan.schedulable_control_planes(),
         cilium: cilium_config(plan)?,
+        oidc: oidc_config(plan, lab_ca_cert),
+        vault: vault_config(plan, lab_ca_cert),
         secrets: &cluster.secrets,
     })
     .with_context(|| format!("Failed to render the machine config of node '{node_name}'"))
+}
+
+/// The login of a cluster that uses a Keycloak node: the node's `sherpa` realm.
+fn oidc_config<'a>(plan: &ClusterPlan, lab_ca_cert: &'a str) -> Option<ClusterOidcConfig<'a>> {
+    let keycloak = plan.oidc.as_ref()?;
+    Some(ClusterOidcConfig {
+        issuer_url: format!(
+            "{}/realms/{KEYCLOAK_REALM}",
+            keycloak_address(keycloak.ipv4)
+        ),
+        ca_cert: lab_ca_cert,
+    })
+}
+
+/// The Vault of a cluster that uses a Vault node.
+fn vault_config<'a>(plan: &ClusterPlan, lab_ca_cert: &'a str) -> Option<ClusterVaultConfig<'a>> {
+    let vault = plan.vault.as_ref()?;
+    Some(ClusterVaultConfig {
+        address: vault_address(vault.ipv4),
+        ca_cert: lab_ca_cert,
+        auth_mount: cluster_auth_mount(&plan.name),
+    })
 }
 
 /// Cilium operator replicas: one per node, up to two.
@@ -177,10 +209,11 @@ fn cilium_config(plan: &ClusterPlan) -> Result<Option<CiliumConfig>> {
 /// Returns the credentials of every cluster, and the names of clusters that did not become
 /// ready within `timeout`. A cluster that is not ready is reported, not treated as a failure,
 /// the same way node readiness is.
-#[instrument(skip(clusters, progress, operation), fields(%lab_id, clusters = clusters.len()))]
+#[instrument(skip(clusters, lab_ca_cert, progress, operation), fields(%lab_id, clusters = clusters.len()))]
 pub async fn bring_up_clusters(
     lab_id: &str,
     clusters: &[LabCluster],
+    lab_ca_cert: &str,
     timeout: Duration,
     progress: &ProgressSender,
     operation: &LabOperation,
@@ -192,7 +225,7 @@ pub async fn bring_up_clusters(
         operation.ensure_active()?;
         let plan = &cluster.plan;
         // Write credentials first, so the user has them even if the cluster is slow.
-        let info = write_credentials(lab_id, cluster)?;
+        let info = write_credentials(lab_id, cluster, lab_ca_cert)?;
         infos.push(info);
 
         let ready = match bootstrap_cluster(cluster, timeout, progress, operation).await? {
@@ -285,7 +318,7 @@ async fn bootstrap_cluster(
 }
 
 /// Issue admin credentials, write them to the cluster directory and return them.
-fn write_credentials(lab_id: &str, cluster: &LabCluster) -> Result<ClusterInfo> {
+fn write_credentials(lab_id: &str, cluster: &LabCluster, lab_ca_cert: &str) -> Result<ClusterInfo> {
     let plan = &cluster.plan;
     let secrets = &cluster.secrets;
     let talos_admin = talos_admin_credentials(secrets)?;
@@ -307,6 +340,7 @@ fn write_credentials(lab_id: &str, cluster: &LabCluster) -> Result<ClusterInfo> 
         &plan.name,
         &endpoint,
         &client_credentials(&secrets.kubernetes_ca_cert, &kube_admin),
+        oidc_config(plan, lab_ca_cert).as_ref(),
     )?;
     let dir = cluster_dir(lab_id, &plan.name);
     write_file_with_permissions(&dir.join(TALOSCONFIG_FILE), talosconfig.as_bytes(), 0o600)?;
@@ -381,6 +415,58 @@ pub async fn request_shutdown(cluster: &LabCluster, node: Ipv4Addr) -> Result<()
     shutdown(node, &cluster.secrets, &admin).await
 }
 
+/// Every cluster saved in a lab's directory.
+#[instrument(level = "debug", fields(%lab_id))]
+pub fn load_clusters(lab_id: &str) -> Result<Vec<LabCluster>> {
+    let mut clusters = vec![];
+    for name in saved_cluster_names(lab_id)? {
+        clusters.push(load_cluster(lab_id, &name)?);
+    }
+    Ok(clusters)
+}
+
+/// Let the workloads of every cluster that uses Vault node `vault_node`, at `node_address`,
+/// log in to it and read their secrets. `root_token` is the node's root token.
+#[instrument(skip(clusters, lab_ca_pem, root_token), fields(%vault_node, %node_address))]
+pub async fn grant_vault_access(
+    clusters: &[LabCluster],
+    vault_node: &str,
+    node_address: Ipv4Addr,
+    lab_ca_pem: &str,
+    root_token: &str,
+) -> Result<()> {
+    let client = VaultClient::new(node_address, lab_ca_pem)?;
+    for cluster in clusters {
+        let plan = &cluster.plan;
+        if plan
+            .vault
+            .as_ref()
+            .is_none_or(|vault| vault.name != vault_node)
+        {
+            continue;
+        }
+        let public_key = service_account_public_key(&cluster.secrets)?;
+        let issuer = plan.endpoint_url();
+        configure_cluster_access(
+            &client,
+            root_token,
+            &ClusterAccess {
+                cluster_name: &plan.name,
+                issuer: &issuer,
+                service_account_public_key: &public_key,
+            },
+        )
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to let cluster '{}' log in to Vault node '{vault_node}'",
+                plan.name
+            )
+        })?;
+    }
+    Ok(())
+}
+
 /// Names of the clusters saved in a lab's directory.
 fn saved_cluster_names(lab_id: &str) -> Result<Vec<String>> {
     let clusters_dir = Path::new(SHERPA_LABS_PATH).join(lab_id).join(CLUSTERS_DIR);
@@ -420,7 +506,7 @@ mod tests {
             name: "k8s".to_owned(),
             controllers: vec!["cp1".to_owned()],
             workers: vec!["w1".to_owned()],
-            cni: ClusterCni::Flannel,
+            ..TalosCluster::default()
         };
         ensure_redeployable("vm", None).unwrap();
         ensure_redeployable("w1", Some((&cluster, ClusterRole::Worker))).unwrap();
@@ -436,10 +522,66 @@ mod tests {
             name: "k8s".to_owned(),
             controllers: vec!["cp1".to_owned(), "cp2".to_owned(), "cp3".to_owned()],
             workers: vec!["w1".to_owned()],
-            cni: ClusterCni::Flannel,
+            ..TalosCluster::default()
         }];
         assert!(readiness_waits_for_kubernetes(&clusters, "w1"));
         assert!(!readiness_waits_for_kubernetes(&clusters, "cp1"));
         assert!(!readiness_waits_for_kubernetes(&clusters, "standalone"));
+    }
+
+    fn plan_using(oidc: Option<ClusterMember>, vault: Option<ClusterMember>) -> ClusterPlan {
+        ClusterPlan {
+            name: "k8s".to_owned(),
+            endpoint: Ipv4Addr::new(172, 31, 1, 21),
+            vip: None,
+            cni: ClusterCni::Flannel,
+            load_balancer_addresses: None,
+            control_planes: vec![ClusterMember {
+                name: "cp1".to_owned(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 21),
+            }],
+            workers: vec![],
+            oidc,
+            vault,
+        }
+    }
+
+    #[test]
+    fn clusters_log_in_through_their_keycloaks_sherpa_realm() {
+        let plan = plan_using(
+            Some(ClusterMember {
+                name: "kc01".to_owned(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 23),
+            }),
+            None,
+        );
+        assert_eq!(
+            oidc_config(&plan, "lab-ca"),
+            Some(ClusterOidcConfig {
+                issuer_url: "https://172.31.1.23:8443/realms/sherpa".to_owned(),
+                ca_cert: "lab-ca",
+            })
+        );
+        assert_eq!(vault_config(&plan, "lab-ca"), None);
+    }
+
+    #[test]
+    fn clusters_reach_their_vault_through_their_own_auth_mount() {
+        let plan = plan_using(
+            None,
+            Some(ClusterMember {
+                name: "vault01".to_owned(),
+                ipv4: Ipv4Addr::new(172, 31, 1, 24),
+            }),
+        );
+        assert_eq!(
+            vault_config(&plan, "lab-ca"),
+            Some(ClusterVaultConfig {
+                address: "https://172.31.1.24:8200".to_owned(),
+                ca_cert: "lab-ca",
+                auth_mount: "kubernetes-k8s".to_owned(),
+            })
+        );
+        assert_eq!(oidc_config(&plan, "lab-ca"), None);
     }
 }

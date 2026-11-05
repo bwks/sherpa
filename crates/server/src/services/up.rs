@@ -21,6 +21,7 @@ use crate::services::clean;
 use crate::services::container_networks;
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::keycloak;
 use crate::services::lab_operations::{self, StopReason};
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::progress::ProgressSender;
@@ -1729,11 +1730,33 @@ pub async fn up_lab(
                 });
             }
         }
+        // The Keycloak and Vault nodes clusters use, with their addresses.
+        let mut cluster_services: Vec<talos::plan::ClusterMember> = Vec::new();
+        for cluster in talos_clusters {
+            for name in [&cluster.oidc, &cluster.vault].into_iter().flatten() {
+                if cluster_services.iter().any(|service| &service.name == name) {
+                    continue;
+                }
+                let node_idx = node_ops::get_node_data(name, &node_setup_data)?.index;
+                cluster_services.push(talos::plan::ClusterMember {
+                    name: name.clone(),
+                    ipv4: util::get_ipv4_addr(
+                        &mgmt_net.v4.prefix,
+                        util::node_management_host_offset(node_idx)?,
+                    )?,
+                });
+            }
+        }
         let lab_clusters = if talos_clusters.is_empty() {
             Vec::new()
         } else {
-            let clusters =
-                talos::prepare_clusters(lab_id, talos_clusters, &cluster_members, &mgmt_net.v4)?;
+            let clusters = talos::prepare_clusters(
+                lab_id,
+                talos_clusters,
+                &cluster_members,
+                &cluster_services,
+                &mgmt_net.v4,
+            )?;
             let _ = progress.send_status(
                 format!(
                     "Generated secrets for {} Kubernetes clusters",
@@ -1759,6 +1782,7 @@ pub async fn up_lab(
                     cluster,
                     &node.name,
                     &mgmt_net.v4,
+                    &lab_ca.pair.cert,
                 )?);
             }
 
@@ -2969,6 +2993,7 @@ pub async fn up_lab(
             let (clusters, not_ready) = talos::bring_up_clusters(
                 lab_id,
                 &lab_clusters,
+                &lab_ca.pair.cert,
                 Duration::from_secs(ready_timeout_secs),
                 &progress,
                 &operation,
@@ -2984,10 +3009,14 @@ pub async fn up_lab(
             clusters
         };
 
-        // Initialise and unseal Vault nodes running the generated config.
+        // Make the Sherpa realm on Keycloak nodes, then initialise and unseal Vault nodes
+        // running the generated config and let the clusters that use them log in.
+        let mut keycloaks = Vec::new();
         let mut vaults = Vec::new();
         for node in &manifest.nodes {
-            if !vault::sherpa_initialises_vault(&node.model, node.ztp_config.is_some()) {
+            let initialises_vault =
+                vault::sherpa_initialises_vault(&node.model, node.ztp_config.is_some());
+            if node.model != data::NodeModel::KeycloakServer && !initialises_vault {
                 continue;
             }
             let Some(node_address) = container_nodes
@@ -2997,23 +3026,64 @@ pub async fn up_lab(
             else {
                 continue;
             };
-            match vault::ensure_vault_unsealed(
+            let timeout = Duration::from_secs(ready_timeout_secs);
+            if !initialises_vault {
+                match keycloak::ensure_keycloak_realm(
+                    lab_id,
+                    &node.name,
+                    node_address,
+                    &lab_ca.pair.cert,
+                    current_user,
+                    timeout,
+                    &progress,
+                )
+                .await
+                {
+                    Ok(info) => keycloaks.push(info),
+                    Err(error) => errors.push(data::UpError {
+                        phase: "NodeReadiness".to_string(),
+                        message: format!("{error:#}"),
+                        is_critical: false,
+                    }),
+                }
+                continue;
+            }
+            let info = match vault::ensure_vault_unsealed(
                 lab_id,
                 &node.name,
                 node_address,
                 &lab_ca.pair.cert,
-                Duration::from_secs(ready_timeout_secs),
+                timeout,
                 &progress,
             )
             .await
             {
-                Ok(info) => vaults.push(info),
-                Err(error) => errors.push(data::UpError {
+                Ok(info) => info,
+                Err(error) => {
+                    errors.push(data::UpError {
+                        phase: "NodeReadiness".to_string(),
+                        message: format!("{error:#}"),
+                        is_critical: false,
+                    });
+                    continue;
+                }
+            };
+            if let Err(error) = talos::grant_vault_access(
+                &lab_clusters,
+                &node.name,
+                node_address,
+                &lab_ca.pair.cert,
+                &info.root_token,
+            )
+            .await
+            {
+                errors.push(data::UpError {
                     phase: "NodeReadiness".to_string(),
                     message: format!("{error:#}"),
                     is_critical: false,
-                }),
+                });
             }
+            vaults.push(info);
         }
 
         phases_completed.push("NodeReadiness".to_string());
@@ -3051,6 +3121,7 @@ pub async fn up_lab(
             clusters,
             lab_ca: lab_ca.pair.cert.clone(),
             vaults,
+            keycloaks,
         };
 
         tracing::info!(

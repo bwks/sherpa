@@ -54,6 +54,29 @@ pub struct UpResponse {
     /// Vault nodes Sherpa initialised, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vaults: Vec<VaultInfo>,
+    /// Keycloak nodes Sherpa set up a realm on, with the realm's users.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keycloaks: Vec<KeycloakInfo>,
+}
+
+/// A Keycloak node and the realm Sherpa made on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct KeycloakInfo {
+    /// Node name.
+    pub name: String,
+    /// Base address, `https://<management address>:8443`.
+    pub address: String,
+    /// The realm Sherpa made.
+    pub realm: String,
+    /// The realm's users and their passwords.
+    pub users: Vec<KeycloakUser>,
+}
+
+/// A user in a Keycloak realm Sherpa made.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct KeycloakUser {
+    pub username: String,
+    pub password: String,
 }
 
 /// A Vault node Sherpa initialised and unsealed, and the credentials to use it.

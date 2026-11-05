@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use rand::Rng;
 use rand::RngCore;
+use rcgen::KeyPair;
 use tracing::instrument;
 
 use shared::konst::{SHERPA_LABS_PATH, TALOS_SUPPORTED_MINOR_VERSION};
@@ -133,6 +134,14 @@ pub fn kubernetes_admin_credentials(secrets: &TalosClusterSecrets) -> Result<Pem
     .context("Failed to issue Kubernetes admin certificate")
 }
 
+/// The public key (PEM) of the key that signs the cluster's service account tokens, which
+/// lets others check those tokens.
+pub fn service_account_public_key(secrets: &TalosClusterSecrets) -> Result<String> {
+    let key = KeyPair::from_pem(&secrets.service_account_key)
+        .context("Failed to load the service account key")?;
+    Ok(key.public_key_pem())
+}
+
 /// Borrow credentials in the form the config renderers take.
 pub fn client_credentials<'a>(ca_cert: &'a str, pair: &'a PemPair) -> TalosClientCredentials<'a> {
     TalosClientCredentials {
@@ -260,5 +269,20 @@ mod tests {
             &fs::metadata(dir.join(SECRETS_FILE)).unwrap().permissions(),
         );
         assert_eq!(mode & 0o777, 0o600);
+    }
+
+    #[test]
+    fn the_service_account_public_key_carries_no_private_material() {
+        let secrets = generate_cluster_secrets().unwrap();
+        let public_key = service_account_public_key(&secrets).unwrap();
+        assert!(public_key.starts_with("-----BEGIN PUBLIC KEY-----"));
+        assert!(!public_key.contains("PRIVATE"));
+        assert!(
+            service_account_public_key(&TalosClusterSecrets {
+                service_account_key: "not a key".to_owned(),
+                ..secrets
+            })
+            .is_err()
+        );
     }
 }

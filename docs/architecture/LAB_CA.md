@@ -81,6 +81,12 @@ lab CA:
    before unsealing, so a failure in between cannot lose them.
 3. If Vault is sealed (always, right after init), `PUT /v1/sys/unseal` with the saved key, and
    fail if it is still sealed.
+4. Poll `GET /v1/sys/health` every second until it answers 200, the active node. Right after
+   an unseal, Raft storage elects a leader first, and other requests answer 500 ("local node
+   not active") until it has.
+
+In `up` and `redeploy`, `talos::grant_vault_access` then sets Vault up for the clusters that
+use the node (see "Keycloak login and Vault secrets" in `TALOS.md`).
 
 An initialised Vault without saved credentials (initialised outside Sherpa) is reported, not
 touched. In `up`, a failure is a non-critical `UpError`; in `redeploy` it fails the operation.
@@ -101,3 +107,22 @@ built-in file database, HTTPS only on 8443 with the node's certificate, `KC_HOST
 `https://<management address>:8443`, health endpoints on the management port 9000, and the
 Sherpa user as the `master` realm's bootstrap admin (`node_ops::keycloak_env_vars`). Its data is
 in the container, so a redeployed Keycloak starts empty.
+
+After `up` (and a Keycloak `redeploy`), `keycloak::ensure_keycloak_realm` waits for the master
+realm's OpenID configuration, logs in as the bootstrap admin (`admin-cli`), and makes, through
+the admin API (no realm import file, which would be JSON):
+
+- realm `sherpa`;
+- client `kubernetes`: public, browser login with PKCE and direct grants, redirect addresses of
+  the `kubectl oidc-login` plugin, a `groups` claim (group names, no path) and itself as an
+  audience in tokens;
+- groups `cluster-admins` and `cluster-viewers`, which Talos clusters bind to `cluster-admin`
+  and `view` (see `TALOS.md`);
+- users `sherpa` with the lab password and the lab owner with a generated password, both in
+  `cluster-admins`.
+
+A create that conflicts (HTTP 409) is left as it is. The users and passwords are saved before
+they are created, in `<lab>/keycloak/<node>.toml` (0600), and reused, so a redeployed Keycloak
+gets the same passwords. `UpResponse.keycloaks` and `DownloadLabResponse.keycloaks` carry
+them (`KeycloakInfo`); the client writes `keycloak-<node>.toml` (0600) with the address,
+realm, issuer, account console and users (`client::keycloak_credentials`).

@@ -419,8 +419,8 @@ fn junos_key_kind(algorithm: &Algorithm) -> Result<&'static str> {
 }
 
 /// A random password with lowercase and uppercase letters and digits, which devices with
-/// password strength rules require. Nobody is told it: the owner logs in by key.
-fn random_secret() -> String {
+/// password strength rules require.
+pub(crate) fn random_secret() -> String {
     let mut rng = rand::thread_rng();
     let mut chars: Vec<char> = Alphanumeric
         .sample_string(&mut rng, OWNER_SECRET_LENGTH - 3)
