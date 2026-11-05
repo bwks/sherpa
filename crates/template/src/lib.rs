@@ -37,8 +37,8 @@ pub use cisco_iosxr::CiscoIosxrZtpTemplate;
 pub use cisco_ise::CiscoIseZtpTemplate;
 pub use cisco_nxos::CiscoNxosZtpTemplate;
 pub use cloud_init::{
-    CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser, CloudInitWriteFile,
-    MetaDataConfig,
+    CloudInitCaCerts, CloudInitConfig, CloudInitNetwork, CloudInitResolvConf, CloudInitUser,
+    CloudInitWriteFile, MetaDataConfig,
 };
 pub use cloudbase_init::{
     CloudbaseInitConfig, CloudbaseInitNetwork, CloudbaseInitUser, CloudbaseWriteFile,

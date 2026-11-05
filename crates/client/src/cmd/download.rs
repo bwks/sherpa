@@ -10,9 +10,10 @@ use shared::konst::{LAB_FILE_NAME, SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KE
 use shared::util::{Emoji, add_lab_ssh_include, file_exists, get_cwd, term_msg_surround};
 
 use crate::cluster_credentials::{print_cluster_files, write_cluster_credentials};
-use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts};
+use crate::lab_files::{rewrite_ssh_config_for_client, write_known_hosts, write_lab_ca};
 use crate::private_key::{SSH_PRIVATE_KEY_ERROR_LABEL, write_secret_file};
 use crate::token::load_token;
+use crate::vault_credentials::{print_vault_files, write_vault_credentials};
 use crate::ws_client::{RpcRequest, WebSocketClient};
 
 /// Download lab files from server and write to the current directory.
@@ -142,6 +143,16 @@ pub async fn download(
     fs::write(&lab_info_path, data.lab_info.to_string())
         .context("Failed to write lab-info.toml")?;
     println!("{} Lab info created: {}", Emoji::Success, lab_info_path);
+
+    // Write the lab CA and Vault credentials
+    let lab_ca =
+        write_lab_ca(&cwd, &data.lab_ca).context("Failed to write the lab CA certificate")?;
+    if let Some(path) = &lab_ca {
+        println!("{} Lab CA certificate: {}", Emoji::Success, path.display());
+    }
+    let vault_files = write_vault_credentials(Path::new(&cwd), &data.vaults)
+        .context("Failed to write Vault credentials")?;
+    print_vault_files(&vault_files, lab_ca.as_deref());
 
     // Write Kubernetes cluster credentials
     let cluster_files = write_cluster_credentials(Path::new(&cwd), &data.clusters)

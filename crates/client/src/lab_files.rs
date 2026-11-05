@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
-use shared::konst::{SHERPA_KNOWN_HOSTS_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
+use shared::konst::{SHERPA_KNOWN_HOSTS_FILE, SHERPA_LAB_CA_FILE, SHERPA_SSH_PRIVATE_KEY_FILE};
 
 /// Rewrite server-generated SSH config for client-side use.
 ///
@@ -52,9 +52,32 @@ pub(crate) fn write_known_hosts(cwd: &str, known_hosts: &str) -> Result<Option<P
     Ok(Some(path))
 }
 
+/// Save the lab CA certificate in `cwd`, and return its path. Nothing is written when the
+/// server sent none (a lab created before the lab CA, or an older server).
+pub(crate) fn write_lab_ca(cwd: &str, lab_ca: &str) -> Result<Option<PathBuf>> {
+    if lab_ca.is_empty() {
+        tracing::debug!("The server sent no lab CA certificate");
+        return Ok(None);
+    }
+    let path = Path::new(cwd).join(SHERPA_LAB_CA_FILE);
+    fs::write(&path, lab_ca).with_context(|| format!("Failed to write {}", path.display()))?;
+    Ok(Some(path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_lab_ca_is_saved_only_when_the_server_sends_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_str().unwrap();
+        assert_eq!(write_lab_ca(cwd, "").unwrap(), None);
+        let pem = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
+        let path = write_lab_ca(cwd, pem).unwrap().unwrap();
+        assert_eq!(path, dir.path().join("lab-ca.crt"));
+        assert_eq!(fs::read_to_string(path).unwrap(), pem);
+    }
 
     #[test]
     fn test_rewrite_ssh_config_absolute_identity_file() {

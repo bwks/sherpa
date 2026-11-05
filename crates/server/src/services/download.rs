@@ -5,14 +5,15 @@ use tracing::instrument;
 
 use shared::data::{DownloadLabResponse, LabInfo};
 use shared::konst::{
-    LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH, SHERPA_SSH_CONFIG_FILE,
-    SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PRIVATE_KEY_PATH,
+    LAB_CA_CERT_FILE, LAB_CERTS_DIR, LAB_FILE_NAME, SHERPA_KNOWN_HOSTS_FILE, SHERPA_LABS_PATH,
+    SHERPA_SSH_CONFIG_FILE, SHERPA_SSH_PRIVATE_KEY_FILE, SHERPA_SSH_PRIVATE_KEY_PATH,
 };
 
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
 use crate::services::talos;
+use crate::services::vault;
 
 /// Download lab files (lab-info, SSH config, known_hosts, SSH key) for CLI use.
 ///
@@ -63,11 +64,27 @@ pub async fn download_lab_files(
 
     let clusters = talos::read_cluster_credentials(lab_id)?;
 
+    // Labs created before the lab CA have no CA certificate.
+    let lab_ca_path = format!("{lab_dir}/{LAB_CERTS_DIR}/{LAB_CA_CERT_FILE}");
+    let lab_ca = match tokio::fs::read_to_string(&lab_ca_path).await {
+        Ok(lab_ca) => lab_ca,
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            tracing::debug!(path = %lab_ca_path, "Lab has no CA certificate");
+            String::new()
+        }
+        Err(error) => {
+            return Err(error).context(format!("Failed to read {lab_ca_path}"));
+        }
+    };
+    let vaults = vault::read_vault_credentials(lab_id)?;
+
     Ok(DownloadLabResponse {
         lab_info,
         ssh_config,
         known_hosts,
         ssh_private_key,
         clusters,
+        lab_ca,
+        vaults,
     })
 }

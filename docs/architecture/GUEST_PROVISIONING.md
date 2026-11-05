@@ -165,6 +165,10 @@ The group defaults to the user's primary group (`id -gn`), because SUSE puts use
 does not stop the others. The last command removes the staging directory. Values never appear in
 `runcmd`.
 
+Nodes with a lab certificate also get the lab CA in the system trust store through cloud-init's
+`ca_certs` module (`cloud_init_ca_certs`), so their clients trust lab services; see
+[`LAB_CA.md`](LAB_CA.md).
+
 Root-owned `write_files` entries (certificates, scripts, staged files) leave `owner` unset, so
 cloud-init uses the distro default: `root:root`, or `root:wheel` on the BSDs, which have no `root`
 group. A `root:root` owner there fails the whole `write_files` module.

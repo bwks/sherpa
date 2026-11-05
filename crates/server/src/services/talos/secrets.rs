@@ -29,19 +29,23 @@ pub const KUBECONFIG_FILE: &str = "kubeconfig";
 
 /// Talos OS (API) CA. Talos clients present certificates whose organization is their role.
 pub const OS_CA: CaSpec = CaSpec {
+    common_name: None,
     organization: Some("talos"),
     key_algorithm: KeyAlgorithm::Ed25519,
 };
 const ETCD_CA: CaSpec = CaSpec {
+    common_name: None,
     organization: Some("etcd"),
     key_algorithm: KeyAlgorithm::EcdsaP256,
 };
 /// Kubernetes CA. Kubernetes reads a client certificate's organization as its group.
 pub const KUBERNETES_CA: CaSpec = CaSpec {
+    common_name: None,
     organization: Some("kubernetes"),
     key_algorithm: KeyAlgorithm::EcdsaP256,
 };
 const AGGREGATOR_CA: CaSpec = CaSpec {
+    common_name: None,
     organization: None,
     key_algorithm: KeyAlgorithm::EcdsaP256,
 };

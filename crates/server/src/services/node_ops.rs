@@ -15,6 +15,7 @@ use tracing::instrument;
 use crate::services::guest_account::{self, GuestAccount, KeyFormat};
 use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
+use crate::tls::lab_ca::NodeCertPaths;
 
 use iso::create_iso;
 use network::NetnsVethState;
@@ -30,12 +31,13 @@ use shared::konst::{
     CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE,
     CONTAINER_HASHICORP_VAULT_CAPABILITIES, CONTAINER_HASHICORP_VAULT_COMMANDS,
     CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_HASHICORP_VAULT_REPO,
-    CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
+    CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_KEYCLOAK_COMMANDS, CONTAINER_KEYCLOAK_REPO,
+    CONTAINER_KEYCLOAK_USER, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
     CONTAINER_NATS_COMMANDS, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
     CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
     CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
     FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
-    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
+    JUNIPER_ZTP_CONFIG_TGZ, KEYCLOAK_HTTPS_PORT, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
     NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE,
     NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR,
     NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
@@ -46,9 +48,9 @@ use shared::konst::{
     SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
-    TALOS_API_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID,
-    WINDOWS_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_CONFIG,
-    WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
+    TALOS_API_PORT, TELNET_PORT, VAULT_API_PORT, VAULT_CLUSTER_PORT, VAULT_ZTP_CONFIG_MOUNT,
+    WINDOWS_ADMINISTRATORS_SID, WINDOWS_AUTHORIZED_KEYS_DIR, WINDOWS_SSHD_AUTHORIZED_KEYS_DIR,
+    WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
 use shared::validators::effective_data_interface_count;
@@ -87,13 +89,6 @@ pub enum VmReadiness {
     Ready {
         host_key: Option<String>,
     },
-}
-
-/// Paths to TLS certificate files for a node
-pub struct NodeCertPaths {
-    pub ca_cert: String,
-    pub node_cert: String,
-    pub node_key: String,
 }
 
 /// A file cloud-init writes as root to the staging directory, then moves into place from
@@ -591,6 +586,10 @@ pub(crate) fn generate_container_ztp(
                 None => {
                     let vault_template = template::VaultConfigTemplate {
                         node_name: node.name.clone(),
+                        node_address: node_ipv4_address.to_string(),
+                        api_port: VAULT_API_PORT,
+                        cluster_port: VAULT_CLUSTER_PORT,
+                        certs_dir: NODE_CERTS_DIR.to_owned(),
                     };
                     vault_template.render()?
                 }
@@ -604,10 +603,22 @@ pub(crate) fn generate_container_ztp(
             util::create_file(&config_file, rendered_config)?;
 
             image = CONTAINER_HASHICORP_VAULT_REPO.to_string();
-            env_vars = CONTAINER_HASHICORP_VAULT_ENV_VARS
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
+            env_vars = match &custom_ztp {
+                Some(_) => CONTAINER_HASHICORP_VAULT_ENV_VARS
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+                None => {
+                    // The generated config serves the API over TLS with the lab certificate.
+                    if cert_paths.is_none() {
+                        bail!(
+                            "Vault node '{}' needs a lab certificate to serve its API over TLS",
+                            node.name
+                        );
+                    }
+                    vault_env_vars(node_ipv4_address)
+                }
+            };
             volumes = vec![format!("{}:{}", config_volume.src, config_volume.dst)];
             commands = CONTAINER_HASHICORP_VAULT_COMMANDS
                 .iter()
@@ -619,6 +630,30 @@ pub(crate) fn generate_container_ztp(
             node.environment_variables = Some(env_vars.clone());
             node.volumes = Some(vec![config_volume]);
             node.commands = Some(commands.clone());
+        }
+        data::NodeModel::KeycloakServer => {
+            // Keycloak serves HTTPS only, with the lab certificate.
+            if cert_paths.is_none() {
+                bail!(
+                    "Keycloak node '{}' needs a lab certificate to serve HTTPS",
+                    node.name
+                );
+            }
+            image = CONTAINER_KEYCLOAK_REPO.to_string();
+            user = Some(CONTAINER_KEYCLOAK_USER.to_string());
+            env_vars = merge_env_vars(
+                keycloak_env_vars(node_ipv4_address),
+                node.environment_variables.as_deref().unwrap_or_default(),
+            );
+            commands = CONTAINER_KEYCLOAK_COMMANDS
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+
+            node.image = Some(image.clone());
+            node.environment_variables = Some(env_vars.clone());
+            node.commands = Some(commands.clone());
+            node.user = user.clone();
         }
         _ => {}
     }
@@ -1104,6 +1139,63 @@ pub(crate) fn generate_vm_ztp(
 // ============================================================================
 // TLS Certificate Helpers
 // ============================================================================
+
+/// Sherpa's `KEY=value` variables for a node, with the user's added; a user variable replaces
+/// Sherpa's of the same key.
+fn merge_env_vars(defaults: Vec<String>, user: &[String]) -> Vec<String> {
+    let mut merged = Vec::with_capacity(defaults.len() + user.len());
+    for default in defaults {
+        let key = default.split('=').next().unwrap_or_default();
+        let overridden = user
+            .iter()
+            .any(|var| var.split('=').next().unwrap_or_default() == key);
+        if !overridden {
+            merged.push(default);
+        }
+    }
+    merged.extend(user.iter().cloned());
+    merged
+}
+
+/// The environment of a Keycloak node: production mode with its built-in file database, HTTPS
+/// only on the node's address with the lab certificate, and the Sherpa user as the bootstrap
+/// admin of the `master` realm.
+fn keycloak_env_vars(node_address: Ipv4Addr) -> Vec<String> {
+    vec![
+        "KC_DB=dev-file".to_owned(),
+        "KC_HTTP_ENABLED=false".to_owned(),
+        format!("KC_HOSTNAME=https://{node_address}:{KEYCLOAK_HTTPS_PORT}"),
+        format!("KC_HTTPS_CERTIFICATE_FILE={NODE_CERTS_DIR}/node.crt"),
+        format!("KC_HTTPS_CERTIFICATE_KEY_FILE={NODE_CERTS_DIR}/node.key"),
+        "KC_HEALTH_ENABLED=true".to_owned(),
+        format!("KC_BOOTSTRAP_ADMIN_USERNAME={SHERPA_USERNAME}"),
+        format!("KC_BOOTSTRAP_ADMIN_PASSWORD={SHERPA_PASSWORD}"),
+    ]
+}
+
+/// The environment of a Vault node with the generated config: the `vault` CLI reaches the API
+/// over TLS on the node's address and trusts the lab CA.
+fn vault_env_vars(node_address: Ipv4Addr) -> Vec<String> {
+    vec![
+        format!("VAULT_ADDR=https://{node_address}:{VAULT_API_PORT}"),
+        format!("VAULT_CACERT={NODE_CERTS_DIR}/ca.crt"),
+    ]
+}
+
+/// The lab CA for cloud-init to add to the node's trust store, when the node has a lab
+/// certificate.
+fn cloud_init_ca_certs(
+    cert_paths: Option<&NodeCertPaths>,
+) -> Result<Option<template::CloudInitCaCerts>> {
+    let Some(certs) = cert_paths else {
+        return Ok(None);
+    };
+    let ca_cert = std::fs::read_to_string(&certs.ca_cert)
+        .with_context(|| format!("Failed to read CA cert: {}", certs.ca_cert))?;
+    Ok(Some(template::CloudInitCaCerts {
+        trusted: vec![ca_cert],
+    }))
+}
 
 /// Build cloud-init write_files entries for TLS certificates
 fn build_cloud_init_cert_files(
@@ -1719,6 +1811,7 @@ fn generate_cloud_init_ztp(
             };
 
             let cloud_init_config = template::CloudInitConfig {
+                ca_certs: cloud_init_ca_certs(cert_paths)?,
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
@@ -1943,6 +2036,7 @@ fn generate_cloud_init_ztp(
             };
 
             let cloud_init_config = template::CloudInitConfig {
+                ca_certs: cloud_init_ca_certs(cert_paths)?,
                 hostname: node.name.clone(),
                 fqdn: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 manage_etc_hosts: cloud_init_manage_etc_hosts(&node.model),
@@ -3696,6 +3790,51 @@ mod tests {
         assert_eq!(
             netns_veth_state(&data::NodeModel::AristaCeos, true),
             NetnsVethState::Disabled
+        );
+    }
+
+    #[test]
+    fn user_environment_variables_replace_sherpas_of_the_same_key() {
+        let merged = merge_env_vars(
+            vec![
+                "KC_DB=dev-file".to_owned(),
+                "KC_HEALTH_ENABLED=true".to_owned(),
+            ],
+            &["KC_DB=postgres".to_owned(), "KC_LOG_LEVEL=debug".to_owned()],
+        );
+        assert_eq!(
+            merged,
+            [
+                "KC_HEALTH_ENABLED=true",
+                "KC_DB=postgres",
+                "KC_LOG_LEVEL=debug"
+            ]
+        );
+    }
+
+    #[test]
+    fn keycloak_serves_https_only_with_the_lab_certificate() {
+        let env = keycloak_env_vars(Ipv4Addr::new(172, 31, 1, 22));
+        for expected in [
+            "KC_DB=dev-file",
+            "KC_HTTP_ENABLED=false",
+            "KC_HOSTNAME=https://172.31.1.22:8443",
+            "KC_HTTPS_CERTIFICATE_FILE=/etc/sherpa/certs/node.crt",
+            "KC_HTTPS_CERTIFICATE_KEY_FILE=/etc/sherpa/certs/node.key",
+            "KC_BOOTSTRAP_ADMIN_USERNAME=sherpa",
+        ] {
+            assert!(env.iter().any(|var| var == expected), "missing {expected}");
+        }
+    }
+
+    #[test]
+    fn vault_cli_reaches_the_api_over_tls_and_trusts_the_lab_ca() {
+        assert_eq!(
+            vault_env_vars(Ipv4Addr::new(172, 31, 1, 21)),
+            [
+                "VAULT_ADDR=https://172.31.1.21:8200",
+                "VAULT_CACERT=/etc/sherpa/certs/ca.crt"
+            ]
         );
     }
 

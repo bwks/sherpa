@@ -117,6 +117,13 @@ pub struct CloudInitResolvConf {
     pub nameservers: Vec<Ipv4Addr>,
 }
 
+/// CA certificates cloud-init adds to the system trust store (`ca_certs` module).
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CloudInitCaCerts {
+    /// PEM certificates.
+    pub trusted: Vec<String>,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CloudInitWriteFile {
     pub path: String,
@@ -147,6 +154,8 @@ pub struct CloudInitConfig {
     pub packages: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_files: Option<Vec<CloudInitWriteFile>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ca_certs: Option<CloudInitCaCerts>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub runcmd: Option<Vec<String>>,
 }
