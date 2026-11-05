@@ -12,6 +12,7 @@ use shared::konst::{
 use crate::auth::context::AuthContext;
 use crate::auth::policy::require_lab_access;
 use crate::daemon::state::AppState;
+use crate::services::keycloak;
 use crate::services::talos;
 use crate::services::vault;
 
@@ -77,6 +78,7 @@ pub async fn download_lab_files(
         }
     };
     let vaults = vault::read_vault_credentials(&vault::vault_dir(lab_id))?;
+    let keycloaks = keycloak::read_keycloak_credentials(&keycloak::keycloak_dir(lab_id))?;
 
     Ok(DownloadLabResponse {
         lab_info,
@@ -86,5 +88,6 @@ pub async fn download_lab_files(
         clusters,
         lab_ca,
         vaults,
+        keycloaks,
     })
 }

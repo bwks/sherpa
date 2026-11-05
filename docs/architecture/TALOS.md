@@ -39,12 +39,15 @@ generates for cluster nodes (validation forbids users setting `ztp_config` on th
 ## Clusters
 
 Manifest `talos_clusters` (`topology::TalosCluster`): each cluster names its member nodes in
-`controllers` (the Talos control plane, in bootstrap order) and `workers`, and its `cni`
-(`shared::data::ClusterCni`: Flannel by default, or Cilium). Nodes carry no cluster
+`controllers` (the Talos control plane, in bootstrap order) and `workers`, its `cni`
+(`shared::data::ClusterCni`: Flannel by default, or Cilium), and optionally the
+`keycloak_server` node users log in through (`oidc`) and the `hashicorp_vault` node workloads
+read secrets from (`vault`). Nodes carry no cluster
 fields; `topology::find_talos_cluster` looks up a node's cluster and role (`ClusterRole`, which
 keeps the Talos term `ControlPlane` internally). `topology::validate::validate_talos_clusters` enforces the
 rules (names, one or three controllers, members are defined `talos_linux` nodes listed once
-without a user `ztp_config`, VIP capacity, load balancer capacity for Cilium clusters). Two controllers are refused: etcd needs a majority,
+without a user `ztp_config`, VIP capacity, load balancer capacity for Cilium clusters, `oidc` and
+`vault` naming nodes of the right model, and a `vault` node without its own `ztp_config`). Two controllers are refused: etcd needs a majority,
 so two members tolerate no failure and are less available than one.
 
 ```mermaid
@@ -87,6 +90,10 @@ block), in manifest order: `.13`–`.16` for the first, `.17`–`.20` for the se
 the cluster's Gateway, the second Hubble UI, the rest are left for the user's `LoadBalancer`
 services. Plans saved before the CNI choice deserialize as Flannel clusters with no block.
 
+The plan also records the cluster's Keycloak and Vault nodes with their addresses
+(`ClusterPlan::oidc`, `ClusterPlan::vault`), which `up` passes to `plan_clusters` as
+`services`. Plans saved before these fields deserialize without them.
+
 ### Cilium
 
 Talos 1.14 deploys Flannel while the `KubeFlannelCNIConfig` document is present and kube-proxy
@@ -114,6 +121,47 @@ resources apply once the CRDs exist, and nothing Sherpa installs is updated afte
 `wait_for_kubernetes` is unchanged: nodes turn Ready when the Cilium agent runs on them.
 
 Workers' configs are the same for both CNIs.
+
+### Keycloak login and Vault secrets
+
+A cluster with `oidc` accepts tokens from its Keycloak node's `sherpa` realm (see "Keycloak" in
+`LAB_CA.md` for the realm Sherpa makes). Its control planes carry:
+
+- a JWT authenticator in `KubeAuthenticationConfig`: issuer
+  `https://<keycloak>:8443/realms/sherpa`, audience `kubernetes`, the lab CA as its
+  `certificateAuthority`, usernames from `preferred_username` and groups from `groups`, both
+  prefixed `oidc:`. The API server fetches the issuer's discovery document in the background
+  and retries every 10 seconds while Keycloak or the realm is missing, staying ready meanwhile
+  (checked on Kubernetes 1.37), so there is no start order between Keycloak and the cluster.
+- inline manifest `sherpa-oidc-rbac`: `ClusterRoleBinding`s of `oidc:cluster-admins` to
+  `cluster-admin` and `oidc:cluster-viewers` to `view`.
+
+The kubeconfig gets a second context, `oidc@<cluster>`, whose user runs
+`kubectl oidc-login get-token` (the kubelogin plugin) with the issuer, client ID and the lab
+CA as `--certificate-authority-data`. `admin@<cluster>` stays the current context.
+
+A cluster with `vault` gets inline manifest `vault-secrets-operator-install`: the
+`vault-secrets-operator-system` namespace, a `sherpa-lab-ca` Secret with the lab CA as
+`ca.crt`, and a Job running the pinned `helm` image with `helm upgrade --install` of the pinned
+Vault Secrets Operator chart from HashiCorp's repository. The chart's default
+`VaultConnection` points at the Vault node and trusts `sherpa-lab-ca`; its default `VaultAuth`
+uses the `jwt` method on the cluster's mount with role `workload`, the `default` service account
+of the namespace a secret is synced to, audience `vault`, and is allowed in every namespace.
+
+On the Vault side, after `up` unseals the node, `talos::grant_vault_access` calls
+`vault::configure_cluster_access` for each cluster using it (`crates/server/src/services/vault/cluster.rs`):
+
+- the KV version 2 engine at `secret/`, if missing;
+- a `jwt` auth method at `kubernetes-<cluster>`, if missing, configured with the public half of
+  the cluster's service account signing key (`secrets::service_account_public_key`) as
+  `jwt_validation_pubkeys` and the cluster's endpoint URL as `bound_issuer`. Vault checks
+  tokens offline, so it never calls the cluster and needs no token reviewer or RBAC;
+- policy `kubernetes-<cluster>`: read `secret/data/<cluster>/*`, read and list
+  `secret/metadata/<cluster>/*`;
+- role `workload`: audience `vault`, any service account (`sub` glob
+  `system:serviceaccount:*`), that policy, 1 hour tokens.
+
+The operator keeps retrying until Vault is configured, so the cluster does not wait for Vault.
 
 ### Secrets
 
@@ -182,6 +230,8 @@ still probe workers' API port, which works because the VIP is up in an existing 
 | `down` | Talos ignores the ACPI power button, so cluster nodes get a graceful `machine.MachineService/Shutdown` over the Talos API (`bootstrap::shutdown`, same HTTP/2 client as the bootstrap, saved admin credentials; Talos cordons, drains and powers off). Workers stop before controllers, because draining needs the Kubernetes API. `down` waits for the VM to stop and forces it off after `VM_SHUTDOWN_TIMEOUT`. Talos nodes outside a Sherpa-built cluster are powered off directly. |
 | `resume` | Unchanged; Talos keeps its state on disk. |
 | `redeploy` worker | Config regenerated from the saved secrets and plan; the node rejoins. |
+| `redeploy` Vault | A new, empty Vault: initialised and unsealed again, then `grant_vault_access` sets up every saved cluster that uses it. Secrets written to the old Vault are gone. |
+| `redeploy` Keycloak | A new, empty Keycloak: the realm is made again with the saved users and passwords. |
 | `redeploy` controller | Refused (`talos::ensure_redeployable`): its etcd member would have to be removed first. |
 | `download` | Returns each cluster's talosconfig and kubeconfig (`DownloadLabResponse::clusters`). |
 | `destroy` | Stops an `up` still bootstrapping or waiting for the cluster first (`lab_operations`), so credentials are never written after the cluster directory is removed with the lab directory. |
@@ -195,3 +245,5 @@ The client writes `kubeconfig-<cluster>` and `talosconfig-<cluster>` (owner only
 - One Talos minor version at a time.
 - No control-plane redeploy or upgrades.
 - Cilium settings are fixed; at most two Cilium clusters per lab (load balancer blocks).
+- One realm (`sherpa`), one Kubernetes client, two groups; Vault roles and policies are fixed.
+- The Vault Secrets Operator Job needs internet access to HashiCorp's Helm repository.

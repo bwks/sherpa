@@ -1,6 +1,6 @@
 [package]
 name = "sherpad"
-version = "0.5.11"
+version = "0.5.12"
 edition = "2024"
 
 [dependencies]
@@ -75,7 +75,7 @@ dashmap = "6.1"
 jiff = { workspace = true }
 
 # http client
-reqwest = { workspace = true, features = ["stream", "http2"] }
+reqwest = { workspace = true, features = ["stream", "http2", "form"] }
 http-body-util = "0.1.3"
 
 # Libvirt

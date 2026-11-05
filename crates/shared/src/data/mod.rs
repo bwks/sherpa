@@ -94,8 +94,8 @@ pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use secret::{NodeSecretsRequest, NodeSecretsResponse, SecretContent, SecretFile};
 pub use ssh::{SshKeyAlgorithms, SshPublicKey};
 pub use up::{
-    ClusterInfo, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase, UpRequest, UpResponse,
-    UpSummary, VaultInfo,
+    ClusterInfo, KeycloakInfo, KeycloakUser, NodeInfo, StatusKind, StatusMessage, UpError, UpPhase,
+    UpRequest, UpResponse, UpSummary, VaultInfo,
 };
 pub use user::{OwnerSshKey, OwnerUser, User};
 pub use user_management::{

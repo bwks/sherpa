@@ -20,6 +20,8 @@ use crate::tls::generator::write_file_with_permissions;
 
 /// Directory in the lab directory holding each Vault node's credentials.
 const VAULT_DIR: &str = "vault";
+/// How often to check whether an unsealed Vault is active; it takes a second or two.
+const ACTIVE_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 /// A Vault node's credentials, saved as `<lab>/vault/<node>.toml`, readable only by the server.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,7 +75,8 @@ fn load_credentials(dir: &Path, node_name: &str) -> Result<Option<VaultCredentia
     Ok(Some(credentials))
 }
 
-/// Wait for a Vault node's API, initialise it if it is new, and unseal it if it is sealed.
+/// Wait for a Vault node's API, initialise it if it is new, unseal it if it is sealed, and wait
+/// until it is active.
 ///
 /// A new Vault is initialised with one key share. Its unseal key and root token are saved
 /// before it is unsealed, so they are never lost to a failure in between.
@@ -127,7 +130,28 @@ pub async fn ensure_vault_unsealed(
         }
         let _ = progress.send_status(format!("Vault {node_name} - unsealed"), StatusKind::Done);
     }
+    wait_until_active(&client, node_name, timeout).await?;
     Ok(credentials.into_info(node_name))
+}
+
+/// Poll until the node is active, within `timeout`. Right after an unseal, Raft storage elects
+/// a leader first, and requests other than status answer 500 until it has.
+async fn wait_until_active(client: &VaultClient, node_name: &str, timeout: Duration) -> Result<()> {
+    let started = Instant::now();
+    while started.elapsed() < timeout {
+        match client.is_active().await {
+            Ok(true) => return Ok(()),
+            Ok(false) => tracing::debug!(%node_name, "Vault not active yet"),
+            Err(error) => {
+                tracing::debug!(%node_name, error = %format!("{error:#}"), "Vault health not answered");
+            }
+        }
+        tokio::time::sleep(ACTIVE_POLL_INTERVAL).await;
+    }
+    bail!(
+        "Vault node '{node_name}' did not become active within {}s",
+        timeout.as_secs()
+    )
 }
 
 /// Poll the seal status until the API answers, within `timeout`.

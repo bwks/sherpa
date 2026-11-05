@@ -19,6 +19,7 @@ use crate::daemon::state::AppState;
 use crate::services::container_networks::{self, ContainerDataInterface};
 use crate::services::guest_account;
 use crate::services::image_lifecycle::{lease_image, validate_disk_method};
+use crate::services::keycloak;
 use crate::services::lab_operations;
 use crate::services::node_ops::{self, VmReadiness};
 use crate::services::node_resources;
@@ -231,6 +232,8 @@ pub async fn redeploy_node(
     } else {
         util::default_dns(&lab_info.ipv4_network)?
     };
+    let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
+    let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
     // A cluster worker rejoins with a config built from the cluster's saved secrets.
     if let Some((talos_cluster, _)) = talos_membership {
         talos::secrets::ensure_supported_version(node_name, &node_image.version)?;
@@ -239,6 +242,7 @@ pub async fn redeploy_node(
             &cluster,
             node_name,
             &mgmt_net.v4,
+            &lab_ca.pair.cert,
         )?);
     }
     let sherpa_user = util::sherpa_user().context("Failed to get sherpa user")?;
@@ -415,8 +419,6 @@ pub async fn redeploy_node(
     .await?;
 
     // Reissue the node's certificate from the lab's saved CA, for its current addresses.
-    let certs_dir = format!("{lab_dir}/{LAB_CERTS_DIR}");
-    let lab_ca = lab_ca::load_lab_ca(Path::new(&certs_dir), lab_id)?;
     let cert_paths = lab_ca::issue_node_certificate(
         &lab_ca,
         Path::new(&certs_dir),
@@ -734,15 +736,39 @@ pub async fn redeploy_node(
             // Update node state
             db::update_node_state(&db, node_record_id, NodeState::Running).await?;
 
-            // A redeployed Vault starts with empty storage: initialise and unseal it again.
-            // The client's `sherpa download` after the redeploy writes its new credentials.
+            let timeout = Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT));
+            // A redeployed Vault starts with empty storage: initialise and unseal it again,
+            // and let the clusters that use it log in again. The client's `sherpa download`
+            // after the redeploy writes its new credentials.
             if initialises_vault {
-                vault::ensure_vault_unsealed(
+                let info = vault::ensure_vault_unsealed(
                     lab_id,
                     node_name,
                     node_ipv4_address,
                     &lab_ca.pair.cert,
-                    Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
+                    timeout,
+                    &progress,
+                )
+                .await?;
+                talos::grant_vault_access(
+                    &talos::load_clusters(lab_id)?,
+                    node_name,
+                    node_ipv4_address,
+                    &lab_ca.pair.cert,
+                    &info.root_token,
+                )
+                .await?;
+            }
+            // A redeployed Keycloak starts with an empty database: make the realm again, with
+            // the users' saved passwords.
+            if target_node.model == data::NodeModel::KeycloakServer {
+                keycloak::ensure_keycloak_realm(
+                    lab_id,
+                    node_name,
+                    node_ipv4_address,
+                    &lab_ca.pair.cert,
+                    &ctx.username,
+                    timeout,
                     &progress,
                 )
                 .await?;

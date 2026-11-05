@@ -59,7 +59,7 @@ pub use paloalto_panos::{PaloAltoPanosBootstrapTemplate, PaloAltoPanosZtpTemplat
 pub use sonic_linux::{SonicLinuxUserTemplate, SonicLinuxZtp};
 pub use ssh::{KnownHostsEntry, KnownHostsTemplate, SshConfigTemplate, SshHostConfig};
 pub use talos::{
-    CiliumConfig, TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig,
-    talos_machine_config, talosconfig,
+    CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClientCredentials,
+    TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
 };
 pub use vault::VaultConfigTemplate;

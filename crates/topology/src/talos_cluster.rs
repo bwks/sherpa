@@ -20,6 +20,13 @@ pub struct TalosCluster {
     /// The cluster's CNI: Flannel unless set.
     #[serde(default, skip_serializing_if = "ClusterCni::is_flannel")]
     pub cni: ClusterCni,
+    /// A `keycloak_server` node whose `sherpa` realm users log in to the cluster with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oidc: Option<String>,
+    /// A `hashicorp_vault` node the cluster's workloads read secrets from, through the Vault
+    /// Secrets Operator.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vault: Option<String>,
 }
 
 impl TalosCluster {
@@ -119,6 +126,18 @@ workers = ["w1"]
     }
 
     #[test]
+    fn oidc_and_vault_name_lab_nodes() {
+        assert_eq!(cluster().oidc, None);
+        assert_eq!(cluster().vault, None);
+        let cluster: TalosCluster = toml::from_str(
+            "name = \"k8s\"\ncontrollers = [\"cp1\"]\noidc = \"kc01\"\nvault = \"vault01\"\n",
+        )
+        .unwrap();
+        assert_eq!(cluster.oidc.as_deref(), Some("kc01"));
+        assert_eq!(cluster.vault.as_deref(), Some("vault01"));
+    }
+
+    #[test]
     fn unknown_fields_are_rejected() {
         assert!(
             toml::from_str::<TalosCluster>("name = \"k8s\"\ncontrollers = [\"cp1\"]\nnodes = []\n")
@@ -134,7 +153,7 @@ workers = ["w1"]
                 name: "dev".to_owned(),
                 controllers: vec!["dev-cp1".to_owned()],
                 workers: vec![],
-                cni: ClusterCni::Flannel,
+                ..TalosCluster::default()
             },
         ];
         let (found, role) = find_talos_cluster(&clusters, "dev-cp1").unwrap();

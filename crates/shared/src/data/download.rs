@@ -1,7 +1,7 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-use super::{ClusterInfo, LabInfo, VaultInfo};
+use super::{ClusterInfo, KeycloakInfo, LabInfo, VaultInfo};
 
 /// Response containing lab files for download
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -22,4 +22,7 @@ pub struct DownloadLabResponse {
     /// Vault nodes Sherpa initialised, with their credentials.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub vaults: Vec<VaultInfo>,
+    /// Keycloak nodes Sherpa set up a realm on, with the realm's users.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keycloaks: Vec<KeycloakInfo>,
 }

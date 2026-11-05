@@ -2,12 +2,14 @@ use serde_json::Value;
 
 use shared::data::ClusterRole;
 use template::{
-    CiliumConfig, TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig,
-    talos_machine_config, talosconfig,
+    CiliumConfig, ClusterOidcConfig, ClusterVaultConfig, TalosClientCredentials,
+    TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
 };
 
 /// The documents of `talosctl gen config` for Talos 1.14, without the install and discovery
 /// documents.
+const LAB_CA: &str = "-----BEGIN CERTIFICATE-----\nlab\n-----END CERTIFICATE-----\n";
+
 const CONTROL_PLANE_KINDS: [&str; 25] = [
     "v1alpha1",
     "ResolverConfig",
@@ -69,9 +71,44 @@ fn render(
         vip: vip.map(|ip| ip.parse().unwrap()),
         schedulable_control_planes: schedulable,
         cilium,
+        oidc: None,
+        vault: None,
         secrets: &secrets,
     };
-    let output = talos_machine_config(&node).unwrap();
+    render_node(&node)
+}
+
+/// A control plane of a cluster that logs in through Keycloak and has a Vault.
+fn render_with_keycloak_and_vault() -> Vec<Value> {
+    let secrets = secrets();
+    render_node(&TalosNodeConfig {
+        cluster_name: "k8s",
+        endpoint: "https://172.31.1.5:6443",
+        hostname: "cp1",
+        role: ClusterRole::ControlPlane,
+        management_subnet: "172.31.1.0/24",
+        vip: None,
+        schedulable_control_planes: false,
+        cilium: None,
+        oidc: Some(oidc()),
+        vault: Some(ClusterVaultConfig {
+            address: "https://172.31.1.24:8200".to_owned(),
+            ca_cert: LAB_CA,
+            auth_mount: "kubernetes-k8s".to_owned(),
+        }),
+        secrets: &secrets,
+    })
+}
+
+fn oidc() -> ClusterOidcConfig<'static> {
+    ClusterOidcConfig {
+        issuer_url: "https://172.31.1.23:8443/realms/sherpa".to_owned(),
+        ca_cert: LAB_CA,
+    }
+}
+
+fn render_node(node: &TalosNodeConfig) -> Vec<Value> {
+    let output = talos_machine_config(node).unwrap();
     assert!(output.ends_with('\n'));
     output
         .trim_end()
@@ -258,7 +295,7 @@ fn talosconfig_targets_the_control_planes() {
 
 #[test]
 fn kubeconfig_uses_the_cluster_endpoint_and_admin_credentials() {
-    let output = kubeconfig("k8s", "https://172.31.1.5:6443", &credentials()).unwrap();
+    let output = kubeconfig("k8s", "https://172.31.1.5:6443", &credentials(), None).unwrap();
     let document: Value = serde_json::from_str(&output).unwrap();
     assert_eq!(document["current-context"], "admin@k8s");
     assert_eq!(
@@ -381,4 +418,130 @@ fn cilium_clusters_get_a_gateway_and_a_hubble_ui_address() {
         "172.31.1.14"
     );
     assert_eq!(hubble["spec"]["selector"]["k8s-app"], "hubble-ui");
+}
+
+#[test]
+fn clusters_without_keycloak_have_no_jwt_authenticator() {
+    let documents = render(ClusterRole::ControlPlane, None, false, None);
+    assert_eq!(
+        find(&documents, "KubeAuthenticationConfig")["configuration"]["jwt"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn keycloak_clusters_accept_realm_tokens_with_prefixed_names() {
+    let documents = render_with_keycloak_and_vault();
+    let jwt = &find(&documents, "KubeAuthenticationConfig")["configuration"]["jwt"][0];
+    assert_eq!(
+        jwt["issuer"]["url"],
+        "https://172.31.1.23:8443/realms/sherpa"
+    );
+    assert_eq!(
+        jwt["issuer"]["audiences"],
+        serde_json::json!(["kubernetes"])
+    );
+    assert_eq!(jwt["issuer"]["certificateAuthority"], LAB_CA);
+    assert_eq!(
+        jwt["claimMappings"]["username"]["claim"],
+        "preferred_username"
+    );
+    assert_eq!(jwt["claimMappings"]["username"]["prefix"], "oidc:");
+    assert_eq!(jwt["claimMappings"]["groups"]["claim"], "groups");
+    assert_eq!(jwt["claimMappings"]["groups"]["prefix"], "oidc:");
+}
+
+#[test]
+fn keycloak_groups_are_bound_to_cluster_roles() {
+    let documents = render_with_keycloak_and_vault();
+    let bindings: Vec<(String, String)> = inline_manifest(&documents, "sherpa-oidc-rbac")
+        .iter()
+        .map(|binding| {
+            (
+                binding["subjects"][0]["name"].as_str().unwrap().to_owned(),
+                binding["roleRef"]["name"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        bindings,
+        [
+            ("oidc:cluster-admins".to_owned(), "cluster-admin".to_owned()),
+            ("oidc:cluster-viewers".to_owned(), "view".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn vault_clusters_install_the_operator_connected_to_their_vault() {
+    let documents = render_with_keycloak_and_vault();
+    let resources = inline_manifest(&documents, "vault-secrets-operator-install");
+    let secret = find(&resources, "Secret");
+    assert_eq!(
+        secret["metadata"]["namespace"],
+        "vault-secrets-operator-system"
+    );
+    assert_eq!(secret["stringData"]["ca.crt"], LAB_CA);
+    let args: Vec<&str> =
+        find(&resources, "Job")["spec"]["template"]["spec"]["containers"][0]["args"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|arg| arg.as_str().unwrap())
+            .collect();
+    for expected in [
+        "--version=1.6.2",
+        "--set=defaultVaultConnection.address=https://172.31.1.24:8200",
+        "--set=defaultVaultConnection.caCertSecret=sherpa-lab-ca",
+        "--set=defaultAuthMethod.method=jwt",
+        "--set=defaultAuthMethod.mount=kubernetes-k8s",
+        "--set=defaultAuthMethod.jwt.role=workload",
+        "--set=defaultAuthMethod.jwt.tokenAudiences={vault}",
+    ] {
+        assert!(args.contains(&expected), "missing {expected} in {args:?}");
+    }
+}
+
+#[test]
+fn keycloak_and_vault_leave_flannel_clusters_without_extra_manifests() {
+    let documents = render_with_keycloak_and_vault();
+    assert!(documents[0]["cluster"].get("extraManifests").is_none());
+    assert_eq!(
+        kinds(&documents),
+        CONTROL_PLANE_KINDS
+            .iter()
+            .map(|kind| kind.to_string())
+            .chain(["KubeCoreDNSConfig".to_owned()])
+            .collect::<Vec<String>>()
+    );
+}
+
+#[test]
+fn keycloak_clusters_get_an_oidc_login_context() {
+    let output = kubeconfig(
+        "k8s",
+        "https://172.31.1.5:6443",
+        &credentials(),
+        Some(&oidc()),
+    )
+    .unwrap();
+    let document: Value = serde_json::from_str(&output).unwrap();
+    assert_eq!(document["current-context"], "admin@k8s");
+    assert_eq!(document["contexts"][1]["name"], "oidc@k8s");
+    let exec = &document["users"][1]["user"]["exec"];
+    assert_eq!(exec["command"], "kubectl");
+    let args: Vec<&str> = exec["args"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|arg| arg.as_str().unwrap())
+        .collect();
+    assert_eq!(&args[..2], ["oidc-login", "get-token"]);
+    assert!(args.contains(&"--oidc-issuer-url=https://172.31.1.23:8443/realms/sherpa"));
+    assert!(args.contains(&"--oidc-client-id=kubernetes"));
+    let ca = args
+        .iter()
+        .find_map(|arg| arg.strip_prefix("--certificate-authority-data="))
+        .unwrap();
+    assert_eq!(shared::util::base64_decode(ca).unwrap(), LAB_CA);
 }

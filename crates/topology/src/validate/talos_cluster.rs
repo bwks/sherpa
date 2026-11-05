@@ -20,6 +20,8 @@ const ALLOWED_CONTROLLER_COUNTS: [usize; 2] = [1, 3];
 /// - every cluster has one or three controllers;
 /// - every member is a defined `talos_linux` node without `ztp_config` (Sherpa generates
 ///   member machine configs), listed once across all clusters;
+/// - `oidc` names a defined `keycloak_server` node, and `vault` a defined `hashicorp_vault` node
+///   without `ztp_config` (Sherpa configures only the Vault it initialises);
 /// - there are no more clusters with three controllers than shared VIP addresses;
 /// - there are no more Cilium clusters than blocks of load balancer addresses.
 pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
@@ -80,6 +82,30 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
                 );
             }
         }
+        if let Some(oidc) = &cluster.oidc {
+            validate_cluster_service(
+                &nodes,
+                &cluster.name,
+                "oidc",
+                oidc,
+                NodeModel::KeycloakServer,
+            )?;
+        }
+        if let Some(vault) = &cluster.vault {
+            let node = validate_cluster_service(
+                &nodes,
+                &cluster.name,
+                "vault",
+                vault,
+                NodeModel::HashicorpVault,
+            )?;
+            if node.ztp_config.is_some() {
+                bail!(
+                    "Manifest - talos cluster '{}' sets vault = '{vault}', but that node sets ztp_config; Sherpa configures only the Vault it initialises with its own config",
+                    cluster.name
+                );
+            }
+        }
     }
     let vip_count = TALOS_VIP_HOST_OFFSETS.clone().count();
     if ha_clusters > vip_count {
@@ -95,6 +121,28 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
         );
     }
     Ok(())
+}
+
+/// Check that a cluster's `field` names a defined node of `model`, and return the node.
+fn validate_cluster_service<'a>(
+    nodes: &HashMap<&str, &'a Node>,
+    cluster_name: &str,
+    field: &str,
+    node_name: &str,
+    model: NodeModel,
+) -> Result<&'a Node> {
+    let Some(node) = nodes.get(node_name) else {
+        bail!(
+            "Manifest - talos cluster '{cluster_name}' sets {field} = '{node_name}', which is not defined in nodes"
+        );
+    };
+    if node.model != model {
+        bail!(
+            "Manifest - talos cluster '{cluster_name}' sets {field} = '{node_name}', a {} node; it must be a {model} node",
+            node.model
+        );
+    }
+    Ok(node)
 }
 
 fn validate_cluster_name(name: &str) -> Result<()> {
@@ -127,6 +175,8 @@ nodes = [
   { name = "cp4", model = "talos_linux" },
   { name = "w1", model = "talos_linux" },
   { name = "dev", model = "ubuntu_linux" },
+  { name = "kc01", model = "keycloak_server" },
+  { name = "vault01", model = "hashicorp_vault" },
 ]
 "#;
     const CLUSTER: &str = r#"{ name = "k8s", controllers = ["cp1"], workers = ["w1"] }"#;
@@ -277,5 +327,32 @@ nodes = [{ name = "talos", model = "talos_linux" }]
             / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
         validate_talos_clusters(&manifest(&cilium_clusters(blocks))).unwrap();
         assert!(error(&cilium_clusters(blocks + 1)).contains("use cilium"));
+    }
+
+    #[test]
+    fn oidc_and_vault_name_keycloak_and_vault_nodes() {
+        let toml = with_cluster(
+            r#"{ name = "k8s", controllers = ["cp1"], oidc = "kc01", vault = "vault01" }"#,
+        );
+        validate_talos_clusters(&manifest(&toml)).unwrap();
+
+        let missing = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], oidc = "kc02" }"#);
+        assert!(error(&missing).contains("oidc = 'kc02', which is not defined"));
+        let wrong_model =
+            with_cluster(r#"{ name = "k8s", controllers = ["cp1"], oidc = "vault01" }"#);
+        assert!(error(&wrong_model).contains("it must be a keycloak_server node"));
+        let wrong_model =
+            with_cluster(r#"{ name = "k8s", controllers = ["cp1"], vault = "kc01" }"#);
+        assert!(error(&wrong_model).contains("it must be a hashicorp_vault node"));
+    }
+
+    #[test]
+    fn vault_must_run_the_config_sherpa_generates() {
+        let toml = with_cluster(r#"{ name = "k8s", controllers = ["cp1"], vault = "vault01" }"#)
+            .replace(
+                r#"{ name = "vault01", model = "hashicorp_vault" }"#,
+                r#"{ name = "vault01", model = "hashicorp_vault", ztp_config = "dWk=" }"#,
+            );
+        assert!(error(&toml).contains("sets ztp_config"));
     }
 }
