@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.9] - 2026-11-05
+
+### Features
+
+- Juniper_cevolved container node model by @bwks ([f0b7a55](https://github.com/bwks/sherpa/commit/f0b7a5596058b1c7774e39a115f303b8329695d8))
+
+### Miscellaneous
+
+- Merge pull request #451 from bwks/feat/277-juniper-cevolved
+
+feat: juniper_cevolved container node model by @bwks in [#451](https://github.com/bwks/sherpa/pull/451) ([b050e2b](https://github.com/bwks/sherpa/commit/b050e2baf8d88077fe3bbf56ab7d727c3e25eb9b))
+- Merge pull request #450 from bwks/ci/coverage-cache-size
+
+ci: keep the coverage job within the runner's disk by @bwks in [#450](https://github.com/bwks/sherpa/pull/450) ([c9d0f4c](https://github.com/bwks/sherpa/commit/c9d0f4cfba2e20b0c5ea8591de69d13f5a912c6f))
+- Keep the coverage job within the runner's disk by @bwks ([e1507dd](https://github.com/bwks/sherpa/commit/e1507dd23a47688b744e4fe97994e79956005612))
+- Merge pull request #449 from bwks/changelog/v0.5.8
+
+chore(release): update changelog for v0.5.8 by @github-actions[bot] in [#449](https://github.com/bwks/sherpa/pull/449) ([cdbf203](https://github.com/bwks/sherpa/commit/cdbf203ab55feef8b1767d3b79296cc24b575ae2))
 ## [0.5.8] - 2026-11-04
 
 ### Bug Fixes
