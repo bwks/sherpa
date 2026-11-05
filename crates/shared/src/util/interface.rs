@@ -5,10 +5,13 @@ use anyhow::{Result, bail};
 use crate::data::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
-    CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperVevolvedInt,
-    JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MikrotikChrInt, NodeModel,
-    NokiaSrlinuxInt, PaloaltoPanosInt,
+    CiscoNexus9300vInt, CumulusLinuxInt, EthernetInt, InterfaceTrait, JuniperCevolvedInt,
+    JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MikrotikChrInt,
+    NodeModel, NokiaSrlinuxInt, PaloaltoPanosInt,
 };
+
+/// The interfaces cJunosEvolved creates for itself in its container, `eth1` to `eth3`.
+const CEVOLVED_INTERNAL_INTERFACES: u16 = 3;
 
 pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8> {
     let idx = match device_model {
@@ -27,6 +30,7 @@ pub fn interface_to_idx(device_model: &NodeModel, interface: &str) -> Result<u8>
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVevolved => JuniperVevolvedInt::from_str(interface)?.to_idx(),
+        NodeModel::JuniperCevolved => JuniperCevolvedInt::from_str(interface)?.to_idx(),
         NodeModel::JuniperVsrxv3 => JuniperVsrxv3Int::from_str(interface)?.to_idx(),
         NodeModel::CumulusLinux => CumulusLinuxInt::from_str(interface)?.to_idx(),
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::from_str(interface)?.to_idx(),
@@ -54,6 +58,7 @@ pub fn interface_from_idx(device_model: &NodeModel, idx: u8) -> Result<String> {
         NodeModel::JuniperVrouter => JuniperVrouterInt::from_idx(idx)?,
         NodeModel::JuniperVswitch => JuniperVswitchInt::from_idx(idx)?,
         NodeModel::JuniperVevolved => JuniperVevolvedInt::from_idx(idx)?,
+        NodeModel::JuniperCevolved => JuniperCevolvedInt::from_idx(idx)?,
         NodeModel::JuniperVsrxv3 => JuniperVsrxv3Int::from_idx(idx)?,
         NodeModel::CumulusLinux => CumulusLinuxInt::from_idx(idx)?,
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::from_idx(idx)?,
@@ -81,12 +86,27 @@ pub fn node_model_interfaces(device_model: &NodeModel) -> Vec<String> {
         NodeModel::JuniperVrouter => JuniperVrouterInt::all_interfaces(),
         NodeModel::JuniperVswitch => JuniperVswitchInt::all_interfaces(),
         NodeModel::JuniperVevolved => JuniperVevolvedInt::all_interfaces(),
+        NodeModel::JuniperCevolved => JuniperCevolvedInt::all_interfaces(),
         NodeModel::JuniperVsrxv3 => JuniperVsrxv3Int::all_interfaces(),
         NodeModel::CumulusLinux => CumulusLinuxInt::all_interfaces(),
         NodeModel::NokiaSrlinux => NokiaSrlinuxInt::all_interfaces(),
         NodeModel::MikrotikChr => MikrotikChrInt::all_interfaces(),
         NodeModel::PaloaltoPanos => PaloaltoPanosInt::all_interfaces(),
         _ => EthernetInt::all_interfaces(),
+    }
+}
+
+/// The name of data interface `idx` of a `model` container, inside the container. SR Linux
+/// has its own names. cJunosEvolved creates `eth1` to `eth3` itself, so its first data
+/// interface is `eth4`. Other models use `eth<idx>`.
+pub fn container_interface_name(model: &NodeModel, idx: u8) -> Result<String> {
+    match model {
+        NodeModel::NokiaSrlinux => srlinux_to_linux_interface(&interface_from_idx(model, idx)?),
+        NodeModel::JuniperCevolved => Ok(format!(
+            "eth{}",
+            u16::from(idx) + CEVOLVED_INTERNAL_INTERFACES
+        )),
+        _ => Ok(format!("eth{idx}")),
     }
 }
 
@@ -105,6 +125,35 @@ pub fn srlinux_to_linux_interface(name: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn container_interface_names_follow_each_model() {
+        assert_eq!(
+            container_interface_name(&NodeModel::NokiaSrlinux, 3).unwrap(),
+            "e1-3"
+        );
+        assert_eq!(
+            container_interface_name(&NodeModel::JuniperCevolved, 1).unwrap(),
+            "eth4"
+        );
+        assert_eq!(
+            container_interface_name(&NodeModel::JuniperCevolved, 36).unwrap(),
+            "eth39"
+        );
+        assert_eq!(
+            container_interface_name(&NodeModel::AristaCeos, 2).unwrap(),
+            "eth2"
+        );
+    }
+
+    #[test]
+    fn cevolved_interfaces_are_the_36_et_ports() {
+        let model = NodeModel::JuniperCevolved;
+        assert_eq!(interface_from_idx(&model, 1).unwrap(), "et-0/0/0");
+        assert_eq!(interface_from_idx(&model, 36).unwrap(), "et-0/0/35");
+        assert_eq!(interface_to_idx(&model, "re0:mgmt-0").unwrap(), 0);
+        assert!(interface_from_idx(&model, 37).is_err());
+    }
 
     #[test]
     fn test_srlinux_to_linux_interface() {

@@ -2,7 +2,9 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::{DiskImageCloneMethod, NodeModel, PerformanceTuning, WatchdogAction};
+use shared::data::{
+    DiskImageCloneMethod, NodeModel, PerformanceTuning, PtxPlatform, WatchdogAction,
+};
 
 use crate::provisioner::Provisioner;
 
@@ -46,6 +48,8 @@ pub struct Node {
     pub performance_tuning: Option<PerformanceTuning>,
     /// A hardware watchdog for a VM, and what QEMU does when it expires. Absent, the VM has none.
     pub watchdog: Option<WatchdogAction>,
+    /// The PTX platform a `juniper_cevolved` node emulates. Absent, it is BT.
+    pub platform: Option<PtxPlatform>,
     /// Client-side provisioners, run by the CLI once the node is ready. Never serialized, so
     /// the client never sends them to the server and the server never stores them.
     #[serde(default, skip_serializing)]
@@ -85,6 +89,7 @@ pub struct NodeExpanded {
     pub ready_port: Option<u16>,
     pub performance_tuning: Option<PerformanceTuning>,
     pub watchdog: Option<WatchdogAction>,
+    pub platform: Option<PtxPlatform>,
 }
 
 #[derive(Clone, Debug, Deserialize, Default, Serialize)]
