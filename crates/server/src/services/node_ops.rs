@@ -17,6 +17,7 @@ use crate::services::image_lifecycle::ImageLease;
 use crate::services::progress::ProgressSender;
 
 use iso::create_iso;
+use network::NetnsVethState;
 use shared::data;
 use shared::data::StatusKind;
 use shared::konst::{
@@ -29,20 +30,20 @@ use shared::konst::{
     CONTAINER_GITLAB_CE_COMMANDS, CONTAINER_GITLAB_CE_REPO, CONTAINER_GITLAB_CE_SHM_SIZE,
     CONTAINER_HASHICORP_VAULT_CAPABILITIES, CONTAINER_HASHICORP_VAULT_COMMANDS,
     CONTAINER_HASHICORP_VAULT_ENV_VARS, CONTAINER_HASHICORP_VAULT_REPO,
-    CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_COMMANDS,
-    CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS, CONTAINER_NOKIA_SRLINUX_ENV_VARS,
-    CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER, CONTAINER_SURREAL_DB_COMMANDS,
-    CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT, FRR_ZTP_DAEMONS_MOUNT,
-    FRR_ZTP_STARTUP_MOUNT, JUNIPER_ZTP_CONFIG, JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI,
-    MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR, NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE,
-    NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE, NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR,
-    NODE_STARTUP_SCRIPTS_DIR, NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR,
-    NOKIA_SRLINUX_ZTP_VOLUME_MOUNT, PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID,
-    PALOALTO_ZTP_CONFIG, SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB,
-    SHERPA_BLANK_DISK_FAT32, SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE,
-    SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME, SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX,
-    SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD, SHERPA_PASSWORD_HASH,
-    SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
+    CONTAINER_JUNIPER_CEVOLVED_REPO, CONTAINER_MONGO_DB_COMMANDS, CONTAINER_MONGO_DB_REPO,
+    CONTAINER_NATS_COMMANDS, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_COMMANDS,
+    CONTAINER_NOKIA_SRLINUX_ENV_VARS, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_NOKIA_SRLINUX_USER,
+    CONTAINER_SURREAL_DB_COMMANDS, CONTAINER_SURREAL_DB_REPO, CUMULUS_ZTP, FRR_ZTP_CONFIG_MOUNT,
+    FRR_ZTP_DAEMONS_MOUNT, FRR_ZTP_STARTUP_MOUNT, JUNIPER_CEVOLVED_CONFIG_DIR, JUNIPER_ZTP_CONFIG,
+    JUNIPER_ZTP_CONFIG_TGZ, KVM_OUI, MIKROTIK_CHR_ZTP_CONFIG, NODE_CERTS_DIR,
+    NODE_CERTS_DIR_WINDOWS, NODE_CLOUD_INIT_SUDO_RULE, NODE_CONFIGS_DIR, NODE_DOAS_CONF_FILE,
+    NODE_NIXOS_SHELL, NODE_PASSWD_FILE, NODE_STAGING_DIR, NODE_STARTUP_SCRIPTS_DIR,
+    NODE_USER_ENV_FILE, NODE_USER_SCRIPTS_DIR, NOKIA_SRLINUX_ZTP_VOLUME_MOUNT,
+    PALOALTO_BOOTSTRAP_CONFIG, PALOALTO_BOOTSTRAP_VOLUME_ID, PALOALTO_ZTP_CONFIG,
+    SHERPA_BLANK_DISK_DIR, SHERPA_BLANK_DISK_EXT4_500MB, SHERPA_BLANK_DISK_FAT32,
+    SHERPA_BLANK_DISK_IOSV, SHERPA_BLANK_DISK_ISE, SHERPA_BLANK_DISK_JUNOS, SHERPA_DOMAIN_NAME,
+    SHERPA_ISOLATED_NETWORK_BRIDGE_PREFIX, SHERPA_ISOLATED_NETWORK_NAME, SHERPA_PASSWORD,
+    SHERPA_PASSWORD_HASH, SHERPA_PASSWORD_HASH_SHA256, SHERPA_RESERVED_NETWORK_BRIDGE_PREFIX,
     SHERPA_RESERVED_NETWORK_NAME, SHERPA_SSH_PUBLIC_KEY_PATH, SHERPA_STORAGE_POOL,
     SHERPA_STORAGE_POOL_PATH, SHERPA_USERNAME, SSH_PORT, SSH_READY_HANDSHAKE_TIMEOUT,
     TALOS_API_PORT, TELNET_PORT, VAULT_ZTP_CONFIG_MOUNT, WINDOWS_ADMINISTRATORS_SID,
@@ -50,6 +51,7 @@ use shared::konst::{
     WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
+use shared::validators::effective_data_interface_count;
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -411,6 +413,55 @@ pub(crate) fn generate_container_ztp(
             node.volumes = Some(vec![ztp_volume]);
             node.commands = Some(commands.clone());
         }
+        data::NodeModel::JuniperCevolved => {
+            let rendered_template = match &custom_ztp {
+                Some(config) => config.clone(),
+                None => {
+                    let t = template::JunipervJunosZtpTemplate {
+                        hostname: node.name.clone(),
+                        user: sherpa_user.clone(),
+                        owner: guest_account::owner_user(guest_account, KeyFormat::Junos)?,
+                        mgmt_interface: node_image.management_interface.to_string(),
+                        mgmt_ipv4_address: Some(node_ipv4_address),
+                        mgmt_ipv4: mgmt_net.v4.clone(),
+                        mgmt_ipv6_address: node.ipv6_address,
+                        mgmt_ipv6: mgmt_net.v6.clone(),
+                    };
+                    t.render()?
+                }
+            };
+            // The entrypoint reads `juniper.conf` from its config directory, so the directory
+            // is mounted.
+            let config_dir = format!("{dir}/configdisk");
+            let config_volume = topology::VolumeMount {
+                src: config_dir.clone(),
+                dst: JUNIPER_CEVOLVED_CONFIG_DIR.to_string(),
+            };
+            util::create_dir(&config_dir)?;
+            util::create_file(
+                &format!("{config_dir}/{JUNIPER_ZTP_CONFIG}"),
+                rendered_template,
+            )?;
+
+            // The entrypoint waits for this many data interfaces before it starts the EVO VM.
+            let data_interfaces =
+                effective_data_interface_count(&node.name, node.data_interface_count, node_image)?;
+            image = CONTAINER_JUNIPER_CEVOLVED_REPO.to_string();
+            privileged = true;
+            env_vars = cevolved_env_vars(
+                node.platform.unwrap_or_default(),
+                data_interfaces,
+                node.cpu_count.unwrap_or(node_image.cpu_count),
+                node.memory.unwrap_or(node_image.memory),
+            );
+            volumes = vec![format!("{}:{}:ro", config_volume.src, config_volume.dst)];
+
+            // Update node fields for consistency
+            node.image = Some(image.clone());
+            node.privileged = Some(privileged);
+            node.environment_variables = Some(env_vars.clone());
+            node.volumes = Some(vec![config_volume]);
+        }
         data::NodeModel::FrrLinux => {
             // Render daemons file
             let daemons_template = template::FrrDaemonsTemplate {};
@@ -583,6 +634,7 @@ pub(crate) fn generate_container_ztp(
             node.model,
             data::NodeModel::AristaCeos
                 | data::NodeModel::NokiaSrlinux
+                | data::NodeModel::JuniperCevolved
                 | data::NodeModel::FrrLinux
                 | data::NodeModel::GitlabCe
                 | data::NodeModel::SurrealDb
@@ -623,6 +675,34 @@ pub(crate) fn generate_container_ztp(
         user,
         ztp_record,
     })
+}
+
+/// How a P2p container's data interface veth comes up: a disabled one stays down, unless the
+/// model keeps every data interface up, when only its host end is down.
+pub(crate) fn netns_veth_state(model: &data::NodeModel, admin_down: bool) -> NetnsVethState {
+    if !admin_down {
+        NetnsVethState::Enabled
+    } else if model.keeps_data_interfaces_up() {
+        NetnsVethState::DisabledUp
+    } else {
+        NetnsVethState::Disabled
+    }
+}
+
+/// The environment of a cJunosEvolved container: the platform it emulates, how many data
+/// interfaces its entrypoint waits for, and its EVO VM's vCPUs and memory.
+fn cevolved_env_vars(
+    platform: data::PtxPlatform,
+    data_interfaces: u8,
+    cpu_count: u8,
+    memory: u16,
+) -> Vec<String> {
+    vec![
+        format!("CPTX_COSIM={}", platform.cosim()),
+        format!("CPTX_NUM_IF={data_interfaces}"),
+        format!("CPTX_EVOVM_CPU={cpu_count}"),
+        format!("CPTX_EVOVM_MEM_MB={memory}"),
+    ]
 }
 
 /// The command a cEOS container starts with: copy the ZTP config into flash unless a saved
@@ -3602,6 +3682,39 @@ mod tests {
     use tempfile::tempdir;
     use tokio::io::AsyncWriteExt;
     use tokio::sync::mpsc;
+
+    #[test]
+    fn disabled_veths_stay_down_unless_the_model_keeps_them_up() {
+        assert_eq!(
+            netns_veth_state(&data::NodeModel::JuniperCevolved, false),
+            NetnsVethState::Enabled
+        );
+        assert_eq!(
+            netns_veth_state(&data::NodeModel::JuniperCevolved, true),
+            NetnsVethState::DisabledUp
+        );
+        assert_eq!(
+            netns_veth_state(&data::NodeModel::AristaCeos, true),
+            NetnsVethState::Disabled
+        );
+    }
+
+    #[test]
+    fn cevolved_env_selects_the_platform_and_sizes_the_evo_vm() {
+        assert_eq!(
+            cevolved_env_vars(data::PtxPlatform::Bt, 12, 4, 6292),
+            [
+                "CPTX_COSIM=BT",
+                "CPTX_NUM_IF=12",
+                "CPTX_EVOVM_CPU=4",
+                "CPTX_EVOVM_MEM_MB=6292"
+            ]
+        );
+        assert_eq!(
+            cevolved_env_vars(data::PtxPlatform::Bx, 36, 8, 16384)[..2],
+            ["CPTX_COSIM=BX", "CPTX_NUM_IF=36"]
+        );
+    }
 
     #[test]
     fn test_build_env_profile_script_basic() {

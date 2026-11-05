@@ -42,23 +42,24 @@ pub(crate) fn data_attachment(
     connection: ContainerDataInterface,
     lab_id: &str,
 ) -> Result<data::ContainerNetworkAttachment> {
-    // SR Linux needs its own interface names. Other models are named by attach order, except
-    // disabled interfaces, which are named so they stay down.
-    let srlinux_name = if *model == data::NodeModel::NokiaSrlinux {
-        Some(util::srlinux_to_linux_interface(interface_name)?)
-    } else {
-        None
+    // SR Linux and cJunosEvolved need their own interface names. Other models are named by
+    // attach order, except disabled interfaces, which are named so they stay down.
+    let fixed_name = match model {
+        data::NodeModel::NokiaSrlinux | data::NodeModel::JuniperCevolved => {
+            Some(util::container_interface_name(model, interface_idx)?)
+        }
+        _ => None,
     };
     let (name, linux_interface_name, admin_down) = match connection {
         ContainerDataInterface::Bridged => (
             bridge_member_network_name(node_name, interface_idx, lab_id),
-            srlinux_name,
+            fixed_name,
             false,
         ),
         ContainerDataInterface::Disabled => (
             isolated_network_name(node_name, interface_idx, lab_id),
-            Some(srlinux_name.unwrap_or_else(|| interface_name.to_string())),
-            true,
+            Some(fixed_name.unwrap_or_else(|| interface_name.to_string())),
+            !model.keeps_data_interfaces_up(),
         ),
     };
     Ok(data::ContainerNetworkAttachment {
@@ -198,6 +199,38 @@ mod tests {
         )
         .unwrap();
         assert_eq!(attachment.linux_interface_name.as_deref(), Some("e1-1"));
+    }
+
+    #[test]
+    fn cevolved_interfaces_start_at_eth4() {
+        let attachment = data_attachment(
+            "cevo01",
+            &data::NodeModel::JuniperCevolved,
+            "et-0/0/0",
+            1,
+            ContainerDataInterface::Bridged,
+            LAB_ID,
+        )
+        .unwrap();
+        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth4"));
+        assert!(!attachment.admin_down);
+    }
+
+    #[test]
+    fn cevolved_disabled_interfaces_stay_up() {
+        // cJunosEvolved waits at boot until every data interface is up.
+        let attachment = data_attachment(
+            "cevo01",
+            &data::NodeModel::JuniperCevolved,
+            "et-0/0/2",
+            3,
+            ContainerDataInterface::Disabled,
+            LAB_ID,
+        )
+        .unwrap();
+        assert_eq!(attachment.name, "cevo01-iso3-fe4edfdc");
+        assert_eq!(attachment.linux_interface_name.as_deref(), Some("eth6"));
+        assert!(!attachment.admin_down);
     }
 
     #[test]

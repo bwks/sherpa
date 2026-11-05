@@ -443,6 +443,10 @@ pub const CONTAINER_NOKIA_SRLINUX_USER: &str = "0:0";
 pub const CONTAINER_NOKIA_SRLINUX_COMMANDS: &[&str] = &["bash", "/opt/srlinux/bin/sr_linux"];
 
 pub const CONTAINER_ARISTA_CEOS_REPO: &str = "localrepo/arista_ceos";
+
+pub const CONTAINER_JUNIPER_CEVOLVED_REPO: &str = "localrepo/juniper_cevolved";
+/// The directory the cJunosEvolved entrypoint reads a startup `juniper.conf` from.
+pub const JUNIPER_CEVOLVED_CONFIG_DIR: &str = "/home/evo/configdisk";
 pub const CONTAINER_ARISTA_CEOS_ENV_VARS: &[&str] = &[
     "INTFTYPE=eth",
     "ETBA=1",

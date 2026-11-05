@@ -56,7 +56,8 @@ use topology::find_talos_cluster;
 use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device, check_mgmt_usage,
-    check_no_p2p_field, check_performance_tuning, check_watchdog, validate_talos_clusters,
+    check_no_p2p_field, check_performance_tuning, check_ptx_platform, check_watchdog,
+    validate_talos_clusters,
 };
 
 /// A data interface of a P2p container: a veth created into the container's netns once it has
@@ -284,6 +285,7 @@ pub(crate) fn process_manifest_nodes(
             ready_port: node.ready_port,
             performance_tuning: node.performance_tuning.clone(),
             watchdog: node.watchdog,
+            platform: node.platform,
         })
         .collect()
 }
@@ -813,6 +815,10 @@ pub async fn up_lab(
         ))?;
         check_watchdog(node, &node_image).context(format!(
             "Watchdog validation failed for node: {}",
+            node.name
+        ))?;
+        check_ptx_platform(node, &node_image).context(format!(
+            "Platform validation failed for node: {}",
             node.name
         ))?;
     }
@@ -2731,22 +2737,19 @@ pub async fn up_lab(
                     let pid = container::get_container_pid(&docker_conn, &container_name).await?;
 
                     for veth_info in &container_p2p_veths {
-                        let target_name = if veth_info.node_model == data::NodeModel::NokiaSrlinux {
-                            let iface_name = util::interface_from_idx(
-                                &veth_info.node_model,
-                                veth_info.interface_idx,
-                            )?;
-                            util::srlinux_to_linux_interface(&iface_name)?
-                        } else {
-                            format!("eth{}", veth_info.interface_idx)
-                        };
+                        let target_name = util::container_interface_name(
+                            &veth_info.node_model,
+                            veth_info.interface_idx,
+                        )?;
+                        let state =
+                            node_ops::netns_veth_state(&veth_info.node_model, veth_info.admin_down);
 
                         network::create_veth_in_netns(
                             &veth_info.host_veth,
                             &veth_info.host_alias,
                             &target_name,
                             pid,
-                            !veth_info.admin_down,
+                            state,
                         )
                         .await
                         .with_context(|| {

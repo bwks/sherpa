@@ -10,6 +10,18 @@ use tracing::instrument;
 
 use crate::linux::{get_link_index, set_link_properties, setup_netlink};
 
+/// How the two ends of a veth into a container come up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NetnsVethState {
+    /// Both ends up and the container end promiscuous: a connected interface.
+    Enabled,
+    /// Both ends down: a disabled interface, down in the container and with no carrier.
+    Disabled,
+    /// The container end up and the host end down: a disabled interface that the container
+    /// sees up, with no carrier. For images that wait until every interface is up.
+    DisabledUp,
+}
+
 /// Create a persistent tap device.
 ///
 /// The tap device is created in UP state with jumbo MTU.
@@ -41,8 +53,7 @@ pub async fn create_tap(name: &str, alias_name: &str) -> Result<()> {
 /// Create a veth pair whose far end is created straight into the network namespace of `pid`
 /// (a container), named `netns_name`. The host end, `host_name`, stays in this namespace.
 ///
-/// An enabled pair comes up with the far end promiscuous; a disabled one stays down on both
-/// ends, so the far end has no carrier. Nothing runs inside the namespace, and no privilege
+/// `state` says which ends come up. The far end has carrier only while the host end is up. Nothing runs inside the namespace, and no privilege
 /// beyond CAP_NET_ADMIN is needed: the kernel brings up a new veth's own end only once both
 /// ends exist, so the far end is the request's own end and the host end its peer.
 ///
@@ -50,29 +61,53 @@ pub async fn create_tap(name: &str, alias_name: &str) -> Result<()> {
 /// them, look a new link's name up in this namespace first, so a host interface named like it
 /// (`eth1`) would fail the request. Given an index, the kernel looks that up instead. Indexes
 /// are per namespace, so one free here can be taken in the container's; the next is tried then.
-#[instrument(fields(%host_name, %netns_name, pid, enabled), level = "debug")]
+///
+/// A veth named `host_name` whose peer is in another namespace is deleted first, with its peer:
+/// it is the host end of a removed container's interface. The kernel tears a removed
+/// container's namespace down in the background, at times minutes later, and its veths last
+/// until then. Any other interface named `host_name` fails the request.
+#[instrument(fields(%host_name, %netns_name, pid, ?state), level = "debug")]
 pub async fn create_veth_in_netns(
     host_name: &str,
     host_alias: &str,
     netns_name: &str,
     pid: u32,
-    enabled: bool,
+    state: NetnsVethState,
 ) -> Result<()> {
     let handle = setup_netlink().await?;
     let mtu = MTU_JUMBO_NET as u32;
 
-    // A taken host end name would look like a taken index below.
-    if get_link_index(&handle, host_name).await.is_ok() {
-        bail!("cannot create veth {host_name}: an interface with that name already exists");
-    }
     let mut links = handle.link().get().execute();
     let mut highest_index = 0;
+    let mut taken = None;
     while let Some(link) = links
         .try_next()
         .await
         .context("failed to list interfaces")?
     {
         highest_index = highest_index.max(link.header.index);
+        if link
+            .attributes
+            .contains(&LinkAttribute::IfName(host_name.to_string()))
+        {
+            taken = Some(link);
+        }
+    }
+    // A taken host end name would look like a taken index below.
+    if let Some(link) = taken {
+        if !is_container_veth(&link) {
+            bail!("cannot create veth {host_name}: an interface with that name already exists");
+        }
+        tracing::warn!(
+            host_veth = %host_name,
+            "deleting a stale veth left by a removed container"
+        );
+        handle
+            .link()
+            .del(link.header.index)
+            .execute()
+            .await
+            .context(format!("failed to delete stale veth {host_name}"))?;
     }
 
     let mut host_end = LinkMessage::default();
@@ -82,9 +117,18 @@ pub async fn create_veth_in_netns(
     ]);
 
     let mut netns_end = LinkMessage::default();
-    if enabled {
-        netns_end.header.flags = LinkFlags::Up | LinkFlags::Promisc;
-        netns_end.header.change_mask = LinkFlags::Up | LinkFlags::Promisc;
+    match state {
+        NetnsVethState::Enabled => {
+            netns_end.header.flags = LinkFlags::Up | LinkFlags::Promisc;
+            netns_end.header.change_mask = LinkFlags::Up | LinkFlags::Promisc;
+        }
+        NetnsVethState::DisabledUp => {
+            netns_end.header.flags = LinkFlags::Up;
+            netns_end.header.change_mask = LinkFlags::Up;
+        }
+        NetnsVethState::Disabled => {
+            tracing::debug!(interface = %netns_name, "container end stays down");
+        }
     }
     netns_end.attributes.extend(vec![
         LinkAttribute::IfName(netns_name.to_string()),
@@ -100,7 +144,7 @@ pub async fn create_veth_in_netns(
         host_veth = %host_name,
         interface = %netns_name,
         pid = pid,
-        enabled = enabled,
+        state = ?state,
         "creating veth pair into network namespace"
     );
     let mut created = false;
@@ -136,7 +180,7 @@ pub async fn create_veth_in_netns(
     let index = get_link_index(&handle, host_name).await?;
     let mut msg = LinkMessage::default();
     msg.header.index = index;
-    if enabled {
+    if state == NetnsVethState::Enabled {
         msg.header.flags = LinkFlags::Up;
         msg.header.change_mask = LinkFlags::Up;
     }
@@ -158,4 +202,45 @@ pub async fn create_veth_in_netns(
 pub async fn get_ifindex(iface_name: &str) -> Result<u32> {
     let handle = setup_netlink().await?;
     get_link_index(&handle, iface_name).await
+}
+
+/// Whether `link` is a veth whose peer is in another network namespace: the host end of a
+/// container interface.
+fn is_container_veth(link: &LinkMessage) -> bool {
+    let mut veth = false;
+    let mut peer_elsewhere = false;
+    for attribute in &link.attributes {
+        if let LinkAttribute::LinkInfo(info) = attribute {
+            veth = info.contains(&LinkInfo::Kind(InfoKind::Veth));
+        }
+        if let LinkAttribute::LinkNetNsId(_) = attribute {
+            peer_elsewhere = true;
+        }
+    }
+    veth && peer_elsewhere
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn link(attributes: Vec<LinkAttribute>) -> LinkMessage {
+        let mut link = LinkMessage::default();
+        link.attributes = attributes;
+        link
+    }
+
+    #[test]
+    fn a_veth_with_its_peer_in_another_namespace_is_a_container_veth() {
+        let veth = LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Veth)]);
+        assert!(is_container_veth(&link(vec![
+            veth.clone(),
+            LinkAttribute::LinkNetNsId(6)
+        ])));
+        assert!(!is_container_veth(&link(vec![veth])));
+        assert!(!is_container_veth(&link(vec![
+            LinkAttribute::LinkInfo(vec![LinkInfo::Kind(InfoKind::Tun)]),
+            LinkAttribute::LinkNetNsId(6),
+        ])));
+    }
 }

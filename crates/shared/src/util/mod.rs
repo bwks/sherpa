@@ -41,7 +41,8 @@ pub use host::{get_fqdn, get_hostname};
 #[cfg(feature = "netinfo")]
 pub use host::{get_non_loopback_ipv4_addresses, get_non_loopback_ipv6_addresses};
 pub use interface::{
-    interface_from_idx, interface_to_idx, node_model_interfaces, srlinux_to_linux_interface,
+    container_interface_name, interface_from_idx, interface_to_idx, node_model_interfaces,
+    srlinux_to_linux_interface,
 };
 pub use ip::{
     allocate_ipv6_loopback_subnet, allocate_ipv6_management_subnet, allocate_loopback_subnet,

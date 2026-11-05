@@ -166,7 +166,10 @@ pub(crate) fn supports_guest_account(image: &NodeConfig) -> bool {
         },
         NodeKind::Container => matches!(
             image.model,
-            NodeModel::AristaCeos | NodeModel::NokiaSrlinux | NodeModel::FrrLinux
+            NodeModel::AristaCeos
+                | NodeModel::NokiaSrlinux
+                | NodeModel::FrrLinux
+                | NodeModel::JuniperCevolved
         ),
         NodeKind::Unikernel => false,
     }
@@ -204,6 +207,7 @@ fn key_rules(model: &NodeModel) -> KeyRules {
         | NodeModel::JuniperVrouter
         | NodeModel::JuniperVswitch
         | NodeModel::JuniperVevolved
+        | NodeModel::JuniperCevolved
         | NodeModel::JuniperVsrxv3 => (AcceptedKeys::Only(ANY_DEVICE_KEY), usize::MAX),
         // Linux, BSD and Windows guests run OpenSSH, which takes every registered key.
         _ => (AcceptedKeys::All, usize::MAX),
@@ -751,6 +755,7 @@ mod tests {
             NodeModel::JuniperVrouter,
             NodeModel::JuniperVswitch,
             NodeModel::JuniperVevolved,
+            NodeModel::JuniperCevolved,
             NodeModel::JuniperVsrxv3,
             NodeModel::NokiaSrlinux,
             NodeModel::PaloaltoPanos,

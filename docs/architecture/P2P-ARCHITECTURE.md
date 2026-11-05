@@ -128,7 +128,10 @@ flowchart LR
 3. `network::create_veth_in_netns` creates each veth in one netlink request. The container end is
    the request's own link, created in the container's network namespace (`IFLA_NET_NS_PID`)
    with its final name (e.g. `eth1`, `e1-1`), promiscuous and up. The host end (e.g.
-   `tpa0-{lab_id}`) is the veth peer and stays in the host namespace.
+   `tpa0-{lab_id}`) is the veth peer and stays in the host namespace. A veth already named
+   like the host end, with its peer in another namespace, is deleted first: the kernel can tear
+   a removed container's namespace down minutes after the container, so a redeployed node's
+   old veths may still exist. Any other interface of that name fails the request.
 4. Disabled (unlinked) interfaces get veths too, but down on both ends and without eBPF, so the
    container sees the interface as "not connected". A bridge member's host end joins the
    bridge's `brs` Linux bridge.
@@ -156,6 +159,12 @@ P2p containers bypass Docker's network stack entirely for data interfaces. Docke
 ### Disabled Interface Carrier Removal
 
 Disabled container interfaces are created down on both ends. Since a veth end has carrier only while its peer is up, the container side has no carrier, so the interface appears "not connected" to the container NOS, even if the NOS brings it up itself (cEOS does).
+
+cJunosEvolved waits at boot until every data interface is up, so its disabled interfaces are
+created up in the container and down on the host (`network::NetnsVethState::DisabledUp`,
+chosen by `node_ops::netns_veth_state`): up, but still with no carrier. Its container ends are
+named from `eth4`, since the image creates `eth1` to `eth3` itself
+(`util::container_interface_name`).
 
 ### Teardown
 

@@ -22,6 +22,7 @@ mod node;
 mod performance;
 mod provider;
 mod provision;
+mod ptx_platform;
 mod record_id;
 mod redeploy;
 mod secret;
@@ -67,8 +68,8 @@ pub use interface::{
     AristaCeosInt, AristaVeosInt, ArubaAoscxInt, CiscoAsavInt, CiscoCat8000vInt, CiscoCat9000vInt,
     CiscoCsr1000vInt, CiscoFtdvInt, CiscoIosvInt, CiscoIosvl2Int, CiscoIosxrv9000Int,
     CiscoNexus9300vInt, ConnectionTypes, CumulusLinuxInt, EthernetInt, Interface, InterfaceTrait,
-    JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt, MgmtInterfaces,
-    MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,
+    JuniperCevolvedInt, JuniperVevolvedInt, JuniperVrouterInt, JuniperVsrxv3Int, JuniperVswitchInt,
+    MgmtInterfaces, MikrotikChrInt, NokiaSrlinuxInt, PaloaltoPanosInt,
 };
 pub use lab::{
     BridgeConnection, BridgeInterface, InterfaceData, InterfaceState, LabBridgeData, LabIdentity,
@@ -87,6 +88,7 @@ pub use performance::{
 };
 pub use provider::VmProviders;
 pub use provision::{ProvisionResult, ProvisionStatus};
+pub use ptx_platform::PtxPlatform;
 pub use record_id::{RecordId, RecordIdKey};
 pub use redeploy::{RedeployRequest, RedeployResponse};
 pub use secret::{NodeSecretsRequest, NodeSecretsResponse, SecretContent, SecretFile};

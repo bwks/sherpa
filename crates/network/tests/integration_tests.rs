@@ -13,9 +13,9 @@ use std::process::{Child, Command};
 use anyhow::Result;
 
 use network::{
-    apply_netem, attach_p2p_redirect, create_bridge, create_tap, create_veth_in_netns,
-    create_veth_pair, delete_interface, enslave_to_bridge, find_interfaces_fuzzy, get_ifindex,
-    remove_netem, set_link_down, update_netem,
+    NetnsVethState, apply_netem, attach_p2p_redirect, create_bridge, create_tap,
+    create_veth_in_netns, create_veth_pair, delete_interface, enslave_to_bridge,
+    find_interfaces_fuzzy, get_ifindex, remove_netem, set_link_down, update_netem,
 };
 use shared::data::LinkImpairment;
 
@@ -900,7 +900,14 @@ async fn test_create_veth_in_netns_enabled() -> Result<()> {
     cleanup_interface(host).await;
     let holder = NetnsHolder::start();
 
-    create_veth_in_netns(host, "test-nsv-on", "eth1", holder.pid(), true).await?;
+    create_veth_in_netns(
+        host,
+        "test-nsv-on",
+        "eth1",
+        holder.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await?;
 
     // The far end is in the namespace, already named, up and promiscuous, without anything
     // run inside the namespace.
@@ -941,7 +948,14 @@ async fn test_create_veth_in_netns_disabled() -> Result<()> {
     cleanup_interface(host).await;
     let holder = NetnsHolder::start();
 
-    create_veth_in_netns(host, "test-nsv-off", "eth2", holder.pid(), false).await?;
+    create_veth_in_netns(
+        host,
+        "test-nsv-off",
+        "eth2",
+        holder.pid(),
+        NetnsVethState::Disabled,
+    )
+    .await?;
 
     // A disabled interface is there but down, with no carrier.
     let inside = holder.ip_link_show("eth2");
@@ -968,6 +982,39 @@ async fn test_create_veth_in_netns_disabled() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn test_create_veth_in_netns_disabled_up() -> Result<()> {
+    let host = "st-nsv-dup";
+    cleanup_interface(host).await;
+    let holder = NetnsHolder::start();
+
+    create_veth_in_netns(
+        host,
+        "test-nsv-dup",
+        "eth3",
+        holder.pid(),
+        NetnsVethState::DisabledUp,
+    )
+    .await?;
+
+    // Up in the container, but with no carrier, since the host end is down.
+    let inside = holder.ip_link_show("eth3");
+    assert!(has_flag(&inside, "UP"), "eth3 should be up: {inside}");
+    assert!(
+        !has_flag(&inside, "LOWER_UP"),
+        "eth3 should have no carrier: {inside}"
+    );
+    let outside = ip_link_show(host);
+    assert!(
+        !has_flag(&outside, "UP"),
+        "host end should be down: {outside}"
+    );
+
+    delete_interface(host).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_create_veth_in_netns_of_missing_pid_fails() -> Result<()> {
     let host = "st-nsv-nopid";
     cleanup_interface(host).await;
@@ -975,7 +1022,8 @@ async fn test_create_veth_in_netns_of_missing_pid_fails() -> Result<()> {
     let pid = holder.pid();
     drop(holder);
 
-    let result = create_veth_in_netns(host, "test-nsv-nopid", "eth1", pid, true).await;
+    let result =
+        create_veth_in_netns(host, "test-nsv-nopid", "eth1", pid, NetnsVethState::Enabled).await;
 
     assert!(result.is_err(), "a pid that is gone should fail");
     assert!(
@@ -998,7 +1046,14 @@ async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
     set_link_down(clash).await?;
     let holder = NetnsHolder::start();
 
-    create_veth_in_netns(host, "test-nsv-clash", clash, holder.pid(), true).await?;
+    create_veth_in_netns(
+        host,
+        "test-nsv-clash",
+        clash,
+        holder.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await?;
 
     let inside = holder.ip_link_show(clash);
     assert!(
@@ -1026,13 +1081,60 @@ async fn test_create_veth_in_netns_named_like_a_host_interface() -> Result<()> {
 
 #[tokio::test]
 #[ignore]
+async fn test_create_veth_in_netns_replaces_a_stale_container_veth() -> Result<()> {
+    let host = "st-nsv-stale";
+    cleanup_interface(host).await;
+    // The namespace of a removed container can outlive it for minutes, with its veths.
+    let removed = NetnsHolder::start();
+    let replacement = NetnsHolder::start();
+    create_veth_in_netns(
+        host,
+        "test-nsv-stale",
+        "eth1",
+        removed.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await?;
+
+    create_veth_in_netns(
+        host,
+        "test-nsv-stale",
+        "eth1",
+        replacement.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await?;
+
+    assert!(
+        removed.ip_link_show("eth1").is_empty(),
+        "the stale pair should be deleted"
+    );
+    let inside = replacement.ip_link_show("eth1");
+    assert!(
+        has_flag(&inside, "LOWER_UP"),
+        "eth1 should be connected: {inside}"
+    );
+
+    delete_interface(host).await?;
+    Ok(())
+}
+
+#[tokio::test]
+#[ignore]
 async fn test_create_veth_in_netns_with_host_end_taken_fails() -> Result<()> {
     let host = "st-nsv-taken";
     cleanup_interface(host).await;
     create_veth_pair(host, "st-nsv-takenp", "taken", "taken-peer").await?;
     let holder = NetnsHolder::start();
 
-    let result = create_veth_in_netns(host, "test-nsv-taken", "eth1", holder.pid(), true).await;
+    let result = create_veth_in_netns(
+        host,
+        "test-nsv-taken",
+        "eth1",
+        holder.pid(),
+        NetnsVethState::Enabled,
+    )
+    .await;
 
     assert!(
         result.is_err(),

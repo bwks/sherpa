@@ -41,7 +41,7 @@ use shared::konst::{
 use shared::util;
 use shared::validators::effective_data_interface_count;
 use topology::find_talos_cluster;
-use topology::validate::{check_performance_tuning, check_watchdog};
+use topology::validate::{check_performance_tuning, check_ptx_platform, check_watchdog};
 
 // Redeploy updates shared lab files. Serialize redeploys within each lab so one
 // node's new identity cannot overwrite another node's concurrent update.
@@ -312,6 +312,8 @@ pub async fn redeploy_node(
     ))?;
     check_watchdog(&target_node, &node_image)
         .context(format!("Watchdog validation failed for node: {node_name}"))?;
+    check_ptx_platform(&target_node, &node_image)
+        .context(format!("Platform validation failed for node: {node_name}"))?;
     node_resources::check_cpu_pins_on_server(
         &db,
         &qemu_conn,
@@ -639,22 +641,19 @@ pub async fn redeploy_node(
                 let pid = container::get_container_pid(&docker_conn, &container_name).await?;
 
                 for veth_info in &p2p_container_veths {
-                    let target_name = if veth_info.node_model == data::NodeModel::NokiaSrlinux {
-                        let iface_name = util::interface_from_idx(
-                            &veth_info.node_model,
-                            veth_info.interface_idx,
-                        )?;
-                        util::srlinux_to_linux_interface(&iface_name)?
-                    } else {
-                        format!("eth{}", veth_info.interface_idx)
-                    };
+                    let target_name = util::container_interface_name(
+                        &veth_info.node_model,
+                        veth_info.interface_idx,
+                    )?;
+                    let state =
+                        node_ops::netns_veth_state(&veth_info.node_model, veth_info.admin_down);
 
                     network::create_veth_in_netns(
                         &veth_info.host_veth,
                         &veth_info.host_alias,
                         &target_name,
                         pid,
-                        !veth_info.admin_down,
+                        state,
                     )
                     .await
                     .with_context(|| {

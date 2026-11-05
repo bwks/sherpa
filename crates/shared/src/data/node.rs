@@ -12,9 +12,10 @@ use super::disk::DiskBuses;
 use super::interface::MgmtInterfaces;
 use crate::konst::{
     CONTAINER_ARISTA_CEOS_REPO, CONTAINER_FORGEJO_REPO, CONTAINER_FRR_REPO,
-    CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_MONGO_DB_REPO,
-    CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO, CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT,
-    MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT, TALOS_DEFAULT_BOOT_DISK_SIZE,
+    CONTAINER_GITLAB_CE_REPO, CONTAINER_HASHICORP_VAULT_REPO, CONTAINER_JUNIPER_CEVOLVED_REPO,
+    CONTAINER_MONGO_DB_REPO, CONTAINER_NATS_REPO, CONTAINER_NOKIA_SRLINUX_REPO,
+    CONTAINER_SURREAL_DB_REPO, MTU_JUMBO_INT, MTU_JUMBO_NET, MTU_STD, SSH_PORT, TALOS_API_PORT,
+    TALOS_DEFAULT_BOOT_DISK_SIZE,
 };
 
 use super::RecordId;
@@ -60,6 +61,7 @@ pub enum NodeModel {
     JuniperVrouter,
     JuniperVswitch,
     JuniperVevolved,
+    JuniperCevolved,
     JuniperVsrxv3,
 
     // Nokia
@@ -158,6 +160,7 @@ impl fmt::Display for NodeModel {
             NodeModel::JuniperVrouter => write!(f, "juniper_vrouter"),
             NodeModel::JuniperVswitch => write!(f, "juniper_vswitch"),
             NodeModel::JuniperVevolved => write!(f, "juniper_vevolved"),
+            NodeModel::JuniperCevolved => write!(f, "juniper_cevolved"),
             NodeModel::JuniperVsrxv3 => write!(f, "juniper_vsrxv3"),
 
             // Nokia
@@ -260,6 +263,7 @@ impl std::str::FromStr for NodeModel {
             "juniper_vrouter" => Ok(NodeModel::JuniperVrouter),
             "juniper_vswitch" => Ok(NodeModel::JuniperVswitch),
             "juniper_vevolved" => Ok(NodeModel::JuniperVevolved),
+            "juniper_cevolved" => Ok(NodeModel::JuniperCevolved),
             "juniper_vsrxv3" => Ok(NodeModel::JuniperVsrxv3),
 
             // Nokia
@@ -352,6 +356,12 @@ impl NodeModel {
     /// Whether nodes of this model accept SSH logins. Talos Linux has no SSH or shell.
     pub fn has_ssh(&self) -> bool {
         !matches!(self, NodeModel::TalosLinux)
+    }
+
+    /// Whether every data interface of a container of this model stays up, disabled ones too.
+    /// cJunosEvolved waits at boot until all the data interfaces it is told about are up.
+    pub fn keeps_data_interfaces_up(&self) -> bool {
+        matches!(self, NodeModel::JuniperCevolved)
     }
 
     /// TCP port that shows a virtual machine of this model is ready.
@@ -855,6 +865,7 @@ impl NodeConfig {
             NodeModel::JuniperVrouter => NodeConfig::juniper_vrouter(),
             NodeModel::JuniperVswitch => NodeConfig::juniper_vswitch(),
             NodeModel::JuniperVevolved => NodeConfig::juniper_vevolved(),
+            NodeModel::JuniperCevolved => NodeConfig::juniper_cevolved(),
             NodeModel::JuniperVsrxv3 => NodeConfig::juniper_vsrxv3(),
 
             // Nokia
@@ -1671,6 +1682,43 @@ impl NodeConfig {
             first_interface_index: 1,
             dedicated_management_interface: true,
             management_interface: MgmtInterfaces::Eth0,
+            reserved_interface_count: 0,
+            default: true,
+            boot_mode: None,
+        }
+    }
+    /// cJunosEvolved. The vCPUs and memory are its EVO VM's, given to the container as
+    /// `CPTX_EVOVM_CPU` and `CPTX_EVOVM_MEM_MB`; they are cJunosEvolved's minimums.
+    pub fn juniper_cevolved() -> NodeConfig {
+        NodeConfig {
+            id: None,
+            model: NodeModel::JuniperCevolved,
+            version: "0.0.0".to_owned(),
+            repo: Some(CONTAINER_JUNIPER_CEVOLVED_REPO.to_string()),
+            os_variant: OsVariant::Junos,
+            kind: NodeKind::Container,
+            bios: BiosTypes::SeaBios,
+            data_interface_count: 12,
+            interface_prefix: "et-0/0/".to_owned(),
+            interface_type: InterfaceType::default(),
+            interface_mtu: MTU_JUMBO_INT,
+            cpu_count: 4,
+            cpu_architecture: CpuArchitecture::X86_64,
+            cpu_model: CpuModels::HostModel,
+            machine_type: MachineType::Q35,
+            vmx_enabled: false,
+            memory: 6292,
+            hdd_bus: DiskBuses::Sata,
+            cdrom: None,
+            cdrom_bus: DiskBuses::Sata,
+            ztp_enable: true,
+            ztp_username: None,
+            ztp_password: None,
+            ztp_method: ZtpMethod::None,
+            ztp_password_auth: false,
+            first_interface_index: 1,
+            dedicated_management_interface: true,
+            management_interface: MgmtInterfaces::Re0Mgmt0,
             reserved_interface_count: 0,
             default: true,
             boot_mode: None,
