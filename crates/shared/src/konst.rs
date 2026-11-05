@@ -247,6 +247,12 @@ pub const TALOS_IMAGE_FACTORY_URL: &str = "https://factory.talos.dev";
 pub const TALOS_VANILLA_SCHEMATIC_YAML: &str = "customization: {}\n";
 /// Host offsets for Talos cluster shared (VIP) addresses, within the lab control-plane block.
 pub const TALOS_VIP_HOST_OFFSETS: RangeInclusive<u32> = 11..=12;
+/// Host offsets Cilium clusters hand out to load balancers, within the lab control-plane block
+/// after the Talos VIPs. Each Cilium cluster takes a block of
+/// `TALOS_LOAD_BALANCER_BLOCK_SIZE` of them, in manifest order.
+pub const TALOS_LOAD_BALANCER_HOST_OFFSETS: RangeInclusive<u32> = 13..=20;
+/// Load balancer addresses per Cilium cluster: its Gateway, Hubble UI and two spare.
+pub const TALOS_LOAD_BALANCER_BLOCK_SIZE: u32 = 4;
 /// Boot disk size in GB for Talos Linux nodes; Talos needs at least 10 GB.
 pub const TALOS_DEFAULT_BOOT_DISK_SIZE: u16 = 20;
 pub const TELNET_PORT: u16 = 2323;
@@ -717,5 +723,19 @@ mod tests {
     fn test_talos_vips_are_in_the_control_plane_block() {
         assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.start()));
         assert!(MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.contains(TALOS_VIP_HOST_OFFSETS.end()));
+    }
+
+    #[test]
+    fn test_talos_load_balancer_blocks_follow_the_vips_in_the_control_plane_block() {
+        assert_eq!(
+            *TALOS_VIP_HOST_OFFSETS.end() + 1,
+            *TALOS_LOAD_BALANCER_HOST_OFFSETS.start()
+        );
+        assert_eq!(
+            *TALOS_LOAD_BALANCER_HOST_OFFSETS.end(),
+            *MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS.end()
+        );
+        let count = TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count() as u32;
+        assert_eq!(count % TALOS_LOAD_BALANCER_BLOCK_SIZE, 0);
     }
 }

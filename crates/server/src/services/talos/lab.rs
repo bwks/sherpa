@@ -9,10 +9,11 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use tracing::instrument;
 
-use shared::data::{ClusterInfo, ClusterRole, NetworkV4, StatusKind};
+use shared::data::{ClusterCni, ClusterInfo, ClusterRole, NetworkV4, StatusKind};
 use shared::konst::{READINESS_SLEEP, SHERPA_LABS_PATH};
 use template::{
-    TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config, talosconfig,
+    CiliumConfig, TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config,
+    talosconfig,
 };
 use topology::{TalosCluster, find_talos_cluster};
 
@@ -38,14 +39,14 @@ pub struct LabCluster {
 }
 
 /// Plan the lab's clusters and generate and save their secrets.
-#[instrument(skip(members, management), fields(%lab_id, clusters = cluster_names.len()))]
+#[instrument(skip(talos_clusters, members, management), fields(%lab_id, clusters = talos_clusters.len()))]
 pub fn prepare_clusters(
     lab_id: &str,
-    cluster_names: &[&str],
+    talos_clusters: &[TalosCluster],
     members: &[MemberInput],
     management: &NetworkV4,
 ) -> Result<Vec<LabCluster>> {
-    let plans = plan_clusters(cluster_names, members, management)?;
+    let plans = plan_clusters(talos_clusters, members, management)?;
     let mut clusters = Vec::with_capacity(plans.len());
     for plan in plans {
         let secrets = generate_cluster_secrets()
@@ -136,9 +137,39 @@ pub fn node_machine_config(
         management_subnet: &management_subnet,
         vip: plan.vip,
         schedulable_control_planes: plan.schedulable_control_planes(),
+        cilium: cilium_config(plan)?,
         secrets: &cluster.secrets,
     })
     .with_context(|| format!("Failed to render the machine config of node '{node_name}'"))
+}
+
+/// Cilium operator replicas: one per node, up to two.
+const CILIUM_MAX_OPERATOR_REPLICAS: usize = 2;
+
+/// A Cilium cluster's template inputs; `None` for Flannel clusters.
+fn cilium_config(plan: &ClusterPlan) -> Result<Option<CiliumConfig>> {
+    match plan.cni {
+        ClusterCni::Flannel => Ok(None),
+        ClusterCni::Cilium => {
+            let (Some(addresses), Some(gateway), Some(hubble_ui)) = (
+                plan.load_balancer_addresses,
+                plan.gateway_address(),
+                plan.hubble_ui_address(),
+            ) else {
+                bail!(
+                    "Cilium cluster '{}' has no load balancer addresses",
+                    plan.name
+                );
+            };
+            Ok(Some(CiliumConfig {
+                load_balancer_first: addresses.first,
+                load_balancer_last: addresses.last,
+                gateway,
+                hubble_ui,
+                operator_replicas: plan.member_count().min(CILIUM_MAX_OPERATOR_REPLICAS),
+            }))
+        }
+    }
 }
 
 /// Bootstrap each cluster once, wait for its nodes, and write the user's credentials.
@@ -285,6 +316,8 @@ fn write_credentials(lab_id: &str, cluster: &LabCluster) -> Result<ClusterInfo> 
         endpoint,
         talosconfig,
         kubeconfig,
+        gateway: plan.gateway_address().map(|address| address.to_string()),
+        hubble_ui: plan.hubble_ui_address().map(|address| address.to_string()),
     })
 }
 
@@ -297,6 +330,14 @@ pub fn read_cluster_credentials(lab_id: &str) -> Result<Vec<ClusterInfo>> {
         let dir = cluster_dir(lab_id, &name);
         infos.push(ClusterInfo {
             endpoint: cluster.plan.endpoint_url(),
+            gateway: cluster
+                .plan
+                .gateway_address()
+                .map(|address| address.to_string()),
+            hubble_ui: cluster
+                .plan
+                .hubble_ui_address()
+                .map(|address| address.to_string()),
             talosconfig: fs::read_to_string(dir.join(TALOSCONFIG_FILE))
                 .with_context(|| format!("Failed to read the talosconfig of cluster '{name}'"))?,
             kubeconfig: fs::read_to_string(dir.join(KUBECONFIG_FILE))
@@ -379,6 +420,7 @@ mod tests {
             name: "k8s".to_owned(),
             controllers: vec!["cp1".to_owned()],
             workers: vec!["w1".to_owned()],
+            cni: ClusterCni::Flannel,
         };
         ensure_redeployable("vm", None).unwrap();
         ensure_redeployable("w1", Some((&cluster, ClusterRole::Worker))).unwrap();
@@ -394,6 +436,7 @@ mod tests {
             name: "k8s".to_owned(),
             controllers: vec!["cp1".to_owned(), "cp2".to_owned(), "cp3".to_owned()],
             workers: vec!["w1".to_owned()],
+            cni: ClusterCni::Flannel,
         }];
         assert!(readiness_waits_for_kubernetes(&clusters, "w1"));
         assert!(!readiness_waits_for_kubernetes(&clusters, "cp1"));

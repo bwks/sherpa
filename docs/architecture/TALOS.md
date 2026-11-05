@@ -39,18 +39,19 @@ generates for cluster nodes (validation forbids users setting `ztp_config` on th
 ## Clusters
 
 Manifest `talos_clusters` (`topology::TalosCluster`): each cluster names its member nodes in
-`controllers` (the Talos control plane, in bootstrap order) and `workers`. Nodes carry no cluster
+`controllers` (the Talos control plane, in bootstrap order) and `workers`, and its `cni`
+(`shared::data::ClusterCni`: Flannel by default, or Cilium). Nodes carry no cluster
 fields; `topology::find_talos_cluster` looks up a node's cluster and role (`ClusterRole`, which
 keeps the Talos term `ControlPlane` internally). `topology::validate::validate_talos_clusters` enforces the
 rules (names, one or three controllers, members are defined `talos_linux` nodes listed once
-without a user `ztp_config`, VIP capacity). Two controllers are refused: etcd needs a majority,
+without a user `ztp_config`, VIP capacity, load balancer capacity for Cilium clusters). Two controllers are refused: etcd needs a majority,
 so two members tolerate no failure and are less available than one.
 
 ```mermaid
 flowchart LR
     subgraph phase8["up, Phase 8"]
         direction TB
-        plan["plan_clusters<br/>(endpoint / VIP)"]
+        plan["plan_clusters<br/>(endpoint / VIP / load balancer block)"]
         secrets["generate_cluster_secrets"]
         machine["node_machine_config per node"]
         ztp["node.ztp_config"]
@@ -79,6 +80,40 @@ addresses (`.20 + node index`, as Phase 8 assigns them; see "Lab management addr
 cluster with three gets a shared address from `TALOS_VIP_HOST_OFFSETS` (`.11`–`.12`, in the lab
 control-plane block, outside the dnsmasq DHCP range), in manifest order, and a `Layer2VIPConfig`
 on its control planes.
+
+A Cilium cluster also gets a block of `TALOS_LOAD_BALANCER_BLOCK_SIZE` (4) load balancer
+addresses from `TALOS_LOAD_BALANCER_HOST_OFFSETS` (`.13`–`.20`, after the VIPs in the same
+block), in manifest order: `.13`–`.16` for the first, `.17`–`.20` for the second. The first is
+the cluster's Gateway, the second Hubble UI, the rest are left for the user's `LoadBalancer`
+services. Plans saved before the CNI choice deserialize as Flannel clusters with no block.
+
+### Cilium
+
+Talos 1.14 deploys Flannel while the `KubeFlannelCNIConfig` document is present and kube-proxy
+unless `KubeProxyConfig.enabled` is false; the legacy `cluster.network.cni` and
+`cluster.proxy` fields are dropped by the typed documents. A Cilium cluster's control planes
+leave the Flannel document out, disable kube-proxy, and carry, in the legacy document's
+`cluster` section:
+
+- `extraManifests`: the Gateway API standard CRDs, pinned to the Gateway API release the Cilium
+  release supports. Cilium enables its Gateway controller only if they exist when it starts.
+- `inlineManifests`:
+  - `cilium-install`: a Job on a control plane's host network (no pod network yet; DNS from the
+    node, tolerating not-ready nodes) running the pinned `cilium-cli` image's `cilium install`,
+    with the Talos values from Cilium's Talos guide (KubePrism `localhost:7445` as the API
+    server, Talos's cgroup mount, no `SYS_MODULE`, `bpf.hostLegacyRouting` for Talos's host DNS
+    forwarding), kube-proxy replacement, Gateway API, L2 announcements and Hubble.
+  - `cilium-load-balancer`: a `CiliumLoadBalancerIPPool` with the cluster's block and a
+    `CiliumL2AnnouncementPolicy` answering ARP for it on the management link.
+  - `cilium-gateway`: the `sherpa` Gateway (`default` namespace, HTTP on 80, routes from all
+    namespaces) at the first address, and a `LoadBalancer` Service for Hubble UI at the second.
+
+Talos's manifest controller skips resources whose CRDs are not served yet and retries the set
+with backoff, and creates only resources that do not exist. So the Cilium and Gateway API
+resources apply once the CRDs exist, and nothing Sherpa installs is updated afterwards.
+`wait_for_kubernetes` is unchanged: nodes turn Ready when the Cilium agent runs on them.
+
+Workers' configs are the same for both CNIs.
 
 ### Secrets
 
@@ -158,4 +193,5 @@ The client writes `kubeconfig-<cluster>` and `talosconfig-<cluster>` (owner only
 
 - Nodes need internet access for Kubernetes images; there is no image cache or registry mirror.
 - One Talos minor version at a time.
-- No control-plane redeploy, upgrades, or CNI choice (Flannel only).
+- No control-plane redeploy or upgrades.
+- Cilium settings are fixed; at most two Cilium clusters per lab (load balancer blocks).

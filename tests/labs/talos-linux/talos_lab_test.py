@@ -36,6 +36,9 @@ KUBECONFIG = f"kubeconfig-{CLUSTER}"
 TALOSCONFIG = f"talosconfig-{CLUSTER}"
 # Host offset of the first Talos cluster VIP in a lab management subnet (TALOS_VIP_HOST_OFFSETS).
 FIRST_VIP_HOST_OFFSET = 11
+# Host offsets of the first Cilium cluster's Gateway and Hubble UI (TALOS_LOAD_BALANCER_HOST_OFFSETS).
+GATEWAY_HOST_OFFSET = 13
+HUBBLE_UI_HOST_OFFSET = 14
 NAMESPACE = "sherpa-e2e"
 WORKLOAD = "echo"
 WORKLOAD_IMAGE = "registry.k8s.io/e2e-test-images/agnhost:2.66.1"
@@ -134,10 +137,15 @@ def render_manifest(manifest, name, tools_script):
     return "\n".join(lines) + "\n"
 
 
-def cluster_members(manifest):
+def lab_cluster(manifest):
     clusters = [cluster for cluster in manifest["talos_clusters"] if cluster["name"] == CLUSTER]
     require(len(clusters) == 1, f"Manifest must define exactly one talos cluster named {CLUSTER}")
-    return clusters[0]["controllers"], clusters[0].get("workers", [])
+    return clusters[0]
+
+
+def cluster_members(manifest):
+    cluster = lab_cluster(manifest)
+    return cluster["controllers"], cluster.get("workers", [])
 
 
 def node_conditions(nodes_json):
@@ -152,9 +160,26 @@ def node_conditions(nodes_json):
     return nodes
 
 
-def first_vip(ipv4_network):
+def host_address(ipv4_network, offset):
     network = ipaddress.ip_network(ipv4_network)
-    return str(network.network_address + FIRST_VIP_HOST_OFFSET)
+    return str(network.network_address + offset)
+
+
+def first_vip(ipv4_network):
+    return host_address(ipv4_network, FIRST_VIP_HOST_OFFSET)
+
+
+def gateway_route():
+    """An HTTPRoute sending the cluster Gateway's HTTP traffic to the workload."""
+    return {
+        "apiVersion": "gateway.networking.k8s.io/v1",
+        "kind": "HTTPRoute",
+        "metadata": {"name": WORKLOAD, "namespace": NAMESPACE},
+        "spec": {
+            "parentRefs": [{"name": "sherpa", "namespace": "default"}],
+            "rules": [{"backendRefs": [{"name": WORKLOAD, "port": 80}]}],
+        },
+    }
 
 
 def owner_only(path):
@@ -214,12 +239,14 @@ class LabRun:
         self.lab = lab
         self.manifest = tomllib.loads((LABS / lab / "manifest.toml").read_text())
         self.controllers, self.workers = cluster_members(self.manifest)
+        self.cilium = lab_cluster(self.manifest).get("cni") == "cilium"
         self.name = f"{self.manifest['name']}-{run_root.name[-6:]}"
         self.directory = run_root / lab
         self.keep_failed = keep_failed
         self.started = False
         self.lab_id = None
         self.ipv4_network = None
+        self.up_output = ""
         self.log = None
 
     # -- commands ----------------------------------------------------------------------------
@@ -272,7 +299,7 @@ class LabRun:
 
     def up(self):
         self.started = True
-        self.sherpa("sherpa up", ["up"], UP_TIMEOUT)
+        self.up_output = self.sherpa("sherpa up", ["up"], UP_TIMEOUT).output
         info = tomllib.loads((self.directory / "lab-info.toml").read_text())
         require(info["name"] == self.name, f"lab-info.toml names {info['name']}, not {self.name}")
         self.lab_id = info["id"]
@@ -302,6 +329,8 @@ class LabRun:
         self.wait_for_ready_nodes(self.controllers + self.workers)
         self.health()
         self.workload()
+        if self.cilium:
+            self.cilium_cluster()
         if len(self.controllers) == 3:
             self.vip_endpoint()
             self.survives_controller_loss()
@@ -359,6 +388,27 @@ class LabRun:
         answered = {line.strip() for line in replies.stdout.splitlines() if line.strip()}
         missing = pod_names - answered
         require(not missing, f"pods never answered through {entry_ip}:{node_port}: {sorted(missing)}")
+
+    def cilium_cluster(self):
+        gateway = host_address(self.ipv4_network, GATEWAY_HOST_OFFSET)
+        hubble_ui = host_address(self.ipv4_network, HUBBLE_UI_HOST_OFFSET)
+        for line in (f"Gateway: http://{gateway}", f"Hubble UI: http://{hubble_ui}"):
+            require(line in self.up_output, f"sherpa up did not print {line!r}")
+        daemonsets = self.kubectl("kube-system daemonsets", ["-n", "kube-system", "get", "daemonsets",
+                                                             "-o", "jsonpath={.items[*].metadata.name}"])
+        names = daemonsets.stdout.split()
+        require("cilium" in names, f"no cilium daemonset: {names}")
+        require("kube-proxy" not in names and "kube-flannel" not in names,
+                f"kube-proxy or Flannel deployed alongside Cilium: {names}")
+        job = self.kubectl("cilium install job", ["-n", "kube-system", "get", "job", "cilium-install",
+                                                  "-o", "jsonpath={.status.succeeded}"])
+        require(job.stdout.strip() == "1", f"cilium-install job did not succeed: {job.stdout!r}")
+        self.kubectl("apply gateway route", ["apply", "-f", "-"], stdin=json.dumps(gateway_route()))
+        # The route is programmed into the Gateway's Envoy a few seconds after it is accepted.
+        for label, url in (("workload through the gateway", f"http://{gateway}/hostname"),
+                           ("hubble ui", f"http://{hubble_ui}/")):
+            self.util(label, f"for i in $(seq 30); do curl -fsS -o /dev/null --max-time 5 {url} "
+                      f"&& exit 0; sleep {POLL_INTERVAL}; done; exit 1", timeout=600)
 
     def vip_endpoint(self):
         kubeconfig = json.loads((self.directory / KUBECONFIG).read_text())
@@ -557,6 +607,10 @@ class SelfTest(unittest.TestCase):
         self.assertEqual(tuple(map(len, cluster_members(self.manifest("single")))), (1, 3))
         self.assertEqual(tuple(map(len, cluster_members(self.manifest("ha")))), (3, 1))
 
+    def test_single_runs_flannel_and_ha_runs_cilium(self):
+        self.assertNotIn("cni", lab_cluster(self.manifest("single")))
+        self.assertEqual(lab_cluster(self.manifest("ha"))["cni"], "cilium")
+
     def test_manifest_tools_path_resolves_from_the_lab_folder(self):
         for lab in LAB_NAMES:
             util = [node for node in self.manifest(lab)["nodes"] if node["name"] == UTIL_NODE][0]
@@ -575,6 +629,15 @@ class SelfTest(unittest.TestCase):
 
     def test_first_vip_is_offset_eleven(self):
         self.assertEqual(first_vip("172.31.4.0/24"), "172.31.4.11")
+
+    def test_cilium_addresses_follow_the_vips(self):
+        self.assertEqual(host_address("172.31.4.0/24", GATEWAY_HOST_OFFSET), "172.31.4.13")
+        self.assertEqual(host_address("172.31.4.0/24", HUBBLE_UI_HOST_OFFSET), "172.31.4.14")
+
+    def test_gateway_route_targets_the_workload_service(self):
+        route = gateway_route()
+        self.assertEqual(route["spec"]["parentRefs"][0], {"name": "sherpa", "namespace": "default"})
+        self.assertEqual(route["spec"]["rules"][0]["backendRefs"][0], {"name": WORKLOAD, "port": 80})
 
     def test_value_toml(self):
         self.assertEqual(value_toml({"a": "x", "b": [1, True]}), '{ a = "x", b = [1, true] }')

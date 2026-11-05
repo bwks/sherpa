@@ -13,6 +13,9 @@ pub(crate) struct ClusterFiles {
     pub name: String,
     pub kubeconfig: PathBuf,
     pub talosconfig: PathBuf,
+    /// Addresses of a Cilium cluster's Gateway and Hubble UI.
+    pub gateway: Option<String>,
+    pub hubble_ui: Option<String>,
 }
 
 /// Print where each cluster's credentials were written.
@@ -30,6 +33,12 @@ pub(crate) fn print_cluster_files(files: &[ClusterFiles]) {
             cluster.kubeconfig.display(),
             cluster.talosconfig.display()
         );
+        if let Some(gateway) = &cluster.gateway {
+            println!("   Gateway: http://{gateway}");
+        }
+        if let Some(hubble_ui) = &cluster.hubble_ui {
+            println!("   Hubble UI: http://{hubble_ui}");
+        }
     }
 }
 
@@ -50,6 +59,8 @@ pub(crate) fn write_cluster_credentials(
             name: cluster.name.clone(),
             kubeconfig,
             talosconfig,
+            gateway: cluster.gateway.clone(),
+            hubble_ui: cluster.hubble_ui.clone(),
         });
     }
     Ok(written)
@@ -67,6 +78,8 @@ mod tests {
             endpoint: format!("https://{name}:6443"),
             talosconfig: format!("talos-{name}"),
             kubeconfig: format!("kube-{name}"),
+            gateway: None,
+            hubble_ui: None,
         });
         let written = write_cluster_credentials(dir.path(), &clusters).unwrap();
         assert_eq!(written.len(), 2);

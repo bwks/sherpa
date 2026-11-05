@@ -37,7 +37,7 @@ mod ztp;
 
 pub use auth::{LoginRequest, LoginResponse, ValidateRequest, ValidateResponse};
 pub use backup::BackupResponse;
-pub use cluster::ClusterRole;
+pub use cluster::{ClusterCni, ClusterRole};
 
 pub use config::{
     ClientConfig, Config, OtelConfig, ScannerConfig, ServerConnection, Sherpa,
