@@ -2,8 +2,8 @@ use serde_json::Value;
 
 use shared::data::ClusterRole;
 use template::{
-    TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig, talos_machine_config,
-    talosconfig,
+    CiliumConfig, TalosClientCredentials, TalosClusterSecrets, TalosNodeConfig, kubeconfig,
+    talos_machine_config, talosconfig,
 };
 
 /// The documents of `talosctl gen config` for Talos 1.14, without the install and discovery
@@ -53,7 +53,12 @@ fn secrets() -> TalosClusterSecrets {
     }
 }
 
-fn render(role: ClusterRole, vip: Option<&str>, schedulable: bool) -> Vec<Value> {
+fn render(
+    role: ClusterRole,
+    vip: Option<&str>,
+    schedulable: bool,
+    cilium: Option<CiliumConfig>,
+) -> Vec<Value> {
     let secrets = secrets();
     let node = TalosNodeConfig {
         cluster_name: "k8s",
@@ -63,6 +68,7 @@ fn render(role: ClusterRole, vip: Option<&str>, schedulable: bool) -> Vec<Value>
         management_subnet: "172.31.1.0/24",
         vip: vip.map(|ip| ip.parse().unwrap()),
         schedulable_control_planes: schedulable,
+        cilium,
         secrets: &secrets,
     };
     let output = talos_machine_config(&node).unwrap();
@@ -81,6 +87,33 @@ fn kinds(documents: &[Value]) -> Vec<String> {
         .collect()
 }
 
+fn cilium() -> CiliumConfig {
+    CiliumConfig {
+        load_balancer_first: "172.31.1.13".parse().unwrap(),
+        load_balancer_last: "172.31.1.16".parse().unwrap(),
+        gateway: "172.31.1.13".parse().unwrap(),
+        hubble_ui: "172.31.1.14".parse().unwrap(),
+        operator_replicas: 2,
+    }
+}
+
+/// The resources of the inline manifest `name`, parsed from its `---`-separated JSON stream.
+fn inline_manifest(documents: &[Value], name: &str) -> Vec<Value> {
+    let manifests = documents[0]["cluster"]["inlineManifests"]
+        .as_array()
+        .unwrap();
+    let manifest = manifests
+        .iter()
+        .find(|manifest| manifest["name"] == name)
+        .unwrap();
+    manifest["contents"]
+        .as_str()
+        .unwrap()
+        .split("\n---\n")
+        .map(|resource| serde_json::from_str(resource).unwrap())
+        .collect()
+}
+
 fn find<'a>(documents: &'a [Value], kind: &str) -> &'a Value {
     documents
         .iter()
@@ -90,7 +123,7 @@ fn find<'a>(documents: &'a [Value], kind: &str) -> &'a Value {
 
 #[test]
 fn control_plane_config_matches_the_talos_document_set() {
-    let documents = render(ClusterRole::ControlPlane, None, false);
+    let documents = render(ClusterRole::ControlPlane, None, false, None);
     let mut expected: Vec<String> = CONTROL_PLANE_KINDS
         .iter()
         .map(|kind| kind.to_string())
@@ -138,7 +171,7 @@ fn control_plane_config_matches_the_talos_document_set() {
 
 #[test]
 fn worker_config_carries_no_cluster_private_keys() {
-    let documents = render(ClusterRole::Worker, None, false);
+    let documents = render(ClusterRole::Worker, None, false, None);
     assert_eq!(
         kinds(&documents),
         [
@@ -179,12 +212,12 @@ fn worker_config_carries_no_cluster_private_keys() {
 
 #[test]
 fn control_planes_share_a_vip_and_drop_the_taint_when_there_are_no_workers() {
-    let documents = render(ClusterRole::ControlPlane, Some("172.31.1.5"), true);
+    let documents = render(ClusterRole::ControlPlane, Some("172.31.1.5"), true, None);
     let vip = find(&documents, "Layer2VIPConfig");
     assert_eq!(vip["name"], "172.31.1.5");
     assert_eq!(vip["link"], "eth0");
     assert!(find(&documents, "KubeNodeConfig").get("taints").is_none());
-    let tainted = render(ClusterRole::ControlPlane, None, false);
+    let tainted = render(ClusterRole::ControlPlane, None, false, None);
     assert_eq!(
         find(&tainted, "KubeNodeConfig")["taints"]["node-role.kubernetes.io/control-plane"],
         "NoSchedule"
@@ -237,4 +270,115 @@ fn kubeconfig_uses_the_cluster_endpoint_and_admin_credentials() {
         shared::util::base64_decode(user["client-certificate-data"].as_str().unwrap()).unwrap(),
         "cert-pem"
     );
+}
+
+#[test]
+fn cilium_control_planes_drop_flannel_and_kube_proxy() {
+    let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
+    let mut expected: Vec<String> = CONTROL_PLANE_KINDS
+        .iter()
+        .filter(|kind| **kind != "KubeFlannelCNIConfig")
+        .map(|kind| kind.to_string())
+        .collect();
+    expected.push("KubeCoreDNSConfig".to_owned());
+    assert_eq!(kinds(&documents), expected);
+    assert_eq!(find(&documents, "KubeProxyConfig")["enabled"], false);
+    assert_eq!(
+        documents[0]["cluster"]["extraManifests"][0],
+        "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.3/standard-install.yaml"
+    );
+    let names: Vec<&str> = documents[0]["cluster"]["inlineManifests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|manifest| manifest["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        names,
+        ["cilium-install", "cilium-load-balancer", "cilium-gateway"]
+    );
+}
+
+#[test]
+fn flannel_control_planes_keep_kube_proxy_and_carry_no_manifests() {
+    let documents = render(ClusterRole::ControlPlane, None, false, None);
+    assert!(find(&documents, "KubeProxyConfig").get("enabled").is_none());
+    assert!(documents[0]["cluster"].get("inlineManifests").is_none());
+    assert!(documents[0]["cluster"].get("extraManifests").is_none());
+}
+
+#[test]
+fn cilium_workers_are_unchanged() {
+    assert_eq!(
+        render(ClusterRole::Worker, None, false, Some(cilium())),
+        render(ClusterRole::Worker, None, false, None)
+    );
+}
+
+#[test]
+fn cilium_is_installed_by_a_job_on_a_control_plane_host_network() {
+    let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
+    let resources = inline_manifest(&documents, "cilium-install");
+    let kinds: Vec<&str> = resources
+        .iter()
+        .map(|resource| resource["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["ServiceAccount", "ClusterRoleBinding", "Job"]);
+    let pod = &resources[2]["spec"]["template"]["spec"];
+    assert_eq!(pod["hostNetwork"], true);
+    assert_eq!(pod["dnsPolicy"], "Default");
+    assert_eq!(pod["tolerations"][0]["operator"], "Exists");
+    let container = &pod["containers"][0];
+    assert_eq!(container["image"], "quay.io/cilium/cilium-cli:v0.20.2");
+    assert_eq!(container["env"][1]["value"], "7445");
+    let command: Vec<&str> = container["command"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|arg| arg.as_str().unwrap())
+        .collect();
+    for arg in [
+        "install",
+        "--version=1.20.4",
+        "--set=kubeProxyReplacement=true",
+        "--set=k8sServiceHost=localhost",
+        "--set=k8sServicePort=7445",
+        "--set=bpf.hostLegacyRouting=true",
+        "--set=gatewayAPI.enabled=true",
+        "--set=l2announcements.enabled=true",
+        "--set=hubble.ui.enabled=true",
+        "--set=operator.replicas=2",
+    ] {
+        assert!(command.contains(&arg), "missing {arg} in {command:?}");
+    }
+}
+
+#[test]
+fn cilium_announces_its_load_balancer_block_on_the_management_link() {
+    let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
+    let resources = inline_manifest(&documents, "cilium-load-balancer");
+    assert_eq!(resources[0]["kind"], "CiliumLoadBalancerIPPool");
+    assert_eq!(resources[0]["spec"]["blocks"][0]["start"], "172.31.1.13");
+    assert_eq!(resources[0]["spec"]["blocks"][0]["stop"], "172.31.1.16");
+    assert_eq!(resources[1]["kind"], "CiliumL2AnnouncementPolicy");
+    assert_eq!(resources[1]["spec"]["loadBalancerIPs"], true);
+    assert_eq!(resources[1]["spec"]["interfaces"][0], "^eth0$");
+}
+
+#[test]
+fn cilium_clusters_get_a_gateway_and_a_hubble_ui_address() {
+    let documents = render(ClusterRole::ControlPlane, None, false, Some(cilium()));
+    let resources = inline_manifest(&documents, "cilium-gateway");
+    let gateway = &resources[0];
+    assert_eq!(gateway["kind"], "Gateway");
+    assert_eq!(gateway["spec"]["gatewayClassName"], "cilium");
+    assert_eq!(gateway["spec"]["addresses"][0]["value"], "172.31.1.13");
+    assert_eq!(gateway["spec"]["listeners"][0]["port"], 80);
+    let hubble = &resources[1];
+    assert_eq!(hubble["spec"]["type"], "LoadBalancer");
+    assert_eq!(
+        hubble["metadata"]["annotations"]["lbipam.cilium.io/ips"],
+        "172.31.1.14"
+    );
+    assert_eq!(hubble["spec"]["selector"]["k8s-app"], "hubble-ui");
 }

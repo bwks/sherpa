@@ -5,7 +5,7 @@ Tests Sherpa-built Talos Kubernetes clusters end to end through the `sherpa` CLI
 | Lab | Nodes |
 |---|---|
 | [`single`](single/manifest.toml) | 1 controller, 3 workers, util |
-| [`ha`](ha/manifest.toml) | 3 controllers sharing a VIP, 1 worker, util |
+| [`ha`](ha/manifest.toml) | 3 controllers sharing a VIP, 1 worker, util; Cilium |
 
 The `util` node is Ubuntu with `talosctl` and `kubectl` installed by
 [`install-tools.sh`](install-tools.sh) (pinned versions, SHA-256 verified). All cluster checks
@@ -60,7 +60,10 @@ Both labs:
 
 - the kubeconfig server is the cluster VIP (management offset `.11`);
 - with one controller stopped, the API still answers through the VIP; after `sherpa resume`
-  the cluster is healthy again.
+  the cluster is healthy again;
+- Cilium: `sherpa up` prints the Gateway (`.13`) and Hubble UI (`.14`) addresses; Cilium runs
+  without kube-proxy or Flannel, and its install Job succeeded; the workload answers through
+  the `sherpa` Gateway with an HTTPRoute, and Hubble UI answers, from the util node.
 
 ## Running a lab by hand
 

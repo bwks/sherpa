@@ -1030,7 +1030,7 @@ blocks, defined in `crates/shared/src/konst.rs` and applied to both address fami
 | Offsets | Block | Users |
 |---|---|---|
 | `1`–`10` | Sherpa infrastructure (`MANAGEMENT_INFRA_HOST_OFFSETS`) | `.1` gateway and DNS, `.2` router (dnsmasq, boot server), `.3` Tailscale gateway |
-| `11`–`20` | Lab control planes (`MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS`) | `.11`–`.12` Talos cluster VIPs (`TALOS_VIP_HOST_OFFSETS`) |
+| `11`–`20` | Lab control planes (`MANAGEMENT_CONTROL_PLANE_HOST_OFFSETS`) | `.11`–`.12` Talos cluster VIPs (`TALOS_VIP_HOST_OFFSETS`); `.13`–`.20` Cilium cluster load balancer addresses, four per cluster (`TALOS_LOAD_BALANCER_HOST_OFFSETS`) |
 | `21`–`254` | Lab nodes (`MANAGEMENT_NODE_HOST_OFFSETS`) | node `n` (1-based manifest index) at `.20 + n`; the dnsmasq DHCP range |
 
 `util::node_management_host_offset` maps a node index to its offset and refuses indexes outside

@@ -3,8 +3,10 @@ use std::collections::{HashMap, HashSet};
 use anyhow::{Result, bail};
 
 use crate::{Manifest, Node};
-use shared::data::NodeModel;
-use shared::konst::TALOS_VIP_HOST_OFFSETS;
+use shared::data::{ClusterCni, NodeModel};
+use shared::konst::{
+    TALOS_LOAD_BALANCER_BLOCK_SIZE, TALOS_LOAD_BALANCER_HOST_OFFSETS, TALOS_VIP_HOST_OFFSETS,
+};
 
 /// Longest cluster name; cluster names are used in DNS names and certificate SANs.
 const MAX_CLUSTER_NAME_LEN: usize = 63;
@@ -18,7 +20,8 @@ const ALLOWED_CONTROLLER_COUNTS: [usize; 2] = [1, 3];
 /// - every cluster has one or three controllers;
 /// - every member is a defined `talos_linux` node without `ztp_config` (Sherpa generates
 ///   member machine configs), listed once across all clusters;
-/// - there are no more clusters with three controllers than shared VIP addresses.
+/// - there are no more clusters with three controllers than shared VIP addresses;
+/// - there are no more Cilium clusters than blocks of load balancer addresses.
 pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
     let clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
     let nodes: HashMap<&str, &Node> = manifest
@@ -29,6 +32,7 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
     let mut names = HashSet::new();
     let mut members = HashSet::new();
     let mut ha_clusters = 0;
+    let mut cilium_clusters = 0;
     for cluster in clusters {
         validate_cluster_name(&cluster.name)?;
         if !names.insert(cluster.name.as_str()) {
@@ -46,6 +50,9 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
         }
         if controllers > 1 {
             ha_clusters += 1;
+        }
+        if cluster.cni == ClusterCni::Cilium {
+            cilium_clusters += 1;
         }
         for (member, _) in cluster.members() {
             let Some(node) = nodes.get(member) else {
@@ -78,6 +85,13 @@ pub fn validate_talos_clusters(manifest: &Manifest) -> Result<()> {
     if ha_clusters > vip_count {
         bail!(
             "Manifest - {ha_clusters} talos clusters have 3 controllers, but a lab has only {vip_count} shared cluster addresses"
+        );
+    }
+    let load_balancer_blocks =
+        TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count() / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
+    if cilium_clusters > load_balancer_blocks {
+        bail!(
+            "Manifest - {cilium_clusters} talos clusters use cilium, but a lab has load balancer addresses for only {load_balancer_blocks}"
         );
     }
     Ok(())
@@ -236,5 +250,32 @@ nodes = [{ name = "talos", model = "talos_linux" }]
             nodes.join(", ")
         );
         assert!(error(&toml).contains("shared cluster addresses"));
+    }
+
+    /// A manifest with `count` single-controller Cilium clusters.
+    fn cilium_clusters(count: usize) -> String {
+        let mut clusters = vec![];
+        let mut nodes = vec![];
+        for index in 0..count {
+            clusters.push(format!(
+                r#"{{ name = "c{index}", controllers = ["c{index}-cp"], cni = "cilium" }}"#
+            ));
+            nodes.push(format!(
+                r#"{{ name = "c{index}-cp", model = "talos_linux" }}"#
+            ));
+        }
+        format!(
+            "name = \"lab\"\ntalos_clusters = [{}]\nnodes = [{}]\n",
+            clusters.join(", "),
+            nodes.join(", ")
+        )
+    }
+
+    #[test]
+    fn cilium_clusters_are_limited_by_load_balancer_addresses() {
+        let blocks = TALOS_LOAD_BALANCER_HOST_OFFSETS.clone().count()
+            / TALOS_LOAD_BALANCER_BLOCK_SIZE as usize;
+        validate_talos_clusters(&manifest(&cilium_clusters(blocks))).unwrap();
+        assert!(error(&cilium_clusters(blocks + 1)).contains("use cilium"));
     }
 }

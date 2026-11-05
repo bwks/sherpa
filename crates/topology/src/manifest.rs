@@ -339,9 +339,13 @@ nodes = [
     fn talos_clusters_round_trip() {
         let toml = r#"
 name = "lab"
-talos_clusters = [{ name = "k8s", controllers = ["cp1"], workers = ["w1"] }]
+talos_clusters = [
+  { name = "k8s", controllers = ["cp1"], workers = ["w1"] },
+  { name = "edge", controllers = ["cp2"], cni = "cilium" },
+]
 nodes = [
   { name = "cp1", model = "talos_linux" },
+  { name = "cp2", model = "talos_linux" },
   { name = "w1", model = "talos_linux" },
 ]
 "#;

@@ -60,6 +60,12 @@ pub struct ClusterInfo {
     pub talosconfig: String,
     /// `kubectl` configuration with a cluster-admin certificate.
     pub kubeconfig: String,
+    /// Address of a Cilium cluster's Gateway.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gateway: Option<String>,
+    /// Address of a Cilium cluster's Hubble UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hubble_ui: Option<String>,
 }
 
 /// Summary of created resources

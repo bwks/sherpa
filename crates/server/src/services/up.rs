@@ -1725,9 +1725,7 @@ pub async fn up_lab(
         // Plan Kubernetes clusters and generate their secrets before any node config.
         let talos_clusters = manifest.talos_clusters.as_deref().unwrap_or_default();
         let mut cluster_members = Vec::new();
-        let mut cluster_names = Vec::with_capacity(talos_clusters.len());
         for cluster in talos_clusters {
-            cluster_names.push(cluster.name.as_str());
             for (name, role) in cluster.members() {
                 let node = vm_nodes
                     .iter()
@@ -1747,11 +1745,11 @@ pub async fn up_lab(
                 });
             }
         }
-        let lab_clusters = if cluster_names.is_empty() {
+        let lab_clusters = if talos_clusters.is_empty() {
             Vec::new()
         } else {
             let clusters =
-                talos::prepare_clusters(lab_id, &cluster_names, &cluster_members, &mgmt_net.v4)?;
+                talos::prepare_clusters(lab_id, talos_clusters, &cluster_members, &mgmt_net.v4)?;
             let _ = progress.send_status(
                 format!(
                     "Generated secrets for {} Kubernetes clusters",

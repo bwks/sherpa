@@ -1,6 +1,6 @@
 use serde_derive::{Deserialize, Serialize};
 
-use shared::data::ClusterRole;
+use shared::data::{ClusterCni, ClusterRole};
 
 /// A Kubernetes cluster built from Talos Linux nodes in the lab.
 ///
@@ -17,6 +17,9 @@ pub struct TalosCluster {
     /// Names of the nodes that run workloads only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub workers: Vec<String>,
+    /// The cluster's CNI: Flannel unless set.
+    #[serde(default, skip_serializing_if = "ClusterCni::is_flannel")]
+    pub cni: ClusterCni,
 }
 
 impl TalosCluster {
@@ -102,6 +105,20 @@ workers = ["w1"]
     }
 
     #[test]
+    fn the_cni_defaults_to_flannel() {
+        assert_eq!(cluster().cni, ClusterCni::Flannel);
+        let cilium: TalosCluster =
+            toml::from_str("name = \"k8s\"\ncontrollers = [\"cp1\"]\ncni = \"cilium\"\n").unwrap();
+        assert_eq!(cilium.cni, ClusterCni::Cilium);
+        assert!(
+            toml::from_str::<TalosCluster>(
+                "name = \"k8s\"\ncontrollers = [\"cp1\"]\ncni = \"calico\"\n"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn unknown_fields_are_rejected() {
         assert!(
             toml::from_str::<TalosCluster>("name = \"k8s\"\ncontrollers = [\"cp1\"]\nnodes = []\n")
@@ -117,6 +134,7 @@ workers = ["w1"]
                 name: "dev".to_owned(),
                 controllers: vec!["dev-cp1".to_owned()],
                 workers: vec![],
+                cni: ClusterCni::Flannel,
             },
         ];
         let (found, role) = find_talos_cluster(&clusters, "dev-cp1").unwrap();
