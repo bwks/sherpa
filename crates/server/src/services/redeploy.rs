@@ -741,7 +741,7 @@ pub async fn redeploy_node(
                     lab_id,
                     node_name,
                     node_ipv4_address,
-                    lab_ca.cert_pem(),
+                    &lab_ca.pair.cert,
                     Duration::from_secs(manifest.ready_timeout.unwrap_or(READINESS_TIMEOUT)),
                     &progress,
                 )

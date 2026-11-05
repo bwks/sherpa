@@ -27,7 +27,9 @@ const LAB_CA_ORGANIZATION: &str = "Sherpa";
 #[derive(Clone, Debug)]
 pub struct LabCa {
     common_name: String,
-    pair: PemPair,
+    /// The CA certificate and key, PEM. The certificate is handed to clients that should trust
+    /// lab nodes.
+    pub pair: PemPair,
 }
 
 /// Paths to a node's TLS files on the server.
@@ -45,13 +47,6 @@ pub struct NodeIdentity<'a> {
     pub lab_id: &'a str,
     pub ipv4: Ipv4Addr,
     pub ipv6: Option<Ipv6Addr>,
-}
-
-impl LabCa {
-    /// The CA certificate, PEM, to hand to clients that should trust lab nodes.
-    pub fn cert_pem(&self) -> &str {
-        &self.pair.cert
-    }
 }
 
 fn ca_common_name(lab_id: &str) -> String {
@@ -149,14 +144,13 @@ pub fn issue_node_certificate(
     write_file_with_permissions(&key_path, pair.key.as_bytes(), 0o600)
         .with_context(|| format!("Failed to write the key of node '{}'", node.name))?;
     Ok(NodeCertPaths {
-        ca_cert: path_string(&certs_dir.join(LAB_CA_CERT_FILE)),
-        node_cert: path_string(&cert_path),
-        node_key: path_string(&key_path),
+        ca_cert: certs_dir
+            .join(LAB_CA_CERT_FILE)
+            .to_string_lossy()
+            .into_owned(),
+        node_cert: cert_path.to_string_lossy().into_owned(),
+        node_key: key_path.to_string_lossy().into_owned(),
     })
-}
-
-fn path_string(path: &Path) -> String {
-    path.to_string_lossy().into_owned()
 }
 
 #[cfg(test)]
@@ -211,16 +205,16 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
 
         let loaded = load_lab_ca(dir.path(), "abcd1234").unwrap();
-        assert_eq!(loaded.cert_pem(), created.cert_pem());
+        assert_eq!(loaded.pair.cert, created.pair.cert);
         let paths = issue_node_certificate(&loaded, dir.path(), identity(None)).unwrap();
         assert_eq!(
             paths.ca_cert,
-            path_string(&dir.path().join(LAB_CA_CERT_FILE))
+            dir.path().join(LAB_CA_CERT_FILE).to_string_lossy()
         );
         let key_mode = fs::metadata(&paths.node_key).unwrap().permissions().mode();
         assert_eq!(key_mode & 0o777, 0o600);
 
-        let (_, ca_pem) = parse_x509_pem(created.cert_pem().as_bytes()).unwrap();
+        let (_, ca_pem) = parse_x509_pem(created.pair.cert.as_bytes()).unwrap();
         let ca_cert = ca_pem.parse_x509().unwrap();
         let node_cert_pem = fs::read_to_string(&paths.node_cert).unwrap();
         let (_, node_pem) = parse_x509_pem(node_cert_pem.as_bytes()).unwrap();

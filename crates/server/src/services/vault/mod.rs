@@ -6,4 +6,4 @@
 pub mod api;
 pub mod lab;
 
-pub use lab::{ensure_vault_unsealed, read_vault_credentials, sherpa_initialises_vault};
+pub use lab::{ensure_vault_unsealed, read_vault_credentials, sherpa_initialises_vault, vault_dir};

@@ -3001,7 +3001,7 @@ pub async fn up_lab(
                 lab_id,
                 &node.name,
                 node_address,
-                lab_ca.cert_pem(),
+                &lab_ca.pair.cert,
                 Duration::from_secs(ready_timeout_secs),
                 &progress,
             )
@@ -3049,7 +3049,7 @@ pub async fn up_lab(
             known_hosts: ssh_files.known_hosts,
             ssh_private_key,
             clusters,
-            lab_ca: lab_ca.cert_pem().to_owned(),
+            lab_ca: lab_ca.pair.cert.clone(),
             vaults,
         };
 

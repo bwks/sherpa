@@ -46,7 +46,8 @@ pub fn sherpa_initialises_vault(model: &NodeModel, own_config: bool) -> bool {
     *model == NodeModel::HashicorpVault && !own_config
 }
 
-fn vault_dir(lab_id: &str) -> PathBuf {
+/// The lab directory where Sherpa keeps its Vault nodes' credentials.
+pub fn vault_dir(lab_id: &str) -> PathBuf {
     Path::new(SHERPA_LABS_PATH).join(lab_id).join(VAULT_DIR)
 }
 
@@ -153,13 +154,10 @@ async fn wait_for_api(
     }
 }
 
-/// The credentials of every Vault node Sherpa initialised in a lab, for `sherpa download`.
-#[instrument(level = "debug", fields(%lab_id))]
-pub fn read_vault_credentials(lab_id: &str) -> Result<Vec<VaultInfo>> {
-    read_credentials_dir(&vault_dir(lab_id))
-}
-
-fn read_credentials_dir(dir: &Path) -> Result<Vec<VaultInfo>> {
+/// The credentials of every Vault node in a lab's Vault directory (see [`vault_dir`]), for
+/// `sherpa download`.
+#[instrument(level = "debug", fields(dir = %dir.display()))]
+pub fn read_vault_credentials(dir: &Path) -> Result<Vec<VaultInfo>> {
     if !dir.exists() {
         return Ok(Vec::new());
     }
@@ -223,12 +221,12 @@ mod tests {
         save_credentials(dir.path(), "vault02", &credentials("hvs.two")).unwrap();
         save_credentials(dir.path(), "vault01", &credentials("hvs.one")).unwrap();
         fs::write(dir.path().join("notes.txt"), "ignored").unwrap();
-        let vaults = read_credentials_dir(dir.path()).unwrap();
+        let vaults = read_vault_credentials(dir.path()).unwrap();
         let names: Vec<&str> = vaults.iter().map(|vault| vault.name.as_str()).collect();
         assert_eq!(names, ["vault01", "vault02"]);
         assert_eq!(vaults[1].root_token, "hvs.two");
         assert!(
-            read_credentials_dir(&dir.path().join("missing"))
+            read_vault_credentials(&dir.path().join("missing"))
                 .unwrap()
                 .is_empty()
         );

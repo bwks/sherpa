@@ -76,7 +76,7 @@ pub async fn download_lab_files(
             return Err(error).context(format!("Failed to read {lab_ca_path}"));
         }
     };
-    let vaults = vault::read_vault_credentials(lab_id)?;
+    let vaults = vault::read_vault_credentials(&vault::vault_dir(lab_id))?;
 
     Ok(DownloadLabResponse {
         lab_info,
