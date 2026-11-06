@@ -7,6 +7,7 @@ use shared::data::{
     User,
 };
 
+#[must_use]
 pub fn test_user() -> User {
     User {
         username: "sherpa".to_string(),
@@ -21,6 +22,7 @@ pub fn test_user() -> User {
 }
 
 /// A lab owner with two keys, as the generators pass them to device templates.
+#[must_use]
 pub fn test_owner() -> OwnerUser {
     OwnerUser {
         username: "alice".to_string(),
@@ -38,6 +40,7 @@ pub fn test_owner() -> OwnerUser {
     }
 }
 
+#[must_use]
 pub fn test_dns() -> Dns {
     Dns {
         domain: "lab.sherpa.local".to_string(),
@@ -49,6 +52,12 @@ pub fn test_dns() -> Dns {
     }
 }
 
+/// The management network `172.20.0.0/24`.
+///
+/// # Panics
+///
+/// Never: the prefix is a valid literal.
+#[must_use]
 pub fn test_network_v4() -> NetworkV4 {
     NetworkV4 {
         prefix: "172.20.0.0/24".parse::<Ipv4Net>().expect("valid prefix"),
@@ -62,6 +71,12 @@ pub fn test_network_v4() -> NetworkV4 {
     }
 }
 
+/// The management network `fd00::/64`.
+///
+/// # Panics
+///
+/// Never: the prefix and addresses are valid literals.
+#[must_use]
 pub fn test_network_v6() -> NetworkV6 {
     NetworkV6 {
         prefix: "fd00::/64".parse::<Ipv6Net>().expect("valid prefix"),

@@ -53,7 +53,7 @@ use shared::konst::{
     WINDOWS_SSHD_CONFIG, WINDOWS_SYSTEM_SID, ZTP_DIR, ZTP_ISO, ZTP_ISO_VOLUME_ID, ZTP_JSON,
 };
 use shared::util;
-use shared::validators::effective_data_interface_count;
+use shared::validators::{effective_data_interface_count, mode_from_octal_digits};
 use virt::error::ErrorNumber;
 use virt::sys::VIR_DOMAIN_UNDEFINE_NVRAM;
 
@@ -165,19 +165,19 @@ pub(crate) fn write_nocloud_files(
     };
     util::create_file(
         &format!("{dir}/{CLOUD_INIT_META_DATA}"),
-        meta_data.to_string()?,
+        meta_data.render()?,
     )?;
 
     let network_config = template::CloudInitNetwork::ztp_interface(
         node_ipv4_address,
         mac_address.to_owned(),
-        mgmt_net.v4.clone(),
+        &mgmt_net.v4,
         node_ipv6_address,
         mgmt_net.v6.as_ref(),
     );
     util::create_file(
         &format!("{dir}/{CLOUD_INIT_NETWORK_CONFIG}"),
-        network_config.to_string()?,
+        network_config.render()?,
     )?;
 
     let user_data_path = format!("{dir}/{CLOUD_INIT_USER_DATA}");
@@ -1317,7 +1317,7 @@ fn build_ignition_cert_files(
     Ok(vec![
         template::IgnitionFile {
             path: format!("{target_dir}/ca.crt"),
-            mode: 644,
+            mode: template::FileMode::new(0o644),
             contents: Some(template::IgnitionFileContents::new(&format!(
                 "data:;base64,{ca_b64}"
             ))),
@@ -1325,7 +1325,7 @@ fn build_ignition_cert_files(
         },
         template::IgnitionFile {
             path: format!("{target_dir}/node.crt"),
-            mode: 644,
+            mode: template::FileMode::new(0o644),
             contents: Some(template::IgnitionFileContents::new(&format!(
                 "data:;base64,{cert_b64}"
             ))),
@@ -1333,7 +1333,7 @@ fn build_ignition_cert_files(
         },
         template::IgnitionFile {
             path: format!("{target_dir}/node.key"),
-            mode: 600,
+            mode: template::FileMode::new(0o600),
             contents: Some(template::IgnitionFileContents::new(&format!(
                 "data:;base64,{key_b64}"
             ))),
@@ -1544,7 +1544,7 @@ fn build_ignition_home_directories(
             }
             directories.push(template::IgnitionDirectory {
                 path,
-                mode: 755,
+                mode: template::FileMode::new(0o755),
                 overwrite: false,
                 user: Some(template::IgnitionFileParams {
                     name: file.user.clone(),
@@ -1567,7 +1567,7 @@ fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template:
     vec![
         template::IgnitionFile {
             path: format!("{home}/{NODE_USER_ENV_FILE}"),
-            mode: 600,
+            mode: template::FileMode::new(0o600),
             overwrite: Some(true),
             contents: Some(template::IgnitionFileContents::new(&format!(
                 "data:;base64,{env_b64}"
@@ -1582,7 +1582,7 @@ fn build_ignition_user_env(env_vars: &[String], username: &str) -> Vec<template:
         },
         template::IgnitionFile {
             path: format!("{home}/.bash_profile"),
-            mode: 644,
+            mode: template::FileMode::new(0o644),
             append: vec![template::IgnitionFileContents::new(&format!(
                 "data:;base64,{loader_b64}"
             ))],
@@ -1837,14 +1837,14 @@ fn generate_cloud_init_ztp(
                 runcmd: cloud_init_runcmd,
                 ..Default::default()
             };
-            let user_data_config = cloud_init_config.to_string()?;
+            let user_data_config = cloud_init_config.render()?;
 
             let meta_data_obj = template::MetaDataConfig {
                 instance_id: format!("iid-{}", node.name),
                 local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 ..Default::default()
             };
-            let meta_data_config = meta_data_obj.to_string()?;
+            let meta_data_config = meta_data_obj.render()?;
 
             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
@@ -1857,11 +1857,11 @@ fn generate_cloud_init_ztp(
             let ztp_interface = template::CloudInitNetwork::ztp_interface(
                 node_ipv4_address,
                 mac_address.to_string(),
-                mgmt_net.v4.clone(),
+                &mgmt_net.v4,
                 cloud_init_ipv6_address(&node.model, node.ipv6_address),
                 mgmt_net.v6.as_ref(),
             );
-            let cloud_network_config = ztp_interface.to_string()?;
+            let cloud_network_config = ztp_interface.render()?;
             util::create_file(&network_config, cloud_network_config)?;
 
             create_iso(&dir, format!("{dir}/{ZTP_ISO}"), ZTP_ISO_VOLUME_ID)?;
@@ -1948,14 +1948,14 @@ fn generate_cloud_init_ztp(
                 write_files,
                 runcmd,
             };
-            let user_data_config = cloudbase_config.to_string()?;
+            let user_data_config = cloudbase_config.render()?;
 
             let meta_data_obj = template::MetaDataConfig {
                 instance_id: format!("iid-{}", node.name),
                 local_hostname: format!("{}.{}", node.name, SHERPA_DOMAIN_NAME),
                 public_keys: vec![ssh_key_str],
             };
-            let meta_data_config = meta_data_obj.to_string()?;
+            let meta_data_config = meta_data_obj.render()?;
 
             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
@@ -1968,11 +1968,11 @@ fn generate_cloud_init_ztp(
             let ztp_interface = template::CloudbaseInitNetwork::ztp_interface(
                 node_ipv4_address,
                 mac_address.to_string(),
-                mgmt_net.v4.clone(),
+                &mgmt_net.v4,
                 node.ipv6_address,
                 mgmt_net.v6.as_ref(),
             );
-            let cloud_network_config = ztp_interface.to_string()?;
+            let cloud_network_config = ztp_interface.render()?;
             util::create_file(&network_config, cloud_network_config)?;
 
             create_iso(&dir, format!("{dir}/{ZTP_ISO}"), ZTP_ISO_VOLUME_ID)?;
@@ -2057,8 +2057,8 @@ fn generate_cloud_init_ztp(
                 write_files: cloud_init_write_files,
                 runcmd: cloud_init_runcmd,
             };
-            let meta_data_config = meta_data.to_string()?;
-            let user_data_config = cloud_init_config.to_string()?;
+            let meta_data_config = meta_data.render()?;
+            let user_data_config = cloud_init_config.render()?;
 
             let user_data = format!("{dir}/{CLOUD_INIT_USER_DATA}");
             let meta_data = format!("{dir}/{CLOUD_INIT_META_DATA}");
@@ -2071,11 +2071,11 @@ fn generate_cloud_init_ztp(
             let ztp_interface = template::CloudInitNetwork::ztp_interface(
                 node_ipv4_address,
                 mac_address.to_string(),
-                mgmt_net.v4.clone(),
+                &mgmt_net.v4,
                 node.ipv6_address,
                 mgmt_net.v6.as_ref(),
             );
-            let cloud_network_config = ztp_interface.to_string()?;
+            let cloud_network_config = ztp_interface.render()?;
             util::create_file(&network_config, cloud_network_config)?;
 
             create_iso(&dir, format!("{dir}/{ZTP_ISO}"), ZTP_ISO_VOLUME_ID)?;
@@ -2293,7 +2293,7 @@ fn generate_cdrom_ztp(
                     ipv4_addr: Some(node_ipv4_address),
                     ipv4_gw: Some(mgmt_net.v4.first),
                     ipv4_mask: Some(mgmt_net.v4.subnet_mask),
-                    manage_locally: true,
+                    manage_locally: template::YesNo(true),
                     ..Default::default()
                 };
                 let rendered_template = serde_json::to_string(&t)?;
@@ -2814,7 +2814,7 @@ fn generate_ignition_ztp(
 
     let hostname_file = template::IgnitionFile {
         path: "/etc/hostname".to_owned(),
-        mode: 644,
+        mode: template::FileMode::new(0o644),
         contents: Some(template::IgnitionFileContents::new(&format!(
             "data:,{dev_name}"
         ))),
@@ -2826,34 +2826,39 @@ fn generate_ignition_ztp(
         util::base64_encode(&format!("{SHERPA_USERNAME} ALL=(ALL) NOPASSWD: ALL"));
     let sudo_config_file = template::IgnitionFile {
         path: format!("/etc/sudoers.d/{SHERPA_USERNAME}"),
-        mode: 440,
+        mode: template::FileMode::new(0o440),
         contents: Some(template::IgnitionFileContents::new(&format!(
             "data:;base64,{sudo_config_base64}"
         ))),
         ..Default::default()
     };
 
-    let manifest_text_files: Vec<template::IgnitionFile> = node
+    let manifest_text_files = node
         .text_files
         .iter()
         .flatten()
-        .map(|file| template::IgnitionFile {
-            path: file.dst.clone(),
-            mode: file.permissions,
-            overwrite: None,
-            contents: Some(template::IgnitionFileContents::new(&format!(
-                "data:;base64,{}",
-                file.content
-            ))),
-            user: Some(template::IgnitionFileParams {
-                name: file.user.clone(),
-            }),
-            group: Some(template::IgnitionFileParams {
-                name: file.group.clone(),
-            }),
-            append: vec![],
+        .map(|file| -> Result<template::IgnitionFile> {
+            Ok(template::IgnitionFile {
+                path: file.dst.clone(),
+                mode: template::FileMode::new(
+                    mode_from_octal_digits(file.permissions)
+                        .with_context(|| format!("Text file {} mode is invalid", file.dst))?,
+                ),
+                overwrite: None,
+                contents: Some(template::IgnitionFileContents::new(&format!(
+                    "data:;base64,{}",
+                    file.content
+                ))),
+                user: Some(template::IgnitionFileParams {
+                    name: file.user.clone(),
+                }),
+                group: Some(template::IgnitionFileParams {
+                    name: file.group.clone(),
+                }),
+                append: vec![],
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let manifest_binary_disk_files = node.binary_files.clone().unwrap_or_default();
 
@@ -2885,10 +2890,10 @@ fn generate_ignition_ztp(
 
             files.push(template::IgnitionFile::ztp_interface(
                 node_ipv4_address,
-                mgmt_net.v4.clone(),
+                &mgmt_net.v4,
                 node.ipv6_address,
                 mgmt_net.v6.as_ref(),
-            )?);
+            ));
 
             // Add TLS certificate files if cert paths are provided
             if let Some(certs) = cert_paths {
@@ -4050,7 +4055,7 @@ mod tests {
 
         let env_file = &files[0];
         assert_eq!(env_file.path, "/home/alice/.sherpa_env");
-        assert_eq!(env_file.mode, 600);
+        assert_eq!(env_file.mode, template::FileMode::new(0o600));
         assert_eq!(env_file.user.as_ref().unwrap().name, "alice");
         assert_eq!(env_file.group.as_ref().unwrap().name, "alice");
         let source = &env_file.contents.as_ref().unwrap().source;
@@ -4212,7 +4217,7 @@ mod tests {
         for dir in &dirs {
             assert_eq!(dir.user.as_ref().unwrap().name, "alice");
             assert_eq!(dir.group.as_ref().unwrap().name, "alice");
-            assert_eq!(dir.mode, 755);
+            assert_eq!(dir.mode, template::FileMode::new(0o755));
             paths.push(dir.path.as_str());
         }
         assert_eq!(

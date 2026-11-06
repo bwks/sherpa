@@ -24,7 +24,12 @@ pub struct MetaDataConfig {
     pub public_keys: Vec<String>,
 }
 impl MetaDataConfig {
-    pub fn to_string(&self) -> Result<String> {
+    /// Render the document.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the document cannot be serialized.
+    pub fn render(&self) -> Result<String> {
         to_guest_yaml(self)
     }
 }
@@ -36,13 +41,19 @@ pub struct CloudInitNetwork {
 }
 
 impl CloudInitNetwork {
-    pub fn to_string(&self) -> Result<String> {
+    /// Render the document.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the document cannot be serialized.
+    pub fn render(&self) -> Result<String> {
         to_guest_yaml(self)
     }
+    #[must_use]
     pub fn ztp_interface(
         mgmt_ipv4_address: Ipv4Addr,
         mgmt_mac_address: String,
-        mgmt_ipv4: NetworkV4,
+        mgmt_ipv4: &NetworkV4,
         mgmt_ipv6_address: Option<Ipv6Addr>,
         mgmt_ipv6: Option<&NetworkV6>,
     ) -> Self {
@@ -162,6 +173,7 @@ pub struct CloudInitConfig {
 impl CloudInitResolvConf {
     /// Points `/etc/resolv.conf` at the lab DNS, for distros whose network renderer does not
     /// write it.
+    #[must_use]
     pub fn lab_dns(nameserver: Ipv4Addr) -> Self {
         Self {
             domain: SHERPA_DOMAIN_NAME.to_string(),
@@ -172,7 +184,12 @@ impl CloudInitResolvConf {
 }
 
 impl CloudInitConfig {
-    pub fn to_string(&self) -> Result<String> {
+    /// Render the document.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the document cannot be serialized.
+    pub fn render(&self) -> Result<String> {
         to_cloud_config(self)
     }
 }
@@ -200,6 +217,11 @@ pub struct CloudInitUser {
     pub shell: String,
 }
 impl CloudInitUser {
+    /// Sherpa's own account, with its SSH key.
+    ///
+    /// # Errors
+    ///
+    /// Fails when Sherpa's SSH public key cannot be read.
     pub fn sherpa() -> Result<Self> {
         let ssh_key = get_ssh_public_key(SHERPA_SSH_PUBLIC_KEY_PATH)?;
         Ok(Self {
@@ -208,7 +230,7 @@ impl CloudInitUser {
             hashed_passwd: None,
             homedir: None,
             lock_passwd: false,
-            ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key.to_owned())],
+            ssh_authorized_keys: vec![format!("{} {}", ssh_key.algorithm, ssh_key.key)],
             sudo: Some(NODE_CLOUD_INIT_SUDO_RULE.to_owned()),
             groups: vec!["sudo".to_owned()],
             shell: "/bin/bash".to_owned(),

@@ -15,7 +15,7 @@ fn network(mac_address: &str) -> CloudbaseInitNetwork {
     CloudbaseInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
         mac_address.to_string(),
-        helpers::test_network_v4(),
+        &helpers::test_network_v4(),
         None,
         None,
     )
@@ -33,7 +33,7 @@ fn test_cloudbase_config() {
         write_files: vec![],
         runcmd: vec![],
     };
-    let output = config.to_string().expect("renders user-data");
+    let output = config.render().expect("renders user-data");
     let body = output
         .strip_prefix("#cloud-config\n")
         .expect("user-data starts with the #cloud-config line");
@@ -46,7 +46,7 @@ fn test_cloudbase_config() {
 #[test]
 fn test_cloudbase_network_ipv4() {
     let output = network("52:54:00:aa:bb:cc")
-        .to_string()
+        .render()
         .expect("renders network-config");
     assert_eq!(
         parse_json(&output),
@@ -74,11 +74,11 @@ fn test_cloudbase_network_dual_stack() {
     let net = CloudbaseInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
         "52:54:00:aa:bb:cc".to_string(),
-        helpers::test_network_v4(),
+        &helpers::test_network_v4(),
         Some("fd00::10".parse().expect("valid")),
         Some(&v6),
     );
-    let output = net.to_string().expect("renders network-config");
+    let output = net.render().expect("renders network-config");
     assert_eq!(
         parse_json(&output)["config"][0]["subnets"][1],
         json!({
@@ -95,7 +95,7 @@ fn test_cloudbase_network_dual_stack() {
 #[test]
 fn test_all_digit_mac_address_is_a_quoted_string() {
     let output = network("52:54:00:21:47:08")
-        .to_string()
+        .render()
         .expect("renders network-config");
     assert!(
         output.contains(r#""mac_address": "52:54:00:21:47:08""#),

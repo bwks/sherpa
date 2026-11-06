@@ -4,7 +4,7 @@
 //! typed documents (`KubeClusterConfig`, `HostnameConfig`, ...). Talos decodes them strictly, so
 //! these documents follow `talosctl gen config` for the pinned Talos version exactly, apart
 //! from:
-//! - no `UnattendedInstallConfig`: Sherpa boots the NoCloud disk image, already installed;
+//! - no `UnattendedInstallConfig`: Sherpa boots the `NoCloud` disk image, already installed;
 //! - no discovery service documents, so labs do not depend on `discovery.talos.dev`;
 //! - a static hostname, the management subnet as the kubelet node IP subnet, and a shared
 //!   (VIP) address on clusters with more than one control plane;
@@ -33,7 +33,7 @@ use shared::util::base64_encode;
 /// Management interface the shared address is assigned to, and Cilium announces load balancer
 /// addresses on.
 const TALOS_MANAGEMENT_LINK: &str = "eth0";
-/// Port of KubePrism, the on-node load balancer for the Kubernetes API.
+/// Port of `KubePrism`, the on-node load balancer for the Kubernetes API.
 const KUBEPRISM_PORT: u16 = 7445;
 /// Cilium release installed on Cilium clusters.
 const CILIUM_VERSION: &str = "1.20.4";
@@ -42,8 +42,8 @@ const CILIUM_CLI_IMAGE: &str = "quay.io/cilium/cilium-cli:v0.20.2";
 /// Gateway API CRDs (standard channel) for the Cilium release, applied before Cilium starts.
 const GATEWAY_API_CRDS_URL: &str =
     "https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.3/standard-install.yaml";
-/// Cilium Helm values for Talos (KubePrism as the API server, Talos's cgroup mount, no
-/// SYS_MODULE, legacy host routing for Talos's host DNS) and the cluster's features.
+/// Cilium Helm values for Talos (`KubePrism` as the API server, Talos's cgroup mount, no
+/// `SYS_MODULE`, legacy host routing for Talos's host DNS) and the cluster's features.
 const CILIUM_HELM_VALUES: [&str; 13] = [
     "ipam.mode=kubernetes",
     "kubeProxyReplacement=true",
@@ -66,7 +66,7 @@ const HUBBLE_UI_POD_PORT: u16 = 8081;
 /// Prefix of the usernames and groups Kubernetes takes from Keycloak tokens, so they cannot
 /// collide with built-in names such as `system:masters`.
 const OIDC_CLAIM_PREFIX: &str = "oidc:";
-/// Vault Secrets Operator chart version, from HashiCorp's Helm repository.
+/// Vault Secrets Operator chart version, from `HashiCorp`'s Helm repository.
 const VSO_CHART_VERSION: &str = "1.6.2";
 const HASHICORP_HELM_REPO: &str = "https://helm.releases.hashicorp.com";
 /// Image of the `helm` CLI that installs the Vault Secrets Operator.
@@ -169,6 +169,10 @@ pub struct TalosClientCredentials<'a> {
 /// Render a `talosconfig` for `talosctl`, as JSON (which `talosctl` reads as YAML).
 ///
 /// `endpoints` are the control planes' addresses; `nodes` is the default node to target.
+///
+/// # Errors
+///
+/// Fails when the document cannot be serialized.
 pub fn talosconfig(
     cluster_name: &str,
     endpoints: &[String],
@@ -199,6 +203,10 @@ pub fn talosconfig(
 /// The current context, `admin@<cluster>`, uses a cluster-admin certificate. A cluster that
 /// logs in through Keycloak also gets an `oidc@<cluster>` context, which gets its token from
 /// the `kubectl oidc-login` plugin.
+///
+/// # Errors
+///
+/// Fails when the document cannot be serialized.
 pub fn kubeconfig(
     cluster_name: &str,
     endpoint: &str,
@@ -263,6 +271,10 @@ pub fn kubeconfig(
 }
 
 /// Render a node's machine config as a `---`-separated stream of JSON documents.
+///
+/// # Errors
+///
+/// Fails when a document cannot be serialized.
 pub fn talos_machine_config(node: &TalosNodeConfig) -> Result<String> {
     let documents = match node.role {
         ClusterRole::ControlPlane => control_plane_documents(node),
@@ -276,8 +288,31 @@ pub fn talos_machine_config(node: &TalosNodeConfig) -> Result<String> {
 }
 
 fn control_plane_documents(node: &TalosNodeConfig) -> Vec<Value> {
-    let secrets = node.secrets;
-    let issuer = node.endpoint;
+    let mut documents = vec![control_plane_cluster_document(node)];
+    documents.extend(common_documents(node));
+    documents.push(control_plane_node_config(node));
+    documents.extend(kubelet_and_network_documents());
+    documents.extend(control_plane_kubernetes_documents(node));
+    // Talos deploys Flannel while its document is present; Cilium clusters leave it out.
+    if node.cilium.is_none() {
+        documents.push(json!({ "apiVersion": "v1alpha1", "kind": "KubeFlannelCNIConfig", "backendType": "vxlan", "backendPort": 4789 }));
+    }
+    documents
+        .push(json!({ "apiVersion": "v1alpha1", "kind": "KubeCoreDNSConfig", "enabled": true }));
+    if let Some(vip) = node.vip {
+        documents.push(json!({
+            "apiVersion": "v1alpha1",
+            "kind": "Layer2VIPConfig",
+            "name": vip.to_string(),
+            "link": TALOS_MANAGEMENT_LINK,
+        }));
+    }
+    documents
+}
+
+/// The control plane's `KubeNodeConfig`: its labels, and its taint unless control planes run
+/// workloads.
+fn control_plane_node_config(node: &TalosNodeConfig) -> Value {
     let mut node_config = json!({
         "apiVersion": "v1alpha1",
         "kind": "KubeNodeConfig",
@@ -290,7 +325,13 @@ fn control_plane_documents(node: &TalosNodeConfig) -> Vec<Value> {
     if !node.schedulable_control_planes {
         node_config["taints"] = json!({ "node-role.kubernetes.io/control-plane": "NoSchedule" });
     }
+    node_config
+}
 
+/// The control plane's v1alpha1 machine and cluster document, with the inline manifests Talos
+/// applies from the control planes.
+fn control_plane_cluster_document(node: &TalosNodeConfig) -> Value {
+    let secrets = node.secrets;
     let mut cluster_document = json!({
         "version": "v1alpha1",
         "debug": false,
@@ -336,11 +377,15 @@ fn control_plane_documents(node: &TalosNodeConfig) -> Vec<Value> {
     if !inline_manifests.is_empty() {
         cluster_document["cluster"]["inlineManifests"] = Value::Array(inline_manifests);
     }
-    let mut documents = vec![cluster_document];
-    documents.extend(common_documents(node));
-    documents.push(node_config);
-    documents.extend(kubelet_and_network_documents());
-    documents.extend([
+    cluster_document
+}
+
+/// The Kubernetes control plane's own documents: its CAs, admission, audit, authentication,
+/// authorization, encryption, service accounts and component images.
+fn control_plane_kubernetes_documents(node: &TalosNodeConfig) -> Vec<Value> {
+    let secrets = node.secrets;
+    let issuer = node.endpoint;
+    vec![
         json!({
             "apiVersion": "v1alpha1",
             "kind": "KubeAPIServerCAConfig",
@@ -432,22 +477,7 @@ fn control_plane_documents(node: &TalosNodeConfig) -> Vec<Value> {
             "config": {},
         }),
         kube_proxy_config(node),
-    ]);
-    // Talos deploys Flannel while its document is present; Cilium clusters leave it out.
-    if node.cilium.is_none() {
-        documents.push(json!({ "apiVersion": "v1alpha1", "kind": "KubeFlannelCNIConfig", "backendType": "vxlan", "backendPort": 4789 }));
-    }
-    documents
-        .push(json!({ "apiVersion": "v1alpha1", "kind": "KubeCoreDNSConfig", "enabled": true }));
-    if let Some(vip) = node.vip {
-        documents.push(json!({
-            "apiVersion": "v1alpha1",
-            "kind": "Layer2VIPConfig",
-            "name": vip.to_string(),
-            "link": TALOS_MANAGEMENT_LINK,
-        }));
-    }
-    documents
+    ]
 }
 
 fn worker_documents(node: &TalosNodeConfig) -> Vec<Value> {

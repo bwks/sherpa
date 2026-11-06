@@ -6,7 +6,7 @@ use tracing::instrument;
 
 use shared::data::{NodeConfig, NodeKind, OsVariant};
 use shared::konst::{CONTAINER_SECRETS_DIR, NODE_USER_ENV_DIR};
-use shared::validators::{valid_octal_mode, validate_secret_file};
+use shared::validators::{mode_from_octal_digits, validate_secret_file};
 
 use crate::{ContainerProvisioner, Manifest, Provisioner, SshProvisioner};
 
@@ -100,12 +100,12 @@ fn validate_ssh(node: &str, ssh: &SshProvisioner, env_names: &mut HashSet<String
              parts",
             file.dst
         );
-        ensure!(
-            valid_octal_mode(file.mode),
-            "Node '{node}': provisioner file mode {} for '{}' must be octal digits up to 777",
-            file.mode,
-            file.dst
-        );
+        mode_from_octal_digits(file.mode).with_context(|| {
+            format!(
+                "Node '{node}': provisioner file '{}' mode is invalid",
+                file.dst
+            )
+        })?;
     }
     for env_file in &ssh.env_files {
         let name = env_file_name(env_file).with_context(|| {

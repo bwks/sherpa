@@ -21,8 +21,8 @@ use shared::util::{
 use shared::validators::validate_guest_username;
 use shared::validators::validate_ssh_key;
 use template::{
-    CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, IgnitionFile, IgnitionFileContents,
-    IgnitionUser,
+    CloudInitUser, CloudInitWriteFile, CloudbaseInitUser, FileMode, IgnitionFile,
+    IgnitionFileContents, IgnitionUser,
 };
 
 /// Length of the random password given to owner accounts on devices that need one.
@@ -613,7 +613,7 @@ pub(crate) fn sudoers_file(account: &GuestAccount) -> IgnitionFile {
     let content = format!("{} ALL=(ALL) NOPASSWD: ALL\n", account.username);
     IgnitionFile {
         path: format!("/etc/sudoers.d/{}", account.username),
-        mode: 440,
+        mode: FileMode::new(0o440),
         contents: Some(IgnitionFileContents::new(&format!(
             "data:;base64,{}",
             base64_encode(&content)
@@ -949,7 +949,7 @@ mod tests {
             users: vec![cloud_init_user(&account)],
             ..Default::default()
         }
-        .to_string()
+        .render()
         .unwrap();
         let parsed: serde_json::Value =
             serde_json::from_str(config.strip_prefix("#cloud-config\n").unwrap()).unwrap();

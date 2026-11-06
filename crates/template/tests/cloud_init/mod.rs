@@ -26,7 +26,7 @@ fn network(mac_address: &str) -> CloudInitNetwork {
     CloudInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
         mac_address.to_string(),
-        helpers::test_network_v4(),
+        &helpers::test_network_v4(),
         None,
         None,
     )
@@ -51,7 +51,7 @@ fn test_cloud_init_config() {
         write_files: None,
         runcmd: Some(vec!["echo hello".to_string()]),
     };
-    let output = config.to_string().expect("renders user-data");
+    let output = config.render().expect("renders user-data");
     assert_eq!(
         parse_cloud_config(&output),
         json!({
@@ -84,7 +84,7 @@ fn test_cloud_init_config_trusts_the_lab_ca() {
         write_files: None,
         runcmd: None,
     };
-    let output = config.to_string().expect("renders user-data");
+    let output = config.render().expect("renders user-data");
     assert_eq!(
         parse_cloud_config(&output)["ca_certs"],
         json!({ "trusted": [pem] })
@@ -99,7 +99,7 @@ fn test_cloud_init_config_leaves_ssh_password_auth_to_the_image_when_unset() {
         ssh_pwauth: None,
         ..Default::default()
     };
-    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    let output = parse_cloud_config(&config.render().expect("renders user-data"));
     assert!(output.get("ssh_pwauth").is_none(), "{output}");
 }
 
@@ -110,7 +110,7 @@ fn test_cloud_init_resolv_conf_points_at_the_lab_dns() {
         resolv_conf: Some(CloudInitResolvConf::lab_dns(Ipv4Addr::new(172, 20, 0, 2))),
         ..Default::default()
     };
-    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    let output = parse_cloud_config(&config.render().expect("renders user-data"));
     assert_eq!(output["manage_resolv_conf"], json!(true));
     assert_eq!(
         output["resolv_conf"],
@@ -138,7 +138,7 @@ fn test_cloud_init_user_without_groups_omits_the_key() {
         }],
         ..Default::default()
     };
-    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    let output = parse_cloud_config(&config.render().expect("renders user-data"));
     assert_eq!(output["users"][0].get("groups"), None);
 }
 
@@ -159,7 +159,7 @@ fn test_cloud_init_user_groups_are_a_comma_separated_string() {
         }],
         ..Default::default()
     };
-    let output = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    let output = parse_cloud_config(&config.render().expect("renders user-data"));
     assert_eq!(output["users"][0]["groups"], json!("wheel,video"));
     // No sudo rule where sudo is not the native tool.
     assert_eq!(output["users"][0].get("sudo"), None);
@@ -172,7 +172,7 @@ fn test_cloud_init_metadata() {
         local_hostname: "ubuntu01".to_string(),
         public_keys: vec!["ssh-rsa AAAA... test@host".to_string()],
     };
-    let output = meta.to_string().expect("renders meta-data");
+    let output = meta.render().expect("renders meta-data");
     assert_eq!(
         parse_json(&output),
         json!({
@@ -186,7 +186,7 @@ fn test_cloud_init_metadata() {
 #[test]
 fn test_cloud_init_network_ipv4() {
     let output = network("52:54:00:aa:bb:cc")
-        .to_string()
+        .render()
         .expect("renders network-config");
     assert_eq!(
         parse_json(&output),
@@ -213,11 +213,11 @@ fn test_cloud_init_network_dual_stack() {
     let net = CloudInitNetwork::ztp_interface(
         Ipv4Addr::new(172, 20, 0, 10),
         "52:54:00:aa:bb:cc".to_string(),
-        helpers::test_network_v4(),
+        &helpers::test_network_v4(),
         Some("fd00::10".parse().expect("valid")),
         Some(&v6),
     );
-    let output = net.to_string().expect("renders network-config");
+    let output = net.render().expect("renders network-config");
     assert_eq!(
         parse_json(&output)["ethernets"]["id0"],
         json!({
@@ -239,7 +239,7 @@ fn test_cloud_init_network_dual_stack() {
 #[test]
 fn test_all_digit_mac_address_is_a_quoted_string() {
     let output = network("52:54:00:21:47:08")
-        .to_string()
+        .render()
         .expect("renders network-config");
     assert!(
         output.contains(r#""macaddress": "52:54:00:21:47:08""#),
@@ -271,7 +271,7 @@ fn test_yaml_boolean_words_stay_strings() {
         }],
         ..Default::default()
     };
-    let parsed = parse_cloud_config(&config.to_string().expect("renders user-data"));
+    let parsed = parse_cloud_config(&config.render().expect("renders user-data"));
     assert_eq!(parsed["hostname"], "on");
     assert_eq!(parsed["fqdn"], "no");
     assert_eq!(parsed["users"][0]["name"], "off");

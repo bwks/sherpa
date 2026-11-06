@@ -11,8 +11,8 @@ use topology::validate::{
     check_bridge_device, check_cpu_pin_overlap, check_device_count, check_duplicate_device,
     check_duplicate_interface_link, check_interface_bounds, check_link_device,
     check_link_impairments, check_mgmt_usage, check_no_p2p_field, check_performance_tuning,
-    check_ptx_platform, check_watchdog, validate_provisioners, validate_tailscale,
-    validate_talos_clusters,
+    check_ptx_platform, check_text_file_modes, check_watchdog, validate_provisioners,
+    validate_tailscale, validate_talos_clusters,
 };
 
 pub fn validate_manifest(manifest_path: &str) -> Result<()> {
@@ -47,6 +47,10 @@ pub fn validate_manifest(manifest_path: &str) -> Result<()> {
     println!("→ Checking provisioners...");
     validate_provisioners(&manifest)?;
     println!("  ✓ Provisioners are valid");
+
+    println!("→ Checking text files...");
+    check_text_file_modes(&manifest.nodes)?;
+    println!("  ✓ Text file modes are valid");
 
     // Process manifest data (same as up.rs)
     let nodes_expanded = process_manifest_nodes(&manifest.nodes);

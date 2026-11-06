@@ -30,7 +30,7 @@ mod vault;
 pub use arista_eos::{AristaCeosZtpTemplate, AristaVeosZtpTemplate};
 pub use aruba_aos::ArubaAoscxTemplate;
 pub use cisco_asa::CiscoAsavZtpTemplate;
-pub use cisco_ftdv::{CiscoFtdvZtpTemplate, CiscoFxosIpMode};
+pub use cisco_ftdv::{CiscoFtdvZtpTemplate, CiscoFxosIpMode, YesNo};
 pub use cisco_ios::{CiscoIosvZtpTemplate, CiscoIosvl2ZtpTemplate};
 pub use cisco_iosxe::CiscoIosXeZtpTemplate;
 pub use cisco_iosxr::CiscoIosxrZtpTemplate;
@@ -49,8 +49,8 @@ pub use dnsmasq::DnsmasqTemplate;
 pub use domain::{BootServer, DomainTemplate, DomainTuning, UnikernelDomainTemplate};
 pub use frr::{FrrDaemonsTemplate, FrrStartupTemplate, FrrZtpTemplate};
 pub use ignition::{
-    IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents, IgnitionFileParams,
-    IgnitionFileSystem, IgnitionLink, IgnitionUnit, IgnitionUser,
+    FileMode, IgnitionConfig, IgnitionDirectory, IgnitionFile, IgnitionFileContents,
+    IgnitionFileParams, IgnitionFileSystem, IgnitionLink, IgnitionUnit, IgnitionUser,
 };
 pub use juniper_junos::JunipervJunosZtpTemplate;
 pub use mikrotik_routeros::MikrotikRouterosZtpTemplate;

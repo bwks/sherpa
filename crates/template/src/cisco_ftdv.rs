@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use serde::Serializer;
+use serde::{Serialize as SerializeTrait, Serializer};
 use serde_derive::Serialize;
 
 /*
@@ -73,13 +73,16 @@ pub struct CiscoFtdvZtpTemplate {
     pub ipv6_gw: Option<Ipv6Addr>,
     #[serde(rename = "IPv6Mask", skip_serializing_if = "Option::is_none")]
     pub ipv6_mask: Option<u8>,
-    #[serde(rename = "ManageLocally", serialize_with = "serialize_yes_no")]
-    pub manage_locally: bool,
+    #[serde(rename = "ManageLocally")]
+    pub manage_locally: YesNo,
 }
 
-fn serialize_yes_no<S>(value: &bool, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    serializer.serialize_str(if *value { "Yes" } else { "No" })
+/// A boolean the `FTDv` day-0 configuration spells `Yes` or `No`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct YesNo(pub bool);
+
+impl SerializeTrait for YesNo {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(if self.0 { "Yes" } else { "No" })
+    }
 }
